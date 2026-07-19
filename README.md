@@ -121,6 +121,24 @@ cross-module work, or anything over ~3 files / 100 lines. Use **Lite mode** for 
 small scripts, docs, or tests with no interface change and locally provable impact; Lite does
 not write OpenSpec state.
 
+## How the agent uses these
+
+You rarely type the commands below. The point of Keel is that the discipline runs itself:
+`keel --init` installs it into the agent's own workflow, and the agent reaches for each
+command at the right moment. Three things make that happen.
+
+- **The protocol.** `keel --init` writes a bootstrap block into your repo's `AGENTS.md`
+  (imported by `CLAUDE.md` on Claude). It states the rules the agent follows: open every
+  session with `keel context`, pass the gates at task boundaries, and stay inside the task's
+  declared write scope. That is how the agent knows *when* to run what.
+- **The skills.** The `keel-*` execution skills and the `/opsx:*` command overlays walk the
+  agent through align → apply → review → complete, invoking the gates at each step.
+- **The hooks.** A SessionStart hook runs the continuity projection the moment a session
+  opens; a PreToolUse hook enforces the write guard on every edit. Neither needs prompting.
+
+So in day-to-day use you run two commands: `keel --init` once, and `keel --doctor` when you
+want to check the wiring. Everything below is the vocabulary the agent uses on your behalf.
+
 ## Commands
 
 ```bash

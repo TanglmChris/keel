@@ -117,6 +117,22 @@ keel --init  →  keel context  →  /opsx:apply（选一个 task）
 **Lite 模式**用于局部小改：单点修复、小脚本、文档或补测试，不改接口、影响可局部证明；Lite 默认不
 写 OpenSpec 状态。
 
+## 这些命令，agent 是怎么用起来的
+
+下面这些命令你几乎不用手敲。Keel 的意义在于纪律会自己跑起来：`keel --init` 把它装进 agent 的
+工作流，agent 会在恰当的时刻去调用每一条命令。让这件事成立的有三样东西。
+
+- **协议**：`keel --init` 会往你 repo 的 `AGENTS.md` 写一段 bootstrap 块（在 Claude 上由
+  `CLAUDE.md` 引入）。它把 agent 要遵守的规则讲清楚：每次会话先跑 `keel context`、在任务边界处过
+  门禁、只在任务声明的写入范围内改文件。这就是 agent 知道**何时**用哪条命令的来源。
+- **技能**：`keel-*` 执行技能和 `/opsx:*` 命令 overlay 带着 agent 走「对齐 → apply → review →
+  完成」，每一步按需调用门禁。
+- **hook**：SessionStart hook 在会话打开的那一刻自动跑连续性投影；PreToolUse hook 在每次编辑时
+  执行写入守卫。两者都不需要任何提示。
+
+所以日常使用里你真正要敲的只有两条：装配时的 `keel --init`，以及想体检时的 `keel --doctor`。
+下面列出的，是 agent 替你使用的「命令词汇表」。
+
 ## 命令参考
 
 ```bash
