@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.1.2 - CI: automated npm trusted publishing
+
+- Added a GitHub Actions workflow (`.github/workflows/publish.yml`) that publishes the package to npm via OIDC trusted publishing when a GitHub Release is published, after running the full validation suite and asserting the release tag matches the package version.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.1.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.1.1 - public-release preparation: MIT relicense, bilingual README, documentation accuracy, privacy scrub
 
 - Relicensed under MIT: a root `LICENSE` file is added and the npm package plus both native plugin manifests share the `MIT` SPDX id (previously `UNLICENSED`).
