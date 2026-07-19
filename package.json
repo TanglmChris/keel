@@ -1,0 +1,35 @@
+{
+  "name": "@christang/keel",
+  "displayName": "Keel",
+  "description": "Keel OpenSpec execution discipline CLI for Claude Code, Codex, and OpenCode.",
+  "version": "5.1.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TanglmChris/keel.git"
+  },
+  "bin": {
+    "keel": "bin/keel.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "src/core/",
+    "assets/",
+    "README.md",
+    "plugins/"
+  ],
+  "scripts": {
+    "validate": "node scripts/run_python.js scripts/validate_plugin.py",
+    "test": "node scripts/run_python.js scripts/validate_plugin.py --all"
+  },
+  "dependencies": {
+    "@fission-ai/openspec": "^1.4.1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "allowScripts": {
+    "@fission-ai/openspec@1.6.0": true
+  }
+}

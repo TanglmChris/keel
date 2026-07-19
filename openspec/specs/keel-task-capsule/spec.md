@@ -1,0 +1,124 @@
+## Purpose
+
+Define how Keel compiles a compact OpenSpec task and its referenced authority into one versioned, fingerprinted execution capsule consumed by context, gates, projection, and review.
+
+## Requirements
+
+### Requirement: Keel compiles compact tasks into a complete execution capsule
+Keel MUST accept a compact v4 task source and compile it with versioned defaults and referenced OpenSpec authority into `keel-task-capsule/v1`. The capsule MUST be complete enough for the current agent to execute without guessing and MUST remain a disposable view of OpenSpec rather than a new source of truth.
+
+#### Scenario: Normal implementation task inherits defaults
+- **WHEN** a task declares resolvable `Covers`, concrete `Touch`, and `Verify` with a supported strategy and at least one `M<n>` check
+- **THEN** the capsule supplies default implementation mode, current-agent ownership, base Read context, hard-stop autonomy, no coupling, read-only helper authority, standard prohibitions, and derived Acceptance
+- **AND THEN** the source task is not required to repeat those defaults
+
+#### Scenario: Non-default behavior is explicit
+- **WHEN** a task needs diagnose-only, plan-first, coupling, additional Read paths, an authorized fallback, or a task-specific Acceptance delta
+- **THEN** the source task declares only the applicable non-default clauses
+- **AND THEN** the capsule includes their normalized executable meaning
+
+#### Scenario: Incomplete capsule does not compile
+- **WHEN** a required reference, field, conditional clause, or default cannot be resolved uniquely
+- **THEN** compilation returns structured diagnostics without a usable capsule
+- **AND THEN** no consumer substitutes guessed values
+
+### Requirement: Task modes and conditional fields are executable
+Keel MUST validate task mode and conditional fields as behavior, not unchecked labels.
+
+#### Scenario: Diagnose-only has no product Touch
+- **WHEN** a task declares `Mode: diagnose-only` and `Touch: none`
+- **THEN** the capsule accepts the contract and prohibits product writes
+- **AND THEN** `task-start` does not reject the literal `none` as an unspecified placeholder
+
+#### Scenario: Implementation requires concrete Touch
+- **WHEN** an implementation task has no concrete Touch path
+- **THEN** compilation fails before task execution
+
+#### Scenario: Coupling fields are conditional
+- **WHEN** coupling is none
+- **THEN** candidate-only coupling fields are absent or rejected as contradictory
+- **AND WHEN** coupling is required
+- **THEN** the capsule requires the design Coupled Iteration Contract and task candidate boundaries, stop rules, final assertions, and evidence contract
+
+### Requirement: Covers resolves durable authority and Acceptance
+Keel MUST resolve each `Covers` entry to a unique OpenSpec scenario or critical D/F/A statement and MUST derive the task's observable Acceptance from that authority plus any explicit task-specific delta.
+
+#### Scenario: Scenario reference derives Acceptance
+- **WHEN** `Covers` uniquely names an OpenSpec scenario
+- **THEN** the capsule includes that scenario's observable outcomes and source location
+- **AND THEN** the task does not need to duplicate the same Acceptance text
+
+#### Scenario: Critical expectation coverage is closed
+- **WHEN** a relevant critical expectation affects the selected task
+- **THEN** the capsule identifies its executable slice, durable deferral owner, or explicit discard rationale
+- **AND THEN** compilation fails when none exists
+
+#### Scenario: Ambiguous or missing reference fails
+- **WHEN** a `Covers` reference is missing, duplicated, unresolved, or points to an unresolved Q<n> without authorized fallback
+- **THEN** compilation fails with the offending reference and reason
+- **AND THEN** Keel does not match a similar heading heuristically
+
+### Requirement: Verification strategy and evidence labels are connected
+Every executable task capsule MUST contain one supported verification strategy and one or more unique, ordered `M<n>` checks that can prove the resolved Acceptance through a public interface or an explicitly authorized evidence alternative.
+
+#### Scenario: Behavioral strategy requires behavioral proof
+- **WHEN** a task uses vertical-tdd, regression-first, characterization, snapshot-characterization, or rendered-behavior
+- **THEN** its checks and Evidence identify the behavior exercised and the public interface used
+- **AND THEN** build-only, signature-only, collection-shape-only, or self-mocked evidence does not satisfy the capsule
+
+#### Scenario: Red and green evidence use the same check
+- **WHEN** the selected strategy requires red-green execution
+- **THEN** Evidence records the applicable `M<n>.red` and `M<n>.green` outcomes for the same behavior check
+- **AND THEN** the task cannot complete with green-only evidence unless an explicit, authorized characterization rationale applies
+
+#### Scenario: Evidence-first is explicit
+- **WHEN** a docs, configuration, diagnosis, or other non-behavioral task cannot use a meaningful red-green loop
+- **THEN** the capsule uses `evidence-first`
+- **AND THEN** its checks state the observable artifact or diagnosis evidence that proves Acceptance
+
+### Requirement: Keel fingerprints executable authority deterministically
+Keel MUST compute a SHA-256 fingerprint over a canonical representation of the executable capsule authority and MUST produce the same value for semantically equivalent inputs across supported targets and operating systems.
+
+#### Scenario: Mutable completion data does not drift the contract
+- **WHEN** checkbox state, Evidence, Review, Report, comments, or presentation whitespace changes without changing executable authority
+- **THEN** the capsule fingerprint remains unchanged
+
+#### Scenario: Authority change drifts the contract
+- **WHEN** resolved expectation text, mode, scope, Acceptance, verification, stop/autonomy, coupling, defaults version, or prohibitions change
+- **THEN** the capsule fingerprint changes
+
+#### Scenario: Ordering preserves semantics
+- **WHEN** unordered source lists use a different presentation order
+- **THEN** canonicalization produces the same fingerprint
+- **AND WHEN** command or coupled-candidate order changes
+- **THEN** canonicalization preserves that semantic difference
+
+### Requirement: The durable task records its accepted fingerprint
+`task-start` MUST return the compiled capsule and fingerprint without writing. The current agent MUST record the accepted fingerprint in durable task execution evidence before product implementation, and later continuation and completion MUST compare the recorded value to a fresh compilation.
+
+#### Scenario: Fresh task records its anchor
+- **WHEN** `task-start` passes for a selected task
+- **THEN** the current agent records the returned capsule schema and fingerprint in the task before implementation
+- **AND THEN** no Keel-owned session file or cache is created
+
+#### Scenario: Resume reconstructs the same contract
+- **WHEN** another turn, session, agent, or worktree resumes the selected task
+- **THEN** Keel recompiles from current OpenSpec authority and compares it to the recorded fingerprint
+- **AND THEN** matching authority permits the current agent to continue from durable Evidence and Git state
+
+#### Scenario: Drift requires explicit reauthorization
+- **WHEN** the fresh fingerprint differs from the recorded fingerprint
+- **THEN** execution hard-stops before further implementation or completion
+- **AND THEN** reauthorization requires returning to authoring, explaining the change, clearing stale execution evidence, and recording a newly passing start fingerprint
+
+### Requirement: Expanded v3 tasks normalize through the same compiler
+Keel v4 MUST accept compatible expanded v3 task fields through the same parser and compiler used for compact tasks. It MUST NOT maintain a separate legacy parser or emit expanded v3 tasks from the v4 template.
+
+#### Scenario: Compatible expanded and compact tasks agree
+- **WHEN** an expanded v3 task and compact v4 task express the same executable authority
+- **THEN** they compile to equivalent capsule authority and the same fingerprint
+
+#### Scenario: Expanded field contradicts a v4 rule
+- **WHEN** an explicit legacy field conflicts with a mode rule, default, resolved scenario, verification strategy, or coupling contract
+- **THEN** compilation fails with a migration diagnostic
+- **AND THEN** Keel does not silently prefer either value

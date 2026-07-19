@@ -1,0 +1,166 @@
+name: keel-spec-driven
+version: 1
+description: Keel OpenSpec workflow - proposal -> specs -> design -> executable tasks
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    instruction: >
+      Create the proposal document that establishes WHY this change is needed.
+
+      Sections:
+      - **Why**: 1-2 sentences on the problem or opportunity.
+      - **What Changes**: Bullet list of changes. Mark breaking changes with **BREAKING**.
+      - **Capabilities**: Identify new or modified specs.
+      - **Impact**: Affected code, APIs, dependencies, systems, or risks.
+
+      Keep it concise. Implementation details belong in design.md.
+    requires: []
+  - id: specs
+    generates: specs/**/*.md
+    description: Detailed specifications for the change
+    template: spec.md
+    instruction: >
+      Create specification files that define WHAT the system should do.
+
+      Create one spec file per capability listed in proposal.md.
+
+      Delta operations use ## headers:
+      - **ADDED Requirements**
+      - **MODIFIED Requirements**
+      - **REMOVED Requirements**
+      - **RENAMED Requirements**
+
+      Each requirement uses `### Requirement: <name>`.
+      Each scenario uses exactly `#### Scenario: <name>` with WHEN/THEN bullets.
+    requires:
+      - proposal
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    instruction: >
+      Create design.md when the change has cross-module behavior, external
+      dependencies, data model changes, security/performance/migration
+      complexity, or decisions that should be recorded before coding.
+
+      Include context, goals/non-goals, decisions with rationale, risks and
+      mitigations, migration/rollback notes when relevant, and open questions.
+      Critical statements that affect scope, Acceptance, completion, or
+      execution boundaries use D<n> for decisions, F<n> for verified facts,
+      A<n> for assumptions, or Q<n> for unresolved questions. Record a basis
+      for each; A/Q statements also name a resolution gate or durable owner.
+      Ordinary narrative remains unnumbered.
+      If authoring uncertainty or hidden-knowledge risk blocks design or task
+      decisions, use risk-triggered deep alignment through
+      `keel-align-expectations` before finalizing design.md or tasks.md; it
+      is not an execution, review, or export gate. Domain reference guidance may identify hidden-knowledge
+      assumptions that belong in design.md, specs, or tasks. Compressed recovery
+      context belongs in durable OpenSpec artifacts or archive evidence, not
+      `keel/HANDOFF.md`.
+      When any task declares `Coupling: required`, complete the Coupled
+      Iteration Contract with the coupled artifacts, invalidation triggers,
+      required regeneration, final assertions, conflict authority, and
+      baseline policy.
+    requires:
+      - proposal
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with Keel execution contracts
+    template: tasks.md
+    instruction: >
+      Create tasks.md as the implementation checklist and execution contract.
+
+      Every executable task MUST be a checkbox authored in the compact v4 form
+      from the template: Covers, Touch, Verify (Strategy plus ordered M<n>
+      public checks), and an Evidence anchor with its Contract line, per-check
+      results, semantic Review, and Blocker state. Omitted fields inherit
+      versioned keel-task-capsule/v1 defaults: Owner is the current Keel
+      agent, Mode is implementation, Read is the change artifacts plus
+      discovered repository context, Acceptance derives from the resolved
+      Covers authority, the Autonomy boundary is hard-stop, and Coupling is
+      none. Exceptional boundaries are declared only when they differ from
+      those defaults: Mode, extra Read paths, a task-specific Acceptance
+      delta, Execution recommendation and Rationale, a pre-authorized
+      fallback in the Autonomy boundary, Coupling with its Candidate Boundary
+      and candidate Stop Rules, or extra Stop if limits.
+      Compatible expanded v3 tasks compile through the same parser, but
+      explicit legacy fields (including Commands or a Report section) must
+      agree with the v4 defaults and conditional rules; contradictions fail
+      with migration diagnostics, and newly authored tasks use only the
+      compact form.
+      Verify selects the least-cost strategy that still proves the resolved
+      Acceptance: vertical-tdd, regression-first, characterization,
+      snapshot-characterization, rendered-behavior, or evidence-first.
+      Red-green strategies record per-label `.red` and `.green` Evidence for
+      the same check before completion.
+      The Task Authoring Gate requires every relevant critical expectation to
+      be covered by a slice, deferred to a durable owner, or explicitly
+      discarded with rationale before the slice can be selected for execution.
+      Accepted hidden-knowledge assumptions from risk-triggered deep
+      alignment or a domain reference are critical expectations when they
+      affect completion definition or execution boundaries.
+      Covers references the relevant D/F/A/Q identifiers. An unresolved Q<n>
+      without an authorized fallback blocks implementation.
+      A new or materially expanded dedicated skill remains non-executable until
+      design or task evidence identifies authoritative sources, provenance and license
+      implications, realistic positive and negative trigger cases, and
+      required real-task evidence. Portable source authority and declared target
+      projections must also be named when they affect Touch or Commands.
+
+      Execution recommendation and Rationale are advisory notes for the current
+      Keel agent. Keel-managed work executes in the current agent conversation;
+      do not hand execution to another agent, subagent, or operator unless the
+      selected task or user explicitly authorizes it.
+      Autonomy boundary defaults to hard-stop. A pre-authorized fallback must
+      state an exact reversible bound and the evidence required after use.
+
+      Use `Coupling: none` by default. When `Coupling: required`, define one
+      complete candidate, its allowed provisional failures, completion gate,
+      final assertions, retry counting, immediate task-stop conditions, and
+      evidence. The task must agree with design.md's Coupled Iteration Contract.
+
+      `/opsx:apply` selects unchecked tasks from this file. The current agent may
+      read any repository file needed for the selected task; Read lists required
+      starting context, not a read allowlist. The Slice Start Gate requires each
+      selected current slice or contiguous slice group to name source
+      expectations and compile to a capsule whose Read, Touch, Acceptance,
+      verification checks, and Stop/Autonomy boundaries are sufficient to
+      execute without guessing. Rough
+      future slices may remain drafts, but cannot be selected for
+      implementation or marked complete. The current agent may only modify files
+      listed under Touch for the selected task. If implementation requires files
+      outside Touch, broader design work, or an interface/security boundary
+      change not covered by design.md, stop and report an Out-of-scope Need.
+      Before task completion, Evidence records the current agent's semantic
+      Review with Status, Acceptance check, Scope check, and Findings. Findings
+      are `none` or name a durable OpenSpec/archive owner or discard rationale;
+      HANDOFF is never the owner.
+    requires:
+      - specs
+      - design
+apply:
+  requires:
+    - tasks
+  tracks: tasks.md
+  instruction: |
+    Use `/opsx:apply` as the implementation entry for Keel-managed work.
+
+    Apply workflow:
+    1. Read the current change's proposal.md, specs, design.md when present, and tasks.md.
+    2. Select one unchecked task or a small contiguous group of unchecked tasks from tasks.md.
+    3. Run the Task Authoring Gate: every relevant critical expectation must be covered by a selected slice, deferred to a durable owner, or explicitly discarded with rationale.
+    4. Run the Slice Start Gate: every selected current slice must name source expectations and compile to a complete keel-task-capsule/v1 contract from its compact Covers, Touch, Verify, and Evidence fields plus any declared exceptional Mode, Read, Acceptance delta, Autonomy boundary, Coupling/Candidate Boundary, or Stop if clauses.
+    5. If a selected task lacks an execution contract, source expectations, or accepted hidden-knowledge assumptions raised by risk-triggered deep alignment or a domain reference, update OpenSpec first instead of dispatching implementation.
+    6. Rough future slices may remain non-executable drafts, but they cannot be selected for implementation or marked complete.
+    7. The current Keel agent remains task owner and executor. Treat any Execution recommendation as an advisory implementation note, not as a completion gate.
+    8. Do not hand Keel-managed execution to another agent, subagent, or operator unless the selected task or user explicitly authorizes it. Keep task selection, implementation, verification, and failure recovery in the current agent conversation.
+    9. Use the current checkout and selected task contract. Verification failure or context pressure preserves the checkout; continue from evidence, record a blocker, or explicitly roll back to last-green only when authorized.
+    10. When `Coupling: required`, verify design.md contains a Coupled Iteration Contract and that the task defines a complete candidate, completion gate, and evidence. If not, update OpenSpec instead of execution.
+    11. The current agent may read any repository file needed for the selected task, but repository-wide read authority is read-only and does not expand write authority.
+    12. Modify only files listed under Touch. If modifying any other file is required, stop and report an Out-of-scope Need with file or area, why needed, consequence if unchanged, minimal proposed change, and evidence.
+    13. Do not commit or push unless the selected task or human instruction explicitly allows it.
+    14. After each iteration, compare Changed Files and command evidence with the selected task contract before checking tasks complete.
+    15. Run `keel-review-checklist` only at completion gates: after a complete task group, before `/opsx:sync openspec/changes/<change>/tasks.md` or `/opsx:archive openspec/changes/<change>/tasks.md`, before meaningful handoff, or when implementation reports risks, follow-ups, or out-of-scope need. The Claude target's Keel Hook completion gate checks M-command evidence for these direct command paths.
+    16. Before archive or handoff, unresolved follow-ups must be owned by current OpenSpec tasks, a new OpenSpec change, archive evidence, or an explicit discard reason.

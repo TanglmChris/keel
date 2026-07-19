@@ -1,0 +1,195 @@
+## Purpose
+
+Define Keel's shared deterministic task and change gates and their boundary with agent-owned semantic review.
+## Requirements
+### Requirement: Keel Core owns deterministic gate logic
+
+Keel MUST implement task and change gate policy once in a shared Core. Target hooks, commands, and plugins MUST consume the Core result and MUST NOT maintain independent OpenSpec parsers or completion rules.
+
+#### Scenario: Target automation calls shared Core
+- **WHEN** a target-native hook invokes a Keel task or close gate
+- **THEN** the hook consumes the shared Core result
+- **AND THEN** the hook contains only target event mapping and result presentation or blocking behavior
+
+#### Scenario: Manual execution uses the same gate
+- **WHEN** a target lacks reliable native automation
+- **THEN** the explicit Keel command runs the same Core gate used by automated adapters
+
+### Requirement: Keel exposes three gate stages
+
+Keel MUST expose `task-start`, `task-complete`, and `change-close` stages with explicit change/task selection or conservative unique inference.
+
+#### Scenario: Task-start validates executable structure
+- **WHEN** `task-start` evaluates a selected task
+- **THEN** it checks Covers, Read, Touch, Acceptance, Commands, mode, Stop or Autonomy boundaries, and any required Coupled Iteration Contract
+- **AND THEN** a structurally incomplete task does not pass
+
+#### Scenario: Task-complete validates durable completion evidence
+- **WHEN** `task-complete` evaluates a selected task or authorized contiguous task group
+- **THEN** it checks every required command label has concrete Evidence
+- **AND THEN** it checks Review status and blocker or finding ownership
+
+#### Scenario: Change-close validates closure
+- **WHEN** `change-close` evaluates sync or archive readiness
+- **THEN** it checks expectation closure, task completion consistency, Review evidence, unresolved follow-up ownership, and action-specific prerequisites
+- **AND THEN** missing closure does not pass
+
+### Requirement: Semantic judgment remains agent-owned
+
+Keel MUST NOT claim that deterministic gate structure proves product intent, behavioral test sufficiency, design quality, or risk completeness. Required semantic conclusions MUST be recorded by the current agent in task Review evidence.
+
+#### Scenario: Completion Review is required
+- **WHEN** a task is presented to `task-complete`
+- **THEN** its Evidence contains Review `Status`, `Acceptance check`, `Scope check`, and `Findings`
+- **AND THEN** a missing or non-passing required Review produces `needs-review`
+
+#### Scenario: Findings require durable ownership
+- **WHEN** Review identifies an unresolved finding
+- **THEN** `task-complete` requires a durable OpenSpec task, new change, archive-evidence owner, or explicit discard rationale
+- **AND THEN** `keel/HANDOFF.md` is not accepted as that owner
+
+#### Scenario: Gate does not reinterpret acceptance
+- **WHEN** command Evidence and Review are present
+- **THEN** Core validates their required shape and references
+- **AND THEN** Core does not replace `keel-review-checklist` by independently judging whether the command proves Acceptance
+
+### Requirement: Dirty-worktree attribution is conservative
+
+Keel MUST NOT attribute dirty paths to a selected task unless the caller supplies a trustworthy comparison base. Without such a base, scope attribution remains semantic review evidence. The disposable guard manifest `keel/guard.json` — the one artifact the gate contract itself permits a gate to write — MUST NOT be attributed as an outside-Touch scope failure, and changed paths under the selected change's own `openspec/changes/<change>/` directory — the authoring artifacts the gate is completing against — MUST NOT be attributed as outside-Touch scope failures either.
+
+#### Scenario: Dirty worktree without base needs review
+- **WHEN** task completion runs in a dirty worktree without an explicit trustworthy base
+- **THEN** Keel exposes the dirty state as a warning or `needs-review`
+- **AND THEN** it does not fail solely because unrelated dirty paths exist
+- **AND THEN** it does not claim those paths belong to the task
+
+#### Scenario: Explicit base enables path comparison
+- **WHEN** the caller supplies a valid comparison base
+- **THEN** Keel may compare changed paths to Touch
+- **AND THEN** paths outside Touch produce a deterministic scope failure
+
+#### Scenario: Nested paths match double-star Touch globs
+- **WHEN** the caller supplies a valid comparison base and the task Touch list contains a `**` glob entry
+- **THEN** changed paths nested arbitrarily deep under the glob's base directory are attributed inside Touch
+- **AND THEN** the comparison does not report a false `outside-touch` scope failure for those paths
+
+#### Scenario: The gate's own guard manifest is never outside Touch
+- **WHEN** the caller supplies a valid comparison base and the disposable guard manifest `keel/guard.json` is present as a changed or dirty path
+- **THEN** the comparison does not attribute the manifest as an outside-Touch scope failure and completion needs no prior `keel guard clear`
+- **AND THEN** every other path outside Touch still produces a deterministic scope failure
+
+#### Scenario: The selected change's authoring artifacts are never outside Touch
+- **WHEN** the caller supplies a valid comparison base and changed paths exist under the selected change's own `openspec/changes/<change>/` directory
+- **THEN** the comparison does not attribute those authoring artifacts as outside-Touch scope failures
+- **AND THEN** paths under other changes' directories, the archive tree, `openspec/specs/`, and `openspec/schemas/` still produce deterministic scope failures when outside Touch
+
+#### Scenario: Keel stores no baseline
+- **WHEN** `task-start` completes
+- **THEN** Keel does not persist a diff snapshot, hash set, or execution baseline for later completion
+
+### Requirement: All gate stages consume one normalized task contract
+Keel Core MUST parse and compile a selected task once through the shared task-capsule module. `context`, `task-start`, `task-complete`, `change-close`, projection, adapters, and validators MUST consume that normalized result and MUST NOT derive independent field defaults or task completion rules.
+
+#### Scenario: Parser behavior is shared
+- **WHEN** the same task is evaluated by context, a gate, or a target projection
+- **THEN** every consumer receives the same capsule schema, diagnostics, resolved authority, and fingerprint
+- **AND THEN** a fixture cannot pass one consumer because another consumer reparsed the Markdown differently
+
+#### Scenario: Invalid contract blocks every consumer
+- **WHEN** capsule compilation returns a structural diagnostic
+- **THEN** `task-start` fails and projection is blocked
+- **AND THEN** context reports the task as blocked rather than presenting a partially executable next action
+
+### Requirement: Task-start validates executable semantics and labels
+`task-start` MUST validate supported mode values, mode-specific Touch behavior, resolvable Covers authority, verification strategy, unique contiguous `M<n>` labels, command-to-evidence expectations, stop/autonomy boundaries, and conditional coupling fields.
+
+#### Scenario: Unsupported mode fails
+- **WHEN** a selected task declares a mode outside implementation, diagnose-only, or plan-first
+- **THEN** `task-start` fails with the invalid value and supported set
+
+#### Scenario: Command labels are malformed or disconnected
+- **WHEN** verification labels are duplicated, non-contiguous, not `M<n>`, missing a check, or cannot map to required evidence
+- **THEN** `task-start` fails before implementation
+
+#### Scenario: Diagnose-only none is valid
+- **WHEN** a diagnose-only task compiles with `Touch: none`
+- **THEN** `task-start` accepts the no-write scope
+- **AND THEN** its capsule prohibits product writes
+
+### Requirement: Gate results expose capsule and fingerprint evidence
+
+The versioned machine-readable `task-start` result MUST include the capsule schema, normalized capsule, fingerprint, and diagnostics needed for the current agent to record a durable start anchor. When the caller explicitly passes `--record`, a passing `task-start` MUST write that anchor itself by replacing the selected task's literal `- Contract: pending` Evidence line with the compiled fingerprint line, and MUST refuse deterministically — writing nothing — when that literal anchor line is absent. Later task gates MUST report recorded-versus-current fingerprint status.
+
+#### Scenario: Passing start exposes recording data
+- **WHEN** `task-start` passes
+- **THEN** its JSON includes `keel-task-capsule/v1`, the fingerprint algorithm and value, and the complete normalized contract
+- **AND THEN** human-readable output identifies the fingerprint without dumping unnecessary capsule detail
+
+#### Scenario: Explicit record replaces only the pending anchor
+- **WHEN** `task-start` passes with `--record` and the selected task's Evidence contains the literal line `- Contract: pending`
+- **THEN** the gate replaces exactly that line with the compiled `keel-task-capsule/v1` fingerprint line consumed by the existing anchor read path
+- **AND THEN** no other line of `tasks.md` changes, and the recompiled fingerprint is unchanged so any active guard stays valid
+
+#### Scenario: Record without a pending anchor refuses
+- **WHEN** `--record` is passed but the selected task's Contract anchor is already recorded or missing
+- **THEN** `task-start` fails with a deterministic record refusal naming the expected literal anchor line
+- **AND THEN** it writes nothing, and behavior without `--record` remains byte-identical to the pre-flag gate
+
+#### Scenario: Completion sees contract drift
+- **WHEN** the recorded start fingerprint differs from fresh compilation
+- **THEN** `task-complete` fails with both values and the authority areas that changed when they can be determined deterministically
+- **AND THEN** it does not accept otherwise complete Evidence
+
+#### Scenario: Gates remain read-only
+- **WHEN** a gate returns a capsule, fingerprint, or drift result
+- **THEN** it stays read-only toward task authority: it does not clear evidence, repair the task, or accept new authority, and it does not write the start anchor unless the caller explicitly passed `--record`
+- **AND THEN** the disposable guard manifest and the explicit `--record` anchor replacement, each written only by a passing `task-start`, are the only artifacts any gate may write
+
+### Requirement: Completion evidence follows verification strategy
+`task-complete` MUST validate that every required `M<n>` label has concrete strategy-appropriate Evidence and that the existing semantic Review covers the resolved Acceptance and Touch scope.
+
+#### Scenario: TDD evidence is incomplete
+- **WHEN** a red-green strategy requires `M1.red` and `M1.green` but one is absent, pending, or non-concrete
+- **THEN** `task-complete` does not pass
+
+#### Scenario: Evidence-first task is complete
+- **WHEN** every evidence-first check has concrete observable evidence and semantic Review is pass
+- **THEN** structural completion may pass without invented red-green records
+
+### Requirement: Goal execution consumes gates without extending them
+Native goal execution MUST consume the shared read-only `task-start` and `task-complete` results and MUST NOT add target-specific task parsers, writable gates, or evaluator-owned completion rules.
+
+#### Scenario: Goal is prepared from task-start
+- **WHEN** the current agent requests a goal projection for one task
+- **THEN** Core returns the same capsule and fingerprint used by normal `task-start`
+- **AND THEN** the target adapter performs no independent Markdown parsing
+
+#### Scenario: Completion evidence is surfaced
+- **WHEN** `task-complete` passes for the selected task
+- **THEN** the current agent may surface its versioned status and selected fingerprint to the native evaluator
+- **AND THEN** the gate still performs no task checkbox, goal, Review, or Evidence write
+
+#### Scenario: Native evaluator disagrees with gate state
+- **WHEN** the native evaluator's completion judgment conflicts with Core gate state
+- **THEN** Core gate state and current-agent Review control Keel completion
+- **AND THEN** the disagreement is reported as native projection evidence
+
+### Requirement: Gate execution is deterministic and write-bounded
+
+Core gates MUST run locally without network access or model calls. The only permitted project writes are the disposable `keel-write-guard/v1` manifest written by a passing `task-start` on the Claude target when `--no-guard` is absent, and the single-line replacement of the selected task's literal `- Contract: pending` Evidence anchor performed by a passing `task-start` when the caller explicitly passes `--record`. `task-complete`, `change-close`, and every failing or `needs-review` outcome MUST NOT write project state. Gates MUST return `pass`, `fail`, or `needs-review` through one versioned machine-readable result.
+
+#### Scenario: Passing gate is process success
+- **WHEN** every deterministic requirement for a gate is satisfied
+- **THEN** gate status is `pass`
+- **AND THEN** the command exits successfully
+
+#### Scenario: Policy non-pass is distinguishable
+- **WHEN** a gate detects a contract failure or required semantic review is absent
+- **THEN** status is `fail` or `needs-review`
+- **AND THEN** the process result is nonzero and distinguishable from an operational error
+
+#### Scenario: Gate does not mutate evidence
+- **WHEN** a gate evaluates task or change state
+- **THEN** it does not mark tasks complete, write Review evidence, update HANDOFF, or repair artifacts
+- **AND THEN** the guard manifest and the explicit `--record` pending-anchor replacement, each written only by a passing `task-start`, are the sole exceptions to gate write-freedom
+

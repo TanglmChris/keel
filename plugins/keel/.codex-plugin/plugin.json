@@ -1,0 +1,29 @@
+{
+  "name": "keel",
+  "version": "5.1.1",
+  "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
+  "author": {
+    "name": "TanglmChris",
+    "url": "https://github.com/TanglmChris"
+  },
+  "repository": "https://github.com/TanglmChris/keel",
+  "license": "MIT",
+  "keywords": [
+    "openspec",
+    "workflow",
+    "keel",
+    "discipline"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "interface": {
+    "displayName": "Keel",
+    "shortDescription": "OpenSpec execution discipline for coding agents",
+    "longDescription": "Keel packages reusable OpenSpec authoring and execution skills: expectation alignment before specs and tasks finalize, task-capsule discipline, deterministic gate usage, review, debugging, and handoff hygiene. The separately installed keel CLI owns context, gates, schema, and overlays.",
+    "developerName": "TanglmChris",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ]
+  }
+}
