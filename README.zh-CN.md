@@ -72,7 +72,27 @@ Keel 有两个可安装部分：**`keel` CLI**（context、gates、guard、schem
 
 ### 1. `keel` CLI
 
-从 GitHub 打包后全局安装，避免与已有全局旧包在 Git 依赖准备阶段冲突，并会一并装上 OpenSpec CLI。
+一条命令即可全局安装 CLI 与捆绑的 OpenSpec CLI：
+
+```bash
+npm install -g @christang/keel
+```
+
+验证版本，之后可用 `keel --update` 自更新：
+
+```bash
+keel --version
+keel --update            # 刷新全局 CLI
+keel --update --dry-run  # 先看将执行的 npm 命令
+```
+
+> 捆绑的 OpenSpec 依赖会在安装时打印一行 opt-in 的 shell 补全提示。如果你的 npm 拦截了
+> 安装脚本，这行提示会被跳过——它纯属装饰，keel 照常工作。
+
+<details>
+<summary>从 GitHub 安装最新未发布版本</summary>
+
+打包当前 `main` 并安装该 tarball（跳过 npm registry）：
 
 **Windows（PowerShell）：**
 
@@ -93,14 +113,7 @@ npm pack github:TanglmChris/keel --pack-destination "$tmp_dir"
 npm install -g "$tmp_dir"/christang-keel-*.tgz
 rm -rf "$tmp_dir"
 ```
-
-验证版本，之后可用 `keel --update` 自更新：
-
-```bash
-keel --version
-keel --update            # 重新打包 + 重装全局 CLI
-keel --update --dry-run  # 先看将执行的 npm 命令
-```
+</details>
 
 ### 2. `keel` 插件（技能 + hook）
 

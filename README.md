@@ -77,8 +77,27 @@ install) and the **`keel` plugin** (execution skills + runtime hooks).
 
 ### 1. The `keel` CLI
 
-Pack from GitHub and install globally. This avoids conflicts during Git-dependency
-preparation and installs the bundled OpenSpec CLI.
+One command installs the CLI and the bundled OpenSpec CLI globally:
+
+```bash
+npm install -g @christang/keel
+```
+
+Verify, and self-update later:
+
+```bash
+keel --version
+keel --update            # refresh the global CLI
+```
+
+> The bundled OpenSpec dependency prints an opt-in shell-completion tip during
+> install. If your npm blocks install scripts that tip is skipped — it is purely
+> cosmetic and `keel` works either way.
+
+<details>
+<summary>Install the latest unreleased build from GitHub</summary>
+
+Pack the current `main` and install the tarball (skips the npm registry):
 
 **Windows (PowerShell):**
 
@@ -99,13 +118,7 @@ npm pack github:TanglmChris/keel --pack-destination "$tmp_dir"
 npm install -g "$tmp_dir"/christang-keel-*.tgz
 rm -rf "$tmp_dir"
 ```
-
-Verify, and self-update later with `keel --update`:
-
-```bash
-keel --version
-keel --update            # re-pack + reinstall the global CLI
-```
+</details>
 
 ### 2. The `keel` plugin (skills + hooks)
 
