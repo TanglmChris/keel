@@ -26,9 +26,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      # OIDC trusted publishing requires npm >= 11.5.1
+      # OIDC trusted publishing requires npm >= 11.5.1.
+      # Pin to npm 11 (npm 12 requires Node >= 22.22).
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
