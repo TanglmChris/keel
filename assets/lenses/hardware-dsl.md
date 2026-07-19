@@ -1,6 +1,8 @@
-# Hardware DSL alignment reference
+# Hardware DSL lens
 
-Domain lens for hardware modeling DSL work. Use during alignment when generated RTL, golden output, or model equivalence assumptions may be implicit.
+Applies when: the change touches a hardware modeling DSL, generated RTL, generated tests, golden output, or model equivalence — for example when Touch includes the DSL sources or their generated-RTL/test outputs, or the change artifacts describe regeneration, lowering, or equivalence.
+
+Domain lens for hardware modeling DSL work. Use during alignment, execution, and review when generated RTL, golden output, or model equivalence assumptions may be implicit.
 
 ## Material risk surface
 

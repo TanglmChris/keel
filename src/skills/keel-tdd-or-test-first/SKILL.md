@@ -24,9 +24,9 @@ Read the selected task's compiled capsule: resolved Acceptance, Verify strategy 
 
 Red-green strategies (`vertical-tdd`, `regression-first`) must record concrete per-label `.red` and `.green` Evidence entries for the same check; `keel gate task-complete` rejects absent or pending entries.
 
-## Domain reference
+## Domain lenses
 
-When the change's proposal/design/specs or the task's Touch extensions signal a supported domain (web, hardware, hardware-dsl), consult the matching reference's `Execution and review checks` section under `keel-align-expectations/references/` before finalizing the strategy and the first check — only the matching reference, never all of them. When no domain signal exists, load nothing.
+When the change's proposal/design/specs or the task's Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before finalizing the strategy and the first check, and load only that one. When no lens matches, load nothing.
 
 ## Coupled-task preflight
 

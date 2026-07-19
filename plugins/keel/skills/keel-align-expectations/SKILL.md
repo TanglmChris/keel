@@ -40,13 +40,9 @@ Accepted alignment routes to existing OpenSpec owners; create no separate alignm
 - specs own observable requirements and positive/negative/edge/failure scenarios.
 - tasks.md owns Covers, verification strategy and checks, scope, and stop boundaries that reference the accepted authority instead of duplicating chat prose.
 
-## Domain references
+## Domain lenses
 
-When the change touches a specific domain, read only the applicable reference before asking domain questions; do not load the others:
-
-- references/web.md for UI, API, routing, auth/session, persistence, or backend integration work.
-- references/hardware.md for Verilog/SystemVerilog interface, protocol, reset, or verification work.
-- references/hardware-dsl.md for hardware modeling DSL, generated RTL, or golden/equivalence work.
+When the change signals a specific domain, look in `keel/lenses/` for a lens whose `Applies when:` header matches, and read only that lens before asking domain questions; do not load unrelated lenses. When no lens matches, or the repo defines none, proceed on the domain-agnostic path. Lenses are user-authored; scaffold the bundled starting points with `keel lenses add` (web, hardware, hardware-dsl).
 
 ## Boundaries
 

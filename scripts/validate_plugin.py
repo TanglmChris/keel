@@ -188,9 +188,9 @@ SKILL_DOC_REQUIREMENTS = [
             "one material decision at a time",
             "recommended answer",
             "Silence does not",
-            "references/web.md",
-            "references/hardware.md",
-            "references/hardware-dsl.md",
+            "keel/lenses/",
+            "Applies when",
+            "keel lenses add",
             "no separate alignment ledger",
         ],
     },
@@ -220,31 +220,34 @@ SKILL_DOC_REQUIREMENTS = [
         ],
     },
     {
-        # Structure only ("Material risk surface", "Durable placement"
-        # section headers); the expectation-alignment-skill scenario owns
-        # domain-keyword scoping across these three references, so the
-        # per-domain keywords are not duplicated here.
-        "name": "alignment web reference",
-        "path": "src/skills/keel-align-expectations/references/web.md",
+        # Structure only ("Applies when" self-describing header, "Material risk
+        # surface", "Execution and review checks"); the expectation-alignment-skill
+        # scenario owns domain-keyword scoping across these three lens templates,
+        # so the per-domain keywords are not duplicated here.
+        "name": "web lens template",
+        "path": "assets/lenses/web.md",
         "required": [
+            "Applies when",
             "Material risk surface",
-            "Durable placement",
+            "Execution and review checks",
         ],
     },
     {
-        "name": "alignment hardware reference",
-        "path": "src/skills/keel-align-expectations/references/hardware.md",
+        "name": "hardware lens template",
+        "path": "assets/lenses/hardware.md",
         "required": [
+            "Applies when",
             "Material risk surface",
-            "Durable placement",
+            "Execution and review checks",
         ],
     },
     {
-        "name": "alignment hardware-dsl reference",
-        "path": "src/skills/keel-align-expectations/references/hardware-dsl.md",
+        "name": "hardware-dsl lens template",
+        "path": "assets/lenses/hardware-dsl.md",
         "required": [
+            "Applies when",
             "Material risk surface",
-            "Durable placement",
+            "Execution and review checks",
         ],
     },
 ]
@@ -1742,16 +1745,15 @@ def validate_authoring_continuity_scenario() -> int:
 
 def validate_domain_profiles_scenario() -> int:
     plugin_skills_root = ROOT / PLUGIN_ROOT / "skills"
-    for expected in (
-        "keel-align-expectations/SKILL.md",
-        "keel-align-expectations/references/web.md",
-        "keel-align-expectations/references/hardware.md",
-        "keel-align-expectations/references/hardware-dsl.md",
-    ):
-        if not (plugin_skills_root / expected).is_file():
+    if not (plugin_skills_root / "keel-align-expectations/SKILL.md").is_file():
+        report("domain-profiles scenario plugin misses the alignment skill")
+        return 1
+    lenses_root = ROOT / "assets/lenses"
+    for template in ("web.md", "hardware.md", "hardware-dsl.md"):
+        if not (lenses_root / template).is_file():
             report(
-                "domain-profiles scenario plugin misses the packaged alignment "
-                f"reference set: {expected}"
+                "domain-profiles scenario misses the shipped lens template: "
+                f"{template}"
             )
             return 1
     for legacy_skill in LEGACY_PROFILE_SKILLS:
@@ -5397,27 +5399,24 @@ def validate_expectation_alignment_skill_scenario() -> int:
             )
             return 1
 
-    # Structure and behavior: domain references exist, are routed from the
-    # skill, and stay scoped to their own domain (cross-file keyword pairs).
+    # Structure and behavior: the skill routes to user-authored keel/lenses/,
+    # the shipped lens templates exist, and each template stays scoped to its
+    # own domain (cross-file keyword pairs).
+    if "keel/lenses/" not in skill:
+        report("expectation-alignment-skill does not route to keel/lenses/")
+        return 1
     for domain in ("web", "hardware", "hardware-dsl"):
-        reference_path = (
-            ROOT / "src/skills/keel-align-expectations/references" / f"{domain}.md"
-        )
-        if not reference_path.is_file():
-            report(f"expectation-alignment-skill reference is missing: {domain}.md")
+        template_path = ROOT / "assets/lenses" / f"{domain}.md"
+        if not template_path.is_file():
+            report(f"expectation-alignment-skill lens template is missing: {domain}.md")
             return 1
-        if f"references/{domain}.md" not in skill:
-            report(f"expectation-alignment-skill does not route to references/{domain}.md")
-            return 1
-    web_reference = (
-        ROOT / "src/skills/keel-align-expectations/references/web.md"
-    ).read_text(encoding="utf-8")
-    hardware_reference = (
-        ROOT / "src/skills/keel-align-expectations/references/hardware.md"
-    ).read_text(encoding="utf-8")
-    dsl_reference = (
-        ROOT / "src/skills/keel-align-expectations/references/hardware-dsl.md"
-    ).read_text(encoding="utf-8")
+    web_reference = (ROOT / "assets/lenses/web.md").read_text(encoding="utf-8")
+    hardware_reference = (ROOT / "assets/lenses/hardware.md").read_text(
+        encoding="utf-8"
+    )
+    dsl_reference = (ROOT / "assets/lenses/hardware-dsl.md").read_text(
+        encoding="utf-8"
+    )
     for content, expected, unexpected in (
         (web_reference, "accessibility", "valid-ready"),
         (hardware_reference, "valid-ready", "browser"),
@@ -5425,7 +5424,7 @@ def validate_expectation_alignment_skill_scenario() -> int:
     ):
         if expected not in content or unexpected in content:
             report(
-                "expectation-alignment-skill domain references are not scoped to "
+                "expectation-alignment-skill lens templates are not scoped to "
                 "their own domain."
             )
             return 1
@@ -5563,11 +5562,10 @@ def validate_native_plugin_manifests_scenario() -> int:
                 f"source: {skill_name}"
             )
             return 1
-    for reference in ("web.md", "hardware.md", "hardware-dsl.md"):
-        if not (
-            skills_root / "keel-align-expectations/references" / reference
-        ).is_file():
-            report(f"native-plugin-manifests plugin misses reference: {reference}")
+    lenses_root = ROOT / "assets/lenses"
+    for template in ("web.md", "hardware.md", "hardware-dsl.md"):
+        if not (lenses_root / template).is_file():
+            report(f"native-plugin-manifests misses lens template: {template}")
             return 1
 
     codex_market_path = ROOT / ".agents/plugins/marketplace.json"
@@ -9299,42 +9297,51 @@ def validate_domain_execution_references_scenario() -> int:
         "keel-debug-failure",
         "keel-review-checklist",
     )
-    references = ("web.md", "hardware.md", "hardware-dsl.md")
+    templates = ("web.md", "hardware.md", "hardware-dsl.md")
     roots = (ROOT / "src/skills", ROOT / PLUGIN_ROOT / "skills")
 
     for root in roots:
         for skill in consuming_skills:
             text = (root / skill / "SKILL.md").read_text(encoding="utf-8")
             for needle in (
-                "keel-align-expectations",
+                "keel/lenses/",
                 "Execution and review checks",
-                "only the matching",
-                "no domain signal",
+                "load only that one",
+                "no lens matches",
             ):
                 if needle not in text:
                     report(
                         f"domain-execution-references: {root.name}/{skill} lacks "
-                        f"the on-demand consult step ({needle!r})."
+                        f"the on-demand lens consult step ({needle!r})."
                     )
                     return 1
-        for reference in references:
-            ref_path = (
-                root / "keel-align-expectations" / "references" / reference
+
+    lenses_root = ROOT / "assets/lenses"
+    for template in templates:
+        ref_path = lenses_root / template
+        if not ref_path.is_file():
+            report(f"domain-execution-references: lens template is missing: {template}")
+            return 1
+        text = ref_path.read_text(encoding="utf-8")
+        if "## Execution and review checks" not in text:
+            report(
+                f"domain-execution-references: {template} lacks the "
+                "execution and review section."
             )
-            text = ref_path.read_text(encoding="utf-8")
-            if "## Execution and review checks" not in text:
-                report(
-                    f"domain-execution-references: {reference} lacks the "
-                    "execution and review section."
-                )
-                return 1
-            size = ref_path.stat().st_size
-            if size > 3072:
-                report(
-                    f"domain-execution-references: {reference} exceeds the 3072-"
-                    f"byte budget ({size} bytes); move depth to dedicated skills."
-                )
-                return 1
+            return 1
+        if "Applies when" not in text:
+            report(
+                f"domain-execution-references: {template} lacks the "
+                "self-describing 'Applies when' header."
+            )
+            return 1
+        size = ref_path.stat().st_size
+        if size > 3072:
+            report(
+                f"domain-execution-references: {template} exceeds the 3072-"
+                f"byte budget ({size} bytes); move depth to dedicated skills."
+            )
+            return 1
 
     for skill in consuming_skills:
         src_text = (roots[0] / skill / "SKILL.md").read_bytes()
@@ -9342,19 +9349,6 @@ def validate_domain_execution_references_scenario() -> int:
         if src_text != shipped_text:
             report(
                 f"domain-execution-references: shipped {skill} copy diverges "
-                "from the canonical source."
-            )
-            return 1
-    for reference in references:
-        src_ref = (
-            roots[0] / "keel-align-expectations" / "references" / reference
-        ).read_bytes()
-        shipped_ref = (
-            roots[1] / "keel-align-expectations" / "references" / reference
-        ).read_bytes()
-        if src_ref != shipped_ref:
-            report(
-                f"domain-execution-references: shipped {reference} copy diverges "
                 "from the canonical source."
             )
             return 1

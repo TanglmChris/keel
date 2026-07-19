@@ -12,9 +12,9 @@ Use this skill when a command or validation path fails. Keep the investigation t
 
 Read the selected OpenSpec task's Commands, Acceptance, Coupling, Candidate Boundary, Autonomy boundary, Stop Rules, Evidence, Stop if, Read, Touch, and Mode fields. When `Coupling: required`, also read design.md's Coupled Iteration Contract. Read the failed command output and any repository files needed to reproduce or explain the failure.
 
-## Domain reference
+## Domain lenses
 
-When the change's artifacts or the failing surface signal a supported domain (web, hardware, hardware-dsl), consult the matching reference's `Execution and review checks` section under `keel-align-expectations/references/` before locking a root-cause hypothesis — only the matching reference, never all of them. When no domain signal exists, load nothing.
+When the change's artifacts or the failing surface signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before locking a root-cause hypothesis, and load only that one. When no lens matches, load nothing.
 
 ## Fuse
 

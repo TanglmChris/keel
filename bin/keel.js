@@ -56,11 +56,6 @@ const KEEL_SKILLS = [
   "keel-review-checklist",
   "keel-tdd-or-test-first",
 ];
-const ALIGNMENT_REFERENCES = [
-  "references/web.md",
-  "references/hardware.md",
-  "references/hardware-dsl.md",
-];
 const OPENSPEC_COMMAND_IDS = ["propose", "explore", "apply", "sync", "archive"];
 const OPENSPEC_SKILLS = [
   "openspec-propose",

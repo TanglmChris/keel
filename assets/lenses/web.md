@@ -1,6 +1,8 @@
-# Web alignment reference
+# Web lens
 
-Domain lens for web frontend/backend work. Use during alignment when UI, API, routing, persistence, or integration behavior may hide product assumptions.
+Applies when: the change touches UI, API, routing, auth/session, persistence, migrations, async/loading/error states, accessibility, or backend integration — for example when Touch includes `.tsx`/`.jsx`/`.ts`/`.js`/`.css`/`.html`/`.sql` or the change artifacts describe a route, endpoint, component, or schema.
+
+Domain lens for web frontend/backend work. Use during alignment, execution, and review when UI, API, routing, persistence, or integration behavior may hide product assumptions.
 
 ## Material risk surface
 

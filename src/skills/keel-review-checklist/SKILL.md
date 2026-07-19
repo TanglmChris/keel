@@ -35,9 +35,9 @@ Record the current agent's judgment inside the selected task Evidence:
 
 The Review remains in tasks.md. A user-facing Report summarizes delivery but is not hidden gate state. Do not let Core or this checklist write evidence automatically.
 
-## Domain reference
+## Domain lenses
 
-When the change's artifacts or Touch extensions signal a supported domain (web, hardware, hardware-dsl), consult the matching reference's `Execution and review checks` section under `keel-align-expectations/references/` before concluding the review — only the matching reference, never all of them. When no domain signal exists, load nothing.
+When the change's artifacts or Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before concluding the review, and load only that one. When no lens matches, load nothing.
 
 ## Expectation and follow-up ownership
 

@@ -1,6 +1,8 @@
-# Hardware alignment reference
+# Hardware lens
 
-Domain lens for Verilog/SystemVerilog work. Use during alignment when hardware protocol, timing, reset, or verification assumptions may be implicit.
+Applies when: the change touches Verilog/SystemVerilog interfaces, protocol, reset, clocking/CDC, valid-ready/backpressure, arbitration, CSR/register fields, or RTL verification — for example when Touch includes `.v`/`.sv`/`.vh`/`.svh` or the change artifacts describe a module interface, protocol, or testbench.
+
+Domain lens for Verilog/SystemVerilog work. Use during alignment, execution, and review when hardware protocol, timing, reset, or verification assumptions may be implicit.
 
 ## Material risk surface
 
