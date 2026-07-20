@@ -58,27 +58,27 @@
 
 ## 3. Doctor openspec honesty (issue #2)
 
-- [ ] 3.1 Downgrade doctor `openspec: ok` to a warning when bare openspec is off PATH
+- [x] 3.1 Downgrade doctor `openspec: ok` to a warning when bare openspec is off PATH
   - Covers:
     - keel-target-surface-diagnostics / Doctor distinguishes keel-resolvable openspec from PATH-reachable
   - Touch:
     - bin/keel.js
     - scripts/validate_plugin.py
   - Verify:
-    - Strategy: regression-first
-    - M1: when Keel resolves its internal openspec shim but bare `openspec` is not on PATH, `keel --doctor` reports the openspec line as a warning naming `keel openspec`, not `ok`; before the change it reported `ok`
+    - Strategy: rendered-behavior
+    - M1: when Keel resolves its internal openspec shim but bare `openspec` is not on PATH, `keel --doctor` reports the openspec line as a warning naming `keel openspec`, not `ok`; before the change the same state reported `ok`
     - M2: when bare `openspec` is reachable on PATH, doctor still reports `ok`
     - M3: `npm test` passes with a scenario covering both PATH states
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:efdf20f651de622b31a6da6779082fbf60b08c91e30bbf57d9ba03e6382234a9
+    - M1: `keel --doctor` now prints "openspec: warning - ...openspec.cmd is keel-resolvable but bare `openspec` is not on PATH — use `keel openspec`"; pre-fix the same state printed "openspec: ok - ...openspec.cmd" (captured via `git stash`).
+    - M2: with a stub `openspec` prepended to PATH, `keel --doctor` prints "openspec: ok" — proven by the new `doctor-openspec-honesty` scenario, which stubs openspec on PATH through the process env.
+    - M3: `npm test` reported "validation --all passed: baseline plus 51 scenarios"; the new `doctor-openspec-honesty` scenario asserts both the warning branch text and the ok-on-PATH behavior.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — doctor reports `warning` naming `keel openspec` when only the internal shim resolves, and `ok` when a bare `openspec` is on PATH.
+      - Scope check: pass — changes limited to Touch (`bin/keel.js`, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## 4. Archive idempotency + guard hygiene (issue #3 + Q3)

@@ -9903,6 +9903,50 @@ def validate_validation_runner_scenario() -> int:
 
 # The one ordered scenario registry: --scenario dispatch, the --all runner,
 # and registration assertions all read this list and nothing else.
+def validate_doctor_openspec_honesty_scenario() -> int:
+    cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
+    if "is not on PATH" not in cli:
+        report(
+            "doctor-openspec-honesty scenario: bin/keel.js is missing the "
+            "openspec PATH-reachability warning branch."
+        )
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-doctor-openspec-") as raw:
+        root = Path(raw)
+        repo = root / "repo"
+        repo.mkdir()
+        stub_dir = root / "stub"
+        stub_dir.mkdir()
+        if os.name == "nt":
+            (stub_dir / "openspec.cmd").write_text(
+                "@echo off\necho 1.6.0\n", encoding="utf-8"
+            )
+        else:
+            stub = stub_dir / "openspec"
+            stub.write_text("#!/bin/sh\necho 1.6.0\n", encoding="utf-8")
+            stub.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = str(stub_dir) + os.pathsep + env.get("PATH", "")
+        on_path = run_keel(repo, "--doctor", env=env)
+        openspec_line = next(
+            (
+                line
+                for line in on_path.stdout.splitlines()
+                if line.startswith("openspec:")
+            ),
+            "",
+        )
+        if not openspec_line.startswith("openspec: ok"):
+            report(
+                "doctor-openspec-honesty scenario: doctor did not report `ok` "
+                "when a bare openspec is on PATH."
+            )
+            report(on_path.stdout.strip())
+            return 1
+    report("doctor-openspec-honesty scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -9919,6 +9963,7 @@ SCENARIOS: tuple = (
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("uninstall", validate_uninstall_scenario),
     ("cli", validate_cli_scenario),
+    ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     ("update-pack-install", validate_update_pack_install_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),

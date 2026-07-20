@@ -1273,11 +1273,27 @@ function runDoctor(options) {
   );
 
   const openspec = findOpenSpecCommand();
-  printDoctorLine(
-    "openspec",
-    openspec ? "ok" : "missing",
-    openspec || "reinstall keel so npm installs its OpenSpec dependency"
-  );
+  if (!openspec) {
+    printDoctorLine(
+      "openspec",
+      "missing",
+      "reinstall keel so npm installs its OpenSpec dependency"
+    );
+  } else {
+    const bareOpenSpecOnPath =
+      !path.isAbsolute(openspec)
+      || runCommand("openspec", ["--version"], {
+        stdio: "ignore",
+        silentNotFound: true,
+      }) === 0;
+    printDoctorLine(
+      "openspec",
+      bareOpenSpecOnPath ? "ok" : "warning",
+      bareOpenSpecOnPath
+        ? openspec
+        : `${openspec} is keel-resolvable but bare \`openspec\` is not on PATH — use \`keel openspec\``
+    );
+  }
 
   process.stdout.write("\nProject status:\n");
   const checkStatus = runPython(
