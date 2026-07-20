@@ -51,22 +51,10 @@ KEEL_HOOK_NAME = "keel-gate"
 KEEL_HOOK_ROOT = Path(".claude") / "hooks" / KEEL_HOOK_NAME
 SUPPORTED_TARGETS = ("claude", "codex", "opencode")
 AGENT_PROTOCOL_TARGETS = {"codex", "opencode"}
-TARGET_SKILL_ROOTS = {
-    "claude": Path(".claude") / "skills",
-    "codex": Path(".agents") / "skills",
-    "opencode": Path(".opencode") / "skills",
-}
 TARGET_ADAPTER_PATHS = {
     "claude": Path(".claude") / "keel" / "keel-adapter.js",
     "codex": Path(".agents") / "keel" / "keel-adapter.js",
     "opencode": Path(".opencode") / "keel" / "keel-adapter.js",
-}
-CORE_KEEL_SKILLS = {
-    "keel-align-expectations",
-    "keel-debug-failure",
-    "keel-handoff",
-    "keel-review-checklist",
-    "keel-tdd-or-test-first",
 }
 HANDOFF_FIELDS = {"schema", "owner", "action", "reason"}
 HANDOFF_ACTIONS = {
@@ -158,10 +146,6 @@ def target_set(target: str) -> set[str]:
     return set(target_names(target))
 
 
-def core_skill_names() -> set[str]:
-    return set(CORE_KEEL_SKILLS)
-
-
 def file_action(relative_path: str, source_path: Path) -> InstallAction:
     if not source_path.is_file():
         raise ValueError(f"missing packaged asset: {source_path}")
@@ -230,31 +214,6 @@ def openspec_schema_actions() -> list[InstallAction]:
                 schema_file,
             )
         )
-    return actions
-
-
-def skill_actions(target: str) -> list[InstallAction]:
-    actions: list[InstallAction] = []
-    selected_skill_names = core_skill_names()
-    for target_name in target_names(target):
-        skill_destination_root = TARGET_SKILL_ROOTS[target_name]
-        skills_root = dist_asset(target_name, "skills")
-        if skills_root.is_dir():
-            for skill in sorted(skills_root.iterdir()):
-                if not skill.is_dir():
-                    continue
-                if skill.name not in selected_skill_names:
-                    continue
-                for skill_file in sorted(skill.rglob("*")):
-                    if not skill_file.is_file():
-                        continue
-                    relative_file = skill_file.relative_to(skill).as_posix()
-                    actions.append(
-                        file_action(
-                            (skill_destination_root / skill.name / relative_file).as_posix(),
-                            skill_file,
-                        )
-                    )
     return actions
 
 
@@ -943,35 +902,6 @@ def plan_uninstall_empty_dir(repo: Path, relative_dir: str) -> PlannedAction:
 
 def rmdir_if_empty_action(relative_dir: str) -> PlannedAction:
     return PlannedAction("rmdir", Path(relative_dir))
-
-
-def plan_uninstall_skill_actions(repo: Path, target: str) -> list[PlannedAction]:
-    actions: list[PlannedAction] = []
-    for target_name in target_names(target):
-        skill_root = TARGET_SKILL_ROOTS[target_name]
-        target_actions = skill_actions(target_name)
-        for action in target_actions:
-            if action.source_path is None:
-                continue
-            actions.append(
-                plan_uninstall_packaged_file(
-                    repo,
-                    action.relative_path.as_posix(),
-                    action.source_path,
-                )
-            )
-
-        skill_dirs: set[Path] = set()
-        for action in target_actions:
-            parent = action.relative_path.parent
-            while parent != skill_root:
-                skill_dirs.add(parent)
-                parent = parent.parent
-        for skill_dir in sorted(skill_dirs, key=lambda path: len(path.parts), reverse=True):
-            actions.append(rmdir_if_empty_action(skill_dir.as_posix()))
-        actions.append(rmdir_if_empty_action(skill_root.as_posix()))
-        actions.append(rmdir_if_empty_action(skill_root.parent.as_posix()))
-    return actions
 
 
 def plan_uninstall_agent_actions(repo: Path, target: str) -> list[PlannedAction]:

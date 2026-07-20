@@ -6,7 +6,7 @@
 
 ## 1. Honest skill delivery (issue #1 Case A)
 
-- [ ] 1.1 Remove the dead CLI keel-* install path and make help + doctor honest
+- [x] 1.1 Remove the dead CLI keel-* install path and make help + doctor honest
   - Covers:
     - keel-skill-sourcing-and-portability / keel-* skills are plugin-delivered, not CLI-installed
     - keel-target-surface-diagnostics / Doctor reports keel-* skills as a plugin surface
@@ -20,15 +20,15 @@
     - M2: `keel --help` states the keel-* skills are delivered by the Keel plugin and no longer claims the CLI installs them under a target skill root
     - M3: `keel --doctor` reports the keel-* inventory as a plugin surface with remediation when the plugin is absent, and `npm test` passes with validator assertions for the above
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:2be266db41e5e739b79598550c0c18ba05cd503ddeece9a5a0a0abd7723e5858
+    - M1: `keel --init --target claude --dry-run` produces no keel-* skill-file actions, and `install_to_repo.py` no longer defines `skill_actions` (0 occurrences); the dead `dist/`-sourced keel-* chain (`skill_actions`, `plan_uninstall_skill_actions`, `CORE_KEEL_SKILLS`, `core_skill_names`, `TARGET_SKILL_ROOTS`) was removed and the file compiles.
+    - M2: `keel --help` states "keel-* behavioral skills are delivered by the installed Keel plugin, not by the CLI" and no longer claims "skills are installed under .claude/skills/keel-*" (0 occurrences).
+    - M3: `keel --doctor` prints "Keel behavioral skills: plugin - keel-* skills are delivered by the installed Keel plugin ...; install the plugin if it is missing"; `npm test` reported "validation --all passed: baseline plus 50 scenarios" with the new `validate_install_honesty` baseline check.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the CLI creates no keel-* files and no code path sources them from `dist/`, `keel --help` states plugin delivery, and `keel --doctor` reports the keel-* inventory as a plugin surface with remediation.
+      - Scope check: pass — changes limited to Touch (`scripts/install_to_repo.py`, `bin/keel.js`, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## 2. openspec invocable (issue #2)

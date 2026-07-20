@@ -10012,6 +10012,26 @@ def validate_review_status_single_source(errors: list[str]) -> None:
             )
 
 
+def validate_install_honesty(errors: list[str]) -> None:
+    installer = (ROOT / "scripts/install_to_repo.py").read_text(encoding="utf-8")
+    if "def skill_actions" in installer or "dist_asset(target_name, \"skills\")" in installer:
+        errors.append(
+            "install_to_repo.py must not carry the dead keel-* skill_actions "
+            "path; keel-* skills are plugin-delivered."
+        )
+    cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
+    if "delivered by the installed Keel plugin" not in cli:
+        errors.append(
+            "keel --help/--doctor must state that keel-* skills are delivered "
+            "by the installed Keel plugin, not installed by the CLI."
+        )
+    if ".claude/skills/keel-*." in cli:
+        errors.append(
+            "keel --help must not claim the CLI installs skills under "
+            ".claude/skills/keel-*."
+        )
+
+
 def run_baseline() -> int:
     errors: list[str] = []
     validate_manifest(errors)
@@ -10021,6 +10041,7 @@ def run_baseline() -> int:
     validate_templates(errors)
     validate_openspec_schema(errors)
     validate_review_status_single_source(errors)
+    validate_install_honesty(errors)
     validate_skill_docs(errors)
     validate_skill_portability(ROOT, errors)
     validate_scripts_use_stdlib(errors)

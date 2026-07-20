@@ -101,9 +101,7 @@ Defaults:
 Project layout:
   continuity is recomputed from OpenSpec on every invocation.
   keel/HANDOFF.md is an optional keel-handoff/v1 pointer override.
-  Claude skills are installed under .claude/skills/keel-*.
-  Codex skills are installed under .agents/skills/keel-*.
-  OpenCode skills are installed under .opencode/skills/keel-*.
+  keel-* behavioral skills are delivered by the installed Keel plugin, not by the CLI.
   repeat keel --install to refresh project protocol files.
 
 Examples:
@@ -1206,6 +1204,12 @@ function printTargetSurface(repo, target) {
     "OpenSpec action skills",
     surfaceStatus(openspecSkillCounts),
     formatCount(openspecSkillCounts, openspecSkillRoot)
+  );
+
+  printDoctorLine(
+    "Keel behavioral skills",
+    "plugin",
+    "keel-* skills are delivered by the installed Keel plugin (see native plugin status above); install the plugin if it is missing"
   );
 
   const commands = commandSurfaceForTarget(target, repo);
