@@ -10088,6 +10088,26 @@ def validate_openspec_invocable(errors: list[str]) -> None:
         )
 
 
+def validate_archive_overlay_hygiene(errors: list[str]) -> None:
+    cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
+    if "--skip-specs" not in cli:
+        errors.append(
+            "the archive overlay must direct archive to pass --skip-specs "
+            "after /opsx:sync has promoted the delta."
+        )
+    if "drop the change's guard manifest" not in cli:
+        errors.append(
+            "the archive overlay must remind the agent to run keel guard clear "
+            "after archiving."
+        )
+    gates = (ROOT / "src/core/gates.js").read_text(encoding="utf-8")
+    if "clearGuard" in gates:
+        errors.append(
+            "gates must stay read-only: gate code must not clear the guard "
+            "manifest (guard clear is explicit via keel guard clear)."
+        )
+
+
 def run_baseline() -> int:
     errors: list[str] = []
     validate_manifest(errors)
@@ -10099,6 +10119,7 @@ def run_baseline() -> int:
     validate_review_status_single_source(errors)
     validate_install_honesty(errors)
     validate_openspec_invocable(errors)
+    validate_archive_overlay_hygiene(errors)
     validate_skill_docs(errors)
     validate_skill_portability(ROOT, errors)
     validate_scripts_use_stdlib(errors)

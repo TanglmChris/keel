@@ -83,7 +83,7 @@
 
 ## 4. Archive idempotency + guard hygiene (issue #3 + Q3)
 
-- [ ] 4.1 Sequence sync then archive `--skip-specs` and remind to clear the guard
+- [x] 4.1 Sequence sync then archive `--skip-specs` and remind to clear the guard
   - Covers:
     - keel-openspec-surface-overlay / Archive overlay skips already-promoted specs and reminds to clear the guard
   - Touch:
@@ -95,15 +95,15 @@
     - M2: no guard deletion is added to any gate — the gate stays read-only
     - M3: `npm test` passes with validator assertions for the archive-overlay `--skip-specs` sequence and the guard-clear reminder
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:920c0c854c774f269c214ff9a128859ec2da46e8f48ba88e476e5a44ef7874ff
+    - M1: the archive overlay (`keelOpenSpecOverlay('archive')` in bin/keel.js) now carries two bullets — one directing the archive to pass `--skip-specs` after `/opsx:sync` promotes the delta, and one reminding the agent to run `keel guard clear` after archiving (grep: `--skip-specs` present, "drop the change's guard manifest" present).
+    - M2: `src/core/gates.js` contains no `clearGuard` and no guard-manifest deletion — its only `keel/guard.json` reference is the scope-exemption filter — so the gate stays read-only and the guard-clear is overlay guidance, not a gate write.
+    - M3: `npm test` reported "validation --all passed: baseline plus 51 scenarios"; the new `validate_archive_overlay_hygiene` baseline check asserts the `--skip-specs` sequence, the guard-clear reminder, and that gates.js does not clear the guard.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the archive overlay sequences `/opsx:sync` then archive `--skip-specs` and reminds to `keel guard clear`, while the gate performs no guard deletion.
+      - Scope check: pass — changes limited to Touch (`bin/keel.js`, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## Expectation Coverage

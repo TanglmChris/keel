@@ -1031,6 +1031,8 @@ function keelOpenSpecOverlay(action) {
           "- The current agent reviews any subagent report before running `openspec-sync-specs`, `/opsx:sync`, or `/opsx:archive`.",
           "- Do not treat generic OpenSpec archive delegation language as authority to transfer Keel ownership.",
           "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+          "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
+          "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
         ];
 
   const lines = [
