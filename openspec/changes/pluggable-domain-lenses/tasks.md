@@ -70,7 +70,7 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Describe pluggable lenses in the docs and protocol
+- [x] 3.1 Describe pluggable lenses in the docs and rename the domain vocabulary to lenses
   - Covers:
     - keel-domain-profiles / Keel supports pluggable domain lenses
     - keel-domain-profiles / Keel scaffolds domain lenses
@@ -78,19 +78,26 @@
     - README.md
     - README.zh-CN.md
     - AGENTS.md
+    - scripts/validate_plugin.py
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - openspec/schemas/keel-spec-driven/schema.yaml
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
   - Verify:
     - Strategy: evidence-first
-    - M1: both READMEs describe user-authored `keel/lenses/`, `keel lenses add`, and self-describing lenses; `AGENTS.md` refers to lenses rather than bundled references
-    - M2: `npm test` passes with the `Execution and review checks` needle preserved via the templates and the skill-policy needles intact
+    - M1: both READMEs describe user-authored `keel/lenses/`, `keel lenses add`, and self-describing lenses; `AGENTS.md` refers to domain lenses rather than bundled references
+    - M2: the domain vocabulary is renamed from reference/profile to lens across `AGENTS.md`, the keel-spec-driven schema.yaml (source and repo copies), and the tasks.md template (source and repo copies), with the authoring-continuity needles updated to match
+    - M3: `npm test` passes with the `Execution and review checks` needle preserved via the templates and the skill-policy needles intact
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:650ef26e52fd51f1e1ecc8ecea1221c28326ddd63aa2628159086fb301f10e0c
+    - M1: README.md adds a "Domain lenses" section plus `keel lenses list`/`add` commands describing user-authored `keel/lenses/`, self-describing `Applies when:` lenses, and opt-in `assets/lenses/` templates; README.zh-CN.md rewrites its bullet to "可插拔领域透镜" with the same story and the `keel lenses` commands; AGENTS.md now says "domain lenses (user-authored keel/lenses/*.md)" instead of the bundled-references framing.
+    - M2: renamed the domain vocabulary to "lens" in AGENTS.md, both keel-spec-driven schema.yaml copies (two "a domain reference" phrases each → "a domain lens"), and both tasks.md template copies ("domain profile requirement" → "domain lens requirement"); the authoring-continuity needles were updated in lockstep to "domain lenses"/"domain lens" so the scenario asserts the new wording.
+    - M3: `npm test` → "validation --all passed: baseline plus 49 scenarios"; the `Execution and review checks` needle stays satisfied through the `assets/lenses/` templates and the skill-policy needles are intact.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the docs and protocol now present domain guidance as pluggable, user-authored lenses with a scaffold command, matching the "Keel supports pluggable domain lenses" and "Keel scaffolds domain lenses" requirements.
+      - Scope check: pass — working-tree changes are limited to the eight Touch files plus this change's own tasks.md; base HEAD (task 2.1 commit) at task-start.
+      - Findings: one, explicitly discarded — scripts/install_to_repo.py still carries a stale "domain references are bundled" help string on the obsolete `--profile` flag. Discard rationale: the string is attached to an already-obsolete flag whose only job is to reject usage, it is outside this change's declared Touch, and correcting deprecated-flag help carries no behavioral value; not worth a durable follow-up.
     - Blocker: none
 
 ## 4. Release alignment

@@ -99,7 +99,7 @@ artifacts:
       be covered by a slice, deferred to a durable owner, or explicitly
       discarded with rationale before the slice can be selected for execution.
       Accepted hidden-knowledge assumptions from risk-triggered deep
-      alignment or a domain reference are critical expectations when they
+      alignment or a domain lens are critical expectations when they
       affect completion definition or execution boundaries.
       Covers references the relevant D/F/A/Q identifiers. An unresolved Q<n>
       without an authorized fallback blocks implementation.
@@ -152,7 +152,7 @@ apply:
     2. Select one unchecked task or a small contiguous group of unchecked tasks from tasks.md.
     3. Run the Task Authoring Gate: every relevant critical expectation must be covered by a selected slice, deferred to a durable owner, or explicitly discarded with rationale.
     4. Run the Slice Start Gate: every selected current slice must name source expectations and compile to a complete keel-task-capsule/v1 contract from its compact Covers, Touch, Verify, and Evidence fields plus any declared exceptional Mode, Read, Acceptance delta, Autonomy boundary, Coupling/Candidate Boundary, or Stop if clauses.
-    5. If a selected task lacks an execution contract, source expectations, or accepted hidden-knowledge assumptions raised by risk-triggered deep alignment or a domain reference, update OpenSpec first instead of dispatching implementation.
+    5. If a selected task lacks an execution contract, source expectations, or accepted hidden-knowledge assumptions raised by risk-triggered deep alignment or a domain lens, update OpenSpec first instead of dispatching implementation.
     6. Rough future slices may remain non-executable drafts, but they cannot be selected for implementation or marked complete.
     7. The current Keel agent remains task owner and executor. Treat any Execution recommendation as an advisory implementation note, not as a completion gate.
     8. Do not hand Keel-managed execution to another agent, subagent, or operator unless the selected task or user explicitly authorizes it. Keep task selection, implementation, verification, and failure recovery in the current agent conversation.

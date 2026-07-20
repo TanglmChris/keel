@@ -139,6 +139,24 @@ command at the right moment. Three things make that happen.
 So in day-to-day use you run two commands: `keel --init` once, and `keel --doctor` when you
 want to check the wiring. Everything below is the vocabulary the agent uses on your behalf.
 
+## Domain lenses
+
+Keel's core is pure process; it ships no domain knowledge of its own. Domain guidance lives in
+**lenses** you author under `keel/lenses/*.md` in your repo. Each lens is self-describing: it
+opens with an `Applies when:` line stating the signals that trigger it (file extensions, artifact
+shapes) and carries an `Execution and review checks` section. When a change's artifacts or Touch
+match a lens, the alignment, test, debug, and review skills load only that one lens — and nothing
+when none match. Keel stays domain-agnostic; the knowledge is yours to own and edit.
+
+Three lenses ship as opt-in templates (`web`, `hardware`, `hardware-dsl`) under `assets/lenses/`.
+They are never installed automatically:
+
+```bash
+keel lenses list            # shipped templates + lenses installed in keel/lenses/
+keel lenses add web         # copy the web template into keel/lenses/web.md, then edit it
+keel lenses add web --force # overwrite an existing lens
+```
+
 ## Commands
 
 ```bash
@@ -154,6 +172,10 @@ keel gate change-close  --change <c> --action sync|archive --json
 keel guard start --change <c> --task <t> --json
 keel guard status --json
 keel guard clear  --json
+
+# Domain lenses — user-authored guidance in keel/lenses/
+keel lenses list
+keel lenses add <name> [--force]
 
 # Install / maintenance
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]

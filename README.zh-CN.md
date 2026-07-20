@@ -185,9 +185,13 @@ Touch 是唯一写权限来源。通过的 `keel gate task-start` 默认写入�
 - **`keel-align-expectations`**：specs/tasks 定稿前用风险触发的 deep alignment（一次一个决策、给
   推荐答案）对齐隐性假设，而不是对所有 Full change 强制问卷；先查仓库事实再问用户，接受的结论写回
   `proposal/design/specs/tasks`。
-- **领域引用**：web / hardware / hardware-dsl 三份 reference 各含一节 `Execution and review checks`；
-  当变更 artifacts 或 Touch 扩展名显示对应领域信号时，`keel-tdd-or-test-first`、`keel-debug-failure`、
-  `keel-review-checklist` 按需只加载匹配的那一份。
+- **可插拔领域透镜**：keel 核心只保留机制，透镜内容由用户自己写在仓库的 `keel/lenses/*.md`。每份透镜
+  自描述——开头一行 `Applies when:` 声明触发信号，并含一节 `Execution and review checks`。当变更
+  artifacts 或 Touch 扩展名匹配某份透镜的 `Applies when:` 时，`keel-align-expectations`、
+  `keel-tdd-or-test-first`、`keel-debug-failure`、`keel-review-checklist` 按需只加载匹配的那一份，
+  没有匹配就不加载。`keel lenses list` 查看内置模板与已安装透镜；`keel lenses add web` 把内置模板
+  （web / hardware / hardware-dsl，随包放在 `assets/lenses/`）落到 `keel/lenses/` 后自行改写，
+  已存在时需 `--force` 才覆盖。
 - **专门技能政策**：新增或实质扩展技能前，先研究 first-party 或其他 authoritative source 并记录
   provenance/license；用真实的 should-trigger 与近邻 `should-not-trigger` 用例验证 description，
   并至少通过一个 real task；以 `src/skills/<name>/SKILL.md` 为唯一可移植权威，target metadata 只是

@@ -1610,13 +1610,13 @@ def validate_authoring_continuity_scenario() -> int:
         "keel-align-expectations",
         "risk-triggered deep path",
         "hidden-knowledge risk",
-        "domain references",
+        "domain lenses",
         "Missing authority returns to OpenSpec authoring",
     ]
     schema_snippets = [
         "risk-triggered deep",
         "hidden-knowledge assumptions",
-        "domain reference",
+        "domain lens",
     ]
     design_template_snippets = [
         "Hidden Knowledge / Assumptions",
@@ -1625,7 +1625,7 @@ def validate_authoring_continuity_scenario() -> int:
     ]
     task_template_snippets = [
         "hidden-knowledge assumption",
-        "domain profile",
+        "domain lens",
     ]
 
     checks: list[tuple[str, Path, list[str]]] = [

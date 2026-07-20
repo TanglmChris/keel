@@ -11,7 +11,7 @@
 
 - [ ] 1.1 <!-- Task description -->
   - Covers:
-    - <source expectation: spec scenario as `capability / requirement or scenario heading`, hidden-knowledge assumption, domain profile requirement, or critical D<n>/F<n>/A<n>/Q<n>; an unresolved Q<n> requires an authorized fallback>
+    - <source expectation: spec scenario as `capability / requirement or scenario heading`, hidden-knowledge assumption, domain lens requirement, or critical D<n>/F<n>/A<n>/Q<n>; an unresolved Q<n> requires an authorized fallback>
   - Touch:
     - <path>
   - Verify:
