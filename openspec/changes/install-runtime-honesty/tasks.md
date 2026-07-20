@@ -33,7 +33,7 @@
 
 ## 2. openspec invocable (issue #2)
 
-- [ ] 2.1 Add a `keel openspec` passthrough and direct overlays to it
+- [x] 2.1 Add a `keel openspec` passthrough and direct overlays to it
   - Covers:
     - keel-openspec-surface-overlay / Keel makes openspec invocable for skill-driven agents
   - Touch:
@@ -45,15 +45,15 @@
     - M2: the apply and archive overlays direct agents to `keel openspec` in place of a bare `openspec`
     - M3: `npm test` passes with a scenario covering the passthrough and the overlay direction
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:6566a1f82c94692ad5e6f5888796ef5c5917efe23615b53c470afd118185f586
+    - M1: `keel openspec --version` printed "1.6.0" (forwarded to the resolved openspec) and `keel openspec list` forwarded and listed the repo's changes; the passthrough resolves via `findOpenSpecCommand`, so it works when bare `openspec` is not on PATH.
+    - M2: both the apply and archive overlays carry the bullet "Invoke OpenSpec through `keel openspec` ..." (2 occurrences in bin/keel.js).
+    - M3: `npm test` reported "validation --all passed: baseline plus 50 scenarios" with the new `validate_openspec_invocable` baseline check asserting the passthrough handler and the two overlay directions.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — `keel openspec` forwards to the resolved openspec independent of PATH, and both overlays direct skill-driven agents to it.
+      - Scope check: pass — changes limited to Touch (`bin/keel.js`, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## 3. Doctor openspec honesty (issue #2)

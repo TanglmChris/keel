@@ -82,6 +82,7 @@ Usage:
   keel gate task-start|task-complete|change-close [repo] [--change name] [--task id] [--action sync|archive] [--base git-ref] [--no-guard] [--record] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
   keel lenses list|add [name] [repo] [--force]
+  keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
@@ -168,6 +169,7 @@ function parseArgs(argv) {
     guardSubcommand: null,
     lensesSubcommand: null,
     lensName: null,
+    openspecArgs: [],
     force: false,
     projectionEvent: null,
     authorizations: [],
@@ -209,6 +211,11 @@ function parseArgs(argv) {
     if (arg === "lenses" && parsed.action === null && parsed.repo === null) {
       parsed.action = "lenses";
       continue;
+    }
+    if (arg === "openspec" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "openspec";
+      parsed.openspecArgs = argv.slice(index + 1);
+      break;
     }
     if (arg === "--force") {
       parsed.force = true;
@@ -1015,6 +1022,7 @@ function keelOpenSpecOverlay(action) {
           "- The current agent reviews all subagent output, command evidence, and diffs before marking any task complete.",
           "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
           "- A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.",
+          "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
         ]
       : [
           "- The current agent owns final sync/archive decisions and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
@@ -1022,6 +1030,7 @@ function keelOpenSpecOverlay(action) {
           "- Target-native subagents may help with bounded assessment or evidence production only; they cannot archive, sync, change acceptance, or bypass completion gates.",
           "- The current agent reviews any subagent report before running `openspec-sync-specs`, `/opsx:sync`, or `/opsx:archive`.",
           "- Do not treat generic OpenSpec archive delegation language as authority to transfer Keel ownership.",
+          "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
         ];
 
   const lines = [
@@ -1417,6 +1426,18 @@ function runLensesAdd(repo, name, force) {
 function runAction(options) {
   if (options.updateSource !== null && options.action !== "update") {
     fail("--source only applies to --update");
+  }
+
+  if (options.action === "openspec") {
+    const openspec = findOpenSpecCommand();
+    if (!openspec) {
+      process.stderr.write(
+        "keel: openspec is not resolvable; reinstall keel so npm installs "
+          + "its OpenSpec dependency\n"
+      );
+      return 1;
+    }
+    return runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
   }
 
   if (options.action === "context") {

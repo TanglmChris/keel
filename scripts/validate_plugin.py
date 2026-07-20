@@ -10032,6 +10032,17 @@ def validate_install_honesty(errors: list[str]) -> None:
         )
 
 
+def validate_openspec_invocable(errors: list[str]) -> None:
+    cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
+    if 'options.action === "openspec"' not in cli:
+        errors.append("bin/keel.js must implement the `keel openspec` passthrough.")
+    if cli.count("Invoke OpenSpec through") < 2:
+        errors.append(
+            "the apply and archive overlays must direct agents to `keel openspec` "
+            "in place of a bare openspec command."
+        )
+
+
 def run_baseline() -> int:
     errors: list[str] = []
     validate_manifest(errors)
@@ -10042,6 +10053,7 @@ def run_baseline() -> int:
     validate_openspec_schema(errors)
     validate_review_status_single_source(errors)
     validate_install_honesty(errors)
+    validate_openspec_invocable(errors)
     validate_skill_docs(errors)
     validate_skill_portability(ROOT, errors)
     validate_scripts_use_stdlib(errors)
