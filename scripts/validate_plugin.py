@@ -397,6 +397,7 @@ def validate_npm_package(errors: list[str]) -> None:
         "--doctor",
         "capabilities",
         "gate",
+        "lenses",
         "--profile",
         "--version",
         "--help",
@@ -9371,6 +9372,78 @@ def validate_domain_execution_references_scenario() -> int:
     return 0
 
 
+def validate_domain_lens_scaffold_scenario() -> int:
+    shipped = {"web", "hardware", "hardware-dsl"}
+    lenses_root = ROOT / "assets/lenses"
+    for name in shipped:
+        if not (lenses_root / f"{name}.md").is_file():
+            report(f"domain-lens-scaffold: shipped template is missing: {name}")
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-lenses-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+
+        listing = run_keel(repo, "lenses", "list")
+        if listing.returncode != 0:
+            report("domain-lens-scaffold: keel lenses list failed.")
+            report((listing.stderr or listing.stdout).strip())
+            return 1
+        for name in shipped:
+            if name not in listing.stdout:
+                report(
+                    f"domain-lens-scaffold: keel lenses list omitted the "
+                    f"{name} template."
+                )
+                report(listing.stdout.strip())
+                return 1
+        if "keel/lenses/" not in listing.stdout:
+            report(
+                "domain-lens-scaffold: keel lenses list did not name the "
+                "keel/lenses/ install location."
+            )
+            return 1
+
+        add = run_keel(repo, "lenses", "add", "web")
+        installed = repo / "keel/lenses/web.md"
+        if add.returncode != 0 or not installed.is_file():
+            report("domain-lens-scaffold: keel lenses add web did not scaffold.")
+            report((add.stderr or add.stdout).strip())
+            return 1
+        if "Applies when:" not in installed.read_text(encoding="utf-8"):
+            report(
+                "domain-lens-scaffold: scaffolded lens lost its 'Applies when:' "
+                "header."
+            )
+            return 1
+
+        clobber = run_keel(repo, "lenses", "add", "web")
+        if clobber.returncode == 0:
+            report(
+                "domain-lens-scaffold: a second keel lenses add web must refuse "
+                "without --force."
+            )
+            return 1
+
+        forced = run_keel(repo, "lenses", "add", "web", "--force")
+        if forced.returncode != 0:
+            report("domain-lens-scaffold: keel lenses add web --force failed.")
+            report((forced.stderr or forced.stdout).strip())
+            return 1
+
+        after_add = run_keel(repo, "lenses", "list")
+        if "web (installed)" not in after_add.stdout:
+            report(
+                "domain-lens-scaffold: keel lenses list did not mark web as "
+                "installed after add."
+            )
+            report(after_add.stdout.strip())
+            return 1
+
+    report("domain-lens-scaffold scenario passed.")
+    return 0
+
+
 def validate_precompact_probe_scenario() -> int:
     hooks_config = json.loads(
         (ROOT / PLUGIN_ROOT / "hooks/hooks.json").read_text(encoding="utf-8")
@@ -9762,6 +9835,7 @@ SCENARIOS: tuple = (
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),
     ("precompact-probe", validate_precompact_probe_scenario),
     ("domain-execution-references", validate_domain_execution_references_scenario),
+    ("domain-lens-scaffold", validate_domain_lens_scaffold_scenario),
     ("plan-funnel-guidance", validate_plan_funnel_guidance_scenario),
     ("native-tasks-view", validate_native_tasks_view_scenario),
     ("validation-runner", validate_validation_runner_scenario),

@@ -45,7 +45,7 @@
 
 ## 2. keel lenses CLI
 
-- [ ] 2.1 Add `keel lenses list|add` scaffolding
+- [x] 2.1 Add `keel lenses list|add` scaffolding
   - Covers:
     - keel-domain-profiles / Keel scaffolds domain lenses
   - Touch:
@@ -57,15 +57,15 @@
     - M2: `keel lenses add web` in a temp repo creates `keel/lenses/web.md` with its `Applies when:` header, and a second `add web` refuses without a force flag
     - M3: `npm test` passes with a scenario covering list/add/no-clobber
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:0f54c02c4c3a49f86496993e57c59d1adda2ec303854907644b3eca6012c08c0
+    - M1: `keel lenses list` prints "Shipped lens templates (assets/lenses/)" with web/hardware/hardware-dsl and an "Installed lenses (keel/lenses/)" section that marks installed templates.
+    - M2: `keel lenses add web` in a temp repo writes `keel/lenses/web.md` carrying its `Applies when:` header; a second `add web` exits 3 with "pass --force to overwrite"; `add web --force` exits 0 and overwrites.
+    - M3: `npm test` → "validation --all passed: baseline plus 49 scenarios"; new `domain-lens-scaffold` scenario exercises list/add/no-clobber/force, and the baseline CLI-support check now requires the `lenses` token.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — `keel lenses add web` scaffolds a shipped template into the user's `keel/lenses/`, refuses to clobber without `--force`, and `list` surfaces both shipped templates and installed lenses; the command is not run by `keel --init`.
+      - Scope check: pass — changes limited to Touch (bin/keel.js, scripts/validate_plugin.py) plus this change's own tasks.md; base HEAD at task-start.
+      - Findings: none
     - Blocker: none
 
 ## 3. Documentation

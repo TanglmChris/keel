@@ -81,6 +81,7 @@ Usage:
   keel project tasks [repo] --target claude [--change name] [--json]
   keel gate task-start|task-complete|change-close [repo] [--change name] [--task id] [--action sync|archive] [--base git-ref] [--no-guard] [--record] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
+  keel lenses list|add [name] [repo] [--force]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
@@ -116,6 +117,9 @@ Examples:
   keel guard start --change my-change --task 1.1 --json
   keel guard status --json
   keel guard clear --json
+  keel lenses list
+  keel lenses add web
+  keel lenses add web --force
   keel --init
   keel --install
   keel --install --target codex
@@ -164,6 +168,8 @@ function parseArgs(argv) {
     noGuard: false,
     record: false,
     guardSubcommand: null,
+    lensesSubcommand: null,
+    lensName: null,
     force: false,
     projectionEvent: null,
     authorizations: [],
@@ -200,6 +206,10 @@ function parseArgs(argv) {
     }
     if (arg === "guard" && parsed.action === null && parsed.repo === null) {
       parsed.action = "guard";
+      continue;
+    }
+    if (arg === "lenses" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "lenses";
       continue;
     }
     if (arg === "--force") {
@@ -418,6 +428,18 @@ function parseArgs(argv) {
       parsed.projectSubcommand = arg;
       continue;
     }
+    if (parsed.action === "lenses" && parsed.lensesSubcommand === null) {
+      parsed.lensesSubcommand = arg;
+      continue;
+    }
+    if (
+      parsed.action === "lenses"
+      && parsed.lensesSubcommand === "add"
+      && parsed.lensName === null
+    ) {
+      parsed.lensName = arg;
+      continue;
+    }
     if (parsed.repo !== null) {
       fail("repo path was provided more than once");
     }
@@ -481,8 +503,25 @@ function parseArgs(argv) {
   if (parsed.action !== "guard" && parsed.guardSubcommand !== null) {
     fail("guard subcommands apply only to keel guard");
   }
-  if (parsed.force && parsed.action !== "guard") {
-    fail("--force applies only to keel guard start");
+  if (
+    parsed.force
+    && parsed.action !== "guard"
+    && !(parsed.action === "lenses" && parsed.lensesSubcommand === "add")
+  ) {
+    fail("--force applies only to keel guard start or keel lenses add");
+  }
+  if (parsed.action === "lenses") {
+    if (!["list", "add"].includes(parsed.lensesSubcommand || "")) {
+      fail("lenses requires list or add");
+    }
+    if (parsed.lensesSubcommand === "add" && !parsed.lensName) {
+      fail("keel lenses add requires a lens name");
+    }
+    if (parsed.lensesSubcommand === "list" && parsed.lensName) {
+      fail("keel lenses list does not take a lens name");
+    }
+  } else if (parsed.lensesSubcommand !== null || parsed.lensName !== null) {
+    fail("lens subcommands apply only to keel lenses");
   }
   if (parsed.noGuard && parsed.action !== "gate") {
     fail("--no-guard applies only to keel gate task-start");
@@ -1256,6 +1295,67 @@ function runDoctor(options) {
   return checkStatus;
 }
 
+const SHIPPED_LENS_DIR = path.join(PACKAGE_ROOT, "assets", "lenses");
+
+function lensNames(dir) {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => name.slice(0, -3))
+      .sort();
+  } catch (error) {
+    return [];
+  }
+}
+
+function runLensesList(repo) {
+  const shipped = lensNames(SHIPPED_LENS_DIR);
+  const installed = lensNames(path.join(repo, "keel", "lenses"));
+  process.stdout.write("Shipped lens templates (assets/lenses/):\n");
+  if (shipped.length === 0) {
+    process.stdout.write("  (none)\n");
+  } else {
+    for (const name of shipped) {
+      const mark = installed.includes(name) ? " (installed)" : "";
+      process.stdout.write(`  ${name}${mark}\n`);
+    }
+  }
+  process.stdout.write("\nInstalled lenses (keel/lenses/):\n");
+  if (installed.length === 0) {
+    process.stdout.write("  (none) — run keel lenses add <name>\n");
+  } else {
+    for (const name of installed) {
+      const mark = shipped.includes(name) ? "" : " (custom)";
+      process.stdout.write(`  ${name}${mark}\n`);
+    }
+  }
+  return 0;
+}
+
+function runLensesAdd(repo, name, force) {
+  const source = path.join(SHIPPED_LENS_DIR, `${name}.md`);
+  if (!fs.existsSync(source)) {
+    const available = lensNames(SHIPPED_LENS_DIR).join(", ") || "(none)";
+    fail(`unknown lens template: ${name}; shipped templates: ${available}`);
+  }
+  const destDir = path.join(repo, "keel", "lenses");
+  const dest = path.join(destDir, `${name}.md`);
+  if (fs.existsSync(dest) && !force) {
+    process.stderr.write(
+      `keel: keel/lenses/${name}.md already exists; pass --force to overwrite\n`
+    );
+    return 3;
+  }
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.copyFileSync(source, dest);
+  process.stdout.write(
+    `keel: wrote keel/lenses/${name}.md from the ${name} template; `
+      + "edit it to fit this repository\n"
+  );
+  return 0;
+}
+
 function runAction(options) {
   if (options.updateSource !== null && options.action !== "update") {
     fail("--source only applies to --update");
@@ -1344,6 +1444,17 @@ function runAction(options) {
     return ["started", "active", "absent", "cleared"].includes(result.status)
       ? 0
       : 3;
+  }
+
+  if (options.action === "lenses") {
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("lenses does not accept install or update options");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    if (options.lensesSubcommand === "list") {
+      return runLensesList(repo);
+    }
+    return runLensesAdd(repo, options.lensName, options.force);
   }
 
   if (options.action === "capabilities") {
