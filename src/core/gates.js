@@ -456,7 +456,9 @@ function expectationProblems(content, tasks) {
     return [
       problem(
         "expectation-coverage",
-        "tasks.md requires an Expectation Coverage section."
+        "tasks.md requires a `## Expectation Coverage` section: one "
+          + "`- E<n>: <expectation> Covered by: <task ids>` line per "
+          + "expectation, or `- None.`."
       ),
     ];
   }
@@ -474,7 +476,9 @@ function expectationProblems(content, tasks) {
     return [
       problem(
         "expectation-coverage",
-        "Expectation Coverage must declare each E<n> closure or `None`."
+        "Expectation Coverage must declare each `E<n>` closure — "
+          + "`- E<n>: <expectation> Covered by: <task ids>`, a `Durable owner:` "
+          + "path, or a `Discard reason:` — or `- None.`."
       ),
     ];
   }

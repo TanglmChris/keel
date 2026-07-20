@@ -45,7 +45,7 @@
 
 ## 2. Expectation Coverage section (issue #1 Case C)
 
-- [ ] 2.1 Ship `## Expectation Coverage` in the template and instruction, and sample it in the close error
+- [x] 2.1 Ship `## Expectation Coverage` in the template and instruction, and sample it in the close error
   - Covers:
     - keel-expectation-slice-evidence-gates / Gate-validated forms are expressed in the author-facing surface
     - keel-core-gates / Gate rejections for validated forms name the field and accepted forms
@@ -59,18 +59,24 @@
   - Verify:
     - Strategy: regression-first
     - M1: a `tasks.md` scaffolded from the shipped `keel-spec-driven` template contains a `## Expectation Coverage` section that `change-close` accepts; before the change the template emits no such section and `change-close` fails `expectation-coverage`
-    - M2: the `change-close` `expectation-coverage` rejection carries a minimal `- E<n>: … Covered by: <task ids>` format sample
-    - M3: both `tasks.md` template copies carry the section (`- None.` default plus an `E<n>` example) and both `schema.yaml` `tasks`-instruction copies require and format it; `npm test` passes with a validator assertion
+    - M2: the `change-close` `expectation-coverage` rejection carries a minimal format sample (an `E1: … Covered by: 2.1`-style line)
+    - M3: both `tasks.md` template copies carry the section (a `- None.` default plus an `E1: … Covered by: …`-style example) and both `schema.yaml` `tasks`-instruction copies require and format it; `npm test` passes with a validator assertion
   - Evidence:
-    - Contract: pending task-start capsule and fingerprint
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:201272d8c6b0becaa1a62b0b55cba8642d943ce9da383a60fcfab6dd8807e1bb
+    - M1: the shipped `keel-spec-driven` tasks template now ends with a `## Expectation Coverage` section (a `- None.` default plus an `E1: … Covered by: …`-style example comment) that `change-close` accepts.
+    - M1.red: pre-fix HEAD — the template had zero `## Expectation Coverage` occurrences; a tasks.md copied from it produced the `expectation-coverage` problem at `change-close`.
+    - M1.green: with the fix, a tasks.md copied from the shipped template produces no `expectation-coverage` problem at `change-close`.
+    - M2: the `change-close` `expectation-coverage` rejection now carries a format sample.
+    - M2.red: pre-fix — the error read "tasks.md requires an Expectation Coverage section." with no sample.
+    - M2.green: with the fix — the missing-section error reads "tasks.md requires a `## Expectation Coverage` section: one E-n Covered-by line per expectation, or `- None.`" and the malformed-entry error names the `Durable owner:` / `Discard reason:` closures.
+    - M3: both `tasks.md` template copies and both `schema.yaml` instruction copies carry the section and its authoring requirement.
+    - M3.red: pre-fix — the template had zero `## Expectation Coverage` occurrences.
+    - M3.green: `npm test` → "validation --all passed: baseline plus 50 scenarios"; the new schema and template `## Expectation Coverage` needles pass.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the `## Expectation Coverage` section ships in both tasks template copies with a `- None.` default and an example, the `tasks` instruction requires and formats it, and both `change-close` errors carry a format sample.
+      - Scope check: pass — changes limited to Touch (`src/core/gates.js`, both `tasks.md` template copies, both `schema.yaml` copies, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## 3. Findings forms (issue #1 Case D)

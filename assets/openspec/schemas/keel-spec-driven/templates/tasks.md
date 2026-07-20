@@ -67,3 +67,11 @@
       - Scope check: pending
       - Findings: pending
     - Blocker: none
+
+## Expectation Coverage
+
+<!-- change-close requires this section. One line per critical expectation:
+     `- E1: the expectation Covered by: 1.1` (task ids that own it), or a
+     `Durable owner: openspec/changes/<change>/tasks.md` / `Discard reason: why`
+     closure. Use `- None.` only when the change has no critical expectations. -->
+- None.

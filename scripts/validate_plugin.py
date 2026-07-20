@@ -645,6 +645,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "positive and negative trigger cases",
             "real-task evidence",
             "one of pass, passed, complete, completed, ok, or done.",
+            "## Expectation Coverage",
         ):
             if required not in schema:
                 errors.append(f"OpenSpec schema.yaml missing required language: {required}")
@@ -667,6 +668,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "Blocker: none",
             "Mode: diagnose-only",
             "Requires modifying files outside Touch.",
+            "## Expectation Coverage",
         ):
             if required not in tasks_template:
                 errors.append(
