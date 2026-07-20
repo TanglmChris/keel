@@ -24,7 +24,7 @@
     - Strategy: <strategy>
     - M1: <public behavior check>
   - Evidence:
-    - Contract: pending task-start capsule and fingerprint
+    - Contract: pending
     - M1: pending
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
@@ -59,7 +59,7 @@
     - Strategy: evidence-first
     - M1: <reproduction or diagnosis check with its observable evidence>
   - Evidence:
-    - Contract: pending task-start capsule and fingerprint
+    - Contract: pending
     - M1: pending
     - Review:
       - Status: pending
