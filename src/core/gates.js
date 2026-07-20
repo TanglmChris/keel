@@ -6,10 +6,12 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const {
+  ACCEPTED_REVIEW_STATUSES,
   RED_GREEN_VERIFICATION_STRATEGIES,
   compileTaskContract,
   field,
   isConcrete,
+  isPassingReviewStatus,
   parseTasks,
 } = require("./task-contract");
 const { startGuard } = require("./guard");
@@ -376,16 +378,29 @@ function completionChecks(repo, task, contract = null) {
         : [["Findings", reviewFields.Findings]]
     ),
   ];
-  const reviewPassed = /^(?:pass|passed|complete|completed|ok)$/i.test(
-    reviewFields.Status
-  );
+  const reviewPassed = isPassingReviewStatus(reviewFields.Status);
   const reviewProblems = [];
   if (reviewMissing.length > 0 || !reviewPassed) {
+    const details = [];
+    if (!reviewPassed) {
+      const got = isConcrete(reviewFields.Status)
+        ? ` (got "${String(reviewFields.Status).trim()}")`
+        : "";
+      details.push(
+        `Status must be one of ${ACCEPTED_REVIEW_STATUSES.join(", ")}${got}`
+      );
+    }
+    const otherMissing = reviewMissing.filter(([name]) => name !== "Status");
+    if (otherMissing.length > 0) {
+      details.push(
+        "these Review fields need concrete Evidence: "
+          + otherMissing.map(([name]) => name).join(", ")
+      );
+    }
     reviewProblems.push(
       problem(
         "semantic-review",
-        "Current-agent Review requires passing Status, Acceptance check, "
-          + "Scope check, and Findings."
+        `Current-agent Review is incomplete — ${details.join("; ")}.`
       )
     );
   } else if (

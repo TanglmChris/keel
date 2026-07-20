@@ -97,6 +97,25 @@ const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
   "regression-first",
 ]);
 
+// Single source of truth for the accepted completion Review `Status`
+// vocabulary. Consumed by both the completion gate (src/core/gates.js) and the
+// context "already reviewed" probe (src/core/context.js) so the two never
+// diverge.
+const ACCEPTED_REVIEW_STATUSES = [
+  "pass",
+  "passed",
+  "complete",
+  "completed",
+  "ok",
+  "done",
+];
+
+function isPassingReviewStatus(value) {
+  return ACCEPTED_REVIEW_STATUSES.includes(
+    String(value == null ? "" : value).trim().toLowerCase()
+  );
+}
+
 function verification(task) {
   const compact = fieldValues(task, "Verify");
   const strategyEntry = compact.find((entry) => /^Strategy:\s*/i.test(entry));
@@ -725,11 +744,13 @@ function loadTaskContract(repo, change, taskId) {
 }
 
 module.exports = {
+  ACCEPTED_REVIEW_STATUSES,
   RED_GREEN_VERIFICATION_STRATEGIES,
   SUPPORTED_VERIFICATION_STRATEGIES,
   compileTaskContract,
   field,
   isConcrete,
+  isPassingReviewStatus,
   loadTaskContract,
   parseTasks,
   taskStartContractProblems,

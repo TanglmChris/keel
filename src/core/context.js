@@ -5,7 +5,12 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { compileTaskContract, field, parseTasks } = require("./task-contract");
+const {
+  ACCEPTED_REVIEW_STATUSES,
+  compileTaskContract,
+  field,
+  parseTasks,
+} = require("./task-contract");
 
 const NEXT_ACTIONS = new Set([
   "discuss",
@@ -68,8 +73,10 @@ function taskHasCompletionEvidence(record, contract) {
       (match) => match[1]
     )
   );
-  const reviewPassed =
-    /^\s+- Status:\s*(?:pass|passed|complete|completed|ok)\s*$/im.test(evidence);
+  const reviewPassed = new RegExp(
+    `^\\s*-\\s*Status:\\s*(?:${ACCEPTED_REVIEW_STATUSES.join("|")})\\s*$`,
+    "im"
+  ).test(evidence);
   return (
     commandIds.length > 0
     && commandIds.every((commandId) => evidenceIds.has(commandId))

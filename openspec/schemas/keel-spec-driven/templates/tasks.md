@@ -27,6 +27,7 @@
     - Contract: pending task-start capsule and fingerprint
     - M1: pending
     - Review:
+      <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, a durable OpenSpec/archive owner, or an explicit discard rationale -->
       - Status: pending
       - Acceptance check: pending

@@ -644,6 +644,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "provenance and license",
             "positive and negative trigger cases",
             "real-task evidence",
+            "one of pass, passed, complete, completed, ok, or done.",
         ):
             if required not in schema:
                 errors.append(f"OpenSpec schema.yaml missing required language: {required}")
@@ -662,6 +663,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "Contract: pending task-start capsule and fingerprint",
             "Review:",
             "Status: pending",
+            "Status: one of pass, passed, complete, completed, ok, done",
             "Blocker: none",
             "Mode: diagnose-only",
             "Requires modifying files outside Touch.",
@@ -4544,6 +4546,54 @@ def validate_core_gates_scenario() -> int:
         if owned_finding.returncode != 0:
             report("core-gates scenario rejected a durable finding owner.")
             report((owned_finding.stderr or owned_finding.stdout).strip())
+            return 1
+
+        write_text(completion_tasks, completion_task("passed", "done"))
+        done_status = run_keel(
+            completion_repo,
+            "gate",
+            "task-complete",
+            "--change",
+            "demo",
+            "--task",
+            "1.1",
+            "--json",
+        )
+        if (
+            done_status.returncode != 0
+            or json.loads(done_status.stdout).get("status") != "pass"
+        ):
+            report("core-gates scenario rejected an accepted `done` Review Status.")
+            report((done_status.stderr or done_status.stdout).strip())
+            return 1
+
+        write_text(completion_tasks, completion_task("passed", "reviewed"))
+        bad_status = run_keel(
+            completion_repo,
+            "gate",
+            "task-complete",
+            "--change",
+            "demo",
+            "--task",
+            "1.1",
+            "--json",
+        )
+        bad_status_payload = json.loads(bad_status.stdout)
+        bad_status_message = " ".join(
+            problem.get("message", "")
+            for problem in bad_status_payload.get("problems", [])
+        )
+        if (
+            bad_status.returncode != 4
+            or bad_status_payload.get("status") != "needs-review"
+            or "Status" not in bad_status_message
+            or "done" not in bad_status_message
+        ):
+            report(
+                "core-gates scenario semantic-review did not name Status and list "
+                "accepted tokens including done."
+            )
+            report((bad_status.stderr or bad_status.stdout).strip())
             return 1
 
         write_text(completion_tasks, completion_task("passed", "pass"))
@@ -9920,6 +9970,32 @@ def run_scenario_processes(names: list, jobs: int) -> list:
     return [(name, *results[name]) for name in names]
 
 
+def validate_review_status_single_source(errors: list[str]) -> None:
+    contract = (ROOT / "src/core/task-contract.js").read_text(encoding="utf-8")
+    if "ACCEPTED_REVIEW_STATUSES" not in contract:
+        errors.append(
+            "src/core/task-contract.js must define the shared "
+            "ACCEPTED_REVIEW_STATUSES constant."
+        )
+    if '"done"' not in contract:
+        errors.append(
+            "ACCEPTED_REVIEW_STATUSES must include the `done` Review Status."
+        )
+    literal = "pass|passed|complete|completed|ok"
+    for relative in ("src/core/gates.js", "src/core/context.js"):
+        content = (ROOT / relative).read_text(encoding="utf-8")
+        if "ACCEPTED_REVIEW_STATUSES" not in content:
+            errors.append(
+                f"{relative} must consume the shared ACCEPTED_REVIEW_STATUSES "
+                "constant rather than an inline Review Status vocabulary."
+            )
+        if literal in content:
+            errors.append(
+                f"{relative} still hard-codes the Review Status vocabulary "
+                f"`{literal}`; consume the shared constant instead."
+            )
+
+
 def run_baseline() -> int:
     errors: list[str] = []
     validate_manifest(errors)
@@ -9928,6 +10004,7 @@ def run_baseline() -> int:
     validate_resident_blocks(errors)
     validate_templates(errors)
     validate_openspec_schema(errors)
+    validate_review_status_single_source(errors)
     validate_skill_docs(errors)
     validate_skill_portability(ROOT, errors)
     validate_scripts_use_stdlib(errors)

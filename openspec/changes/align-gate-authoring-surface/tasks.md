@@ -6,12 +6,13 @@
 
 ## 1. Review Status vocabulary (issue #1 Case B)
 
-- [ ] 1.1 Accept `done`, single-source the accepted Status set, and surface the vocabulary
+- [x] 1.1 Accept `done`, single-source the accepted Status set, and surface the vocabulary
   - Covers:
     - keel-core-gates / Accepted Review Status vocabulary is single-sourced and includes `done`
     - keel-core-gates / Gate rejections for validated forms name the field and accepted forms
     - keel-expectation-slice-evidence-gates / Gate-validated forms are expressed in the author-facing surface
   - Touch:
+    - src/core/task-contract.js
     - src/core/gates.js
     - src/core/context.js
     - openspec/schemas/keel-spec-driven/templates/tasks.md
@@ -25,15 +26,21 @@
     - M2: `task-complete` on a `Status` outside the accepted set emits `semantic-review` naming the `Status` field and listing the accepted tokens including `done`
     - M3: both `tasks.md` template copies and both `schema.yaml` `tasks`-instruction copies enumerate the accepted `Status` tokens; `npm test` passes with a validator assertion that the accepted-`Status` set is single-sourced and surfaced
   - Evidence:
-    - Contract: pending task-start capsule and fingerprint
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:525118c3371465158c230ff7f257eca7253bba73044b9e723ce45beaeb9b78ae
+    - M1: `Status: done` now completes; a shared `ACCEPTED_REVIEW_STATUSES` constant in `src/core/task-contract.js` is consumed by both `gates.js` and `context.js`, neither of which keeps its own token list.
+    - M1.red: pre-fix HEAD — `task-complete` on a `Status: done` fixture returned needs-review; the `pass|passed|complete|completed|ok` regex rejected `done`.
+    - M1.green: with the fix the same fixture returns pass; the core-gates scenario `done`-accept assertion passes.
+    - M2: the `semantic-review` error names the `Status` field and lists the accepted tokens including `done`.
+    - M2.red: pre-fix — a `Status: reviewed` fixture produced the generic "Current-agent Review requires passing Status, Acceptance check, Scope check, and Findings."
+    - M2.green: with the fix the same fixture produces "Current-agent Review is incomplete — Status must be one of pass, passed, complete, completed, ok, done (got \"reviewed\")."
+    - M3: both `tasks.md` template copies and both `schema.yaml` instruction copies enumerate the accepted `Status` tokens; the accepted set is single-sourced.
+    - M3.red: pre-fix — `gates.js` and `context.js` each carried the duplicated `pass|passed|complete|completed|ok` literal and the template enumerated 0 tokens.
+    - M3.green: `npm test` → "validation --all passed: baseline plus 50 scenarios"; the new baseline check `validate_review_status_single_source`, the schema/template needles, and the core-gates done/bad-status assertions all pass.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the accepted Status vocabulary is single-sourced (`ACCEPTED_REVIEW_STATUSES`), includes `done`, is surfaced in the template and instruction, and the rejection error names the field and lists the tokens.
+      - Scope check: pass — changes limited to Touch (`src/core/{task-contract,gates,context}.js`, both `tasks.md` template copies, both `schema.yaml` copies, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## 2. Expectation Coverage section (issue #1 Case C)

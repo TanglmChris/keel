@@ -134,7 +134,8 @@ artifacts:
       outside Touch, broader design work, or an interface/security boundary
       change not covered by design.md, stop and report an Out-of-scope Need.
       Before task completion, Evidence records the current agent's semantic
-      Review with Status, Acceptance check, Scope check, and Findings. Findings
+      Review with Status, Acceptance check, Scope check, and Findings. Status is
+      one of pass, passed, complete, completed, ok, or done. Findings
       are `none` or name a durable OpenSpec/archive owner or discard rationale;
       HANDOFF is never the owner.
     requires:
