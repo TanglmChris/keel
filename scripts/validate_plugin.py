@@ -9444,6 +9444,57 @@ def validate_domain_lens_scaffold_scenario() -> int:
     return 0
 
 
+def validate_domain_lens_doctor_scenario() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="keel-lens-doctor-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+
+        doctor = run_keel(repo, "--doctor")
+        out = doctor.stdout
+        if "Domain lens surface:" not in out:
+            report("domain-lens-doctor: --doctor lacks the Domain lens surface section.")
+            report((doctor.stderr or out).strip())
+            return 1
+        for name in ("web", "hardware", "hardware-dsl"):
+            if name not in out:
+                report(f"domain-lens-doctor: --doctor did not report the {name} template.")
+                report(out.strip())
+                return 1
+        if "lens templates: ok" not in out:
+            report("domain-lens-doctor: --doctor did not report the shipped templates as ok.")
+            report(out.strip())
+            return 1
+
+        legacy = repo / ".claude/skills/keel-profile-web/SKILL.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("legacy profile bytes\n", encoding="utf-8")
+        before = legacy.read_bytes()
+
+        doctor2 = run_keel(repo, "--doctor")
+        out2 = doctor2.stdout
+        if "legacy profiles: migrate" not in out2 or "keel-profile-web" not in out2:
+            report(
+                "domain-lens-doctor: --doctor did not warn about the legacy "
+                "keel-profile-web skill."
+            )
+            report(out2.strip())
+            return 1
+        if "not active state" not in out2:
+            report(
+                "domain-lens-doctor: the legacy warning must state it is not "
+                "active state."
+            )
+            return 1
+        if legacy.read_bytes() != before:
+            report("domain-lens-doctor: --doctor modified the legacy skill bytes.")
+            return 1
+
+    report("domain-lens-doctor scenario passed.")
+    return 0
+
+
 def validate_precompact_probe_scenario() -> int:
     hooks_config = json.loads(
         (ROOT / PLUGIN_ROOT / "hooks/hooks.json").read_text(encoding="utf-8")
@@ -9836,6 +9887,7 @@ SCENARIOS: tuple = (
     ("precompact-probe", validate_precompact_probe_scenario),
     ("domain-execution-references", validate_domain_execution_references_scenario),
     ("domain-lens-scaffold", validate_domain_lens_scaffold_scenario),
+    ("domain-lens-doctor", validate_domain_lens_doctor_scenario),
     ("plan-funnel-guidance", validate_plan_funnel_guidance_scenario),
     ("native-tasks-view", validate_native_tasks_view_scenario),
     ("validation-runner", validate_validation_runner_scenario),

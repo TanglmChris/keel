@@ -1291,11 +1291,65 @@ function runDoctor(options) {
   }
 
   printTargetSurface(repo, options.target);
+  printLensSurface(repo, options.target);
 
   return checkStatus;
 }
 
 const SHIPPED_LENS_DIR = path.join(PACKAGE_ROOT, "assets", "lenses");
+const EXPECTED_LENS_TEMPLATES = ["web", "hardware", "hardware-dsl"];
+
+function targetSkillsDir(repo, target) {
+  if (target === "codex") return path.join(repo, ".agents", "skills");
+  if (target === "opencode") return path.join(repo, ".opencode", "skills");
+  return path.join(repo, ".claude", "skills");
+}
+
+function legacyProfileSkills(repo, target) {
+  try {
+    return fs
+      .readdirSync(targetSkillsDir(repo, target), { withFileTypes: true })
+      .filter(
+        (entry) => entry.isDirectory() && /^keel-profile-/.test(entry.name)
+      )
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    return [];
+  }
+}
+
+function printLensSurface(repo, target) {
+  process.stdout.write("\nDomain lens surface:\n");
+  const shipped = lensNames(SHIPPED_LENS_DIR);
+  const missing = EXPECTED_LENS_TEMPLATES.filter(
+    (name) => !shipped.includes(name)
+  );
+  printDoctorLine(
+    "lens templates",
+    missing.length === 0 ? "ok" : "incomplete",
+    missing.length === 0
+      ? `shipped: ${EXPECTED_LENS_TEMPLATES.join(", ")}; scaffold with keel lenses add`
+      : `missing template(s): ${missing.join(", ")}`
+  );
+  const installed = lensNames(path.join(repo, "keel", "lenses"));
+  printDoctorLine(
+    "installed lenses",
+    installed.length > 0 ? "ok" : "none",
+    installed.length > 0
+      ? `keel/lenses/: ${installed.join(", ")}`
+      : "no user lenses yet; keel lenses add scaffolds one"
+  );
+  const legacy = legacyProfileSkills(repo, target);
+  if (legacy.length > 0) {
+    printDoctorLine(
+      "legacy profiles",
+      "migrate",
+      `found ${legacy.join(", ")}; v3 keel-profile-* skills are replaced by `
+        + "pluggable lenses (keel lenses add). Left untouched; not active state."
+    );
+  }
+}
 
 function lensNames(dir) {
   try {

@@ -128,3 +128,29 @@
       - Scope check: pass — working-tree changes are limited to the eight Touch files (the bump script's exact target set) plus this change's own tasks.md; base HEAD (task 3.1 commit) at task-start.
       - Findings: one, explicitly discarded — one `npm test` invocation flaked on `native-plugin-session-start` (a scenario untouched by this change) and passed on every other run. Discard rationale: transient parallel-runner temp-dir timing, not reproducible and unrelated to the release bump; three consecutive clean full-suite runs confirm stability, so no durable follow-up is warranted.
     - Blocker: none
+
+## 5. Doctor diagnosis
+
+- [x] 5.1 Diagnose the domain lens surface in keel --doctor
+  - Covers:
+    - keel-domain-profiles / Keel diagnoses the domain lens surface
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: rendered-behavior
+    - M1: `keel --doctor` prints a "Domain lens surface" section that reports the three shipped lens templates (web, hardware, hardware-dsl) as present or names any missing one
+    - M2: in a repo containing a legacy `.claude/skills/keel-profile-web/` skill, `keel --doctor` prints a migration line that names it, states it is not active capability state, and leaves the skill file bytes unchanged
+    - M3: `npm test` passes with a scenario covering the doctor lens-surface diagnosis and the legacy-profile migration warning
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:dd97029253b18b72c58b700f2c8e4214446e6590ea6899cc1fbe12a825b4404e
+    - M1: `keel --doctor` on a temp repo prints "Domain lens surface:" then "lens templates: ok - shipped: web, hardware, hardware-dsl" and an "installed lenses" line; adding a lens flips that line to "ok - keel/lenses/: hardware".
+    - M2: with `.claude/skills/keel-profile-web/SKILL.md` present, `keel --doctor` prints "legacy profiles: migrate - found keel-profile-web; ... Left untouched; not active state." and an md5 comparison confirmed the skill bytes were preserved (read-only diagnosis).
+    - M3: `npm test` → "validation --all passed: baseline plus 50 scenarios"; the new `domain-lens-doctor` scenario asserts the surface section, the shipped-template report, the legacy-profile migration warning, and byte preservation.
+    - Review:
+      - Status: pass
+      - Acceptance check: pass — `keel --doctor` now diagnoses the shipped lens templates and the `keel lenses` scaffold path as one surface and warns on a leftover v3 `keel-profile-*` skill without treating it as active state, satisfying "Keel diagnoses the domain lens surface".
+      - Scope check: pass — working-tree changes are limited to the three Touch files (bin/keel.js, scripts/validate_plugin.py, keel/CHANGELOG.md) plus this change's own tasks.md; base HEAD (task 4.1 commit) at task-start.
+      - Findings: none
+    - Blocker: none
