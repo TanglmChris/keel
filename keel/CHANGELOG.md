@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.2.0 - pluggable domain lenses
+
+- Domain guidance is now pluggable and user-authored. Keel core keeps only the mechanism — detect a domain signal, load the one matching lens, feed it to alignment/execution/review — while the lens *content* lives in the repository at `keel/lenses/*.md`. Each lens is self-describing: an `Applies when:` header states its trigger signals and an `Execution and review checks` section carries the depth. The `keel-align-expectations`, `keel-tdd-or-test-first`, `keel-debug-failure`, and `keel-review-checklist` skills consult only the matching lens and load nothing when none matches; core no longer bundles any domain knowledge.
+- The three former built-in references ship as opt-in templates under `assets/lenses/` (`web`, `hardware`, `hardware-dsl`) and are never installed automatically. New CLI: `keel lenses list` shows shipped templates and installed lenses, and `keel lenses add <name>` scaffolds a template into `keel/lenses/`, refusing to clobber an existing lens without `--force`.
+- Renamed the domain vocabulary from "reference/profile" to "lens" across `AGENTS.md`, the keel-spec-driven schema and tasks template (source and repo copies), and the READMEs; the `authoring-continuity` and `domain-lens-scaffold` validators assert the new wording and CLI behavior.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.2.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.1.2 - CI: automated npm trusted publishing
 
 - Added a GitHub Actions workflow (`.github/workflows/publish.yml`) that publishes the package to npm via OIDC trusted publishing when a GitHub Release is published, after running the full validation suite and asserting the release tag matches the package version.

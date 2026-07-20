@@ -102,7 +102,7 @@
 
 ## 4. Release alignment
 
-- [ ] 4.1 Bump to 5.2.0 and record the change
+- [x] 4.1 Bump to 5.2.0 and record the change
   - Covers:
     - keel-domain-profiles / Keel supports pluggable domain lenses
   - Touch:
@@ -119,12 +119,12 @@
     - M1: `node scripts/bump_version.js minor` aligns every version pin to 5.2.0 and the CHANGELOG entry describes pluggable lenses
     - M2: `npm test` passes
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:3eaa703618fe9f873f268a12eda2eddcdc68873c16ac859e5d16f55f2d917167
+    - M1: `node scripts/bump_version.js minor` reported "Bumping 5.1.2 -> 5.2.0" and rewrote all eight pins (package.json, package-lock.json, both plugin manifests, scripts/validate_plugin.py, AGENTS.md, assets/bootstrap/AGENTS.md, keel/CHANGELOG.md); `keel --version` prints "keel 5.2.0". The CHANGELOG 5.2.0 entry now describes pluggable, user-authored `keel/lenses/`, the `keel lenses list|add` CLI and `assets/lenses/` templates, and the reference/profile→lens rename.
+    - M2: `npm test` → "validation --all passed: baseline plus 49 scenarios", confirmed stable across three consecutive runs.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the release is aligned to 5.2.0 across every pin and the changelog records the pluggable-lenses change, satisfying "Keel supports pluggable domain lenses" as the shipped release.
+      - Scope check: pass — working-tree changes are limited to the eight Touch files (the bump script's exact target set) plus this change's own tasks.md; base HEAD (task 3.1 commit) at task-start.
+      - Findings: one, explicitly discarded — one `npm test` invocation flaked on `native-plugin-session-start` (a scenario untouched by this change) and passed on every other run. Discard rationale: transient parallel-runner temp-dir timing, not reproducible and unrelated to the release bump; three consecutive clean full-suite runs confirm stability, so no durable follow-up is warranted.
     - Blocker: none
