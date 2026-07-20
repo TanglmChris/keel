@@ -2,36 +2,6 @@
 
 Define optional Keel domain profiles and their explicit installation and diagnostic behavior.
 ## Requirements
-### Requirement: Keel supports optional domain profiles
-Keel v4 MUST preserve web, hardware, and hardware-DSL alignment knowledge as conditionally loaded references inside `keel-align-expectations`. It MUST NOT package those domains as separately installed first-class profile skills or require profile selection state.
-
-#### Scenario: Domain references are packaged once
-- **WHEN** Keel's canonical alignment skill is packaged for Codex or Claude
-- **THEN** it includes `references/web.md`, `references/hardware.md`, and `references/hardware-dsl.md`
-- **AND THEN** it does not generate separate `keel-profile-*` skills
-
-#### Scenario: Relevant domain loads on demand
-- **WHEN** alignment detects UI/API/routing/persistence, RTL/protocol/timing/reset, or hardware-DSL/generated-equivalence risk
-- **THEN** it reads only the applicable domain reference or references
-- **AND THEN** unrelated domain guidance does not enter context
-
-#### Scenario: Default install needs no profile option
-- **WHEN** Keel v4 is initialized or installed
-- **THEN** domain references arrive with the alignment skill without `--profile`
-- **AND THEN** users do not manage profile install state
-
-### Requirement: Keel diagnoses domain profile surface
-Keel v4 check and doctor behavior MUST diagnose the alignment skill and its required domain references as one surface. It MUST NOT report installed/requested domain profiles as active v4 capability state.
-
-#### Scenario: Alignment reference set is complete
-- **WHEN** doctor inspects a v4 target
-- **THEN** it reports the canonical alignment skill and required reference set as present or incomplete
-
-#### Scenario: Legacy profile is discovered
-- **WHEN** doctor finds a separately installed `keel-profile-*` skill from v3
-- **THEN** it reports a migration warning without treating that skill as current v4 state
-- **AND THEN** it preserves user-modified bytes
-
 ### Requirement: Keel removes domain profiles deliberately
 Keel v4 migration MUST remove packaged unmodified legacy profile skills and obsolete profile metadata/options conservatively while preserving user-modified legacy files with an explicit warning.
 
@@ -50,34 +20,104 @@ Keel v4 migration MUST remove packaged unmodified legacy profile skills and obso
 - **THEN** Keel reports that domain references are bundled and the flag is no longer supported
 - **AND THEN** it does not silently create target-specific profile state
 
-### Requirement: Domain references serve execution and review phases
-The execution and review skills MUST consult the single matching domain reference on demand when the change's artifacts or task scope signal that domain, and MUST NOT load domain references for changes without a matching signal.
+### Requirement: Keel supports pluggable domain lenses
 
-#### Scenario: Domain-signaling change consults one reference
-- **WHEN** a task's change artifacts or Touch scope signal exactly one supported domain during execution or review
-- **THEN** the consuming skill consults that one domain reference before finalizing strategy, diagnosis, or review conclusions
-- **AND THEN** no other domain reference is loaded
+Keel MUST treat domain alignment knowledge as pluggable lenses authored by the user in `keel/lenses/*.md`, not as content bundled inside `keel-align-expectations`. The core MUST keep the on-demand mechanism (detect a domain signal, load the one matching lens, feed alignment/execution/review) without hardcoding any domain list. Each lens MUST be self-describing through an `Applies when:` header that names its domain signals. Keel MUST NOT require profile selection state or a `--profile` flag.
+
+#### Scenario: Lenses are user-authored and self-describing
+
+- **WHEN** a repo defines a lens at `keel/lenses/<name>.md`
+- **THEN** the lens declares an `Applies when:` header naming the domain signals it covers
+- **AND THEN** the core carries no built-in domain list that must match the lens
+
+#### Scenario: Relevant lens loads on demand
+
+- **WHEN** alignment detects a domain signal for which a matching `keel/lenses/` lens exists
+- **THEN** it reads only the lens whose `Applies when` matches
+- **AND THEN** unrelated lenses do not enter context
+
+#### Scenario: No lens is a valid state
+
+- **WHEN** a change shows a domain signal but the repo defines no matching lens
+- **THEN** alignment, execution, and review proceed on the domain-agnostic path
+- **AND THEN** no prompt demands a lens or a domain selection
+
+### Requirement: Domain lenses serve execution and review phases
+
+The execution and review skills (`keel-tdd-or-test-first`, `keel-debug-failure`, `keel-review-checklist`) MUST consult the single matching lens from `keel/lenses/` on demand when the change's artifacts or task scope signal that domain, and MUST NOT load any lens for changes without a matching signal.
+
+#### Scenario: Domain-signaling change consults one lens
+
+- **WHEN** a task's change artifacts or Touch scope signal exactly one domain during execution or review, and a matching lens exists in `keel/lenses/`
+- **THEN** the consuming skill consults that one lens before finalizing strategy, diagnosis, or review conclusions
+- **AND THEN** no other lens is loaded
 
 #### Scenario: No signal loads nothing
-- **WHEN** a change shows no supported domain signal
-- **THEN** execution and review proceed without loading any domain reference
+
+- **WHEN** a change shows no domain signal
+- **THEN** execution and review proceed without loading any lens
 - **AND THEN** no prompt demands a domain selection
 
-#### Scenario: References carry phase-appropriate checks
-- **WHEN** a domain reference is consulted during execution or review
-- **THEN** it provides that domain's verification pitfalls, evidence expectations, and review checks
-- **AND THEN** the reference stays within its validated size budget
+#### Scenario: Lenses carry phase-appropriate checks
 
-### Requirement: Domain reference authority stays single-source
-Domain references MUST be authored in exactly one canonical location, every shipped or consuming copy MUST be byte-identical to the canonical source, and validation MUST fail on divergence or budget overflow.
+- **WHEN** a lens is consulted during execution or review
+- **THEN** it provides that domain's verification pitfalls, evidence expectations, and review checks under an `Execution and review checks` heading
 
-#### Scenario: Projections are byte-identical
-- **WHEN** the build projects domain references into shipped surfaces
-- **THEN** every projected copy is byte-identical to the canonical source
+### Requirement: Shipped lens templates stay single-source
+
+Keel MUST ship the built-in domain lenses (`web`, `hardware`, `hardware-dsl`) as opt-in templates authored in exactly one canonical location under `assets/lenses/`. Every shipped copy of a template MUST be byte-identical to its canonical source, and validation MUST fail on divergence or size-budget overflow. User lenses in `keel/lenses/` are user-owned data and MUST NOT be policed by this single-source rule.
+
+#### Scenario: Template projections are byte-identical
+
+- **WHEN** the build ships lens templates into distribution surfaces
+- **THEN** every shipped template copy is byte-identical to its `assets/lenses/` source
 - **AND THEN** validation fails when any copy diverges
 
-#### Scenario: Size budget is enforced
-- **WHEN** a domain reference exceeds its declared size budget
-- **THEN** validation fails naming the offending reference
+#### Scenario: Template size budget is enforced
+
+- **WHEN** a lens template exceeds its declared size budget
+- **THEN** validation fails naming the offending template
 - **AND THEN** overflow depth is directed to dedicated skills per the Dedicated Skill Policy
+
+#### Scenario: User lenses are not policed
+
+- **WHEN** a user authors or edits a lens in `keel/lenses/`
+- **THEN** validation does not require it to match any shipped template
+- **AND THEN** the user lens is free to diverge in content and size
+
+### Requirement: Keel diagnoses the domain lens surface
+
+Keel check and doctor behavior MUST diagnose the shipped lens templates and the `keel lenses` scaffold path as one surface. It MUST NOT report installed or requested domain profiles as active capability state.
+
+#### Scenario: Lens template set is complete
+
+- **WHEN** doctor inspects a target
+- **THEN** it reports the shipped lens templates as present or incomplete
+
+#### Scenario: Legacy profile is discovered
+
+- **WHEN** doctor finds a separately installed `keel-profile-*` skill from v3
+- **THEN** it reports a migration warning without treating that skill as current state
+- **AND THEN** it preserves user-modified bytes
+
+### Requirement: Keel scaffolds domain lenses
+
+Keel MUST provide a `keel lenses` command that lists shipped lens templates and lenses installed in the repo, and scaffolds a template into `keel/lenses/`. Scaffolding MUST NOT overwrite an existing user lens without an explicit force, and MUST NOT run automatically on `keel --init`.
+
+#### Scenario: Listing available and installed lenses
+
+- **WHEN** a user runs `keel lenses list`
+- **THEN** Keel reports the shipped templates (`web`, `hardware`, `hardware-dsl`) and any lenses present in `keel/lenses/`
+
+#### Scenario: Scaffolding a template
+
+- **WHEN** a user runs `keel lenses add web`
+- **THEN** Keel copies the `web` template into `keel/lenses/web.md`
+- **AND THEN** the scaffolded lens carries its `Applies when:` header ready to edit
+
+#### Scenario: Scaffolding does not clobber a user lens
+
+- **WHEN** `keel lenses add <name>` targets a path that already exists in `keel/lenses/`
+- **THEN** Keel refuses without an explicit force flag
+- **AND THEN** the existing user lens is left untouched
 
