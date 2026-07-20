@@ -154,3 +154,11 @@
       - Scope check: pass — working-tree changes are limited to the three Touch files (bin/keel.js, scripts/validate_plugin.py, keel/CHANGELOG.md) plus this change's own tasks.md; base HEAD (task 4.1 commit) at task-start.
       - Findings: none
     - Blocker: none
+
+## Expectation Coverage
+
+- E1: Keel supports pluggable domain lenses — user-authored, self-describing lenses under `keel/lenses/` with core keeping only the detect-and-load mechanism. Covered by: 1.1, 3.1, 4.1
+- E2: Domain lenses serve execution and review phases — the execution/review skills consult only the matching lens's `Execution and review checks`. Covered by: 1.1
+- E3: Shipped lens templates stay single-source — the `assets/lenses/` templates remain the single source; single-source/byte-identical authority no longer applies to user lenses. Covered by: 1.1
+- E4: Keel diagnoses the domain lens surface — `keel --doctor` reports the shipped templates, installed lenses, and a legacy `keel-profile-*` migration warning. Covered by: 5.1
+- E5: Keel scaffolds domain lenses — `keel lenses list|add` lists templates/installed lenses and scaffolds into `keel/lenses/` without clobbering. Covered by: 2.1
