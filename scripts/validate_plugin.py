@@ -646,6 +646,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "real-task evidence",
             "one of pass, passed, complete, completed, ok, or done.",
             "## Expectation Coverage",
+            "carry a durable owner",
         ):
             if required not in schema:
                 errors.append(f"OpenSpec schema.yaml missing required language: {required}")
@@ -669,6 +670,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "Mode: diagnose-only",
             "Requires modifying files outside Touch.",
             "## Expectation Coverage",
+            "Discard reason:",
         ):
             if required not in tasks_template:
                 errors.append(
@@ -1548,7 +1550,7 @@ def validate_expectation_completion_gates_scenario() -> int:
         "- Acceptance check:",
         "- Scope check:",
         "- Findings:",
-        "discard rationale",
+        "Discard rationale:",
     ]
     handoff_skill_snippets = [
         "keel-handoff/v1",
@@ -4515,11 +4517,23 @@ def validate_core_gates_scenario() -> int:
             "1.1",
             "--json",
         )
+        handoff_payload = json.loads(handoff_owner.stdout)
+        finding_owner_message = " ".join(
+            problem.get("message", "")
+            for problem in handoff_payload.get("problems", [])
+            if problem.get("code") == "finding-owner"
+        )
         if (
             handoff_owner.returncode != 3
-            or json.loads(handoff_owner.stdout).get("status") != "fail"
+            or handoff_payload.get("status") != "fail"
+            or "Discard reason" not in finding_owner_message
+            or "keel/archive" not in finding_owner_message
+            or "openspec/changes" not in finding_owner_message
         ):
-            report("core-gates scenario accepted HANDOFF as finding owner.")
+            report(
+                "core-gates scenario accepted HANDOFF as finding owner or the "
+                "finding-owner error did not enumerate the accepted forms."
+            )
             report((handoff_owner.stderr or handoff_owner.stdout).strip())
             return 1
 

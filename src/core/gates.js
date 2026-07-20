@@ -410,8 +410,10 @@ function completionChecks(repo, task, contract = null) {
     problems.push(
       problem(
         "finding-owner",
-        "Review findings require an OpenSpec, archive-evidence, or explicit "
-          + "discard owner; HANDOFF is not an owner."
+        "Review Findings must be `none` or carry a durable owner — a "
+          + "`Discard reason:`/`Discard rationale:` prefix, a `keel/archive/…` "
+          + "path, or an existing `openspec/changes/…` artifact; "
+          + "`keel/HANDOFF.md` is not an owner."
       )
     );
   }

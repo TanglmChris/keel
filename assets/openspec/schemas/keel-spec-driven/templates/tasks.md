@@ -28,7 +28,7 @@
     - M1: pending
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
-      <!-- Findings: none, a durable OpenSpec/archive owner, or an explicit discard rationale -->
+      <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
       - Status: pending
       - Acceptance check: pending
       - Scope check: pending

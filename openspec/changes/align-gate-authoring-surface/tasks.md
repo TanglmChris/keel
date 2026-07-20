@@ -81,7 +81,7 @@
 
 ## 3. Findings forms (issue #1 Case D)
 
-- [ ] 3.1 Enumerate the accepted Findings forms in the surface and in the finding-owner error
+- [x] 3.1 Enumerate the accepted Findings forms in the surface and in the finding-owner error
   - Covers:
     - keel-expectation-slice-evidence-gates / Gate-validated forms are expressed in the author-facing surface
     - keel-core-gates / Gate rejections for validated forms name the field and accepted forms
@@ -98,19 +98,19 @@
     - M2: both `tasks.md` template copies and both `schema.yaml` `tasks`-instruction copies enumerate those exact accepted Findings forms
     - M3: `npm test` passes with a validator assertion that the surface enumerates the accepted Findings forms and that the `finding-owner` error shows them
   - Evidence:
-    - Contract: pending task-start capsule and fingerprint
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:b8de63a56d6f80475891ff85d419a9e75af7e30f19eb0a892d01b58550fe09de
+    - M1: the `finding-owner` error now enumerates the accepted Findings forms and states HANDOFF is not an owner — observed "Review Findings must be `none` or carry a durable owner — a `Discard reason:`/`Discard rationale:` prefix, a `keel/archive/…` path, or an existing `openspec/changes/…` artifact; `keel/HANDOFF.md` is not an owner." (pre-fix it read the generic "Review findings require an OpenSpec, archive-evidence, or explicit discard owner; HANDOFF is not an owner.").
+    - M2: both `tasks.md` template copies (Findings comment) and both `schema.yaml` `tasks`-instruction copies enumerate the exact accepted forms; validated by the `Discard reason:` template needle and the `carry a durable owner` schema needle.
+    - M3: `npm test` → "validation --all passed: baseline plus 50 scenarios"; the core-gates `finding-owner` assertion now checks the error contains `Discard reason`, `keel/archive`, and `openspec/changes`, and the pre-existing template Review snippet was rewritten from "discard rationale" to "Discard rationale:".
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the accepted Findings forms are enumerated in both template copies and both instruction copies, and the `finding-owner` error shows them and rejects HANDOFF.
+      - Scope check: pass — changes limited to Touch (`src/core/gates.js`, both `tasks.md` template copies, both `schema.yaml` copies, `scripts/validate_plugin.py`) plus this change's own `tasks.md`.
+      - Findings: none
     - Blocker: none
 
 ## Expectation Coverage
 
 - E1: Review Status vocabulary — single-sourced across `gates.js`/`context.js`, includes `done`, enumerated in the tasks template and instruction, and the `semantic-review` error names the field and lists the tokens. Covered by: 1.1
-- E2: Expectation Coverage section — shipped in the `keel-spec-driven` tasks template with `- None.` default and an `E<n>` example, required and formatted in the `tasks` instruction, and the `change-close` error carries a format sample. Covered by: 2.1
+- E2: Expectation Coverage section — shipped in the `keel-spec-driven` tasks template with a `- None.` default and an example E-line, required and formatted in the `tasks` instruction, and the `change-close` error carries a format sample. Covered by: 2.1
 - E3: Findings forms — the accepted forms are enumerated in the tasks template and instruction, and the `finding-owner` error shows them. Covered by: 3.1

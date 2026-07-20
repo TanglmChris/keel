@@ -136,8 +136,9 @@ artifacts:
       Before task completion, Evidence records the current agent's semantic
       Review with Status, Acceptance check, Scope check, and Findings. Status is
       one of pass, passed, complete, completed, ok, or done. Findings
-      are `none` or name a durable OpenSpec/archive owner or discard rationale;
-      HANDOFF is never the owner.
+      are `none` or carry a durable owner — a `Discard reason:`/`Discard
+      rationale:` prefix, a `keel/archive/…` path, or an existing
+      `openspec/changes/…` artifact; `keel/HANDOFF.md` is never the owner.
       tasks.md ends with a `## Expectation Coverage` section that change-close
       requires: one `- E<n>: <expectation> Covered by: <task ids>` line per
       critical expectation (or a `Durable owner:` / `Discard reason:` closure),
