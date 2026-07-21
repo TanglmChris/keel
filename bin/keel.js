@@ -47,7 +47,7 @@ const {
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const PACKAGE_JSON = require(path.join(PACKAGE_ROOT, "package.json"));
 const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install_to_repo.py");
-const DEFAULT_UPDATE_SOURCE = "github:TanglmChris/keel";
+const DEFAULT_UPDATE_SOURCE = "@christang/keel";
 const VALID_TARGETS = new Set(["claude", "codex", "opencode", "both"]);
 const KEEL_SKILLS = [
   "keel-align-expectations",

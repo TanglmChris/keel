@@ -2396,6 +2396,42 @@ def validate_update_pack_install_scenario() -> int:
     return 0
 
 
+def validate_update_default_registry_scenario() -> int:
+    with tempfile.TemporaryDirectory(prefix="keel-update-default-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        update = run_keel(tmp, "--update", "--dry-run")
+        if update.returncode != 0:
+            report("update-default-registry scenario keel --update --dry-run failed:")
+            report((update.stderr or update.stdout).strip())
+            return 1
+
+        pack_plan = (
+            "would run npm pack" in update.stdout
+            or "would run npm.cmd pack" in update.stdout
+        )
+        if not pack_plan:
+            report("update-default-registry scenario did not report a pack plan.")
+            report(update.stdout.strip())
+            return 1
+        if "@christang/keel" not in update.stdout:
+            report(
+                "update-default-registry scenario default source is not the "
+                "published registry package @christang/keel."
+            )
+            report(update.stdout.strip())
+            return 1
+        if "github:" in update.stdout:
+            report(
+                "update-default-registry scenario default source is a git-type "
+                "spec; self-update must default to the registry package."
+            )
+            report(update.stdout.strip())
+            return 1
+
+    report("update-default-registry scenario passed.")
+    return 0
+
+
 def run_keel_hook(repo: Path, event: dict) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["KEEL_CLI"] = str(ROOT / "bin/keel.js")
@@ -2642,7 +2678,7 @@ def validate_cli_scenario() -> int:
         if (
             update.returncode != 0
             or not pack_plan
-            or "github:TanglmChris/keel" not in update.stdout
+            or "@christang/keel" not in update.stdout
             or not install_plan
         ):
             report("cli scenario keel --update did not report global CLI update plan.")
@@ -10067,6 +10103,7 @@ SCENARIOS: tuple = (
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     ("update-pack-install", validate_update_pack_install_scenario),
+    ("update-default-registry", validate_update_default_registry_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
