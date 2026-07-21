@@ -5184,6 +5184,107 @@ def validate_core_gates_scenario() -> int:
     return 0
 
 
+def validate_scope_rename_attribution_scenario() -> int:
+    rename_task = (
+        "# Tasks\n\n"
+        "- [ ] 1.1 Complete behavior\n"
+        "  - Owner: keel-agent\n"
+        "  - Mode: implementation\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/renamed-from.js\n"
+        "    - src/renamed-to.js\n"
+        "    - openspec/changes/demo/tasks.md\n"
+        "  - Commands:\n"
+        "    - M1: node test.js\n"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Coupling: none\n"
+        "  - Candidate Boundary:\n"
+        "    - One complete candidate reaches M1.\n"
+        "  - Stop Rules:\n"
+        "    - Stop on final assertion failure.\n"
+        "  - Evidence:\n"
+        "    - M1: passed\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: public behavior reviewed\n"
+        "      - Scope check: Touch reviewed semantically\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+        "  - Stop if:\n"
+        "    - Requires files outside Touch.\n"
+        "  - Report:\n"
+        "    - Summary\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-scope-rename-") as raw_tmp:
+        repo = Path(raw_tmp)
+        write_text(repo / "openspec/changes/demo/tasks.md", rename_task)
+        write_text(repo / "src/renamed-from.js", "module.exports = 1;\n")
+        write_text(repo / "README.md", "readme\n")
+        for args in (
+            ["init", "--quiet"],
+            ["config", "user.email", "keel@example.invalid"],
+            ["config", "user.name", "Keel Fixture"],
+            ["add", "."],
+            ["commit", "--quiet", "-m", "baseline"],
+        ):
+            result = subprocess.run(
+                ["git", *args], cwd=repo, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                report("scope-rename scenario git setup failed:")
+                report((result.stderr or result.stdout).strip())
+                return 1
+        # A staged rename whose old and new paths are both in Touch must not be a
+        # false outside-Touch failure (git reports it as one `old -> new` entry).
+        moved = subprocess.run(
+            ["git", "mv", "src/renamed-from.js", "src/renamed-to.js"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if moved.returncode != 0:
+            report("scope-rename scenario git mv failed:")
+            report((moved.stderr or moved.stdout).strip())
+            return 1
+        completed = run_keel(
+            repo,
+            "gate",
+            "task-complete",
+            "--change",
+            "demo",
+            "--task",
+            "1.1",
+            "--base",
+            "HEAD",
+            "--json",
+        )
+        payload = json.loads(completed.stdout or "{}")
+        outside = " ".join(
+            problem.get("message", "") for problem in payload.get("problems", [])
+        )
+        if (
+            completed.returncode != 0
+            or payload.get("status") != "pass"
+            or "outside" in outside.lower()
+        ):
+            report(
+                "scope-rename scenario reported a false outside-touch failure for a "
+                "git mv rename whose old and new paths are both in Touch."
+            )
+            report((completed.stderr or completed.stdout).strip())
+            return 1
+    report("scope-rename scenario passed.")
+    return 0
+
+
 def validate_target_capability_adapters_scenario() -> int:
     capability_keys = (
         "continuity.start",
@@ -9950,6 +10051,7 @@ def validate_doctor_openspec_honesty_scenario() -> int:
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
+    ("scope-rename-attribution", validate_scope_rename_attribution_scenario),
     ("target-capability-adapters", validate_target_capability_adapters_scenario),
     ("native-runtime-projection", validate_native_runtime_projection_scenario),
     ("target-surface", validate_target_surface_scenario),

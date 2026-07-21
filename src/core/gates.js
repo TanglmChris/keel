@@ -237,7 +237,16 @@ function gitPaths(repo) {
   return status.stdout
     .split(/\r?\n/)
     .filter(Boolean)
-    .map((line) => line.slice(3).trim().replace(/\\/g, "/"));
+    .flatMap((line) => {
+      // A staged rename/copy is one porcelain line, `R  old -> new`; attribute
+      // both endpoints so a rename whose old and new paths are in Touch is not
+      // a false outside-Touch failure. Every other line carries one path.
+      const entry = line.slice(3).trim().replace(/\\/g, "/");
+      const arrow = entry.indexOf(" -> ");
+      return arrow === -1
+        ? [entry]
+        : [entry.slice(0, arrow), entry.slice(arrow + 4)];
+    });
 }
 
 function touchEntries(task, contract = null) {
