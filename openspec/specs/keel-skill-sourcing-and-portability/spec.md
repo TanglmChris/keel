@@ -59,7 +59,7 @@ Keel MUST install portable skills into target-native surfaces without becoming
 the runtime authority for skill discovery or activation.
 
 #### Scenario: Installing a portable skill
-- **WHEN** Keel installs a core skill or explicitly selected profile for a
+- **WHEN** Keel installs a core skill or explicitly selected lens for a
   target
 - **THEN** it writes the packaged skill to that target's supported skill root
 - **AND THEN** the target runtime remains responsible for discovery and
@@ -73,8 +73,8 @@ the runtime authority for skill discovery or activation.
 
 #### Scenario: Optional guidance remains optional
 - **WHEN** Keel installs into a project without an explicitly selected or
-  already-installed domain profile
-- **THEN** it does not install optional profile or dedicated stack guidance
+  already-installed domain lens
+- **THEN** it does not install optional lens or dedicated stack guidance
 - **AND THEN** no discovery registry or handoff state is created to compensate
 
 ### Requirement: Skill quality uses progressive and behavioral evidence
@@ -112,16 +112,16 @@ editorial prose.
 - **AND THEN** editorial wording that no durable authority names may be
   rewritten without touching the validator
 
-### Requirement: Generic profiles and dedicated skills remain separate
+### Requirement: Generic lenses and dedicated skills remain separate
 
-Keel MUST keep generic profiles limited to cross-stack authoring and
-verification lenses while concrete stack guidance remains project- or
+Keel MUST keep generic lenses limited to cross-stack authoring and
+verification while concrete stack guidance remains project- or
 plugin-owned.
 
 #### Scenario: Guidance is cross-stack
 - **WHEN** guidance applies across a domain regardless of framework or vendor
 - **THEN** Keel may place its risk prompts, durable artifact placement, and
-  evidence expectations in a generic optional profile
+  evidence expectations in a generic optional lens
 
 #### Scenario: Guidance is stack-specific
 - **WHEN** guidance depends on a framework, vendor API, tool command, or team

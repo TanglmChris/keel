@@ -21,7 +21,7 @@ Ordinary narrative stays unnumbered. -->
 ## Hidden Knowledge / Assumptions
 
 <!-- Accepted hidden-knowledge assumptions from risk-triggered grill or domain
-profiles. Critical assumptions use A<n>, record Basis, and name Resolve by or a
+lenses. Critical assumptions use A<n>, record Basis, and name Resolve by or a
 durable Owner. Put compressed recovery context here when future sessions need
 it; keel/HANDOFF.md should only point to durable owners. Use "None." when empty. -->
 

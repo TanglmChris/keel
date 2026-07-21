@@ -30,7 +30,7 @@ Keel MUST define a Task Authoring Gate that checks whether critical expectations
 - **AND THEN** Keel guidance does not require expectation IDs for ordinary changes
 
 #### Scenario: Authoring gate covers hidden-knowledge assumptions
-- **WHEN** authoring grill or a domain profile identifies accepted hidden-knowledge assumptions
+- **WHEN** authoring grill or a domain lens identifies accepted hidden-knowledge assumptions
 - **THEN** Keel guidance treats those assumptions as critical expectations when they affect completion definition or execution boundaries
 - **AND THEN** tasks must cover, defer, or discard them before the relevant slice can be selected
 

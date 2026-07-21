@@ -81,10 +81,10 @@ The alignment skill MUST have portable trigger metadata and MUST be validated wi
 - **AND THEN** evidence records trigger quality, question materiality, Acceptance quality, and durable write-back
 
 ### Requirement: Alignment skill content has reviewed provenance
-Keel MUST identify the authoritative source, license implications, positive/negative trigger cases, and required real-task evidence for the new or materially expanded alignment skill and domain references.
+Keel MUST identify the authoritative source, license implications, positive/negative trigger cases, and required real-task evidence for the new or materially expanded alignment skill and domain lenses.
 
 #### Scenario: Keel-authored consolidation uses local authority
-- **WHEN** existing Keel grill and profile guidance is consolidated
+- **WHEN** existing Keel grill and lens guidance is consolidated
 - **THEN** design or task evidence names the local canonical sources and repository package policy
 - **AND THEN** target metadata remains additive rather than replacing portable SKILL.md authority
 

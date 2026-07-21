@@ -40,7 +40,7 @@
 
 ## 2. Sweep stale generic profile vocabulary to lens
 
-- [ ] 2.1 Rename current-concept profile to lens in the remaining specs and templates
+- [x] 2.1 Rename current-concept profile to lens in the remaining specs and templates
   - Covers:
     - D3 keep and sweep boundary, the SWEEP rows outside the renamed capability
   - Touch:
@@ -55,14 +55,14 @@
     - M1: the three specs and both design.md template copies no longer use profile for the current domain-guidance concept, while v3-artifact references such as the keel-profile prefix and v3 profile-install state stay intact
     - M2: npm test passes at baseline plus every scenario after the sweep
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:10aec7cd2b88d6bf18c2c8a8fdee563c12471e5f4ad1ed238787d48f099c4cb5
+    - M1: a case-insensitive grep for profile over the three specs and both design.md template copies returns zero occurrences after the sweep, and lens/lenses now appears (6 in keel-skill-sourcing-and-portability); v3-artifact references such as the keel-profile prefix and v3 profile-install state live in unswept files and were out of this task's scope
+    - M2: npm test reported "validation --all passed: baseline plus 51 scenarios" after the sweep
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the current domain-guidance concept reads as lens across the swept specs and templates per D3's SWEEP rows, with each requirement's meaning and scenarios preserved
+      - Scope check: pass — only the five swept files under Touch changed; scripts/validate_plugin.py needed no needle change because its sole profile match is the v3 legacy fixture, a KEEP
+      - Findings: none
     - Blocker: none
 
 ## 3. Rename the domain capability to keel-domain-lenses
