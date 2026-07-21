@@ -378,8 +378,8 @@ function parseArgs(argv) {
     if (arg === "--profile" || arg.startsWith("--profile=")) {
       fail(
         "--profile is no longer supported: web, hardware, and hardware-dsl "
-          + "guidance is bundled with the keel-align-expectations skill as "
-          + "on-demand references"
+          + "guidance is now user-authored lenses in keel/lenses/*.md "
+          + "(scaffold with `keel lenses add`)"
       );
     }
     if (arg === "--repo") {

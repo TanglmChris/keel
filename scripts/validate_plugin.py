@@ -1788,7 +1788,7 @@ def validate_domain_profiles_scenario() -> int:
 
         rejected = run_keel(repo, "--install", "--target", "codex", "--profile", "web")
         rejected_text = (rejected.stderr or "") + (rejected.stdout or "")
-        if rejected.returncode == 0 or "bundled" not in rejected_text:
+        if rejected.returncode == 0 or "keel/lenses" not in rejected_text:
             report("domain-profiles scenario still accepts --profile.")
             report(rejected_text.strip())
             return 1

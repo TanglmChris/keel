@@ -9,10 +9,10 @@
 
 ## 1. Fix the retired-mechanism misdirection in code and validator
 
-- [ ] 1.1 Rewrite the profile-flag rejection to point at pluggable lenses and repoint the validator needle
+- [x] 1.1 Rewrite the profile-flag rejection to point at pluggable lenses and repoint the validator needle
   - Covers:
     - D2 fix the reject message and resolve the contradiction
-    - keel-domain-profiles / Obsolete profile flags are rejected clearly
+    - keel-domain-lenses / Keel removes domain profiles deliberately / Obsolete profile flags are rejected clearly
   - Touch:
     - bin/keel.js
     - scripts/install_to_repo.py
@@ -22,16 +22,20 @@
     - M1: keel invoked with the profile flag prints a rejection that names keel/lenses and the keel lenses add scaffold, and no longer contains the word bundled or the keel-align-expectations skill name
     - M2: the installer script invoked with the profile flag prints the same corrected rejection, and the domain-profiles validator scenario passes against the new wording anchor
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:45275453047c42caa413de26cd5c2d2510c45fa448ced8371d9be7b1cf54c99e
+    - M1: keel --install --target codex --profile web now prints a rejection naming keel/lenses and the keel lenses add scaffold, with no bundled or keel-align-expectations text
+    - M1.red: pre-fix HEAD printed "guidance is bundled with the keel-align-expectations skill as on-demand references"
+    - M1.green: post-fix printed "guidance is now user-authored lenses in keel/lenses/*.md (scaffold with keel lenses add)"
+    - M2: the python installer prints the same keel/lenses rejection and the domain-profiles validator scenario passes on the keel/lenses anchor
+    - M2.red: with the keel/lenses needle in place, the domain-profiles scenario failed against pre-fix code at exit 1, reporting "still accepts --profile"
+    - M2.green: after the fix the domain-profiles scenario passed and install_to_repo.py printed the keel/lenses rejection at exit 1
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — both the CLI and installer report that domain guidance is now user-authored lenses in keel/lenses/*.md and the flag is unsupported, and neither creates target-specific profile state
+      - Scope check: pass — only bin/keel.js, scripts/install_to_repo.py, and scripts/validate_plugin.py changed, all within Touch
+      - Findings: none
     - Blocker: none
 
 ## 2. Sweep stale generic profile vocabulary to lens

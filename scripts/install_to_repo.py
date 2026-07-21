@@ -1010,7 +1010,7 @@ def main() -> int:
     parser.add_argument(
         "--profile",
         action="append",
-        help="Obsolete in v4; domain references are bundled with keel-align-expectations.",
+        help="Obsolete; domain guidance is now user-authored lenses in keel/lenses/*.md.",
     )
     args = parser.parse_args()
 
@@ -1019,8 +1019,8 @@ def main() -> int:
         if args.profile:
             print(
                 "Install failed: --profile is no longer supported; web, hardware, "
-                "and hardware-dsl guidance is bundled with the "
-                "keel-align-expectations skill as on-demand references",
+                "and hardware-dsl guidance is now user-authored lenses in "
+                "keel/lenses/*.md (scaffold with `keel lenses add`)",
                 file=sys.stderr,
             )
             return 1
