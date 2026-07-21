@@ -1750,23 +1750,23 @@ def validate_authoring_continuity_scenario() -> int:
     return 0
 
 
-def validate_domain_profiles_scenario() -> int:
+def validate_domain_lenses_scenario() -> int:
     plugin_skills_root = ROOT / PLUGIN_ROOT / "skills"
     if not (plugin_skills_root / "keel-align-expectations/SKILL.md").is_file():
-        report("domain-profiles scenario plugin misses the alignment skill")
+        report("domain-lenses scenario plugin misses the alignment skill")
         return 1
     lenses_root = ROOT / "assets/lenses"
     for template in ("web.md", "hardware.md", "hardware-dsl.md"):
         if not (lenses_root / template).is_file():
             report(
-                "domain-profiles scenario misses the shipped lens template: "
+                "domain-lenses scenario misses the shipped lens template: "
                 f"{template}"
             )
             return 1
     for legacy_skill in LEGACY_PROFILE_SKILLS:
         if (plugin_skills_root / legacy_skill).exists():
             report(
-                f"domain-profiles scenario plugin packages a legacy profile: {legacy_skill}"
+                f"domain-lenses scenario plugin packages a legacy profile: {legacy_skill}"
             )
             return 1
 
@@ -1776,12 +1776,12 @@ def validate_domain_profiles_scenario() -> int:
         repo.mkdir()
         install = run_keel(repo, "--install", "--target", "codex")
         if install.returncode != 0:
-            report("domain-profiles scenario default install failed:")
+            report("domain-lenses scenario default install failed:")
             report((install.stderr or install.stdout).strip())
             return 1
         if (repo / TARGET_SKILL_ROOTS["codex"]).exists():
             report(
-                "domain-profiles scenario thin install copied Keel skill trees; "
+                "domain-lenses scenario thin install copied Keel skill trees; "
                 "skills are plugin-owned in v4."
             )
             return 1
@@ -1789,7 +1789,7 @@ def validate_domain_profiles_scenario() -> int:
         rejected = run_keel(repo, "--install", "--target", "codex", "--profile", "web")
         rejected_text = (rejected.stderr or "") + (rejected.stdout or "")
         if rejected.returncode == 0 or "keel/lenses" not in rejected_text:
-            report("domain-profiles scenario still accepts --profile.")
+            report("domain-lenses scenario still accepts --profile.")
             report(rejected_text.strip())
             return 1
 
@@ -1801,7 +1801,7 @@ def validate_domain_profiles_scenario() -> int:
             or "Keel profiles" in doctor_text
         ):
             report(
-                "domain-profiles scenario doctor still reports profile state or "
+                "domain-lenses scenario doctor still reports profile state or "
                 "misses the native plugin surface."
             )
             report(doctor_text.strip())
@@ -1814,11 +1814,11 @@ def validate_domain_profiles_scenario() -> int:
             else ""
         )
         if uninstall.returncode != 0 or "keel:start" in agents_text:
-            report("domain-profiles scenario uninstall left the managed bootstrap.")
+            report("domain-lenses scenario uninstall left the managed bootstrap.")
             report((uninstall.stderr or uninstall.stdout).strip())
             return 1
 
-    report("domain-profiles scenario passed.")
+    report("domain-lenses scenario passed.")
     return 0
 
 
@@ -9957,7 +9957,7 @@ SCENARIOS: tuple = (
     ("expectation-slice-gates", validate_expectation_slice_gates_scenario),
     ("expectation-completion-gates", validate_expectation_completion_gates_scenario),
     ("authoring-continuity", validate_authoring_continuity_scenario),
-    ("domain-profiles", validate_domain_profiles_scenario),
+    ("domain-lenses", validate_domain_lenses_scenario),
     ("skill-portability-policy", validate_skill_portability_policy_scenario),
     ("version-alignment", validate_version_alignment_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),

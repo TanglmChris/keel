@@ -67,7 +67,7 @@
 
 ## 3. Rename the domain capability to keel-domain-lenses
 
-- [ ] 3.1 Move keel-domain-profiles to keel-domain-lenses, modernize its Purpose and reject scenario, and rename the validator scenario
+- [x] 3.1 Move keel-domain-profiles to keel-domain-lenses, modernize its Purpose and reject scenario, and rename the validator scenario
   - Covers:
     - D1 rename the capability keel-domain-profiles to keel-domain-lenses
     - D2 the spec-side reject scenario moves off are bundled
@@ -81,14 +81,14 @@
     - M1: openspec/specs/keel-domain-lenses/spec.md exists with a lens Purpose line and a reject scenario that reports the pluggable-lens mechanism, and the keel-domain-profiles directory no longer exists
     - M2: the renamed domain-lenses validator scenario passes, npm test is green, and openspec validate on the change reports valid
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:e50306ea306d3bb9f329fa4c153657d3dc5c8c0a75a1155ea7bd5a1fbfcb1352
+    - M1: git mv moved the capability to openspec/specs/keel-domain-lenses/spec.md, whose Purpose now reads "Define Keel's pluggable domain lenses …" and whose reject scenario THEN reports "domain guidance is now user-authored lenses in keel/lenses/*.md"; openspec/specs/keel-domain-profiles no longer exists and no tracked file references the old capability name (only the disposable keel/guard.json does)
+    - M2: python scripts/validate_plugin.py --scenario domain-lenses reported "domain-lenses scenario passed", npm test reported "validation --all passed: baseline plus 51 scenarios", and openspec validate modernize-lens-vocabulary reported the change is valid
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the capability is renamed to keel-domain-lenses with a modernized Purpose and a reject scenario off "are bundled" (D1 and the D2 spec side), promoted by direct live edit per F5
+      - Scope check: pass — only openspec/specs/keel-domain-profiles/spec.md (moved), openspec/specs/keel-domain-lenses/spec.md, and scripts/validate_plugin.py changed, all within Touch
+      - Findings: none
     - Blocker: none
 
 ## Expectation Coverage

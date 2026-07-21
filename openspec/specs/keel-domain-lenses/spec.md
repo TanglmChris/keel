@@ -1,6 +1,6 @@
 ## Purpose
 
-Define optional Keel domain profiles and their explicit installation and diagnostic behavior.
+Define Keel's pluggable domain lenses — how user-authored lenses in `keel/lenses/` are scaffolded, loaded on demand, and diagnosed — and the deliberate retirement of the v3 domain profiles they replace.
 ## Requirements
 ### Requirement: Keel removes domain profiles deliberately
 Keel v4 migration MUST remove packaged unmodified legacy profile skills and obsolete profile metadata/options conservatively while preserving user-modified legacy files with an explicit warning.
@@ -17,7 +17,7 @@ Keel v4 migration MUST remove packaged unmodified legacy profile skills and obso
 
 #### Scenario: Obsolete profile flags are rejected clearly
 - **WHEN** a v4 user invokes `--profile`
-- **THEN** Keel reports that domain references are bundled and the flag is no longer supported
+- **THEN** Keel reports that domain guidance is now user-authored lenses in `keel/lenses/*.md` and the flag is no longer supported
 - **AND THEN** it does not silently create target-specific profile state
 
 ### Requirement: Keel supports pluggable domain lenses
