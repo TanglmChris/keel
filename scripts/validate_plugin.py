@@ -11721,6 +11721,33 @@ def validate_validation_runner_scenario() -> int:
         report("validation-runner: README does not document the parallel runner.")
         return 1
 
+    # The full gate must actually run somewhere other than one author's machine:
+    # a workflow drives the same single entry point on push and pull request,
+    # and the release workflow keeps its own tag guard rather than becoming the
+    # suite's only runner.
+    workflow_path = ROOT / ".github/workflows/test.yml"
+    if not workflow_path.is_file():
+        report(
+            "validation-runner: no .github/workflows/test.yml, so the full gate "
+            "runs only in the local pre-push hook."
+        )
+        return 1
+    workflow = workflow_path.read_text(encoding="utf-8")
+    for needle in ("npm test", "npm ci", "pull_request", "push:", "ubuntu-latest"):
+        if needle not in workflow:
+            report(
+                "validation-runner: the full-gate workflow does not declare "
+                f"{needle!r}."
+            )
+            report(workflow)
+            return 1
+    publish = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+    if "does not match package.json version" not in publish:
+        report(
+            "validation-runner: the release workflow lost its tag/version guard."
+        )
+        return 1
+
     # Behavioral: the parallel machinery preserves registry order, keeps a
     # passing scenario's buffered output, and fails loudly on a bad entry.
     ordered = run_scenario_processes(
