@@ -99,7 +99,11 @@ RESIDENT_BLOCKS = [
             "keel gate task-start",
             "task capsule",
             "fingerprint",
-            "Touch is the write boundary",
+            # Prose, not a command: this sentence is the one that has actually
+            # been reworded under byte pressure, so it is matched as a topic —
+            # Touch and a `bound…` word in one statement. The other prose
+            # entries stay literal until one of them needs the same freedom.
+            re.compile(r"Touch\b[^\n]*\bbound", re.IGNORECASE),
             "read-only report/evidence",
             "native plugin",
             "keel --init",
@@ -491,9 +495,9 @@ def strip_template_checksum(content: str) -> tuple[str, str | None]:
     return "".join(kept), checksum
 
 
-def validate_resident_blocks(errors: list[str]) -> None:
+def validate_resident_blocks(errors: list[str], root: Path = ROOT) -> None:
     for block in RESIDENT_BLOCKS:
-        path = ROOT / block["path"]
+        path = root / block["path"]
         if not path.is_file():
             errors.append(f"{block['name']} is missing: {block['path']}")
             continue
@@ -519,9 +523,24 @@ def validate_resident_blocks(errors: list[str]) -> None:
                 f"budget is {max_lines}"
             )
 
+        # A required entry is one of two kinds, and they mean different things.
+        # A literal names a command, marker, or identifier: if the block no
+        # longer contains it exactly, it is telling a reader to run something
+        # that does not exist, so the check must fail. A pattern states a topic
+        # in prose: the concepts must remain, the wording may move — which it
+        # must be free to, because this block is under a line and byte budget
+        # and gets rewritten to fit.
         for required in block["required"]:
-            if required not in managed_block:
-                errors.append(f"{block['name']} missing required topic: {required}")
+            if isinstance(required, str):
+                if required not in managed_block:
+                    errors.append(
+                        f"{block['name']} missing required literal: {required}"
+                    )
+            elif not required.search(managed_block):
+                errors.append(
+                    f"{block['name']} missing required topic: "
+                    f"{required.pattern}"
+                )
 
         lowered = managed_block.lower()
         for forbidden in RESIDENT_FORBIDDEN_SNIPPETS:
@@ -10533,6 +10552,94 @@ def validate_runner_skip_accounting_scenario() -> int:
     return 0
 
 
+def validate_resident_topic_matching_scenario() -> int:
+    """Issue #15 item 1: required entries were named topics, matched as prose.
+
+    The bootstrap is under a line and byte budget, so its wording gets rewritten
+    to fit — and every rewrite of a pinned sentence failed the check that was
+    supposed to prove only that the topic was still covered.
+    """
+    label = "resident-topic-matching"
+    source = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
+    original = "Touch is the write boundary for product files;"
+    if original not in source:
+        report(
+            f"{label}: the fixture's anchor sentence is not in the bootstrap; "
+            "update this scenario alongside the wording."
+        )
+        return 1
+
+    def errors_for(text: str) -> list[str]:
+        with tempfile.TemporaryDirectory(prefix="keel-resident-topic-") as raw:
+            root = Path(raw)
+            write_text(root / "assets/bootstrap/AGENTS.md", text)
+            found: list[str] = []
+            validate_resident_blocks(found, root)
+            return found
+
+    def touch_errors(text: str) -> list[str]:
+        return [item for item in errors_for(text) if "Touch" in item or "bound" in item]
+
+    baseline = errors_for(source)
+    if baseline:
+        report(f"{label}: the unmodified bootstrap must pass: {baseline}")
+        return 1
+
+    # A rewording that keeps both concepts in one statement must pass.
+    reworded = source.replace(
+        original, "Touch bounds product writes, not the task's own records;"
+    )
+    if touch_errors(reworded):
+        report(
+            f"{label}: a rewording that keeps the topic was rejected: "
+            f"{touch_errors(reworded)}"
+        )
+        return 1
+
+    # Deleting the statement must still fail.
+    deleted = source.replace(original, "")
+    if not touch_errors(deleted):
+        report(f"{label}: deleting the boundary statement did not fail the check.")
+        return 1
+
+    # Mentioning only one of the topic's words must not satisfy it.
+    partial = source.replace(original, "Touch the files you declared;")
+    if not touch_errors(partial):
+        report(
+            f"{label}: a statement mentioning only Touch, with no boundary "
+            "concept, satisfied the topic."
+        )
+        return 1
+
+    # A renamed command must still fail, and be reported as a literal.
+    renamed = source.replace("keel context", "keel status")
+    literal_errors = [item for item in errors_for(renamed) if "keel context" in item]
+    if not literal_errors:
+        report(f"{label}: renaming a required command did not fail the check.")
+        return 1
+    if not any("literal" in item for item in literal_errors):
+        report(
+            f"{label}: a missing command must be reported as a missing literal, "
+            f"distinguishably from a missing topic: {literal_errors}"
+        )
+        return 1
+    if any("literal" in item for item in touch_errors(deleted)):
+        report(
+            f"{label}: a missing topic must not be reported as a missing "
+            f"literal: {touch_errors(deleted)}"
+        )
+        return 1
+
+    if (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8") != source:
+        report(f"{label}: the shipped bootstrap was left modified.")
+        return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_repo_action_mode_scenario() -> int:
     """Issue #8 example 2: a repository action had no legal contract.
 
@@ -11898,6 +12005,7 @@ SCENARIOS: tuple = (
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
+    ("resident-topic-matching", validate_resident_topic_matching_scenario),
     ("touch-guard-drift", validate_touch_guard_drift_scenario),
     ("touch-guard-surface", validate_touch_guard_surface_scenario),
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),
