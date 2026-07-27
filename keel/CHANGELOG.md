@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.3.2 - the session projection stops talking only to the agent
+
+- **SessionStart projection now instructs the agent to disclose what it found.** The projection is emitted as `additionalContext`, which the host injects into the agent and never renders for the human, so a session would open, the hook would fire, and the user would still have to ask where the work stood. Nothing was broken — the projection was accurate and invisible, which is worse, because a projection nobody sees is a projection nobody checks against OpenSpec and Git. Every branch now carries one line asking the agent to state status, selection, and next action in its first reply: the ready branch, the shared non-ready branch, and all three fallbacks. The degraded branches are the point — a missing CLI or a timeout is exactly the case where the agent's silence reads to the user as established continuity. The instruction confers no authority: the projection still selects nothing, records nothing, and starts nothing. (keel-native-runtime-projection)
+- **The resident protocol carries the same rule**, so it holds when no plugin projection runs. A host loads its plugins once per session and can hold a stale set for reasons no repository check can observe — which is not hypothetical, it is why the write guard sat inert through an entire session of this project's own development. The `native-plugin-session-start` scenario reads the shipped `AGENTS.md` rather than a fixture, and pins the two rules that section already carried alongside the new one, because adding a rule to a resident block is precisely where a quiet substitution happens.
+- Coverage gained an idle fixture: the scenario previously jumped from a ready repository straight to an ambiguous one, so the most common real state — an OpenSpec repository with no active change — went unexercised.
+- The consumer bootstrap does **not** carry this rule. Its managed block has roughly seven bytes of headroom against the sub-1024-byte assertion, and in a consumer repository `keel --install` rewrites `AGENTS.md` from that block — so for consumers the bootstrap is the only durable carrier, and it is the one place the sentence will not fit. That is the same wedge as issue #15 and remains open with it.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.3.1 - the full gate runs in CI; a finished task no longer fails the next one
 
 Closes issues #10 and #13. With #8 and #15 item 1, every issue opened against 5.2.x is now resolved except the resident-block byte budget.
