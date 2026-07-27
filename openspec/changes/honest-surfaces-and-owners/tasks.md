@@ -63,7 +63,7 @@
 
 ## 3. A written manifest is not observed enforcement
 
-- [ ] 3.1 State the enforcement boundary in the guard command's own result
+- [x] 3.1 State the enforcement boundary in the guard command's own result
   - Covers:
     - D3 the guard command's own output states that the status describes the manifest and that enforcement needs a runtime hook Keel cannot observe
     - keel-touch-write-guard / Guard capability is reported from observed evidence / Guard status describes the manifest, not enforcement
@@ -75,15 +75,15 @@
     - Strategy: regression-first
     - M1: through the guard CLI, both keel guard start and keel guard status on a written manifest carry a statement that the reported status describes the manifest and that enforcement depends on a runtime hook Keel cannot observe from the repository, in the JSON result and in the human-readable output, while the existing durability statement and every existing status value are unchanged; a new validator scenario locks the wording's presence and that no result asserts writes are currently being checked
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:cbc90b113556df3413f33c81e4534fa1bd5e0535eef6e25758f49fc58ce02f07
+    - M1: `guardResult` now carries a second standing warning beside the existing durable-authority one: the status describes the manifest only, enforcement runs as a runtime hook in the host that Keel cannot observe from the repository, and a written manifest is not evidence that any write was checked. It attaches to every guard result, so `start`, `status`, and `clear` all carry it in both the JSON `warnings` array and the human-readable output, which already renders warnings. No status value, problem code, or existing wording changed
+    - M1.red: the new `guard-status-is-not-enforcement` scenario exited 1 with "keel guard start does not state that the status describes the manifest and that enforcement depends on a runtime hook Keel cannot observe; missing ['runtime hook', 'cannot observe']", dumping a result whose only warning was the durability one
+    - M1.green: the scenario exits 0. It checks both subcommands in both output forms for the three required ideas, asserts each result keeps its status value, asserts no result carries an assertive enforcement claim, and asserts the pre-existing durable-authority statement survives. `npm test` reported "validation --all passed: baseline plus 67 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — a written manifest can no longer be read as proof that writes are being checked, which is exactly the gap that let this session run its first tasks unguarded without noticing, satisfying D3 and the referenced scenario
+      - Scope check: pass — `src/core/guard.js`, `scripts/validate_plugin.py`, and this task's own `tasks.md`, all within Touch, verified against `--base HEAD`
+      - Findings: the scenario's negative check had to be narrowed while writing it. It first forbade the substring "writes are being checked", which the honest sentence itself contains inside a denial, so the assertion failed on the correct implementation. It now forbids only assertive claims — "enforcement is active", "enforcement is live", "writes are guarded" — which is a weaker guarantee than intended: a future rewording that asserts enforcement in different words would pass. Durable owner: https://github.com/TanglmChris/keel/issues/14
     - Blocker: none
 
 ## 4. Keel's own developers run Keel's own CLI

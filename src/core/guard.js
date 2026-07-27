@@ -35,6 +35,14 @@ function guardResult(subcommand, status, extra = {}) {
       "The guard manifest is a disposable enforcement pointer; OpenSpec and "
         + "Git remain the only durable authority and selection never derives "
         + "from it.",
+      // The status describes a file Keel wrote. Whether anything reads that
+      // file is a target-side fact: enforcement runs as a runtime hook the
+      // host loads, and a host that loaded different plugins keeps them for
+      // the life of its session. Reporting `started` as though it were a probe
+      // result is the same inference `--doctor` already refuses to make.
+      "This status describes the manifest only. Enforcement runs as a runtime "
+        + "hook in the host, which Keel cannot observe from the repository, so "
+        + "a written manifest is not evidence that any write was checked.",
     ],
     ...extra,
   };

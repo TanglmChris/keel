@@ -4474,6 +4474,107 @@ def validate_guard_manifest_ignored_scenario() -> int:
     return 0
 
 
+def validate_guard_status_is_not_enforcement_scenario() -> int:
+    """Issue #14: `Guard: started` means the manifest was written.
+
+    Authors read it as "writes are being checked now". The two came apart when a
+    session kept plugin state that predated a marketplace switch: the manifest
+    was valid and keel's PreToolUse hook never ran. Keel cannot observe the hook
+    from the repository, so the result must say so rather than imply otherwise.
+    """
+    needles = ("enforcement", "runtime hook", "cannot observe")
+    # Assertive claims only: the honest sentence legitimately denies that a
+    # written manifest proves anything, so a bare "writes are checked" substring
+    # would match the denial itself.
+    forbidden = (
+        "enforcement is active",
+        "enforcement is live",
+        "writes are guarded",
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-guard-honesty-") as raw:
+        project = Path(raw)
+        write_text(
+            project / "openspec/changes/demo/tasks.md",
+            tracker_owner_tasks("none", "Covered by: 1.1").replace(
+                "- [x] 1.1", "- [ ] 1.1"
+            ),
+        )
+        started = run_keel(
+            project, "guard", "start",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        if started.returncode != 0:
+            report("guard-status-is-not-enforcement: keel guard start failed.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+        for label, result in (
+            ("start", started),
+            (
+                "status",
+                run_keel(project, "guard", "status", "--json"),
+            ),
+        ):
+            payload = json.loads(result.stdout) if result.stdout else {}
+            warnings = " ".join(payload.get("warnings", []))
+            missing = [needle for needle in needles if needle not in warnings]
+            if missing:
+                report(
+                    f"guard-status-is-not-enforcement: keel guard {label} does "
+                    "not state that the status describes the manifest and that "
+                    "enforcement depends on a runtime hook Keel cannot observe; "
+                    f"missing {missing}."
+                )
+                report(result.stdout or result.stderr or "")
+                return 1
+            if not payload.get("status"):
+                report(
+                    f"guard-status-is-not-enforcement: keel guard {label} lost "
+                    "its status value."
+                )
+                return 1
+            human = run_keel(
+                project,
+                "guard",
+                *(("start", "--change", "demo", "--task", "1.1", "--force")
+                  if label == "start" else ("status",)),
+            )
+            if "runtime hook" not in (human.stdout or ""):
+                report(
+                    f"guard-status-is-not-enforcement: the human-readable keel "
+                    f"guard {label} output omits the enforcement boundary."
+                )
+                report(human.stdout or human.stderr or "")
+                return 1
+            for phrase in forbidden:
+                if phrase in warnings or phrase in (human.stdout or ""):
+                    report(
+                        f"guard-status-is-not-enforcement: keel guard {label} "
+                        f"asserts observed enforcement: {phrase!r}."
+                    )
+                    return 1
+        # The pre-existing durability statement must survive alongside it.
+        status_payload = json.loads(
+            run_keel(project, "guard", "status", "--json").stdout
+        )
+        if not any(
+            "durable authority" in warning
+            for warning in status_payload.get("warnings", [])
+        ):
+            report(
+                "guard-status-is-not-enforcement: the existing durable-authority "
+                "statement was dropped."
+            )
+            return 1
+    if "guard-status-is-not-enforcement" not in {name for name, _ in SCENARIOS}:
+        report(
+            "guard-status-is-not-enforcement: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("guard-status-is-not-enforcement scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -11248,6 +11349,10 @@ SCENARIOS: tuple = (
     ),
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
+    (
+        "guard-status-is-not-enforcement",
+        validate_guard_status_is_not_enforcement_scenario,
+    ),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
