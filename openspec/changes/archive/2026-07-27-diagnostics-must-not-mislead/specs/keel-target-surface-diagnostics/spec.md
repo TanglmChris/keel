@@ -22,6 +22,8 @@ Keel MUST distinguish manifest presence, marketplace discovery, installation, en
 - **THEN** it does not report the plugin source manifest check, whose path `keel --init` never creates
 - **AND THEN** no remediation line directs the author to install a plugin that is already installed
 
+## ADDED Requirements
+
 ### Requirement: Keel install does not damage its own source repository
 Keel's install and init paths MUST NOT overwrite repository content that only exists in Keel's own source repository with the consumer-facing bootstrap asset. When the target is Keel's own repository, the bootstrap write MUST be skipped and reported as skipped.
 

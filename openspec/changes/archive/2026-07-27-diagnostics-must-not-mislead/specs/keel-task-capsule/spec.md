@@ -24,11 +24,22 @@ Keel v4 MUST accept compatible expanded v3 task fields through the same parser a
 - **AND THEN** a field whose entire text is one inline code span is not judged empty by the stripping
 
 ### Requirement: Covers resolves durable authority and Acceptance
-Keel MUST resolve every `Covers` reference to durable authority and derive the task's Acceptance from it. An unresolvable reference MUST fail with a diagnostic that identifies the unresolved reference. A reference whose first segment names an existing capability MUST NOT degrade into an unlinked free-text reference, whatever its segment count. When a candidate requirement or scenario name in the target capability itself contains the ` / ` hierarchy separator, the diagnostic MUST say so, because no spelling of the reference can resolve.
+Keel MUST resolve each `Covers` entry to a unique OpenSpec scenario or critical D/F/A statement and MUST derive the task's observable Acceptance from that authority plus any explicit task-specific delta. A reference whose first segment names an existing capability MUST NOT degrade into an unlinked free-text reference, whatever its segment count. When a candidate requirement or scenario name in the target capability itself contains the ` / ` hierarchy separator, the diagnostic MUST say so, because no spelling of the reference can resolve.
 
-#### Scenario: Reference resolves to durable authority
-- **WHEN** a `Covers` entry names a capability, requirement, or scenario that exists
-- **THEN** the compiled capsule carries that authority and its derived Acceptance
+#### Scenario: Scenario reference derives Acceptance
+- **WHEN** `Covers` uniquely names an OpenSpec scenario
+- **THEN** the capsule includes that scenario's observable outcomes and source location
+- **AND THEN** the task does not need to duplicate the same Acceptance text
+
+#### Scenario: Critical expectation coverage is closed
+- **WHEN** a relevant critical expectation affects the selected task
+- **THEN** the capsule identifies its executable slice, durable deferral owner, or explicit discard rationale
+- **AND THEN** compilation fails when none exists
+
+#### Scenario: Ambiguous or missing reference fails
+- **WHEN** a `Covers` reference is missing, duplicated, unresolved, or points to an unresolved Q<n> without authorized fallback
+- **THEN** compilation fails with the offending reference and reason
+- **AND THEN** Keel does not match a similar heading heuristically
 
 #### Scenario: Separator collision is named
 - **WHEN** a `Covers` reference cannot resolve and the target capability contains a requirement or scenario whose own name contains the ` / ` separator
@@ -41,11 +52,22 @@ Keel MUST resolve every `Covers` reference to durable authority and derive the t
 - **AND THEN** a free-text reference whose first segment names no existing capability is still accepted unchanged
 
 ### Requirement: Task modes and conditional fields are executable
-Keel MUST compile each task against its declared mode and reject conditional fields that the mode does not authorize. Where a diagnostic requires the author to add a field, it MUST name that field and its exact line prefix rather than describing the authority abstractly.
+Keel MUST validate task mode and conditional fields as behavior, not unchecked labels. Where a diagnostic requires the author to add a field, it MUST name that field and its exact line prefix rather than describing the authority abstractly.
 
-#### Scenario: Mode governs required fields
-- **WHEN** a task declares `implementation`, `diagnose-only`, or `plan-first`
-- **THEN** the required and permitted fields follow that mode
+#### Scenario: Diagnose-only has no product Touch
+- **WHEN** a task declares `Mode: diagnose-only` and `Touch: none`
+- **THEN** the capsule accepts the contract and prohibits product writes
+- **AND THEN** `task-start` does not reject the literal `none` as an unspecified placeholder
+
+#### Scenario: Implementation requires concrete Touch
+- **WHEN** an implementation task has no concrete Touch path
+- **THEN** compilation fails before task execution
+
+#### Scenario: Coupling fields are conditional
+- **WHEN** coupling is none
+- **THEN** candidate-only coupling fields are absent or rejected as contradictory
+- **AND WHEN** coupling is required
+- **THEN** the capsule requires the design Coupled Iteration Contract and task candidate boundaries, stop rules, final assertions, and evidence contract
 
 #### Scenario: Authority diagnostic names the field to add
 - **WHEN** a task's `Covers` references an unresolved `Q<n>` and no authorized fallback is declared on the task
