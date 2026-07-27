@@ -4022,6 +4022,90 @@ def validate_covers_separator_collision_scenario() -> int:
     return 0
 
 
+def validate_unresolved_authority_names_field_scenario() -> int:
+    """Issue #7 example 3: the diagnostic must name what it actually reads.
+
+    The check reads only the task's `Pre-authorized fallback:` line. The old
+    wording said "documented design authority", which sent authors to design.md
+    where the answer usually already was.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-unresolved-authority-") as raw:
+        repo = Path(raw)
+        # design.md documents Q1 and an authorized fallback in prose, which is
+        # exactly the state the reporter was in when the message misdirected.
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Questions\n\nQ1 — Should the widget retry on timeout?\n\n"
+            "Authorized fallback: retry twice with backoff, then stop.\n",
+        )
+        without = task_capsule_compact_fixture().replace(
+            "    - E1: Public behavior passes.\n", "    - Q1\n"
+        )
+        write_text(repo / "openspec/changes/demo/tasks.md", without)
+        result = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        payload = json.loads(result.stdout)
+        messages = [
+            problem.get("message", "")
+            for problem in payload.get("problems", [])
+            if problem.get("code") == "unresolved-authority"
+        ]
+        if not messages:
+            report(
+                "unresolved-authority-names-field: a Q reference with no "
+                "authorized fallback produced no unresolved-authority diagnostic."
+            )
+            report(result.stdout.strip())
+            return 1
+        message = messages[0]
+        required = ("Autonomy boundary:", "Pre-authorized fallback:", "design.md")
+        missing = [needle for needle in required if needle not in message]
+        if missing:
+            report(
+                "unresolved-authority-names-field: the diagnostic omitted "
+                f"{', '.join(missing)}."
+            )
+            report(message)
+            return 1
+        if "documented design authority" in message:
+            report(
+                "unresolved-authority-names-field: the diagnostic still points "
+                "at design.md as the thing to add."
+            )
+            report(message)
+            return 1
+        # Doing literally what the message asks must clear it.
+        with_fallback = without.replace(
+            "    - Pre-authorized fallback: none\n",
+            "    - Pre-authorized fallback: retry twice with backoff then stop;"
+            " evidence is the retry log\n",
+        )
+        write_text(repo / "openspec/changes/fixed/tasks.md", with_fallback)
+        write_text(
+            repo / "openspec/changes/fixed/design.md",
+            "## Questions\n\nQ1 — Should the widget retry on timeout?\n",
+        )
+        fixed = run_keel(
+            repo, "gate", "task-start", "--change", "fixed", "--task", "1.1", "--json"
+        )
+        if fixed.returncode != 0:
+            report(
+                "unresolved-authority-names-field: following the diagnostic did "
+                "not clear it."
+            )
+            report((fixed.stdout or fixed.stderr).strip())
+            return 1
+    if "unresolved-authority-names-field" not in {name for name, _ in SCENARIOS}:
+        report(
+            "unresolved-authority-names-field: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("unresolved-authority-names-field scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -10715,6 +10799,10 @@ SCENARIOS: tuple = (
     ),
     ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
     ("covers-separator-collision", validate_covers_separator_collision_scenario),
+    (
+        "unresolved-authority-names-field",
+        validate_unresolved_authority_names_field_scenario,
+    ),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

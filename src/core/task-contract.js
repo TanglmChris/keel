@@ -764,11 +764,17 @@ function compileTaskContract(repo, change, task) {
     questionIds.length > 0
     && !isConcrete(fallback.replace(/^Pre-authorized fallback:\s*/i, ""))
   ) {
+    // Name the field and prefix this check actually reads. The previous
+    // wording said "documented design authority", which sent authors to
+    // design.md — where the answer usually already is.
     resolved.diagnostics.push(...questionIds.map((questionId) => ({
       code: "unresolved-authority",
       message:
-        `${questionId} requires documented design authority and an authorized `
-        + "fallback before implementation.",
+        `${questionId} is referenced in Covers but task ${task.id} declares no `
+        + "authorized fallback. Add an \"Autonomy boundary:\" field whose entry "
+        + "line begins \"Pre-authorized fallback:\" and states the reversible "
+        + "bound plus the evidence it requires. This check reads only that line "
+        + "on the task; prose in design.md does not satisfy it.",
     })));
   }
   const capsule = {

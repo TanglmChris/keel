@@ -80,7 +80,7 @@
       - Findings: the silent half of this defect was worse than the reported half and was outside this task's original scope. The reporter's *correct* spelling compiled to an unlinked `legacy-task-reference` with `status: pass` and empty Acceptance, so the task as first written would not have fixed their case. Scope was widened before implementing, because delivering the narrow version would have closed issue #7 example 2 without fixing it. Durable owner: openspec/changes/diagnostics-must-not-mislead/design.md, which records the reproduction as F7 and the decision as D6, with a matching spec scenario
     - Blocker: none
 
-- [ ] 2.2 State the exact field and line prefix in the unresolved-authority diagnostic
+- [x] 2.2 State the exact field and line prefix in the unresolved-authority diagnostic
   - Covers:
     - keel-task-capsule / Task modes and conditional fields are executable / Authority diagnostic names the field to add
   - Touch:
@@ -90,13 +90,15 @@
     - Strategy: regression-first
     - M1: a task whose Covers references an unresolved Q reference without an authorized fallback reports a diagnostic naming the Autonomy boundary field and the Pre-authorized fallback line prefix, and no longer describes the requirement only as documented design authority; a new validator scenario locks the diagnostic text
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:6b0af80d560f6e3cdcf736f8a81811b502416524aa4191fb534049bd9f9b38a6
+    - M1: the `unresolved-authority` message now names the task id, the `Autonomy boundary:` field, and the `Pre-authorized fallback:` line prefix, states that the line must carry the reversible bound plus its required evidence, and says explicitly that this check reads only that line on the task and that prose in design.md does not satisfy it. The phrase "documented design authority", which sent authors to design.md, is gone
+    - M1.red: with `src/core/task-contract.js` stashed, the new `unresolved-authority-names-field` scenario exited 1 — "the diagnostic omitted Autonomy boundary:, Pre-authorized fallback:, design.md" — against the old text "Q1 requires documented design authority and an authorized fallback before implementation."
+    - M1.green: the scenario exits 0. It reproduces the reporter's exact state, a design.md that already documents Q1 and its authorized fallback in prose, asserts the new message names all three needles and no longer says "documented design authority", and then asserts that doing literally what the message asks clears the gate. `npm test` reported "validation --all passed: baseline plus 62 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the diagnostic names the field and prefix it actually reads, and following it resolves the failure, satisfying the covered scenario
+      - Scope check: pass — `src/core/task-contract.js` and `scripts/validate_plugin.py`, both within Touch
+      - Findings: none
     - Blocker: none
 
 ## 3. Separate Keel's own repository from a consuming project
