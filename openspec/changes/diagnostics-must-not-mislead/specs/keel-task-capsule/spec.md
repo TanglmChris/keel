@@ -24,7 +24,7 @@ Keel v4 MUST accept compatible expanded v3 task fields through the same parser a
 - **AND THEN** a field whose entire text is one inline code span is not judged empty by the stripping
 
 ### Requirement: Covers resolves durable authority and Acceptance
-Keel MUST resolve every `Covers` reference to durable authority and derive the task's Acceptance from it. An unresolvable reference MUST fail with a diagnostic that identifies the unresolved reference. When a candidate requirement or scenario name in the target capability itself contains the ` / ` hierarchy separator, the diagnostic MUST say so, because no spelling of the reference can resolve.
+Keel MUST resolve every `Covers` reference to durable authority and derive the task's Acceptance from it. An unresolvable reference MUST fail with a diagnostic that identifies the unresolved reference. A reference whose first segment names an existing capability MUST NOT degrade into an unlinked free-text reference, whatever its segment count. When a candidate requirement or scenario name in the target capability itself contains the ` / ` hierarchy separator, the diagnostic MUST say so, because no spelling of the reference can resolve.
 
 #### Scenario: Reference resolves to durable authority
 - **WHEN** a `Covers` entry names a capability, requirement, or scenario that exists
@@ -34,6 +34,11 @@ Keel MUST resolve every `Covers` reference to durable authority and derive the t
 - **WHEN** a `Covers` reference cannot resolve and the target capability contains a requirement or scenario whose own name contains the ` / ` separator
 - **THEN** the `unresolved-covers` diagnostic states that the name contains the separator and cannot be referenced
 - **AND THEN** the author is not left to infer the cause from a reference that looks correct
+
+#### Scenario: Over-segmented capability reference does not degrade silently
+- **WHEN** a `Covers` reference carries more segments than the hierarchy allows and its first segment names a capability whose spec exists
+- **THEN** it is reported as an unresolved reference rather than accepted as a free-text reference
+- **AND THEN** a free-text reference whose first segment names no existing capability is still accepted unchanged
 
 ### Requirement: Task modes and conditional fields are executable
 Keel MUST compile each task against its declared mode and reject conditional fields that the mode does not authorize. Where a diagnostic requires the author to add a field, it MUST name that field and its exact line prefix rather than describing the authority abstractly.

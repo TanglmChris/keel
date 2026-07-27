@@ -3904,6 +3904,124 @@ def validate_inline_code_is_concrete_scenario() -> int:
     return 0
 
 
+def validate_covers_separator_collision_scenario() -> int:
+    """Issue #7 example 2: a requirement name containing the hierarchy separator.
+
+    Both spellings the reporter tried must fail loudly and say why. Keeping the
+    slash over-segments the reference, which used to compile to an unlinked
+    legacy-task-reference and PASS; removing it resolves nothing and used to
+    give a generic message.
+    """
+    collide = "Continue or downgrade or switch/window criteria"
+
+    def spec(requirement: str) -> str:
+        return (
+            "# cap\n\n## Purpose\nDemo.\n\n"
+            f"### Requirement: {requirement}\nText.\n\n"
+            "#### Scenario: Criteria cover three outcomes\n"
+            "- **WHEN** a thing\n- **THEN** another\n"
+        )
+
+    def tasks(reference: str) -> str:
+        return task_capsule_compact_fixture().replace(
+            "    - E1: Public behavior passes.\n", f"    - {reference}\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-covers-collision-") as raw_tmp:
+        repo = Path(raw_tmp)
+        write_text(repo / "openspec/specs/collide-cap/spec.md", spec(collide))
+        write_text(repo / "openspec/specs/clean-cap/spec.md", spec("Plain name"))
+
+        def start(change: str, reference: str):
+            write_text(repo / f"openspec/changes/{change}/tasks.md", tasks(reference))
+            result = run_keel(
+                repo, "gate", "task-start", "--change", change, "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        # The reporter's correct spelling: over-segmented, capability is real.
+        kept = start(
+            "kept",
+            f"collide-cap / {collide} / Criteria cover three outcomes",
+        )
+        kept_messages = " ".join(
+            problem.get("message", "") for problem in kept.get("problems", [])
+        )
+        kept_kinds = {
+            entry.get("kind")
+            for entry in kept.get("contract", {})
+            .get("capsule", {})
+            .get("authority", [])
+        }
+        if kept.get("status") != "fail" or "legacy-task-reference" in kept_kinds:
+            report(
+                "covers-separator-collision: an over-segmented reference to a "
+                "real capability still degraded to a free-text reference."
+            )
+            report(json.dumps(kept.get("problems"), ensure_ascii=False))
+            return 1
+        if collide not in kept_messages or "separator" not in kept_messages:
+            report(
+                "covers-separator-collision: the over-segmented diagnostic did "
+                "not name the colliding requirement."
+            )
+            report(kept_messages)
+            return 1
+        # The reporter's fallback spelling: resolves to nothing.
+        trimmed = start(
+            "trimmed",
+            "collide-cap / Continue or downgrade or switchwindow criteria"
+            " / Criteria cover three outcomes",
+        )
+        trimmed_messages = " ".join(
+            problem.get("message", "") for problem in trimmed.get("problems", [])
+        )
+        if collide not in trimmed_messages:
+            report(
+                "covers-separator-collision: the unresolved diagnostic did not "
+                "name the colliding requirement."
+            )
+            report(trimmed_messages)
+            return 1
+        # A capability with no collision keeps the plain wording.
+        plain = start(
+            "plain", "clean-cap / No such requirement / No such scenario"
+        )
+        plain_messages = " ".join(
+            problem.get("message", "") for problem in plain.get("problems", [])
+        )
+        if "separator" in plain_messages:
+            report(
+                "covers-separator-collision: a capability with no colliding "
+                "name still received the separator hint."
+            )
+            report(plain_messages)
+            return 1
+        # Free text that merely contains slashes is not a spec reference.
+        free = start("free", "E1: writes a/b/c and passes")
+        free_kinds = {
+            entry.get("kind")
+            for entry in free.get("contract", {})
+            .get("capsule", {})
+            .get("authority", [])
+        }
+        if free.get("status") != "pass" or free_kinds != {"legacy-task-reference"}:
+            report(
+                "covers-separator-collision: free text containing slashes was "
+                "no longer accepted as a legacy reference."
+            )
+            report(json.dumps(free.get("problems"), ensure_ascii=False))
+            return 1
+    if "covers-separator-collision" not in {name for name, _ in SCENARIOS}:
+        report(
+            "covers-separator-collision: the scenario registry does not include it."
+        )
+        return 1
+    report("covers-separator-collision scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -10596,6 +10714,7 @@ SCENARIOS: tuple = (
         validate_non_concrete_verify_diagnostic_scenario,
     ),
     ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
+    ("covers-separator-collision", validate_covers_separator_collision_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

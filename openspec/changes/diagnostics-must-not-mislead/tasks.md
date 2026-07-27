@@ -57,23 +57,27 @@
 
 ## 2. Make Covers and authority diagnostics name their cause
 
-- [ ] 2.1 Name a separator collision in the unresolved-covers diagnostic
+- [x] 2.1 Name a separator collision, and stop over-segmented capability refs from degrading silently
   - Covers:
+    - D6 a reference whose first segment names an existing capability is always treated as a spec reference
     - keel-task-capsule / Covers resolves durable authority and Acceptance / Separator collision is named
+    - keel-task-capsule / Covers resolves durable authority and Acceptance / Over-segmented capability reference does not degrade silently
   - Touch:
     - src/core/task-contract.js
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: regression-first
-    - M1: when a Covers reference fails to resolve and the target capability holds a requirement or scenario whose own name contains the hierarchy separator, the diagnostic states that the name contains the separator and cannot be referenced; an ordinary unresolved reference keeps its existing wording; a new validator scenario locks both
+    - M1: both spellings of a reference to a requirement whose name contains the separator now fail loudly and name the cause — the over-segmented spelling no longer compiles to an unlinked legacy-task-reference, and the trimmed spelling's diagnostic states that a requirement name in that capability contains the separator; an ordinary unresolved reference keeps its existing wording, and a free-text reference whose first segment names no capability is still accepted; a new validator scenario locks all four cases
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:6376ae8ccb56ea2d8587ab4114de086c0be22e453d00754019244c42662e3293
+    - M1: `specAuthority` no longer returns null for an over-segmented reference whose first segment names a capability with an existing spec file; it reports `unresolved-covers` naming the segment count and the accepted hierarchy. A shared `collisionHint` scans the target capability for requirement and scenario headings whose own title contains the separator and appends them by name, and is applied to the over-segmented path, the missing-scenario path, and the unresolved-reference path
+    - M1.red: with `src/core/task-contract.js` stashed, the new `covers-separator-collision` scenario exited 1 with "an over-segmented reference to a real capability still degraded to a free-text reference"
+    - M1.green: the scenario exits 0, asserting four cases — the reporter's kept-slash spelling now fails instead of compiling to an unlinked reference and names the colliding requirement; the trimmed spelling gains the same naming; a capability with no colliding name keeps the plain wording; and free text merely containing slashes is still accepted as a legacy reference. `npm test` reported "validation --all passed: baseline plus 61 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — both spellings the reporter tried now fail loudly and name the cause, satisfying D6 and the two covered scenarios
+      - Scope check: pass — `src/core/task-contract.js` and `scripts/validate_plugin.py`, both within Touch
+      - Findings: the silent half of this defect was worse than the reported half and was outside this task's original scope. The reporter's *correct* spelling compiled to an unlinked `legacy-task-reference` with `status: pass` and empty Acceptance, so the task as first written would not have fixed their case. Scope was widened before implementing, because delivering the narrow version would have closed issue #7 example 2 without fixing it. Durable owner: openspec/changes/diagnostics-must-not-mislead/design.md, which records the reproduction as F7 and the decision as D6, with a matching spec scenario
     - Blocker: none
 
 - [ ] 2.2 State the exact field and line prefix in the unresolved-authority diagnostic

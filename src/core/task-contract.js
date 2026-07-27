@@ -357,12 +357,8 @@ function scenarioOutcomes(content) {
   ].map((match) => normalizeText(match[1]));
 }
 
-function specAuthority(repo, change, reference) {
-  const parts = reference.split("/").map((part) => part.trim());
-  if (parts.length < 2 || parts.length > 3) return null;
-  const [capability, requirementName, scenarioName] = parts;
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(capability)) return null;
-  const candidates = [
+function specCandidatePaths(repo, change, capability) {
+  return [
     path.join(
       repo,
       "openspec",
@@ -374,6 +370,68 @@ function specAuthority(repo, change, reference) {
     ),
     path.join(repo, "openspec", "specs", capability, "spec.md"),
   ];
+}
+
+// Requirement and scenario names that contain the hierarchy separator can never
+// be referenced, whatever the author writes, so name them instead of leaving a
+// correct-looking reference unexplained.
+function separatorCollisions(repo, change, capability) {
+  const collisions = [];
+  for (const specPath of specCandidatePaths(repo, change, capability)) {
+    if (!fs.existsSync(specPath)) continue;
+    const content = fs.readFileSync(specPath, "utf8");
+    for (const pattern of [
+      /^### Requirement:\s*(.+?)\s*$/gm,
+      /^#### Scenario:\s*(.+?)\s*$/gm,
+    ]) {
+      for (const match of content.matchAll(pattern)) {
+        if (match[1].includes("/") && !collisions.includes(match[1])) {
+          collisions.push(match[1]);
+        }
+      }
+    }
+  }
+  return collisions;
+}
+
+function collisionHint(repo, change, capability) {
+  const collisions = separatorCollisions(repo, change, capability);
+  if (collisions.length === 0) return "";
+  const named = collisions.map((name) => `"${name}"`).join(", ");
+  return (
+    ` Capability ${capability} declares a name containing the / separator, `
+    + `which cannot be referenced: ${named}. Rename it in the spec, or `
+    + "reference its parent requirement instead."
+  );
+}
+
+function specAuthority(repo, change, reference) {
+  const parts = reference.split("/").map((part) => part.trim());
+  const [capability, requirementName, scenarioName] = parts;
+  const namesCapability =
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(capability || "")
+    && specCandidatePaths(repo, change, capability).some((specPath) =>
+      fs.existsSync(specPath)
+    );
+  if (parts.length < 2 || parts.length > 3) {
+    // Only a reference that names a real capability is a failed spec
+    // reference; anything else is free text and stays a legacy reference.
+    if (parts.length > 3 && namesCapability) {
+      return {
+        diagnostic: {
+          code: "unresolved-covers",
+          message:
+            `Covers reference has ${parts.length} segments; the hierarchy is `
+            + "capability / requirement, or capability / requirement / "
+            + `scenario: ${reference}.`
+            + collisionHint(repo, change, capability),
+        },
+      };
+    }
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(capability)) return null;
+  const candidates = specCandidatePaths(repo, change, capability);
   for (const specPath of candidates) {
     if (!fs.existsSync(specPath)) continue;
     const content = fs.readFileSync(specPath, "utf8");
@@ -405,7 +463,10 @@ function specAuthority(repo, change, reference) {
             code: scenarios.length > 1 ? "ambiguous-covers" : "unresolved-covers",
             message:
               `${scenarios.length > 1 ? "Duplicated" : "Missing"} Covers `
-              + `scenario: ${reference}.`,
+              + `scenario: ${reference}.`
+              + (scenarios.length > 1
+                ? ""
+                : collisionHint(repo, change, capability)),
           },
         };
       }
@@ -427,7 +488,9 @@ function specAuthority(repo, change, reference) {
   return {
     diagnostic: {
       code: "unresolved-covers",
-      message: `Covers reference could not be resolved: ${reference}.`,
+      message:
+        `Covers reference could not be resolved: ${reference}.`
+        + collisionHint(repo, change, capability),
     },
   };
 }
