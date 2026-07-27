@@ -55,7 +55,7 @@
 
 ## 2. Run it in CI
 
-- [ ] 2.1 Add the test workflow and make a real run green
+- [x] 2.1 Add the test workflow and make a real run green
   - Covers:
     - D3 the workflow runs the full gate on a POSIX runner for push and pull request, and the release path is unchanged
     - D4 the evidence is a real green run, and fixing what that run surfaces is inside this task
@@ -67,13 +67,13 @@
     - Strategy: evidence-first
     - M1: a real workflow run on the pushed commit completes successfully with the run URL and conclusion recorded, its log shows the baseline plus the verified scenario count and both native-runtime scenarios named as skipped, and any platform assumption the run surfaces is fixed here rather than deferred; the release workflow is unchanged and still carries its own tag-and-version guard; and the suite stays green on this machine afterwards
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:8096c09d76bc77b1908508b12e3b24c60ad92d204d4c75f80727cf7bfa1b1e98
+    - M1: `.github/workflows/test.yml` ("Full gate") runs on `ubuntu-latest` for every push and pull request, with per-ref concurrency cancellation, `actions/setup-node@v4` at Node 20 with npm cache, `actions/setup-python@v5` at 3.12, `npm ci`, then the same single `npm test` entry point — no scenario enumeration, per `keel-validation-runner`. `publish.yml` is untouched and keeps its tag/version guard. The `validation-runner` scenario now asserts the workflow exists and declares `npm test`, `npm ci`, `push:`, `pull_request`, and `ubuntu-latest`, and that the release workflow still carries its guard, so neither can quietly stop being what it is. **Real run: https://github.com/TanglmChris/keel/actions/runs/30260375118 — conclusion `success`, 57s**, on commit `eb46593`. Its log ends with `validation --all passed: baseline plus 69 scenarios, 2 skipped: native-plugin-marketplaces, native-plugin-install-matrix.`, each skip preceded by its full reason naming the codex and claude CLIs. That is the accounting from task 1.1 behaving on a real clean runner: 69 verified there, 71 verified here, and the difference is named rather than hidden. `npm test` on this machine after the push still reports "baseline plus 71 scenarios" with no skips
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — a real run is green, the log carries the verified count and both named skips, and the release path is unchanged and asserted, satisfying D3, D4 and the referenced scenario. E1 is now true for the 69 runtime-independent scenarios on every push and pull request
+      - Scope check: pass — `.github/workflows/test.yml` and `scripts/validate_plugin.py`, both within Touch, verified against `--base HEAD`
+      - Findings: the first run passed with no fixes needed, so D4's expectation that CI would surface further platform assumptions did not materialize — the inspection in F1 through F6 was complete. Recording this because the absence of a surprise is weak evidence, not strong: this run exercised one Linux distribution at one Python and Node version, and A4's assumption about case-insensitive path lookup was not disproved so much as never exercised in a way that would distinguish it. The workflow now runs on every push, which is where that assumption will actually be tested over time. Discard reason: nothing actionable remains; the workflow is the ongoing check
     - Blocker: none
 
 ## Expectation Coverage
