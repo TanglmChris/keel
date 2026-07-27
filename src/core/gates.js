@@ -316,7 +316,30 @@ function pathAllowed(candidate, touch) {
   });
 }
 
-function scopeEvidence(repo, task, base, contract = null, change = null) {
+// A base comparison shows that a path changed, never who changed it. When a
+// task of the same change is already checked complete and declares the path in
+// its own Touch, blaming the selected task is a guess — and the wrong one often
+// enough that the per-task commit habit became an implicit requirement whose
+// diagnostic named a file the author never touched. Only a checked sibling
+// counts: an unchecked task's Touch is a plan, not a record.
+function completedSiblingOwners(tasks, selected) {
+  const owners = [];
+  for (const item of tasks || []) {
+    if (item.id === selected.id || !item.checked) continue;
+    const declared = touchEntries(item);
+    if (declared.length > 0) owners.push({ id: item.id, touch: declared });
+  }
+  return owners;
+}
+
+function scopeEvidence(
+  repo,
+  task,
+  base,
+  contract = null,
+  change = null,
+  tasks = null
+) {
   const dirtyPaths = gitPaths(repo);
   if (!base) {
     return {
@@ -358,17 +381,35 @@ function scopeEvidence(repo, task, base, contract = null, change = null) {
   // attributed as outside Touch. Other changes' directories, the archive tree,
   // and the specs/schemas trees stay attributable.
   const authoringPrefix = change ? `openspec/changes/${change}/` : null;
-  const outside = [...changed]
+  const owners = completedSiblingOwners(tasks, task);
+  const warnings = [];
+  const outside = [];
+  const candidates = [...changed]
     .map((item) => item.replace(/\\/g, "/"))
     .filter((item) => item !== "keel/guard.json")
     .filter((item) => !(authoringPrefix && item.startsWith(authoringPrefix)))
     .filter((item) => !pathAllowed(item, touch))
     .sort();
+  for (const item of candidates) {
+    const owner = owners.find((entry) => pathAllowed(item, entry.touch));
+    if (owner) {
+      // Reported, not silent: the comparison could not establish authorship,
+      // and resolving that in the selected task's favour is a judgment the
+      // author should see rather than a fact the gate discovered.
+      warnings.push(
+        `${item} is not attributed to this task: task ${owner.id} of the same `
+          + "change is checked complete and declares it in Touch. A base "
+          + "comparison cannot establish which task wrote it."
+      );
+      continue;
+    }
+    outside.push(item);
+  }
   return {
     problems: outside.map((item) =>
       problem("outside-touch", `Changed path is outside Touch: ${item}`)
     ),
-    warnings: [],
+    warnings,
   };
 }
 
@@ -481,7 +522,8 @@ function taskComplete(repo, options) {
     task,
     options.base,
     usableContract,
-    selection.change
+    selection.change,
+    selection.tasks
   );
   checks.problems.push(...scope.problems);
   const status =

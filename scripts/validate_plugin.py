@@ -10552,6 +10552,146 @@ def validate_runner_skip_accounting_scenario() -> int:
     return 0
 
 
+def sibling_scope_tasks(sibling_checked: bool, sibling_touch: str) -> str:
+    """Two tasks: 1.1 owns `shared.js`, 1.2 is the one being completed."""
+
+    def task(task_id: str, title: str, checked: bool, touch: str) -> str:
+        mark = "x" if checked else " "
+        return (
+            f"- [{mark}] {task_id} {title}\n"
+            "  - Covers:\n"
+            "    - E1: public behavior\n"
+            "  - Touch:\n"
+            + "".join(f"    - {entry}\n" for entry in touch.split(","))
+            + "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js\n"
+            "  - Evidence:\n"
+            "    - M1: verified\n"
+            "    - Review:\n"
+            "      - Status: pass\n"
+            "      - Acceptance check: reviewed\n"
+            "      - Scope check: reviewed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    return (
+        "# Tasks\n\n"
+        "## 1. Work\n\n"
+        + task("1.1", "Own the shared file", sibling_checked, sibling_touch)
+        + "\n"
+        + task("1.2", "Own its own file", False, "src/mine.js")
+        + "\n## Expectation Coverage\n\n- None.\n"
+    )
+
+
+def validate_completed_sibling_attribution_scenario() -> int:
+    """Issue #13 item 2: a finished task's uncommitted work blamed the next one.
+
+    `--base HEAD` cannot tell who wrote a path, so a sibling that already passed
+    its own completion gate had its files attributed to whoever ran next. The
+    workaround — commit per task — was correct but implicit, and the diagnostic
+    named a file the author never touched.
+    """
+    label = "completed-sibling-attribution"
+
+    def complete(sibling_checked: bool, sibling_touch: str = "src/shared.js"):
+        with tempfile.TemporaryDirectory(prefix="keel-sibling-scope-") as raw:
+            repo = Path(raw)
+            for name in ("src/shared.js", "src/mine.js", "src/stray.js"):
+                write_text(repo / name, "// base\n")
+            write_text(
+                repo / "openspec/changes/demo/tasks.md",
+                sibling_scope_tasks(sibling_checked, sibling_touch),
+            )
+            for args in (
+                ["init", "--quiet"],
+                ["-c", "user.email=t@e", "-c", "user.name=t", "add", "-A"],
+                [
+                    "-c", "user.email=t@e", "-c", "user.name=t",
+                    "commit", "--quiet", "-m", "base",
+                ],
+            ):
+                done = subprocess.run(
+                    ["git", *args], cwd=repo, capture_output=True, text=True
+                )
+                if done.returncode != 0:
+                    report(f"{label}: git {args[0]} failed: {done.stderr}")
+                    return None
+            # The sibling's work and an undeclared stray, both uncommitted.
+            write_text(repo / "src/shared.js", "// sibling's uncommitted work\n")
+            write_text(repo / "src/stray.js", "// nobody declared this\n")
+            result = run_keel(
+                repo, "gate", "task-complete",
+                "--change", "demo", "--task", "1.2", "--base", "HEAD", "--json",
+            )
+            return json.loads(result.stdout) if result.stdout else {}
+
+    owned = complete(sibling_checked=True)
+    if owned is None:
+        return 1
+    outside = [
+        item.get("message", "")
+        for item in owned.get("problems", [])
+        if item.get("code") == "outside-touch"
+    ]
+    if any("src/shared.js" in message for message in outside):
+        report(
+            f"{label}: a completed sibling's declared file was still attributed "
+            f"to the selected task: {outside}"
+        )
+        return 1
+    if not any("src/stray.js" in message for message in outside):
+        report(
+            f"{label}: a path no task declares must still fail: {outside}"
+        )
+        return 1
+    warnings = " ".join(owned.get("warnings", []))
+    if "src/shared.js" not in warnings or "1.1" not in warnings:
+        report(
+            f"{label}: the exclusion must be reported, naming the path and the "
+            f"completed task that declares it; got {owned.get('warnings')}"
+        )
+        return 1
+
+    unchecked = complete(sibling_checked=False)
+    if unchecked is None:
+        return 1
+    unchecked_outside = [
+        item.get("message", "")
+        for item in unchecked.get("problems", [])
+        if item.get("code") == "outside-touch"
+    ]
+    if not any("src/shared.js" in message for message in unchecked_outside):
+        report(
+            f"{label}: an unchecked sibling's Touch must grant nothing: "
+            f"{unchecked_outside}"
+        )
+        return 1
+
+    no_touch = complete(sibling_checked=True, sibling_touch="none")
+    if no_touch is None:
+        return 1
+    none_outside = [
+        item.get("message", "")
+        for item in no_touch.get("problems", [])
+        if item.get("code") == "outside-touch"
+    ]
+    if not any("src/shared.js" in message for message in none_outside):
+        report(
+            f"{label}: a sibling whose Touch is none must contribute no claim: "
+            f"{none_outside}"
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_resident_topic_matching_scenario() -> int:
     """Issue #15 item 1: required entries were named topics, matched as prose.
 
@@ -12006,6 +12146,10 @@ SCENARIOS: tuple = (
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
+    (
+        "completed-sibling-attribution",
+        validate_completed_sibling_attribution_scenario,
+    ),
     ("touch-guard-drift", validate_touch_guard_drift_scenario),
     ("touch-guard-surface", validate_touch_guard_surface_scenario),
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),
