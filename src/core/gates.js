@@ -111,12 +111,23 @@ function contractAnchorPlan(selection, task) {
       ? selection.tasks[index + 1].line
       : lines.length;
   for (let cursor = task.line; cursor < end; cursor += 1) {
-    const match = lines[cursor].match(/^(\s*)-\s*Contract:\s*pending(\r?)$/);
+    const match = lines[cursor].match(/^(\s*)-\s*Contract:\s*(.*?)(\r?)$/);
     if (match) {
-      return { lines, cursor, indent: match[1], cr: match[2] };
+      return {
+        lines,
+        cursor,
+        indent: match[1],
+        previous: match[2].trim(),
+        cr: match[3],
+      };
     }
   }
   return null;
+}
+
+function anchoredFingerprint(previous) {
+  const match = previous.match(/sha-?256[\s:`]*([a-f0-9]{64})/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
 function taskStart(repo, options) {
@@ -124,11 +135,12 @@ function taskStart(repo, options) {
   const task = selection.selected[0];
   const compiled = compileTaskContract(repo, selection.change, task);
   const problems = [...compiled.diagnostics];
-  // The explicit --record anchor write is refused loudly when the selected
-  // task's Evidence has no literal pending Contract line: a silent skip would
-  // hide a stale anchor and an overwrite would destroy the recorded start
-  // evidence drift detection depends on. Refusal writes nothing, guard
-  // manifest included.
+  // Recording the current fingerprint is idempotent: --record replaces the
+  // selected task's Contract anchor whatever it holds, so reauthorizing a task
+  // whose authority changed — the path the guard's own drift messages direct
+  // authors to — needs no manual edit. Refusal is kept only for a task with no
+  // anchor at all, which is a malformed capsule rather than a reauthorization,
+  // and it writes nothing, guard manifest included.
   let anchorPlan = null;
   if (options.record && problems.length === 0) {
     anchorPlan = contractAnchorPlan(selection, task);
@@ -136,9 +148,9 @@ function taskStart(repo, options) {
       problems.push(
         problem(
           "record-refused",
-          "--record requires the selected task's Evidence to contain the "
-            + 'literal line "- Contract: pending"; the anchor is already '
-            + "recorded or missing, so nothing was written."
+          "--record needs a \"- Contract:\" Evidence line on the selected "
+            + "task to anchor, and this task has none, so nothing was "
+            + 'written. Add "- Contract: pending" to its Evidence.'
         )
       );
     }
@@ -177,19 +189,38 @@ function taskStart(repo, options) {
     }
   }
   if (result.status === "pass" && anchorPlan) {
-    anchorPlan.lines[anchorPlan.cursor] =
+    const anchorLine =
       `${anchorPlan.indent}- Contract: keel-task-capsule/v1 `
       + `sha256:${compiled.fingerprint.value}${anchorPlan.cr}`;
-    fs.writeFileSync(
-      selection.tasksPath,
-      anchorPlan.lines.join("\n"),
-      "utf8"
-    );
+    const unchanged = anchorPlan.lines[anchorPlan.cursor] === anchorLine;
+    if (!unchanged) {
+      anchorPlan.lines[anchorPlan.cursor] = anchorLine;
+      fs.writeFileSync(
+        selection.tasksPath,
+        anchorPlan.lines.join("\n"),
+        "utf8"
+      );
+    }
+    const wasPending = /^pending$/i.test(anchorPlan.previous);
     result.record = {
-      status: "recorded",
+      status: unchanged ? "unchanged" : wasPending ? "recorded" : "rerecorded",
       path: `openspec/changes/${selection.change}/tasks.md`,
       line: anchorPlan.cursor + 1,
+      previous: anchorPlan.previous,
     };
+    // A re-record that lands a different fingerprint is a contract change, so
+    // any Evidence already produced under the previous one is stale. The gate
+    // cannot judge which Evidence survives; it names the change and leaves the
+    // call to the current agent's Review.
+    const replaced = anchoredFingerprint(anchorPlan.previous);
+    if (replaced && replaced !== compiled.fingerprint.value) {
+      result.warnings.push(
+        `Re-recorded over a different contract: was sha256:${replaced}, now `
+          + `sha256:${compiled.fingerprint.value}. Execution evidence produced `
+          + "under the previous contract is stale; clear or re-verify it "
+          + "before completing this task."
+      );
+    }
   }
   return result;
 }
@@ -658,7 +689,8 @@ function renderGate(result) {
   }
   if (result.record) {
     lines.push(
-      `Recorded: ${result.record.path}:${result.record.line} (Contract anchor)`
+      `Contract anchor ${result.record.status}: ${result.record.path}:`
+        + result.record.line
     );
   }
   return `${lines.join("\n")}\n`;

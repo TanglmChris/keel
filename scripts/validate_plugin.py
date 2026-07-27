@@ -5401,14 +5401,19 @@ def validate_core_gates_scenario() -> int:
         (completion_repo / "openspec/changes/other/proposal.md").unlink()
         (completion_repo / "openspec/specs/demo-spec/spec.md").unlink()
 
-        # Explicit --record replaces exactly the selected task's literal
-        # pending Contract anchor; a non-pending or missing anchor refuses
-        # loudly writing nothing; without the flag the gate stays read-only.
+        # Explicit --record replaces the selected task's Contract anchor
+        # whatever it currently holds, so reauthorizing a task whose authority
+        # changed needs no manual edit; a no-op re-record writes nothing, only
+        # a missing anchor refuses, and without the flag the gate stays
+        # read-only.
         record_repo = root / "record-anchor"
         record_repo.mkdir()
         record_tasks = record_repo / "openspec/changes/demo/tasks.md"
 
-        def record_task(anchor: str) -> str:
+        def record_task(anchor: str, extra_touch: bool = False) -> str:
+            touch = "    - src/feature.js\n"
+            if extra_touch:
+                touch += "    - src/extra.js\n"
             return (
                 "# Tasks\n\n"
                 "- [ ] 1.1 Record behavior\n"
@@ -5419,8 +5424,8 @@ def validate_core_gates_scenario() -> int:
                 "  - Read:\n"
                 "    - README.md\n"
                 "  - Touch:\n"
-                "    - src/feature.js\n"
-                "    - openspec/changes/demo/tasks.md\n"
+                + touch
+                + "    - openspec/changes/demo/tasks.md\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -5465,8 +5470,15 @@ def validate_core_gates_scenario() -> int:
             report("core-gates scenario --record on a pending anchor failed.")
             report((recorded.stderr or recorded.stdout).strip())
             return 1
+        recorded_result = json.loads(recorded.stdout)
+        if recorded_result.get("record", {}).get("status") != "recorded":
+            report(
+                "core-gates scenario --record over a pending anchor must "
+                "report the outcome as recorded."
+            )
+            return 1
         fingerprint = (
-            json.loads(recorded.stdout)
+            recorded_result
             .get("contract", {})
             .get("fingerprint", {})
             .get("value", "")
@@ -5507,23 +5519,67 @@ def validate_core_gates_scenario() -> int:
             )
             return 1
 
-        before_refusal = record_tasks.read_bytes()
+        before_noop = record_tasks.read_bytes()
+        noop = run_keel(
+            record_repo, "gate", "task-start",
+            "--change", "demo", "--task", "1.1", "--no-guard", "--record",
+            "--json",
+        )
+        noop_result = json.loads(noop.stdout) if noop.stdout else {}
+        if (
+            noop.returncode != 0
+            or noop_result.get("record", {}).get("status") != "unchanged"
+            or noop_result.get("warnings")
+            or record_tasks.read_bytes() != before_noop
+        ):
+            report(
+                "core-gates scenario --record over an anchor that already "
+                "carries the compiled fingerprint must report unchanged, "
+                "warn about nothing, and write nothing."
+            )
+            report((noop.stderr or noop.stdout).strip())
+            return 1
+
+        # Reauthorization: the task authority changes, so the recorded anchor
+        # is now stale and --record must replace it rather than refuse.
+        anchor_line = f"keel-task-capsule/v1 sha256:{fingerprint}"
+        write_text(record_tasks, record_task(anchor_line, extra_touch=True))
+        before_rerecord = record_tasks.read_text(encoding="utf-8").splitlines()
         rerecord = run_keel(
             record_repo, "gate", "task-start",
             "--change", "demo", "--task", "1.1", "--no-guard", "--record",
             "--json",
         )
+        rerecord_result = json.loads(rerecord.stdout) if rerecord.stdout else {}
+        new_fingerprint = (
+            rerecord_result.get("contract", {}).get("fingerprint", {}).get("value", "")
+        )
+        after_rerecord = record_tasks.read_text(encoding="utf-8").splitlines()
+        rerecord_changed = [
+            (old, new)
+            for old, new in zip(before_rerecord, after_rerecord)
+            if old != new
+        ]
         if (
-            rerecord.returncode != 3
+            rerecord.returncode != 0
+            or rerecord_result.get("record", {}).get("status") != "rerecorded"
+            or fingerprint not in rerecord_result.get("record", {}).get("previous", "")
+            or not new_fingerprint
+            or new_fingerprint == fingerprint
+            or len(before_rerecord) != len(after_rerecord)
+            or len(rerecord_changed) != 1
+            or rerecord_changed[0][1]
+            != f"    - Contract: keel-task-capsule/v1 sha256:{new_fingerprint}"
             or not any(
-                problem.get("code") == "record-refused"
-                for problem in json.loads(rerecord.stdout).get("problems", [])
+                fingerprint in warning
+                for warning in rerecord_result.get("warnings", [])
             )
-            or record_tasks.read_bytes() != before_refusal
         ):
             report(
-                "core-gates scenario --record on an already-recorded anchor "
-                "must refuse deterministically and write nothing."
+                "core-gates scenario --record over a stale recorded anchor "
+                "must replace exactly that line with the new fingerprint, "
+                "report the outcome as rerecorded with the replaced value, "
+                "and warn naming the fingerprint it replaced."
             )
             report((rerecord.stderr or rerecord.stdout).strip())
             return 1
