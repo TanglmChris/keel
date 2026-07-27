@@ -246,12 +246,21 @@ function reviewValue(task, label) {
   return match ? match[1].trim() : "";
 }
 
+// The durable-owner forms that are pure shape checks, shared by the Review
+// Findings check and the Expectation Coverage check so a form added to one is
+// never missing from the other. Gates run without network and have never
+// confirmed that an archive path resolves either, so an external tracker
+// reference is no less checkable than what was already accepted; whether the
+// owner is real stays a Review judgment.
+const SHARED_DURABLE_OWNER_FORMS =
+  /(?:\bkeel\/archive\/[A-Za-z0-9._/-]+|\bhttps?:\/\/\S)/i;
+
 function findingOwnerIsDurable(repo, findings) {
   if (/keel\/HANDOFF\.md/i.test(findings)) return false;
   if (/\b(?:explicit\s+)?discard (?:reason|rationale)\s*:/i.test(findings)) {
     return true;
   }
-  if (/\bkeel\/archive\/[A-Za-z0-9._/-]+/i.test(findings)) return true;
+  if (SHARED_DURABLE_OWNER_FORMS.test(findings)) return true;
   const owner = findings.match(
     /\b(openspec\/changes\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:proposal|design|tasks)\.md)(?:#\d+(?:\.\d+)*)?/i
   );
@@ -452,8 +461,8 @@ function completionChecks(repo, task, contract = null) {
         "finding-owner",
         "Review Findings must be `none` or carry a durable owner — a "
           + "`Discard reason:`/`Discard rationale:` prefix, a `keel/archive/…` "
-          + "path, or an existing `openspec/changes/…` artifact; "
-          + "`keel/HANDOFF.md` is not an owner."
+          + "path, an existing `openspec/changes/…` artifact, or an absolute "
+          + "`https://…` tracker reference; `keel/HANDOFF.md` is not an owner."
       )
     );
   }
@@ -520,7 +529,8 @@ function expectationProblems(content, tasks) {
         "expectation-coverage",
         "Expectation Coverage must declare each `E<n>` closure — "
           + "`- E<n>: <expectation> Covered by: <task ids>`, a `Durable owner:` "
-          + "path, or a `Discard reason:` — or `- None.`."
+          + "path or `https://…` tracker reference, or a `Discard reason:` — "
+          + "or `- None.`."
       ),
     ];
   }
@@ -528,8 +538,12 @@ function expectationProblems(content, tasks) {
   for (const entry of entries) {
     const [, id, body] = entry;
     const covered = body.match(/Covered by:\s*([0-9.,\s-]+)/i);
-    const hasDurableOwner =
-      /Durable owner:\s*(?:openspec\/changes\/|keel\/archive\/)/i.test(body);
+    const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
+    const hasDurableOwner = Boolean(
+      declaredOwner
+      && (/^openspec\/changes\//i.test(declaredOwner[1].trim())
+        || SHARED_DURABLE_OWNER_FORMS.test(declaredOwner[1]))
+    );
     const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
     if (!covered && !hasDurableOwner && !discarded) {
       problems.push(

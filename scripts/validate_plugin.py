@@ -4227,6 +4227,161 @@ def validate_source_repo_bootstrap_skip_scenario() -> int:
     return 0
 
 
+TRACKER_OWNER = "https://github.com/TanglmChris/keel/issues/12"
+
+
+def tracker_owner_tasks(findings: str, closure: str) -> str:
+    """One complete, checked task plus one Expectation Coverage closure line."""
+    return (
+        "# Tasks\n\n"
+        "## Expectation Coverage\n\n"
+        "- E1:\n"
+        f"  - {closure}\n\n"
+        "## 1. Work\n\n"
+        "- [x] 1.1 Complete behavior\n"
+        "  - Owner: keel-agent\n"
+        "  - Mode: implementation\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Commands:\n"
+        "    - M1: node test.js\n"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Coupling: none\n"
+        "  - Candidate Boundary:\n"
+        "    - One candidate.\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - M1: passed\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        f"      - Findings: {findings}\n"
+        "    - Blocker: none\n"
+        "  - Stop if:\n"
+        "    - Scope expands.\n"
+        "  - Report:\n"
+        "    - Summary\n"
+    )
+
+
+def validate_tracker_durable_owner_scenario() -> int:
+    """Issue #12: an issue tracker is a durable follow-up owner.
+
+    The gate enumerated three repository-local forms, so a project whose
+    declared follow-up owner is an issue tracker had to write a local note per
+    finding whose only job was to be a shape the gate recognized. The tracker
+    form is now accepted in both places a durable owner is required, and every
+    previously accepted form still passes.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-tracker-owner-") as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        def complete(findings: str, closure: str = "Covered by: 1.1"):
+            write_text(tasks, tracker_owner_tasks(findings, closure))
+            return run_keel(
+                repo, "gate", "task-complete",
+                "--change", "demo", "--task", "1.1", "--json",
+            )
+
+        def close(closure: str):
+            write_text(tasks, tracker_owner_tasks("none", closure))
+            return run_keel(
+                repo, "gate", "change-close",
+                "--change", "demo", "--action", "sync", "--json",
+            )
+
+        tracker = complete(f"stale local note; owner {TRACKER_OWNER}")
+        if tracker.returncode != 0:
+            report(
+                "tracker-durable-owner: a finding owned by an absolute tracker "
+                "reference was still refused."
+            )
+            report((tracker.stderr or tracker.stdout).strip())
+            return 1
+
+        unowned = complete("stale local note that names no owner at all")
+        unowned_payload = json.loads(unowned.stdout) if unowned.stdout else {}
+        message = " ".join(
+            problem.get("message", "")
+            for problem in unowned_payload.get("problems", [])
+            if problem.get("code") == "finding-owner"
+        )
+        if unowned.returncode != 3 or "http" not in message:
+            report(
+                "tracker-durable-owner: an unowned finding must still fail, and "
+                "the error must list the tracker form among the accepted ones."
+            )
+            report((unowned.stderr or unowned.stdout).strip())
+            return 1
+
+        handoff = complete("stale local note; owner keel/HANDOFF.md")
+        if handoff.returncode != 3:
+            report(
+                "tracker-durable-owner: keel/HANDOFF.md must still be refused "
+                "as a finding owner."
+            )
+            report((handoff.stderr or handoff.stdout).strip())
+            return 1
+
+        archived = complete("stale local note; owner keel/archive/follow-ups/x.md")
+        if archived.returncode != 0:
+            report(
+                "tracker-durable-owner: the pre-existing keel/archive owner form "
+                "regressed."
+            )
+            report((archived.stderr or archived.stdout).strip())
+            return 1
+
+        closed_by_tracker = close(f"Durable owner: {TRACKER_OWNER}")
+        if closed_by_tracker.returncode != 0:
+            report(
+                "tracker-durable-owner: change-close refused an Expectation "
+                "Coverage durable owner naming a tracker reference."
+            )
+            report((closed_by_tracker.stderr or closed_by_tracker.stdout).strip())
+            return 1
+
+        closed_by_task = close("Covered by: 1.1")
+        if closed_by_task.returncode != 0:
+            report(
+                "tracker-durable-owner: the pre-existing Covered by closure "
+                "regressed at change-close."
+            )
+            report((closed_by_task.stderr or closed_by_task.stdout).strip())
+            return 1
+
+        closed_unowned = close("pending")
+        if closed_unowned.returncode != 3:
+            report(
+                "tracker-durable-owner: change-close must still reject an E1 "
+                "with no coverage, owner, or discard reason."
+            )
+            report((closed_unowned.stderr or closed_unowned.stdout).strip())
+            return 1
+
+    if "tracker-durable-owner" not in {name for name, _ in SCENARIOS}:
+        report("tracker-durable-owner: the scenario registry does not include it.")
+        return 1
+    report("tracker-durable-owner scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -10999,6 +11154,7 @@ SCENARIOS: tuple = (
         "source-repo-bootstrap-skip",
         validate_source_repo_bootstrap_skip_scenario,
     ),
+    ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
