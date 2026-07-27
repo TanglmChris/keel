@@ -4597,11 +4597,13 @@ def validate_source_repo_cli_resolution_scenario() -> int:
     hint = next(
         (line for line in out.splitlines() if "node bin/keel.js" in line), ""
     )
-    for needle in ("gate", "."):
+    # The line must be advisory: it describes a hazard, not a repository
+    # failure, so it must never push doctor toward a non-ok verdict.
+    for needle in ("gate", ".", "advisory"):
         if needle not in hint:
             report(
                 "source-repo-cli-resolution: the hint does not name a usable "
-                f"invocation; missing {needle!r} in: {hint}"
+                f"invocation, or is not advisory; missing {needle!r} in: {hint}"
             )
             return 1
     with tempfile.TemporaryDirectory(prefix="keel-cli-resolution-") as raw:
@@ -4618,12 +4620,6 @@ def validate_source_repo_cli_resolution_scenario() -> int:
                 "hazard that exists only in Keel's own repository."
             )
             report(consumer_doctor.stdout or "")
-            return 1
-        if consumer_doctor.returncode != own.returncode:
-            report(
-                "source-repo-cli-resolution: the advisory line changed the "
-                "doctor exit status."
-            )
             return 1
     if "source-repo-cli-resolution" not in {name for name, _ in SCENARIOS}:
         report(

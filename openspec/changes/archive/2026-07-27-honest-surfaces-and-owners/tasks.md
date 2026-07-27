@@ -104,12 +104,12 @@
     - Contract: keel-task-capsule/v1 sha256:7e7462a62011589bf94dc06cd4d502b5999802713c003afb82e35ba9fc27ea08
     - M1: `printSourceRepoCliResolution` returns immediately unless `isKeelSourceRepo` matches, so it costs a consuming project nothing and prints nothing there. In Keel's own repository it adds a `Keel source repository` section with one `advisory` line stating that a bare `keel` runs the installed package, that gate results will therefore not reflect uncommitted gate, contract, or capability changes, and the invocation to use instead — including the repository argument the local entry point requires, which is the part an author who copies a partial command gets wrong. It does not touch the doctor exit status
     - M1.red: the new `source-repo-cli-resolution` scenario exited 1 with "Keel's own repository is not told to run gate commands through its own entry point" and dumped the full doctor output, which had no such line
-    - M1.green: the scenario exits 0. It asserts the hint exists in this repository, that the line naming it also names `gate` and the repository argument rather than a fragment, that a temporary consuming project's doctor output does not contain it at all, and that both runs return the same exit status. `npm test` reported "validation --all passed: baseline plus 68 scenarios"
+    - M1.green: the scenario exits 0. It asserts the hint exists in this repository, that the line naming it also names `gate` and the repository argument rather than a fragment, that a temporary consuming project's doctor output does not contain it at all, and that the line is reported as `advisory` rather than as a repository failure. `npm test` reported "validation --all passed: baseline plus 68 scenarios"
     - Review:
       - Status: pass
       - Acceptance check: pass — an author changing gate code in this repository is now told, before losing a round to it, that the bare command verifies the installed CLI, and a consuming project is not shown a hazard it does not have, satisfying D4 and both referenced scenarios
       - Scope check: pass — `bin/keel.js`, `scripts/validate_plugin.py`, and this task's own `tasks.md`, all within Touch, verified against `--base HEAD`
-      - Findings: none
+      - Findings: the scenario first asserted that this repository's doctor exit status equalled a fresh consuming project's, which passed in isolation and failed under `--all` because the two are unrelated repositories whose doctor verdicts differ for reasons this line has nothing to do with. The assertion was wrong, not the implementation: what it needed to prove is that the line is `advisory` and never pushes doctor toward a failure verdict, which it now asserts directly on the line. The task was reopened, corrected, and re-verified before completion. No product code changed. Discard reason: fully resolved inside this task; nothing remains to own
     - Blocker: none
 
 ## Expectation Coverage

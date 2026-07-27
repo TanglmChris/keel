@@ -36,7 +36,7 @@ Keel MUST expose `task-start`, `task-complete`, and `change-close` stages with e
 
 ### Requirement: Semantic judgment remains agent-owned
 
-Keel MUST NOT claim that deterministic gate structure proves product intent, behavioral test sufficiency, design quality, or risk completeness. Required semantic conclusions MUST be recorded by the current agent in task Review evidence.
+Keel MUST NOT claim that deterministic gate structure proves product intent, behavioral test sufficiency, design quality, or risk completeness. Required semantic conclusions MUST be recorded by the current agent in task Review evidence. Wherever a durable follow-up owner is required, the accepted forms MUST include an external tracker reference alongside the repository-local forms.
 
 #### Scenario: Completion Review is required
 - **WHEN** a task is presented to `task-complete`
@@ -45,8 +45,13 @@ Keel MUST NOT claim that deterministic gate structure proves product intent, beh
 
 #### Scenario: Findings require durable ownership
 - **WHEN** Review identifies an unresolved finding
-- **THEN** `task-complete` requires a durable OpenSpec task, new change, archive-evidence owner, or explicit discard rationale
+- **THEN** `task-complete` requires a durable OpenSpec task, new change, archive-evidence owner, absolute `http` or `https` tracker reference, or explicit discard rationale
 - **AND THEN** `keel/HANDOFF.md` is not accepted as that owner
+
+#### Scenario: An external tracker owns a finding without a local proxy file
+- **WHEN** a Review `Findings` value or an `## Expectation Coverage` `Durable owner:` entry names an absolute `http` or `https` reference
+- **THEN** the gate accepts it as a durable owner without requiring a repository-local file written only to satisfy the shape
+- **AND THEN** both checks accept the tracker form, and every form either check accepted before is still accepted
 
 #### Scenario: Gate does not reinterpret acceptance
 - **WHEN** command Evidence and Review are present
@@ -244,7 +249,7 @@ repair from the message without reading validator source.
 #### Scenario: Findings rejection shows the accepted ownership forms
 
 - **WHEN** `task-complete` produces `finding-owner` because a non-`none` Findings value has no durable owner
-- **THEN** the error names the `Findings` field and shows the accepted forms: a `discard reason:`/`discard rationale:` prefix, a `keel/archive/…` path, or an existing `openspec/changes/<change>/…` artifact
+- **THEN** the error names the `Findings` field and shows the accepted forms: a `discard reason:`/`discard rationale:` prefix, a `keel/archive/…` path, an existing `openspec/changes/<change>/…` artifact, or an absolute `http`/`https` tracker reference
 - **AND THEN** the error states that `keel/HANDOFF.md` is not an accepted owner
 
 #### Scenario: Expectation Coverage rejection carries a format sample
