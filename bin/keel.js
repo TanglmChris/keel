@@ -1332,8 +1332,58 @@ function runDoctor(options) {
 
   printTargetSurface(repo, options.target);
   printLensSurface(repo, options.target);
+  printFastPrePushSurface(repo);
 
   return checkStatus;
+}
+
+function readFastCheck(repo) {
+  const configPath = path.join(repo, "keel", "config.yaml");
+  if (!fs.existsSync(configPath)) return null;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    const stripped = line.trim();
+    if (stripped.startsWith("#")) continue;
+    const match = stripped.match(/^fast_check\s*:\s*(.+?)\s*$/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function gitConfigHooksPath(repo) {
+  const result = spawnSync(
+    "git",
+    ["-C", repo, "config", "--local", "--get", "core.hooksPath"],
+    { encoding: "utf8" }
+  );
+  if (result.status !== 0) return null;
+  const value = (result.stdout || "").trim();
+  return value || null;
+}
+
+function printFastPrePushSurface(repo) {
+  process.stdout.write("\nFast pre-push surface:\n");
+  const fastCheck = readFastCheck(repo);
+  printDoctorLine(
+    "fast_check",
+    fastCheck ? "ok" : "none",
+    fastCheck
+      ? `declared in keel/config.yaml: ${fastCheck}`
+      : "undeclared; add a fast_check line to keel/config.yaml"
+  );
+  const hookPresent = fs.existsSync(path.join(repo, ".githooks", "pre-push"));
+  printDoctorLine(
+    "pre-push hook",
+    hookPresent ? "ok" : "none",
+    hookPresent
+      ? ".githooks/pre-push present"
+      : "run keel --install --with-git-hooks to scaffold it"
+  );
+  const hooksPath = gitConfigHooksPath(repo);
+  printDoctorLine(
+    "core.hooksPath",
+    hooksPath === ".githooks" ? "ok" : hooksPath ? "other" : "unset",
+    hooksPath || "default (.git/hooks)"
+  );
 }
 
 const SHIPPED_LENS_DIR = path.join(PACKAGE_ROOT, "assets", "lenses");

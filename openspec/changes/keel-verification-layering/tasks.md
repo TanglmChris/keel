@@ -91,7 +91,7 @@
 
 ## 4. Diagnose the fast pre-push surface
 
-- [ ] 4.1 Report fast_check, the pre-push hook, and core.hooksPath in keel --doctor
+- [x] 4.1 Report fast_check, the pre-push hook, and core.hooksPath in keel --doctor
   - Covers:
     - D5 doctor reports the surface, never mutates it
     - keel-verification-layering / Keel diagnoses the fast pre-push surface / Doctor reports the fast pre-push surface
@@ -102,15 +102,17 @@
     - Strategy: regression-first
     - M1: keel --doctor reports whether fast_check is declared, whether .githooks/pre-push exists, and the current core.hooksPath, and changes nothing; a new validator scenario asserts the reported surface
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:81f3af7b6248aa0015781131cf9306c44d1d2d7b6105b8d49a3e61f8ba860307
+    - M1: the fast-pre-push-doctor validator scenario runs keel --doctor in a repo with the fast pre-push surface active (fast_check plus --with-git-hooks) and one without, asserting doctor reports the Fast pre-push surface section with the fast_check, pre-push hook, and core.hooksPath states and never changes core.hooksPath
+    - M1.red: with the bin/keel.js doctor change stashed, the scenario failed at exit 1 — doctor output ended at the Domain lens surface with no Fast pre-push surface section
+    - M1.green: after printFastPrePushSurface reports fast_check, the pre-push hook, and core.hooksPath read-only, the scenario passed at exit 0 and npm test reported "validation --all passed: baseline plus 57 scenarios"
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — doctor reports fast_check, the pre-push hook, and core.hooksPath without mutating any of them
+      - Scope check: pass — only bin/keel.js and scripts/validate_plugin.py changed, both within Touch
+      - Findings: none
     - Blocker: none
 
 ## 5. Add the fast/full verification-layer tag to the task capsule

@@ -7857,6 +7857,66 @@ def validate_fast_pre_push_hooks_scenario() -> int:
     return 0
 
 
+def validate_fast_pre_push_doctor_scenario() -> int:
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def init_repo(root: Path, name: str) -> Path:
+        repo = root / name
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        return repo
+
+    with tempfile.TemporaryDirectory(prefix="keel-prepush-doc-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # Surface active: fast_check declared and --with-git-hooks applied.
+        active = init_repo(root, "active")
+        (active / "keel").mkdir()
+        (active / "keel" / "config.yaml").write_text(
+            "fast_check: echo doc-check\n", encoding="utf-8"
+        )
+        if run_keel(active, "--install", "--with-git-hooks").returncode != 0:
+            report("fast-pre-push-doctor: install --with-git-hooks failed.")
+            return 1
+        before = git(active, "config", "--local", "--get", "core.hooksPath").stdout.strip()
+        out = run_keel(active, "--doctor").stdout
+        for needle in (
+            "Fast pre-push surface:",
+            "fast_check: ok",
+            "echo doc-check",
+            "pre-push hook: ok",
+            "core.hooksPath: ok",
+        ):
+            if needle not in out:
+                report(f"fast-pre-push-doctor: active-surface doctor output lacks: {needle}")
+                report(out)
+                return 1
+        after = git(active, "config", "--local", "--get", "core.hooksPath").stdout.strip()
+        if before != after:
+            report("fast-pre-push-doctor: doctor mutated core.hooksPath.")
+            return 1
+
+        # Surface absent: plain install, no fast_check, no hook.
+        absent = init_repo(root, "absent")
+        if run_keel(absent, "--install").returncode != 0:
+            report("fast-pre-push-doctor: plain install failed.")
+            return 1
+        out = run_keel(absent, "--doctor").stdout
+        for needle in ("fast_check: none", "pre-push hook: none", "core.hooksPath: unset"):
+            if needle not in out:
+                report(f"fast-pre-push-doctor: absent-surface doctor output lacks: {needle}")
+                report(out)
+                return 1
+
+    report("fast-pre-push-doctor scenario passed.")
+    return 0
+
+
 def validate_native_goal_gate_order_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-goal-order-") as raw_tmp:
         root = Path(raw_tmp)
@@ -10277,6 +10337,7 @@ SCENARIOS: tuple = (
     ("verification-layering-docs", validate_verification_layering_docs_scenario),
     ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
     ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),
+    ("fast-pre-push-doctor", validate_fast_pre_push_doctor_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
