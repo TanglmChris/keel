@@ -83,6 +83,6 @@
 
 - E1: deferred follow-ups keep a durable owner that is not chat history and not keel/HANDOFF.md Covered by: 1.1
 - E2: keel context stops reporting a permanent false pointer at a change nobody intends to author Covered by: 1.2
-- E3: the one surviving deferred item from the retired backlog is not lost Durable owner: https://github.com/TanglmChris/keel/issues/10
-- E4: the obsolete CI and npm-publish claims in the retired backlog are corrected rather than silently dropped Durable owner: https://github.com/TanglmChris/keel/issues/10
+- E3: the one surviving deferred item from the retired backlog is not lost Durable owner: keel/archive/follow-ups/2026-07-27-follow-up-backlog-retirement.md
+- E4: the obsolete CI and npm-publish claims in the retired backlog are corrected rather than silently dropped Durable owner: keel/archive/follow-ups/2026-07-27-follow-up-backlog-retirement.md
 - E5: an agent following the new convention is not blocked by a gate diagnostic that never mentions issues Covered by: 1.3
