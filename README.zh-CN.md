@@ -133,6 +133,31 @@ keel --init  →  keel context  →  /opsx:apply（选一个 task）
 所以日常使用里你真正要敲的只有两条：装配时的 `keel --init`，以及想体检时的 `keel --doctor`。
 下面列出的，是 agent 替你使用的「命令词汇表」。
 
+## 验证分层
+
+Keel 把验证分成两层，让慢测试套件不再卡住你的 push：
+
+- **快速内环检查（fast inner-loop）** —— 秒级，在本地 pre-push 和迭代时跑，挡住明显的破坏而无需等待。
+- **全量门禁（full gate）** —— 完整或慢的套件（golden 字节确定性测试、跨平台运行），交给 CI 或
+  `keel gate change-close`。
+
+任务的 `Verify` 检查保持快；慢的或穷尽的那一层归全量门禁，不放在本地 pre-push。在 `keel/config.yaml`
+里声明一次你的快检命令：
+
+```yaml
+fast_check: npm test -- --fast   # 你项目的秒级检查
+```
+
+然后按需装一个仓内快 pre-push：
+
+```bash
+keel --install --with-git-hooks   # 写 .githooks/pre-push，设 core.hooksPath（仅本仓）
+keel --doctor                     # 报告 fast_check、pre-push hook、core.hooksPath
+keel --uninstall                  # 当 core.hooksPath 由 Keel 设置时回退
+```
+
+`--with-git-hooks` 是显式 opt-in：普通 `keel --install` 绝不碰 git config，且这个覆盖仅限本仓、可逆。
+
 ## 命令参考
 
 ```bash

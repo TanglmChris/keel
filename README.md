@@ -139,6 +139,33 @@ command at the right moment. Three things make that happen.
 So in day-to-day use you run two commands: `keel --init` once, and `keel --doctor` when you
 want to check the wiring. Everything below is the vocabulary the agent uses on your behalf.
 
+## Verification layering
+
+Keel splits verification into two layers so a slow suite never blocks your push:
+
+- **Fast inner-loop check** — seconds, run at a local pre-push and during iteration. It catches
+  obvious breakage without waiting.
+- **Full gate** — the complete or slow suite (golden byte-determinism tests, cross-platform runs),
+  run at CI or at `keel gate change-close`.
+
+A task's `Verify` checks stay fast; the slow or exhaustive layer belongs to the full gate, not the
+local pre-push. Declare your fast check once in `keel/config.yaml`:
+
+```yaml
+fast_check: npm test -- --fast   # your project's seconds-scale check
+```
+
+Then opt into a repo-local fast pre-push:
+
+```bash
+keel --install --with-git-hooks   # writes .githooks/pre-push, sets core.hooksPath (this repo only)
+keel --doctor                     # reports fast_check, the pre-push hook, and core.hooksPath
+keel --uninstall                  # reverts core.hooksPath when Keel set it
+```
+
+`--with-git-hooks` is opt-in: a plain `keel --install` never touches git config, and the override
+is repo-local and reversible.
+
 ## Domain lenses
 
 Keel's core is pure process; it ships no domain knowledge of its own. Domain guidance lives in

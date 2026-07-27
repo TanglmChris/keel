@@ -7687,6 +7687,39 @@ def validate_native_tasks_view_scenario() -> int:
     return 0
 
 
+def validate_verification_layering_docs_scenario() -> int:
+    en = (ROOT / "README.md").read_text(encoding="utf-8")
+    for needle in (
+        "## Verification layering",
+        "inner-loop",
+        "Full gate",
+        "pre-push",
+        "change-close",
+    ):
+        if needle not in en:
+            report(
+                "verification-layering-docs: README.md lacks the fast/full "
+                f"verification split marker: {needle}"
+            )
+            return 1
+
+    zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    for needle in ("## 验证分层", "快速内环", "全量门禁", "pre-push", "change-close"):
+        if needle not in zh:
+            report(
+                "verification-layering-docs: README.zh-CN.md lacks the fast/full "
+                f"verification split marker: {needle}"
+            )
+            return 1
+
+    if "verification-layering-docs" not in {name for name, _ in SCENARIOS}:
+        report("verification-layering-docs: the scenario registry does not include it.")
+        return 1
+
+    report("verification-layering-docs scenario passed.")
+    return 0
+
+
 def validate_native_goal_gate_order_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-goal-order-") as raw_tmp:
         root = Path(raw_tmp)
@@ -10104,6 +10137,7 @@ SCENARIOS: tuple = (
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     ("update-pack-install", validate_update_pack_install_scenario),
     ("update-default-registry", validate_update_default_registry_scenario),
+    ("verification-layering-docs", validate_verification_layering_docs_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
