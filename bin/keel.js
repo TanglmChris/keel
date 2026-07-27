@@ -1344,8 +1344,26 @@ function runDoctor(options) {
   printTargetSurface(repo, options.target);
   printLensSurface(repo, options.target);
   printFastPrePushSurface(repo);
+  printSourceRepoCliResolution(repo);
 
   return checkStatus;
+}
+
+// Only meaningful in Keel's own repository: a bare `keel` resolves to the
+// installed package, so gate commands verify the released CLI rather than the
+// working tree. The failure mode is a silently stale result, not an error, so
+// it is worth stating rather than leaving to be discovered.
+function printSourceRepoCliResolution(repo) {
+  if (!isKeelSourceRepo(repo)) return;
+  process.stdout.write("\nKeel source repository:\n");
+  printDoctorLine(
+    "gate CLI resolution",
+    "advisory",
+    "a bare `keel` runs the installed package, so gate results will not "
+      + "reflect uncommitted changes to gate, contract, or capability code; "
+      + "run `node bin/keel.js gate <stage> . --change <c> --task <t>` "
+      + "instead — the repository argument is required"
+  );
 }
 
 function readFastCheck(repo) {

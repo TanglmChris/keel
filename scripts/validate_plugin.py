@@ -4575,6 +4575,66 @@ def validate_guard_status_is_not_enforcement_scenario() -> int:
     return 0
 
 
+def validate_source_repo_cli_resolution_scenario() -> int:
+    """Issue #13 item 3: a bare `keel` runs the installed package.
+
+    When the repository under change *is* Keel, gate commands verify the
+    installed CLI rather than the working tree, and the failure mode is a
+    silently stale result rather than an error. One dogfood round was lost to
+    two spurious problems reported by a stale global CLI.
+    """
+    own = run_keel(ROOT, "--doctor")
+    out = own.stdout or ""
+    if "node bin/keel.js" not in out:
+        report(
+            "source-repo-cli-resolution: Keel's own repository is not told to "
+            "run gate commands through its own entry point."
+        )
+        report(out)
+        return 1
+    # The local entry point needs an explicit repository argument; an author
+    # who copies the hint without it gets an unrelated failure.
+    hint = next(
+        (line for line in out.splitlines() if "node bin/keel.js" in line), ""
+    )
+    for needle in ("gate", "."):
+        if needle not in hint:
+            report(
+                "source-repo-cli-resolution: the hint does not name a usable "
+                f"invocation; missing {needle!r} in: {hint}"
+            )
+            return 1
+    with tempfile.TemporaryDirectory(prefix="keel-cli-resolution-") as raw:
+        consumer = Path(raw)
+        init = run_keel(consumer, "--init", "--target", "claude")
+        if init.returncode != 0:
+            report("source-repo-cli-resolution: keel --init failed.")
+            report((init.stderr or init.stdout).strip())
+            return 1
+        consumer_doctor = run_keel(consumer, "--doctor")
+        if "node bin/keel.js" in (consumer_doctor.stdout or ""):
+            report(
+                "source-repo-cli-resolution: a consuming project was shown a "
+                "hazard that exists only in Keel's own repository."
+            )
+            report(consumer_doctor.stdout or "")
+            return 1
+        if consumer_doctor.returncode != own.returncode:
+            report(
+                "source-repo-cli-resolution: the advisory line changed the "
+                "doctor exit status."
+            )
+            return 1
+    if "source-repo-cli-resolution" not in {name for name, _ in SCENARIOS}:
+        report(
+            "source-repo-cli-resolution: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("source-repo-cli-resolution scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -11353,6 +11413,7 @@ SCENARIOS: tuple = (
         "guard-status-is-not-enforcement",
         validate_guard_status_is_not_enforcement_scenario,
     ),
+    ("source-repo-cli-resolution", validate_source_repo_cli_resolution_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
