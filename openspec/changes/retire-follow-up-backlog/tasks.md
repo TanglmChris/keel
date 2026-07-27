@@ -31,7 +31,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 Delete the follow-up-backlog change directory and its never-synced spec delta
+- [x] 1.2 Delete the follow-up-backlog change directory and its never-synced spec delta
   - Covers:
     - D2 retire the directory rather than reshape it into a storage-only store
     - D4 the change carries no spec delta and archives without a sync
@@ -42,19 +42,20 @@
     - openspec/changes/follow-up-backlog/proposal.md
     - openspec/changes/follow-up-backlog/tasks.md
     - openspec/changes/follow-up-backlog/specs/follow-up-ownership/spec.md
+    - keel/archive/follow-ups/2026-07-27-guard-json-gitignore.md
   - Verify:
     - Strategy: evidence-first
     - M1: the openspec/changes/follow-up-backlog directory no longer exists, keel context --json no longer names follow-up-backlog in its selection, and npm test still reports every scenario passing; the one surviving deferred item is owned by GitHub issue 10 so no follow-up is lost by the deletion
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:ae50ee3e6cebd7d6a2a1e1a7f07edf5d26cba1a638857353bab0dbb272f60638
+    - M1: git rm -r removed all five tracked files and openspec/changes/follow-up-backlog no longer exists. keel context --json now returns status ready with selection.change retire-follow-up-backlog and selection.task 1.2 instead of the former permanent inferred pointer at follow-up-backlog with nextAction author, so the false pointer is gone. npm test reported "validation --all passed: baseline plus 58 scenarios". The one surviving deferred item is owned by https://github.com/TanglmChris/keel/issues/10, which also records the three obsolete claims it replaced, so the deletion loses no follow-up
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the mis-shaped standing backlog and its never-synced spec delta are gone, and context selects real work, satisfying D2 and D4
+      - Scope check: pass — only the five declared Touch paths were deleted. The first task-start under-declared Touch by omitting the hidden .openspec.yaml; task-complete caught it as outside-touch, the Touch list was corrected, and the task was reauthorized at the fingerprint recorded above
+      - Findings: keel/guard.json is created by keel gate task-start but is absent from this repository's .gitignore, so it surfaces as an untracked file after every gate run. Fixing it is out of scope for this task. Durable owner: keel/archive/follow-ups/2026-07-27-guard-json-gitignore.md, which carries the evidence and points at GitHub issue 11
     - Blocker: none
 
 ## Expectation Coverage
