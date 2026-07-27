@@ -3713,6 +3713,115 @@ def task_capsule_compact_fixture() -> str:
     )
 
 
+def validate_non_concrete_verify_diagnostic_scenario() -> int:
+    """A compact v4 task whose Verify carries an unfilled token must be told so.
+
+    Regression for issue #7 example 1: the compact/expanded decision reads
+    isConcrete(Verify), so one unfilled token used to select the expanded v3
+    required-field set and report fields the author never declared.
+    """
+    v3_only_fields = (
+        "Owner",
+        "Read",
+        "Commands",
+        "Acceptance",
+        "Candidate Boundary",
+        "Report",
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-non-concrete-verify-") as raw_tmp:
+        repo = Path(raw_tmp)
+        # The token sits inside prose, which is exactly the reported case.
+        task = task_capsule_compact_fixture().replace(
+            "    - M1: node test.js\n",
+            "    - M1: node test.js writes `ledger/scan-log/<date>.md`\n",
+        )
+        write_text(repo / "openspec/changes/demo/tasks.md", task)
+        started = run_keel(
+            repo,
+            "gate",
+            "task-start",
+            "--change",
+            "demo",
+            "--task",
+            "1.1",
+            "--json",
+        )
+        payload = json.loads(started.stdout)
+        problems = payload.get("problems", [])
+        codes = {problem.get("code") for problem in problems}
+        if "non-concrete-verify" not in codes:
+            report(
+                "non-concrete-verify-diagnostic: an unfilled token in Verify did "
+                "not produce the non-concrete-verify diagnostic."
+            )
+            report(started.stdout.strip())
+            return 1
+        named = [
+            problem
+            for problem in problems
+            if problem.get("code") == "non-concrete-verify"
+            and "<date>" in problem.get("message", "")
+        ]
+        if not named:
+            report(
+                "non-concrete-verify-diagnostic: the diagnostic did not name the "
+                "matched token."
+            )
+            report(started.stdout.strip())
+            return 1
+        leaked = sorted(
+            field
+            for problem in problems
+            if problem.get("code") == "missing-field"
+            for field in v3_only_fields
+            if problem.get("message", "").startswith(f"{field} must be concrete")
+        )
+        if leaked:
+            report(
+                "non-concrete-verify-diagnostic: expanded v3 fields were still "
+                f"reported as missing: {', '.join(leaked)}."
+            )
+            report(started.stdout.strip())
+            return 1
+        # A task with no Verify at all is a genuine expanded v3 task and must
+        # keep its existing required-field diagnostics.
+        bare = task_capsule_compact_fixture()
+        for block in (
+            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n",
+        ):
+            bare = bare.replace(block, "")
+        write_text(repo / "openspec/changes/bare/tasks.md", bare)
+        bare_started = run_keel(
+            repo,
+            "gate",
+            "task-start",
+            "--change",
+            "bare",
+            "--task",
+            "1.1",
+            "--json",
+        )
+        bare_payload = json.loads(bare_started.stdout)
+        bare_codes = {
+            problem.get("code") for problem in bare_payload.get("problems", [])
+        }
+        if "non-concrete-verify" in bare_codes:
+            report(
+                "non-concrete-verify-diagnostic: a task with no Verify was "
+                "reported as carrying an unfilled token."
+            )
+            report(bare_started.stdout.strip())
+            return 1
+    if "non-concrete-verify-diagnostic" not in {name for name, _ in SCENARIOS}:
+        report(
+            "non-concrete-verify-diagnostic: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("non-concrete-verify-diagnostic scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -10400,6 +10509,10 @@ SCENARIOS: tuple = (
     ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),
     ("fast-pre-push-doctor", validate_fast_pre_push_doctor_scenario),
     ("verify-layer-tag", validate_verify_layer_tag_scenario),
+    (
+        "non-concrete-verify-diagnostic",
+        validate_non_concrete_verify_diagnostic_scenario,
+    ),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

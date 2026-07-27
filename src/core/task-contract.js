@@ -10,13 +10,29 @@ const SUPPORTED_MODES = new Set([
   "plan-first",
 ]);
 
-function isConcrete(value) {
-  const normalized = String(value || "")
+const UNFILLED_TOKEN = /(<[^>]+>|\bTODO\b|\bTBD\b|\bplaceholder\b)/i;
+
+function normalizeFieldText(value) {
+  return String(value || "")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/^\s*-\s*/gm, "")
     .trim();
+}
+
+function isConcrete(value) {
+  const normalized = normalizeFieldText(value);
   if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return false;
-  return !/(<[^>]+>|\bTODO\b|\bTBD\b|\bplaceholder\b)/i.test(normalized);
+  return !UNFILLED_TOKEN.test(normalized);
+}
+
+// The unfilled token that made a field non-concrete, or null when the field is
+// empty, `none`, or `pending`. Used to explain a non-concrete field instead of
+// letting the caller infer a different schema from it.
+function unfilledToken(value) {
+  const normalized = normalizeFieldText(value);
+  if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return null;
+  const match = normalized.match(UNFILLED_TOKEN);
+  return match ? match[0] : null;
 }
 
 function parseTasks(content) {
@@ -245,7 +261,27 @@ function taskStartContractProblems(task) {
 }
 
 function requiredFieldProblems(task) {
-  const compact = isConcrete(field(task, "Verify"));
+  const verify = field(task, "Verify");
+  const compact = isConcrete(verify);
+  // A task that declared Verify but left an unfilled token in it is a compact
+  // v4 task with one bad token, not an expanded v3 task. Say which token, and
+  // do not report the v3 fields it never declared.
+  if (!compact) {
+    const token = unfilledToken(verify);
+    if (token) {
+      return [
+        {
+          code: "non-concrete-verify",
+          message:
+            `Verify contains the unfilled token \`${token}\`; compact v4 `
+            + "detection requires a concrete Verify. Replace or remove that "
+            + "token — the expanded v3 fields are not required. Angle "
+            + "brackets, TODO, TBD, and the word placeholder all read as "
+            + "unfilled, including inside prose.",
+        },
+      ];
+    }
+  }
   const required = compact
     ? ["Covers", "Verify", "Evidence"]
     : [
