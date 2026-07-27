@@ -1,4 +1,4 @@
-<!-- keel:start version=5.2.3 -->
+<!-- keel:start version=5.2.4 -->
 ## Keel Bootstrap
 
 - Start every session with `keel context`; OpenSpec artifacts and Git are the only durable authority — never native memory, goals, or transcripts.
