@@ -76,6 +76,22 @@
       - Findings: pending
     - Blocker: none
 
+## Invalidates
+
+<!-- task-start requires this section before any task of this change runs, so
+     the statements this change makes stale can be named while their paths can
+     still be declared in Touch instead of forcing a reauthorization later.
+     Each entry quotes the wording a reader would SEARCH for — not just the
+     files you already remembered, because the text that goes stale is the text
+     you were not thinking about — then says where it lives, then closes:
+     `Updated by: 1.1` (tasks of this change), `Durable owner: <url or path>`,
+     or `Discard reason: why it stands`. Use `- None.` when this change makes
+     no existing statement wrong.
+
+     - I1: "the exact wording that is now wrong" — where that wording lives. Updated by: 1.1
+     -->
+- None.
+
 ## Expectation Coverage
 
 <!-- change-close requires this section. One line per critical expectation:

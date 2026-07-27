@@ -3630,6 +3630,94 @@ def validate_task_start_invalidation_scenario() -> int:
     return 0
 
 
+SCHEMA_COPY_PAIRS = (
+    (
+        "openspec/schemas/keel-spec-driven/templates/tasks.md",
+        "assets/openspec/schemas/keel-spec-driven/templates/tasks.md",
+    ),
+    (
+        "openspec/schemas/keel-spec-driven/schema.yaml",
+        "assets/openspec/schemas/keel-spec-driven/schema.yaml",
+    ),
+)
+
+
+def validate_invalidation_authoring_surface_scenario() -> int:
+    label = "invalidation-authoring-surface"
+
+    # The two schema copies are the repo-local one OpenSpec resolves and the
+    # packaged one `keel --init` writes. compact-task-authoring already means to
+    # assert they agree, but its canonical root does not exist in this layout, so
+    # its rglob compares nothing; this states the pair explicitly.
+    for local, packaged in SCHEMA_COPY_PAIRS:
+        local_text = (ROOT / local).read_text(encoding="utf-8")
+        packaged_text = (ROOT / packaged).read_text(encoding="utf-8")
+        if local_text != packaged_text:
+            report(f"{label} schema copies diverge: {local} vs {packaged}")
+            return 1
+
+    template = (
+        ROOT / "openspec/schemas/keel-spec-driven/templates/tasks.md"
+    ).read_text(encoding="utf-8")
+    for marker in ("## Invalidates", "- None.", "- I1:"):
+        if marker not in template:
+            report(f"{label} tasks template lacks the invalidation section: {marker}")
+            return 1
+
+    schema = (
+        ROOT / "openspec/schemas/keel-spec-driven/schema.yaml"
+    ).read_text(encoding="utf-8")
+    for marker in ("## Invalidates", "Updated by:", "Discard reason:"):
+        if marker not in schema:
+            report(
+                f"{label} authoring instruction does not describe the "
+                f"invalidation section: {marker}"
+            )
+            return 1
+
+    resident = resident_session_start_section(ROOT / "AGENTS.md")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    if resident is None:
+        report(f"{label} resident AGENTS.md has no Session Start section.")
+        return 1
+    for marker in ("## Invalidates", "## Expectation Coverage"):
+        if marker not in agents:
+            report(f"{label} resident protocol does not name {marker}.")
+            return 1
+
+    # An author who scaffolds and fills in the tasks must not additionally have
+    # to discover this section, so the template's own answer has to satisfy the
+    # gate. Placeholders are filled generically; the assertion is narrow on
+    # purpose — no invalidation problem may survive.
+    filled = re.sub(r"<!--[\s\S]*?-->", "", template)
+    filled = filled.replace("<strategy>", "evidence-first")
+    filled = re.sub(r"<[^<>\n]+>", "concrete authored value", filled)
+    with tempfile.TemporaryDirectory(
+        prefix="keel-invalidation-surface-", ignore_cleanup_errors=True
+    ) as raw:
+        repo = Path(raw) / "scaffold"
+        write_text(repo / "openspec/changes/demo/tasks.md", filled)
+        started = run_keel(
+            repo, "gate", "task-start", ".",
+            "--change", "demo", "--task", "1.1", "--json", "--no-guard",
+        )
+        payload = json.loads(started.stdout) if started.stdout.strip() else {}
+        offenders = [
+            item for item in payload.get("problems", [])
+            if str(item.get("code", "")).startswith("invalidation-")
+        ]
+        if offenders:
+            report(
+                f"{label} a filled-in scaffold still fails the invalidation "
+                "gate, so the template's own answer is not usable."
+            )
+            report(repr(offenders))
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_task_contract_core_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-contract-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -12364,6 +12452,10 @@ SCENARIOS: tuple = (
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
+    (
+        "invalidation-authoring-surface",
+        validate_invalidation_authoring_surface_scenario,
+    ),
     (
         "completed-sibling-attribution",
         validate_completed_sibling_attribution_scenario,

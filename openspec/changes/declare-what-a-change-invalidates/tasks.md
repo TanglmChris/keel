@@ -38,7 +38,7 @@
 
 ## 2. The authored surface teaches it
 
-- [ ] 2.1 Scaffolded changes are born compliant and the protocol names the section
+- [x] 2.1 Scaffolded changes are born compliant and the protocol names the section
   - Covers:
     - keel-expectation-slice-evidence-gates / Task Authoring Gate covers statements the change invalidates / Declared updates land in Touch before implementation
     - D1 the gate runs at task-start so affected paths enter Touch before implementation
@@ -57,15 +57,21 @@
     - M2: the two template copies and the two schema copies remain byte-identical to each other, and the authoring instruction the schema returns describes the section and its closure forms rather than naming Expectation Coverage as the only trailing section
     - M3: the resident Session Start protocol names the section among the completion-gate rules, and the existing Expectation Coverage rule is still stated
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:61070e3a9e410e75a7850717370a64bc22885f4c9bafec335c29ae8eaf1a2103
+    - M1: pass. New scenario `invalidation-authoring-surface`. The shipped tasks template carries `## Invalidates`, a `- None.` default, and an `- I1:` example inside its guidance comment; stripping the comments and filling the placeholders produces a scaffold that runs `task-start` with no problem code beginning `invalidation-`, so an author who fills in the tasks never has to discover this section.
+    - M1.red: with the section absent from the template, the scenario failed `invalidation-authoring-surface tasks template lacks the invalidation section: ## Invalidates`.
+    - M1.green: the section present with its `- None.` default; the filled scaffold raises no invalidation problem.
+    - M2: pass. Both template and both schema copies are byte-identical, and the authoring instruction the schema hands the author now describes the section, its entry form, and all three closure forms.
+    - M2.red: captured twice. Appending a line to the packaged schema copy failed `schema copies diverge: openspec/schemas/keel-spec-driven/schema.yaml vs assets/openspec/schemas/keel-spec-driven/schema.yaml`; separately, the first implementation attempt failed `authoring instruction does not describe the invalidation section: ## Invalidates`, because the YAML folded scalar had wrapped `##` away from `Invalidates` — a real defect the check caught rather than a manufactured one.
+    - M2.green: the instruction rewrapped and the packaged copies re-synced; both pairs hash equal.
+    - M3: pass. The resident protocol names the section under Completion gates with its entry form and closure forms, corrects the sentence that described task-start as capsule-only, and adds the sentence distinguishing Follow-up Ownership from this section. `## Expectation Coverage` is still stated.
+    - M3.red: removing both new resident bullets failed `invalidation-authoring-surface resident protocol does not name ## Invalidates.`
+    - M3.green: both bullets restored; the scenario exits 0.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the checks read the shipped artifacts an author actually meets — the template OpenSpec resolves, the schema instruction the CLI returns, and the resident protocol file — rather than fixtures standing in for them, and the scaffold check runs the real gate end to end. All three entries this task declared as `Updated by: 2.1` were updated: I1 in both schema copies, I2 and I3 in the resident protocol.
+      - Scope check: the six changed files are all declared in Touch. Two mutation edits, to the packaged schema copy and to `AGENTS.md`, were reverted from byte copies and the full suite re-run green afterwards.
+      - Findings: `compact-task-authoring` intends to assert the schema copies agree but its canonical root `src/assets/shared/openspec/...` does not exist in this layout, so its `rglob` compares nothing and the check has been silently vacuous. This task's M2 now covers the two pairs that exist, so the gap is closed for the schema surface, but the dead loop should be repointed or removed. Durable owner: https://github.com/TanglmChris/keel/issues/18
     - Blocker: none
 
 ## Invalidates

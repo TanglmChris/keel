@@ -139,8 +139,18 @@ artifacts:
       are `none` or carry a durable owner — a `Discard reason:`/`Discard
       rationale:` prefix, a `keel/archive/…` path, or an existing
       `openspec/changes/…` artifact; `keel/HANDOFF.md` is never the owner.
-      tasks.md ends with a `## Expectation Coverage` section that change-close
-      requires: one `- E<n>: <expectation> Covered by: <task ids>` line per
+      tasks.md carries two change-level sections beside its tasks.
+      `## Invalidates` is required by task-start, before any task of the
+      change runs: one `- I<n>: "the wording that is now wrong" — where it lives.`
+      line per statement this change makes stale, closed by `Updated by: <task
+      ids>` naming tasks of this change, a `Durable owner:`, or a `Discard
+      reason:`, or `- None.` when the change makes no existing statement wrong.
+      Quote the wording a reader would search for rather than only listing
+      files, because the text that goes stale is the text the author was not
+      already holding in mind; naming it while tasks are authored is what lets
+      the affected paths be declared in Touch instead of forcing a
+      reauthorization mid-task. `## Expectation Coverage` is required by
+      change-close: one `- E<n>: <expectation> Covered by: <task ids>` line per
       critical expectation (or a `Durable owner:` / `Discard reason:` closure),
       or `- None.` when the change has no critical expectations.
     requires:
