@@ -1758,7 +1758,7 @@ def validate_authoring_continuity_scenario() -> int:
             change_root / "specs/demo/spec.md",
             "## ADDED Requirements\n",
         )
-        write_text(change_root / "tasks.md", "# Tasks\n\n## Tasks\n")
+        write_text(change_root / "tasks.md", "# Tasks\n\n## Invalidates\n\n- None.\n\n## Tasks\n")
         invalid = run_keel(invalid_repo, "context", "--json")
         invalid_payload = json.loads(invalid.stdout)
         if (
@@ -2527,7 +2527,9 @@ def write_gate_fixture(repo: Path, tasks: str, design: str = "## Context\n\nfixt
     change = repo / "openspec/changes/demo"
     write_text(
         change / "tasks.md",
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+        "## Invalidates\n\n"
+        "- None.\n\n"
         "## Expectation Coverage\n\n"
         "- E1:\n"
         "  - Covered by: 1.1\n\n"
@@ -2625,7 +2627,7 @@ def validate_cli_scenario() -> int:
 
         write_text(
             repo / "openspec/changes/status-drift/tasks.md",
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "## Tasks\n\n"
             "- [x] A1 implementation **未提交**\n\n"
             "## Execution Status\n\n"
@@ -2648,7 +2650,7 @@ def validate_cli_scenario() -> int:
 
         write_text(
             repo / "openspec/changes/status-drift/tasks.md",
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "> Boundary: tasks.md is the source for the current change's slice checklist and logical completion only. Completion state is only `[x]` / `[ ]`; progress and the default next slice are derived from the checklist. Do not record commit hashes, branch/merge state, dirty/uncommitted state, or manually computed completion counts. Durable work state belongs in OpenSpec; HANDOFF is only an explicit pointer override.\n\n"
             "## Tasks\n\n"
             "- [x] A1 implementation\n\n"
@@ -2666,7 +2668,7 @@ def validate_cli_scenario() -> int:
 
         write_text(
             repo / "openspec/changes/archive/2026-07-09-finished/tasks.md",
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "- [x] A1 implementation\n\n"
             "## Evidence\n\n"
             "- Scope check: pre-existing dirty paths were not attributed to this task.\n",
@@ -2862,7 +2864,7 @@ def validate_stateless_continuity_scenario() -> int:
 
         write_text(
             repo / "openspec/changes/other/tasks.md",
-            "# Tasks\n\n- [ ] 1.1 Other task\n",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n- [ ] 1.1 Other task\n",
         )
         write_text(
             repo / "keel/HANDOFF.md",
@@ -2922,7 +2924,7 @@ def validate_stateless_continuity_scenario() -> int:
 
         write_text(
             tasks_path,
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "- [x] 1.1 First slice\n"
             "- [x] 1.2 Second slice\n",
         )
@@ -3042,7 +3044,7 @@ def validate_stateless_continuity_scenario() -> int:
         stale_repo.mkdir()
         write_text(
             stale_repo / "openspec/changes/current/tasks.md",
-            "# Tasks\n\n- [ ] 1.1 Current task\n",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n- [ ] 1.1 Current task\n",
         )
         write_text(
             stale_repo / "keel/HANDOFF.md",
@@ -3067,7 +3069,7 @@ def validate_stateless_continuity_scenario() -> int:
 
         write_text(
             stale_repo / "openspec/changes/current/tasks.md",
-            "# Tasks\n\n- [x] 1.1 Current task\n",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n- [x] 1.1 Current task\n",
         )
         write_text(
             stale_repo / "keel/HANDOFF.md",
@@ -3094,7 +3096,7 @@ def validate_stateless_continuity_scenario() -> int:
 
         write_text(
             stale_repo / "openspec/changes/current/tasks.md",
-            "# Tasks\n\n- [ ] 1.1 Current task\n",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n- [ ] 1.1 Current task\n",
         )
         write_text(
             stale_repo / "keel/HANDOFF.md",
@@ -3439,7 +3441,7 @@ def task_contract_fixture(
     command_lines = "".join(f"    - {item}\n" for item in commands)
     evidence_lines = "".join(f"    - {item}\n" for item in evidence)
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Exercise task contract\n"
         "  - Owner: keel-agent\n"
         f"  - Mode: {mode}\n"
@@ -3474,6 +3476,158 @@ def task_contract_fixture(
         "  - Report:\n"
         "    - Summary\n"
     )
+
+
+# task-start requires a change to declare what it invalidates, so every fixture
+# that expects to start a task carries the cheapest legitimate answer. Scenarios
+# exercising the declaration itself replace this block.
+INVALIDATES_NONE = "## Invalidates\n\n- None.\n\n"
+
+
+INVALIDATION_ENTRIES = (
+    '- I1: "Touch is the write boundary" — assets/bootstrap/AGENTS.md.'
+    " Updated by: 1.1\n"
+    '- I2: "does not accept a GitHub issue URL" —'
+    " keel/archive/follow-ups/note.md."
+    " Discard reason: archive notes are historical evidence.\n"
+    '- I3: "the suite is not portable" — README.md.'
+    " Durable owner: https://example.invalid/issues/1\n"
+)
+
+
+def invalidation_repo(root: Path, name: str, section: str | None) -> Path:
+    repo = root / name
+    # A real Contract anchor, so the missing-section case can prove that a
+    # failing authoring gate leaves the anchor untouched rather than merely
+    # failing earlier for want of one.
+    body = task_contract_fixture(evidence=("Contract: pending", "M1: pending"))
+    body = body.replace(INVALIDATES_NONE, "" if section is None else section)
+    write_text(repo / "openspec/changes/demo/tasks.md", body)
+    return repo
+
+
+def validate_task_start_invalidation_scenario() -> int:
+    label = "task-start-invalidation"
+
+    def gate(repo: Path, *extra: str) -> tuple[subprocess.CompletedProcess[str], dict]:
+        result = run_keel(
+            repo, "gate", "task-start", ".",
+            "--change", "demo", "--task", "1.1", "--json", *extra,
+        )
+        payload = json.loads(result.stdout) if result.stdout.strip() else {}
+        return result, payload
+
+    def codes(payload: dict) -> set[str]:
+        return {item.get("code") for item in payload.get("problems", [])}
+
+    def messages(payload: dict) -> str:
+        return " ".join(item.get("message", "") for item in payload.get("problems", []))
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-invalidation-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+
+        # A change that never answered the question cannot start, and the
+        # refusal writes nothing — the guard manifest and the Contract anchor
+        # are both withheld, so a failed authoring gate leaves no state behind.
+        missing = invalidation_repo(tmp, "missing", None)
+        tasks_before = (missing / "openspec/changes/demo/tasks.md").read_text(
+            encoding="utf-8"
+        )
+        result, payload = gate(missing, "--record")
+        if (
+            payload.get("status") != "fail"
+            or "invalidation-declaration" not in codes(payload)
+        ):
+            report(f"{label} accepted a change with no invalidation section.")
+            report(repr(payload.get("problems")))
+            return 1
+        if (missing / "keel/guard.json").exists():
+            report(f"{label} wrote a guard manifest for a failing authoring gate.")
+            return 1
+        if (missing / "openspec/changes/demo/tasks.md").read_text(
+            encoding="utf-8"
+        ) != tasks_before:
+            report(f"{label} recorded a Contract anchor for a failing gate.")
+            return 1
+
+        none_repo = invalidation_repo(tmp, "none", INVALIDATES_NONE)
+        _, none_payload = gate(none_repo, "--no-guard")
+        if none_payload.get("status") != "pass":
+            report(f"{label} refused a legitimate declaration of nothing.")
+            report(repr(none_payload.get("problems")))
+            return 1
+
+        full_repo = invalidation_repo(
+            tmp, "full", "## Invalidates\n\n" + INVALIDATION_ENTRIES + "\n"
+        )
+        _, full_payload = gate(full_repo, "--no-guard")
+        if full_payload.get("status") != "pass":
+            report(f"{label} refused well-formed entries covering all three closures.")
+            report(repr(full_payload.get("problems")))
+            return 1
+
+        # The declaration is change-level bookkeeping, not task authority: two
+        # changes whose tasks are byte-identical must compile the same capsule
+        # however differently they answered this question.
+        none_print = none_payload.get("contract", {}).get("fingerprint", {}).get("value")
+        full_print = full_payload.get("contract", {}).get("fingerprint", {}).get("value")
+        if not none_print or none_print != full_print:
+            report(
+                f"{label} let the invalidation section move the capsule "
+                f"fingerprint: {none_print} vs {full_print}"
+            )
+            return 1
+
+        # A location list only ever names files the author already recalled,
+        # which is the failure this section exists to prevent, so an entry
+        # without the searchable wording is refused.
+        no_phrase = invalidation_repo(
+            tmp,
+            "no-phrase",
+            "## Invalidates\n\n- I1: AGENTS.md and README.md. Updated by: 1.1\n\n",
+        )
+        _, no_phrase_payload = gate(no_phrase, "--no-guard")
+        if (
+            no_phrase_payload.get("status") != "fail"
+            or "I1" not in messages(no_phrase_payload)
+        ):
+            report(f"{label} accepted an entry with no searchable phrase.")
+            report(repr(no_phrase_payload.get("problems")))
+            return 1
+
+        unclosed = invalidation_repo(
+            tmp,
+            "unclosed",
+            '## Invalidates\n\n- I1: "Touch is the write boundary" — AGENTS.md.\n\n',
+        )
+        _, unclosed_payload = gate(unclosed, "--no-guard")
+        if (
+            unclosed_payload.get("status") != "fail"
+            or "I1" not in messages(unclosed_payload)
+        ):
+            report(f"{label} accepted an entry that never closed.")
+            report(repr(unclosed_payload.get("problems")))
+            return 1
+
+        unknown_owner = invalidation_repo(
+            tmp,
+            "unknown-task",
+            '## Invalidates\n\n- I1: "Touch is the write boundary" — AGENTS.md.'
+            " Updated by: 9.9\n\n",
+        )
+        _, unknown_payload = gate(unknown_owner, "--no-guard")
+        if unknown_payload.get("status") != "fail":
+            report(f"{label} accepted an updater task that does not exist.")
+            return 1
+
+        if not codes(payload):
+            report(f"{label} reported a failure with no problem code.")
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
 
 
 def validate_task_contract_core_scenario() -> int:
@@ -3720,7 +3874,7 @@ def task_capsule_expanded_fixture() -> str:
 
 def task_capsule_compact_fixture() -> str:
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Exercise task contract\n"
         "  - Covers:\n"
         "    - E1: Public behavior passes.\n"
@@ -4263,7 +4417,7 @@ TRACKER_OWNER = "https://github.com/TanglmChris/keel/issues/12"
 def tracker_owner_tasks(findings: str, closure: str) -> str:
     """One complete, checked task plus one Expectation Coverage closure line."""
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "## Expectation Coverage\n\n"
         "- E1:\n"
         f"  - {closure}\n\n"
@@ -5167,7 +5321,7 @@ def validate_task_capsule_scenario() -> int:
 
         close_task = (
             completion_task
-            .replace("# Tasks\n\n", "# Tasks\n\n## Expectation Coverage\n\n"
+            .replace("# Tasks\n\n## Invalidates\n\n- None.\n\n", "# Tasks\n\n## Invalidates\n\n- None.\n\n## Expectation Coverage\n\n"
                      "- E1:\n  - Covered by: 1.1\n\n## 1. Work\n\n")
             .replace("- [ ] 1.1", "- [x] 1.1")
         )
@@ -5227,7 +5381,7 @@ def validate_core_gates_scenario() -> int:
         tasks_path = repo / "openspec/changes/demo/tasks.md"
         write_text(
             tasks_path,
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "- [ ] 1.1 Incomplete task\n"
             "  - Owner: keel-agent\n",
         )
@@ -5262,7 +5416,7 @@ def validate_core_gates_scenario() -> int:
 
         write_text(
             tasks_path,
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "- [ ] 1.1 Complete executable task\n"
             "  - Owner: keel-agent\n"
             "  - Mode: implementation\n"
@@ -5412,7 +5566,7 @@ def validate_core_gates_scenario() -> int:
             findings: str = "none",
         ) -> str:
             return (
-                "# Tasks\n\n"
+                "# Tasks\n\n## Invalidates\n\n- None.\n\n"
                 "- [ ] 1.1 Complete behavior\n"
                 "  - Owner: keel-agent\n"
                 "  - Mode: implementation\n"
@@ -5531,7 +5685,7 @@ def validate_core_gates_scenario() -> int:
         )
         write_text(
             completion_repo / "openspec/changes/follow-up/tasks.md",
-            "# Tasks\n\n- [ ] 1.1 Own the finding\n",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n- [ ] 1.1 Own the finding\n",
         )
         owned_finding = run_keel(
             completion_repo,
@@ -5849,7 +6003,7 @@ def validate_core_gates_scenario() -> int:
             if extra_touch:
                 touch += "    - src/extra.js\n"
             return (
-                "# Tasks\n\n"
+                "# Tasks\n\n## Invalidates\n\n- None.\n\n"
                 "- [ ] 1.1 Record behavior\n"
                 "  - Owner: keel-agent\n"
                 "  - Mode: implementation\n"
@@ -6067,7 +6221,7 @@ def validate_core_gates_scenario() -> int:
         def close_task(checked: bool, review_status: str = "pass") -> str:
             mark = "x" if checked else " "
             return (
-                "# Tasks\n\n"
+                "# Tasks\n\n## Invalidates\n\n- None.\n\n"
                 "## Expectation Coverage\n\n"
                 "- E1:\n"
                 "  - Covered by: 1.1\n\n"
@@ -6226,7 +6380,7 @@ def validate_core_gates_scenario() -> int:
 
 def validate_scope_rename_attribution_scenario() -> int:
     rename_task = (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Complete behavior\n"
         "  - Owner: keel-agent\n"
         "  - Mode: implementation\n"
@@ -6429,7 +6583,7 @@ def validate_target_capability_adapters_scenario() -> int:
 
             write_text(
                 repo / "openspec/changes/demo/tasks.md",
-                "# Tasks\n\n- [ ] 1.1 Incomplete\n  - Owner: keel-agent\n",
+                "# Tasks\n\n## Invalidates\n\n- None.\n\n- [ ] 1.1 Incomplete\n  - Owner: keel-agent\n",
             )
             gate = run_keel(
                 repo,
@@ -7776,7 +7930,7 @@ def validate_native_runtime_projection_scenario() -> int:
 
     def projection_task(acceptance: str = "observable result") -> str:
         return (
-            "# Tasks\n\n"
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
             "- [ ] 1.1 Project selected behavior\n"
             "  - Owner: keel-agent\n"
             "  - Mode: implementation\n"
@@ -8370,7 +8524,7 @@ NATIVE_GOAL_VERSION = "keel-native-goal/v1"
 
 
 def _goal_tasks_file(blocks: list[str]) -> str:
-    return "# Tasks\n\n" + "\n\n".join(blocks) + "\n"
+    return "# Tasks\n\n## Invalidates\n\n- None.\n\n" + "\n\n".join(blocks) + "\n"
 
 
 def _goal_task_block(
@@ -8989,7 +9143,7 @@ def validate_fast_pre_push_doctor_scenario() -> int:
 
 def validate_verify_layer_tag_scenario() -> int:
     fixture = (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Exercise the verification-layer tag\n"
         "  - Covers:\n"
         "    - E1: Public behavior passes.\n"
@@ -10382,7 +10536,7 @@ def validate_native_plugin_install_matrix_scenario() -> int:
 def guard_task_fixture(checked: bool = False) -> str:
     box = "x" if checked else " "
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         f"- [{box}] 1.1 Exercise guarded feature\n"
         "  - Covers:\n"
         "    - E1: Guarded public behavior passes.\n"
@@ -10482,7 +10636,7 @@ RECORD_LAYER_SPEC = (
 def record_layer_tasks(checked: bool = False, touch: str = "src/feature.js") -> str:
     box = "x" if checked else " "
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         f"- [{box}] 1.1 Exercise guarded feature\n"
         "  - Covers:\n"
         "    - demo-cap / Guarded behavior holds / Guarded public behavior passes\n"
@@ -10498,7 +10652,7 @@ def record_layer_tasks(checked: bool = False, touch: str = "src/feature.js") -> 
 
 def mode_fixture_tasks(mode: str, touch: str) -> str:
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Establish the version baseline\n"
         f"  - Mode: {mode}\n"
         "  - Covers:\n"
@@ -10640,7 +10794,7 @@ def sibling_scope_tasks(sibling_checked: bool, sibling_touch: str) -> str:
         )
 
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "## 1. Work\n\n"
         + task("1.1", "Own the shared file", sibling_checked, sibling_touch)
         + "\n"
@@ -11321,7 +11475,7 @@ def validate_touch_write_guard_scenario() -> int:
 
 def compaction_task_fixture() -> str:
     return (
-        "# Tasks\n\n"
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
         "- [ ] 1.1 Exercise compaction continuity\n"
         "  - Covers:\n"
         "    - E1: Continuity survives compaction.\n"
@@ -12209,6 +12363,7 @@ SCENARIOS: tuple = (
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
+    ("task-start-invalidation", validate_task_start_invalidation_scenario),
     (
         "completed-sibling-attribution",
         validate_completed_sibling_attribution_scenario,

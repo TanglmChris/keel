@@ -134,7 +134,10 @@ function taskStart(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
   const compiled = compileTaskContract(repo, selection.change, task);
-  const problems = [...compiled.diagnostics];
+  const problems = [
+    ...compiled.diagnostics,
+    ...invalidationProblems(selection.content, selection.tasks),
+  ];
   // Recording the current fingerprint is idempotent: --record replaces the
   // selected task's Contract anchor whatever it holds, so reauthorizing a task
   // whose authority changed — the path the guard's own drift messages direct
@@ -541,6 +544,103 @@ function taskComplete(repo, options) {
     scope.warnings,
     usableContract
   );
+}
+
+// Follow-up Ownership governs work a change left undone. This is the opposite
+// shape: statements left standing by work the change completed. It is asked at
+// task-start rather than change-close because the whole value is that the
+// affected paths enter Touch before implementation — asking at the close finds
+// the same facts after the reauthorization it was meant to prevent.
+//
+// A location list is refused on purpose. The text that goes stale is the text
+// the author was not already holding in mind, so a list of remembered files
+// reproduces the failure; a searchable phrase is what turns the declaration
+// into a grep. What the phrase says is the agent's judgment, not the gate's.
+function invalidationProblems(content, tasks) {
+  const heading = content.search(/^## Invalidates\s*$/m);
+  if (heading < 0) {
+    return [
+      problem(
+        "invalidation-declaration",
+        "tasks.md requires a `## Invalidates` section before its tasks are "
+          + "executable: one `- I<n>: \"searchable phrase\" — where it lives. "
+          + "Updated by: <task ids>` line per statement this change makes "
+          + "stale, using `Durable owner:` or `Discard reason:` instead when "
+          + "no task of this change updates it, or `- None.`."
+      ),
+    ];
+  }
+  const bodyStart = content.indexOf("\n", heading);
+  const remainder = bodyStart < 0 ? "" : content.slice(bodyStart + 1);
+  const nextHeading = remainder.search(/^##\s+/m);
+  const section = nextHeading < 0 ? remainder : remainder.slice(0, nextHeading);
+  if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
+  const entries = [
+    ...section.matchAll(
+      /^\s*-\s+(I\d+)\s*:\s*([\s\S]*?)(?=^\s*-\s+I\d+\s*:|(?![\s\S]))/gm
+    ),
+  ];
+  if (entries.length === 0) {
+    return [
+      problem(
+        "invalidation-declaration",
+        "Invalidates must declare each `I<n>` entry — a quoted searchable "
+          + "phrase, where it lives, and a closure (`Updated by:`, "
+          + "`Durable owner:`, or `Discard reason:`) — or `- None.`."
+      ),
+    ];
+  }
+  const problems = [];
+  for (const entry of entries) {
+    const [, id, body] = entry;
+    if (!/"[^"\n]{3,}"/.test(body)) {
+      problems.push(
+        problem(
+          "invalidation-phrase",
+          `${id} names where to look but not what to look for. Quote the `
+            + "wording a reader would search for, so the entry is a search "
+            + "rather than a reminder."
+        )
+      );
+      continue;
+    }
+    const updated = body.match(/Updated by:\s*([0-9.,\s-]+)/i);
+    const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
+    const hasDurableOwner = Boolean(
+      declaredOwner
+      && (/^openspec\/changes\//i.test(declaredOwner[1].trim())
+        || SHARED_DURABLE_OWNER_FORMS.test(declaredOwner[1]))
+    );
+    const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
+    if (!updated && !hasDurableOwner && !discarded) {
+      problems.push(
+        problem(
+          "invalidation-closure",
+          `${id} lacks an updating task, a durable owner, or a discard `
+            + "rationale."
+        )
+      );
+      continue;
+    }
+    // Deliberately weaker than Expectation Coverage, which requires a checked
+    // task: at authoring time the updater has not run yet, so existence is the
+    // only honest assertion. Completion is then structural — the named task
+    // carries the paths in its Touch and passes its own gate.
+    if (updated) {
+      const ids = updated[1].match(/\d+(?:\.\d+)+/g) || [];
+      for (const taskId of ids) {
+        if (!tasks.some((task) => task.id === taskId)) {
+          problems.push(
+            problem(
+              "invalidation-owner",
+              `${id} names task ${taskId}, which this change does not define.`
+            )
+          );
+        }
+      }
+    }
+  }
+  return problems;
 }
 
 function expectationProblems(content, tasks) {
