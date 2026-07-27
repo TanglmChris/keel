@@ -60,7 +60,7 @@
 
 ## 3. Scaffold an opt-in fast local pre-push
 
-- [ ] 3.1 Generate the pre-push hook and set core.hooksPath behind --with-git-hooks, with symmetric revert
+- [x] 3.1 Generate the pre-push hook and set core.hooksPath behind --with-git-hooks, with symmetric revert
   - Covers:
     - D3 with-git-hooks is an explicit flag; revert is symmetric
     - keel-verification-layering / Keel projects declare a fast inner-loop check / Declared fast check is read
@@ -76,15 +76,17 @@
     - Strategy: regression-first
     - M1: keel --install --with-git-hooks in a repo declaring fast_check writes a sh pre-push running that command and sets core.hooksPath to .githooks; a plain install touches neither; the flag refuses when fast_check is undeclared; and keel --uninstall unsets core.hooksPath only when it equals .githooks; a new validator scenario locks the whole flow
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:34182c50d68415e4d01767a1bd33df993ec5aee2e651080fe17b662f0e5721dc
+    - M1: the fast-pre-push-hooks validator scenario builds git repos and asserts a declared fast_check generates a sh .githooks/pre-push that runs the command and sets core.hooksPath to .githooks, a plain install touches neither, the flag refuses without a fast_check writing nothing, uninstall unsets a keel-set core.hooksPath, and uninstall leaves a .customhooks value untouched
+    - M1.red: with bin/keel.js and scripts/install_to_repo.py stashed, the scenario failed at exit 1 — keel reported "unknown option: --with-git-hooks"
+    - M1.green: after --with-git-hooks parses through to install_to_repo.py, which reads fast_check, writes the sh hook, sets and reverts core.hooksPath, and refuses without a fast_check, the scenario passed at exit 0 and npm test reported "validation --all passed: baseline plus 56 scenarios"
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the explicit flag generates a fast_check pre-push and sets core.hooksPath, a plain install stays inert, the flag refuses without fast_check, and uninstall reverts only a keel-set hooksPath
+      - Scope check: pass — only bin/keel.js, scripts/install_to_repo.py, and scripts/validate_plugin.py changed, all within Touch
+      - Findings: none
     - Blocker: none
 
 ## 4. Diagnose the fast pre-push surface

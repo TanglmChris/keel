@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +33,8 @@ KEEL_CONFIG_TEMPLATE = (
     "# Example:\n"
     "#   fast_check: npm test -- --fast\n"
 )
+GITHOOKS_DIR = ".githooks"
+PRE_PUSH_PATH = Path(GITHOOKS_DIR) / "pre-push"
 OPENSPEC_ROOT = Path("openspec")
 OPENSPEC_CONFIG_PATH = OPENSPEC_ROOT / "config.yaml"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
@@ -216,6 +220,116 @@ def keel_config_action() -> InstallAction:
         content=KEEL_CONFIG_TEMPLATE,
         strategy="keel-config-scaffold",
     )
+
+
+def read_fast_check(repo: Path) -> str | None:
+    """Return the project's declared fast inner-loop command, or None.
+
+    Parses keel/config.yaml with the same flat-key style Keel uses elsewhere;
+    a commented `# fast_check:` line does not count as declared.
+    """
+    config_path = repo / KEEL_CONFIG_PATH
+    if not config_path.is_file():
+        return None
+    for line in config_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        match = re.match(r"fast_check\s*:\s*(.+?)\s*$", stripped)
+        if match:
+            return match.group(1)
+    return None
+
+
+def is_git_repo(repo: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def git_config_get(repo: Path, key: str) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "config", "--local", "--get", key],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def pre_push_hook_content(fast_check: str) -> str:
+    return (
+        "#!/bin/sh\n"
+        "# Managed by keel --install --with-git-hooks: the fast inner-loop check.\n"
+        "# The full or slow suite belongs to CI or `keel gate change-close`.\n"
+        f"exec {fast_check}\n"
+    )
+
+
+def apply_git_hooks(repo: Path, dry_run: bool) -> int:
+    if not is_git_repo(repo):
+        print(
+            "keel --install --with-git-hooks: not a git repository; run "
+            "`git init` first",
+            file=sys.stderr,
+        )
+        return 1
+    fast_check = read_fast_check(repo)
+    if fast_check is None:
+        print(
+            "keel --install --with-git-hooks: no fast_check declared in "
+            f"{KEEL_CONFIG_PATH.as_posix()}; add a `fast_check:` line, then rerun",
+            file=sys.stderr,
+        )
+        return 1
+    if dry_run:
+        print(
+            f"would write {PRE_PUSH_PATH.as_posix()} running the fast_check and "
+            f"set core.hooksPath to {GITHOOKS_DIR}"
+        )
+        return 0
+    hook_path = repo / PRE_PUSH_PATH
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text(pre_push_hook_content(fast_check), encoding="utf-8")
+    os.chmod(hook_path, 0o755)
+    result = subprocess.run(
+        ["git", "-C", str(repo), "config", "--local", "core.hooksPath", GITHOOKS_DIR],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            "keel --install --with-git-hooks: failed to set core.hooksPath: "
+            + (result.stderr.strip() or "git config error"),
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"git hooks: wrote {PRE_PUSH_PATH.as_posix()} (runs the fast_check) and "
+        f"set core.hooksPath to {GITHOOKS_DIR}"
+    )
+    return 0
+
+
+def revert_git_hooks(repo: Path, dry_run: bool) -> None:
+    """Unset core.hooksPath only when Keel is the one that set it to .githooks."""
+    if not is_git_repo(repo):
+        return
+    if git_config_get(repo, "core.hooksPath") != GITHOOKS_DIR:
+        return
+    if dry_run:
+        print(f"would unset core.hooksPath (currently {GITHOOKS_DIR})")
+        return
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "--local", "--unset", "core.hooksPath"],
+        capture_output=True,
+        text=True,
+    )
+    print(f"git hooks: unset core.hooksPath (was {GITHOOKS_DIR})")
 
 
 def openspec_schema_actions() -> list[InstallAction]:
@@ -1032,6 +1146,14 @@ def main() -> int:
         help="Remove managed protocol blocks and safe generated skeleton files.",
     )
     parser.add_argument(
+        "--with-git-hooks",
+        action="store_true",
+        help=(
+            "Generate .githooks/pre-push from the declared fast_check and set "
+            "core.hooksPath (install only); refuses without a fast_check."
+        ),
+    )
+    parser.add_argument(
         "--profile",
         action="append",
         help="Obsolete; domain guidance is now user-authored lenses in keel/lenses/*.md.",
@@ -1055,6 +1177,7 @@ def main() -> int:
             describe_actions(actions)
             if not args.dry_run:
                 apply_actions(repo, actions)
+            revert_git_hooks(repo, args.dry_run)
             return 0
         repo.mkdir(parents=True, exist_ok=True)
         actions = plan_actions(
@@ -1066,6 +1189,8 @@ def main() -> int:
         report_handoff_status(repo)
         if not args.dry_run:
             apply_actions(repo, actions)
+        if args.with_git_hooks:
+            return apply_git_hooks(repo, args.dry_run)
         return 0
     except ValueError as exc:
         print(f"Install failed: {exc}", file=sys.stderr)

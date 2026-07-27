@@ -84,7 +84,7 @@ Usage:
   keel lenses list|add [name] [repo] [--force]
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
-  keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
+  keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
   keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
   keel --uninstall [repo] [--target claude|codex|opencode] [--dry-run]
   keel --update [--dry-run] [--source npm-package-or-git-spec]
@@ -127,6 +127,7 @@ Examples:
   keel --check
   keel --doctor
   keel --install --force-template-update
+  keel --install --with-git-hooks
   keel --update
   keel --update --dry-run
   keel --clear --dry-run
@@ -154,6 +155,7 @@ function parseArgs(argv) {
     target: "claude",
     dryRun: false,
     forceTemplateUpdate: false,
+    withGitHooks: false,
     updateSource: null,
     help: false,
     version: false,
@@ -361,6 +363,10 @@ function parseArgs(argv) {
     }
     if (arg === "--force-template-update") {
       parsed.forceTemplateUpdate = true;
+      continue;
+    }
+    if (arg === "--with-git-hooks") {
+      parsed.withGitHooks = true;
       continue;
     }
     if (arg === "--target") {
@@ -819,6 +825,9 @@ function installerArgs(options, extra = []) {
   }
   if (options.forceTemplateUpdate) {
     args.push("--force-template-update");
+  }
+  if (options.withGitHooks) {
+    args.push("--with-git-hooks");
   }
   return args;
 }
@@ -1444,6 +1453,9 @@ function runLensesAdd(repo, name, force) {
 function runAction(options) {
   if (options.updateSource !== null && options.action !== "update") {
     fail("--source only applies to --update");
+  }
+  if (options.withGitHooks && options.action !== "install") {
+    fail("--with-git-hooks only applies to --install");
   }
 
   if (options.action === "openspec") {

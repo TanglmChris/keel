@@ -7761,6 +7761,102 @@ def validate_fast_check_config_scaffold_scenario() -> int:
     return 0
 
 
+def validate_fast_pre_push_hooks_scenario() -> int:
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def init_repo(root: Path, name: str) -> Path:
+        repo = root / name
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        return repo
+
+    def declare_fast_check(repo: Path, command: str) -> None:
+        (repo / "keel").mkdir(exist_ok=True)
+        (repo / "keel" / "config.yaml").write_text(
+            f"fast_check: {command}\n", encoding="utf-8"
+        )
+
+    def hooks_path(repo: Path) -> str | None:
+        got = git(repo, "config", "--local", "--get", "core.hooksPath")
+        return got.stdout.strip() if got.returncode == 0 else None
+
+    with tempfile.TemporaryDirectory(prefix="keel-prepush-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # 1. A declared fast_check generates the hook and sets hooksPath.
+        declared = init_repo(root, "declared")
+        declare_fast_check(declared, "echo fast-check-ran")
+        res = run_keel(declared, "--install", "--with-git-hooks")
+        if res.returncode != 0:
+            report("fast-pre-push-hooks: --with-git-hooks failed with a declared fast_check.")
+            report((res.stderr or res.stdout).strip())
+            return 1
+        hook = declared / ".githooks" / "pre-push"
+        if not hook.is_file():
+            report("fast-pre-push-hooks: --with-git-hooks did not write .githooks/pre-push.")
+            return 1
+        hook_text = hook.read_text(encoding="utf-8")
+        if not hook_text.startswith("#!/bin/sh") or "echo fast-check-ran" not in hook_text:
+            report("fast-pre-push-hooks: pre-push does not run the declared fast_check under sh.")
+            report(hook_text)
+            return 1
+        if hooks_path(declared) != ".githooks":
+            report("fast-pre-push-hooks: --with-git-hooks did not set core.hooksPath to .githooks.")
+            return 1
+
+        # 2. A plain install touches neither the hook nor git config.
+        plain = init_repo(root, "plain")
+        declare_fast_check(plain, "echo plain")
+        if run_keel(plain, "--install").returncode != 0:
+            report("fast-pre-push-hooks: plain install failed.")
+            return 1
+        if (plain / ".githooks" / "pre-push").exists():
+            report("fast-pre-push-hooks: plain install wrote a pre-push hook.")
+            return 1
+        if hooks_path(plain) is not None:
+            report("fast-pre-push-hooks: plain install set core.hooksPath.")
+            return 1
+
+        # 3. Without a declared fast_check the flag refuses and writes nothing.
+        undeclared = init_repo(root, "undeclared")
+        res = run_keel(undeclared, "--install", "--with-git-hooks")
+        if res.returncode == 0:
+            report("fast-pre-push-hooks: --with-git-hooks did not refuse without a fast_check.")
+            return 1
+        if (undeclared / ".githooks" / "pre-push").exists():
+            report("fast-pre-push-hooks: a refusal still wrote a pre-push hook.")
+            return 1
+        if hooks_path(undeclared) is not None:
+            report("fast-pre-push-hooks: a refusal still set core.hooksPath.")
+            return 1
+
+        # 4a. Uninstall reverts a keel-set core.hooksPath.
+        if run_keel(declared, "--uninstall").returncode != 0:
+            report("fast-pre-push-hooks: uninstall failed.")
+            return 1
+        if hooks_path(declared) is not None:
+            report("fast-pre-push-hooks: uninstall did not unset a keel-set core.hooksPath.")
+            return 1
+
+        # 4b. Uninstall leaves a non-.githooks core.hooksPath untouched.
+        custom = init_repo(root, "custom")
+        git(custom, "config", "--local", "core.hooksPath", ".customhooks")
+        if run_keel(custom, "--uninstall").returncode != 0:
+            report("fast-pre-push-hooks: uninstall failed on a custom hooksPath repo.")
+            return 1
+        if hooks_path(custom) != ".customhooks":
+            report("fast-pre-push-hooks: uninstall clobbered a non-keel core.hooksPath.")
+            return 1
+
+    report("fast-pre-push-hooks scenario passed.")
+    return 0
+
+
 def validate_native_goal_gate_order_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-goal-order-") as raw_tmp:
         root = Path(raw_tmp)
@@ -10180,6 +10276,7 @@ SCENARIOS: tuple = (
     ("update-default-registry", validate_update_default_registry_scenario),
     ("verification-layering-docs", validate_verification_layering_docs_scenario),
     ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
+    ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),
