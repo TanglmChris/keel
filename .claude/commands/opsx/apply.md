@@ -155,7 +155,7 @@ This skill supports the "actions on a change" model:
 - **Can be invoked anytime**: Before all artifacts are done (if tasks exist), after partial implementation, interleaved with other actions
 - **Allows artifact updates**: If implementation reveals design issues, suggest updating artifacts - not phase-locked, work fluidly
 
-<!-- keel:openspec-surface-overlay version=5.3.0 -->
+<!-- keel:openspec-surface-overlay version=5.3.1 -->
 ## Keel Apply Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
