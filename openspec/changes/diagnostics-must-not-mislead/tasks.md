@@ -127,7 +127,7 @@
       - Findings: the existing `thin-native-install` scenario asserted the reported defect as a requirement. Its Case E required a consuming temp repository to report `native plugin source`, and a bare repository to report `plugin source absent` — so the suite was locking issue #6 in rather than catching it. Case E now asserts the opposite for the source line while keeping its runtime-line and install-remediation assertions, with a comment recording why. Durable owner: openspec/changes/diagnostics-must-not-mislead/design.md decision D4
     - Blocker: none
 
-- [ ] 3.2 Skip the AGENTS.md bootstrap write inside Keel's own repository
+- [x] 3.2 Skip the AGENTS.md bootstrap write inside Keel's own repository
   - Covers:
     - D5 install and init skip the bootstrap write in Keel's own repository and report the skip
     - keel-target-surface-diagnostics / Keel install does not damage its own source repository / Install skips the bootstrap write in Keel's own repository
@@ -139,13 +139,15 @@
     - Strategy: regression-first
     - M1: keel --install --target claude run in this repository leaves the AGENTS.md managed block byte-identical and prints a skip line naming the reason, while the same command in a temporary consumer repository still writes the bootstrap block from the asset; a new validator scenario locks both directions, and the full suite passes, proving the four scenarios that assert on managed-block protocol text stay green
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:8cad867a746912b88b86d109f13a1faa2551ac188edcf26b148bca6319ca4078
+    - M1: `collect_actions` in the installer now consults a Python `is_keel_source_repo` mirroring the JS predicate, and skips the AGENTS.md managed-file action in Keel's own repository while printing `skip AGENTS.md: Keel source repository, whose AGENTS.md carries the full protocol; the consumer bootstrap is not written here`. Verified by running the exact command from issue #9 in this repository: the managed block hashed sha256:0b3b0dbc2ff296b784cd846e0ef68d82772a631a99f10a926a8452c35d18387c before and after, and git reported AGENTS.md unmodified. A consuming project still receives the packaged bootstrap byte-for-byte
+    - M1.red: with `scripts/install_to_repo.py` stashed, the new `source-repo-bootstrap-skip` scenario exited 1 with "keel --install rewrote Keel's own AGENTS.md managed block"; that run really did rewrite it, and it was restored with git checkout before continuing
+    - M1.green: the scenario exits 0, asserting the managed block is unchanged, the skip is reported rather than silent, and a consuming project's block still matches the packaged asset. `npm test` reported "validation --all passed: baseline plus 64 scenarios", so the four scenarios that assert on managed-block protocol text stay green
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — the command that turned this repository red now leaves it byte-identical and says why, while consuming projects are unaffected, satisfying D5
+      - Scope check: pass — `scripts/install_to_repo.py` and `scripts/validate_plugin.py`, both within Touch
+      - Findings: the source-repo predicate now exists twice, in `src/core/capabilities.js` for the CLI and in `scripts/install_to_repo.py` for the installer, because the two run in different languages. Both require the same two signals and each names the other in a comment, but they can still drift. Durable owner: openspec/changes/diagnostics-must-not-mislead/design.md decision D3, which specifies the rule both must implement
     - Blocker: none
 
 ## Expectation Coverage

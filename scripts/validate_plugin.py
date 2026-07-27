@@ -4162,6 +4162,71 @@ def validate_dev_only_plugin_source_scoping_scenario() -> int:
     return 0
 
 
+def validate_source_repo_bootstrap_skip_scenario() -> int:
+    """Issue #9: `keel --install` must not overwrite Keel's own AGENTS.md.
+
+    Keel's repository AGENTS.md carries the full protocol that four scenarios
+    assert on; the packaged asset is the shorter consumer bootstrap. Writing it
+    here drops those sections and turns the repository red.
+    """
+    managed = re.compile(
+        r"<!--\s*keel:start.*?<!--\s*keel:end\s*-->", re.DOTALL
+    )
+
+    def block(path: Path) -> str:
+        found = managed.search(path.read_text(encoding="utf-8"))
+        return found.group(0) if found else ""
+
+    own_agents = ROOT / "AGENTS.md"
+    before = block(own_agents)
+    if not before:
+        report("source-repo-bootstrap-skip: Keel's AGENTS.md has no managed block.")
+        return 1
+    result = run_keel(ROOT, "--install", "--target", "claude")
+    if result.returncode != 0:
+        report("source-repo-bootstrap-skip: keel --install failed in Keel's repo.")
+        report((result.stderr or result.stdout).strip())
+        return 1
+    if block(own_agents) != before:
+        report(
+            "source-repo-bootstrap-skip: keel --install rewrote Keel's own "
+            "AGENTS.md managed block."
+        )
+        return 1
+    if "skip AGENTS.md" not in (result.stdout or ""):
+        report(
+            "source-repo-bootstrap-skip: the skip was silent; it must be "
+            "reported explicitly."
+        )
+        report((result.stdout or "").strip())
+        return 1
+    # A consuming project must still receive the bootstrap.
+    with tempfile.TemporaryDirectory(prefix="keel-bootstrap-consumer-") as raw:
+        consumer = Path(raw)
+        installed = run_keel(consumer, "--install", "--target", "claude")
+        if installed.returncode != 0:
+            report(
+                "source-repo-bootstrap-skip: keel --install failed in a "
+                "consuming project."
+            )
+            report((installed.stderr or installed.stdout).strip())
+            return 1
+        asset_block = block(ROOT / "assets/bootstrap/AGENTS.md")
+        if block(consumer / "AGENTS.md") != asset_block:
+            report(
+                "source-repo-bootstrap-skip: a consuming project did not "
+                "receive the packaged bootstrap block."
+            )
+            return 1
+    if "source-repo-bootstrap-skip" not in {name for name, _ in SCENARIOS}:
+        report(
+            "source-repo-bootstrap-skip: the scenario registry does not include it."
+        )
+        return 1
+    report("source-repo-bootstrap-skip scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -10873,6 +10938,10 @@ SCENARIOS: tuple = (
     (
         "dev-only-plugin-source-scoping",
         validate_dev_only_plugin_source_scoping_scenario,
+    ),
+    (
+        "source-repo-bootstrap-skip",
+        validate_source_repo_bootstrap_skip_scenario,
     ),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),

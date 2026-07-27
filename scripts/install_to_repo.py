@@ -432,11 +432,38 @@ def unmanaged_keel_content_warning(repo: Path, relative_path: str) -> bool:
     return False
 
 
+KEEL_PACKAGE_NAME = "@christang/keel"
+
+
+def is_keel_source_repo(repo: Path) -> bool:
+    """Whether `repo` is Keel's own source repository.
+
+    Mirrors `isKeelSourceRepo` in src/core/capabilities.js. Both signals are
+    required so a project that merely vendors a plugins/keel/ directory is not
+    misclassified as Keel's own source.
+    """
+    try:
+        manifest = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if manifest.get("name") != KEEL_PACKAGE_NAME:
+        return False
+    return (repo / "plugins" / "keel").is_dir()
+
+
 def collect_actions(repo: Path, target: str) -> list[InstallAction]:
     actions: list[InstallAction] = []
     targets = target_set(target)
 
-    if not unmanaged_keel_content_warning(repo, "AGENTS.md"):
+    # Keel's own AGENTS.md carries the full protocol that the validation suite
+    # asserts on; the packaged bootstrap is the shorter consumer-facing text.
+    # Writing it here replaces the protocol and turns the repository red.
+    if is_keel_source_repo(repo):
+        print(
+            "skip AGENTS.md: Keel source repository, whose AGENTS.md carries "
+            "the full protocol; the consumer bootstrap is not written here"
+        )
+    elif not unmanaged_keel_content_warning(repo, "AGENTS.md"):
         actions.append(
             managed_file_action("AGENTS.md", PACKAGE_ROOT / BOOTSTRAP_ASSET)
         )
