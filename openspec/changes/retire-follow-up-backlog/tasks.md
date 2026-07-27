@@ -58,9 +58,31 @@
       - Findings: keel/guard.json is created by keel gate task-start but is absent from this repository's .gitignore, so it surfaces as an untracked file after every gate run. Fixing it is out of scope for this task. Durable owner: keel/archive/follow-ups/2026-07-27-guard-json-gitignore.md, which carries the evidence and points at GitHub issue 11
     - Blocker: none
 
+- [x] 1.3 Record the gate's accepted follow-up owner forms alongside the convention in AGENTS.md
+  - Covers:
+    - D5 the convention must state the gate's accepted owner forms
+    - keel-expectation-slice-evidence-gates / Completion Gate closes expectation evidence / Completed work has evidence closure
+  - Touch:
+    - AGENTS.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: the Project Conventions section in AGENTS.md states that keel gate task-complete accepts only a discard-reason prefix, a keel/archive path, or an openspec/changes artifact as a Findings owner, and that a bare issue URL is refused, so an agent recording a finding writes a keel/archive note pointing at the issue; the Keel managed block stays byte-identical at the hash recorded on task 1.1 and npm test still reports every scenario passing
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:dae0f6e80f6ae4525c467756c35b360c25eb83026fadf2c66d0560a2d2310e19
+    - M1: the Project Conventions section gained a bullet naming the three owner forms findingOwnerIsDurable accepts, stating that a bare issue URL is refused, and directing the author to write a keel/archive/follow-ups note that points at the issue and to cite that path in Findings; it also names issue 12 so the bullet can be simplified if the gap closes. The managed block still hashes sha256:0b3b0dbc2ff296b784cd846e0ef68d82772a631a99f10a926a8452c35d18387c, unchanged since task 1.1, and npm test reported "validation --all passed: baseline plus 58 scenarios"
+    - Review:
+      <!-- Status: one of pass, passed, complete, completed, ok, done -->
+      <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
+      - Status: pass
+      - Acceptance check: pass — an agent following the convention now learns the gate's accepted owner forms from AGENTS.md instead of from a task-complete failure whose diagnostic never mentions issues, satisfying D5
+      - Scope check: pass — only AGENTS.md changed, which is the single Touch path
+      - Findings: none
+    - Blocker: none
+
 ## Expectation Coverage
 
 - E1: deferred follow-ups keep a durable owner that is not chat history and not keel/HANDOFF.md Covered by: 1.1
 - E2: keel context stops reporting a permanent false pointer at a change nobody intends to author Covered by: 1.2
 - E3: the one surviving deferred item from the retired backlog is not lost Durable owner: https://github.com/TanglmChris/keel/issues/10
 - E4: the obsolete CI and npm-publish claims in the retired backlog are corrected rather than silently dropped Durable owner: https://github.com/TanglmChris/keel/issues/10
+- E5: an agent following the new convention is not blocked by a gate diagnostic that never mentions issues Covered by: 1.3
