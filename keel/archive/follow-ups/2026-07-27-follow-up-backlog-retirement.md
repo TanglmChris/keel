@@ -1,8 +1,10 @@
 # Contents of the retired follow-up-backlog, and what became of them
 
-Date: 2026-07-27. Owner change: openspec/changes/retire-follow-up-backlog/.
+Date: 2026-07-27. Owner: commits `b56b51e..38d37ec`.
 
-`openspec/changes/follow-up-backlog/` was deleted by task 1.2. This note is the historical record of what it held, so the deletion loses nothing.
+`openspec/changes/follow-up-backlog/` was deleted. This note is the historical record of what it held, so the deletion loses nothing.
+
+The retirement was authored as the OpenSpec change `retire-follow-up-backlog`, with three gated tasks whose contracts and evidence are in the commits above. It was then demoted to plain housekeeping: `keel gate change-close --action archive` reports `missing-delta-spec` — "archive requires at least one change delta spec" — and this work honestly changed no capability. Rather than invent a spec delta to satisfy the gate, the change directory was removed. The gate's position is defensible: an OpenSpec change is the unit for capability deltas, and delta-free housekeeping does not need one. Recorded here because a reader finding these commits will otherwise look for a change directory that no longer exists.
 
 ## The single deferred item
 

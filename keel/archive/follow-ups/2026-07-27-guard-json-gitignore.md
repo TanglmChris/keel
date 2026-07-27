@@ -1,6 +1,6 @@
 # keel/guard.json is not covered by any .gitignore
 
-Date: 2026-07-27. Owner task: openspec/changes/retire-follow-up-backlog/tasks.md#1.2.
+Date: 2026-07-27. Found while retiring the standing follow-up backlog, commits `b56b51e..38d37ec`. That work was authored as the OpenSpec change `retire-follow-up-backlog` and then demoted to plain housekeeping, because `change-close --action archive` requires at least one capability delta and the work had none; the change directory was removed and these commits plus this note are the durable record.
 
 ## Finding
 
@@ -36,4 +36,4 @@ $ keel gate task-complete --change retire-follow-up-backlog --task 1.2 --base HE
 
 This is a mismatch with `keel-expectation-slice-evidence-gates`, which requires "a durable follow-up owner" without constraining its form, and with `keel-stateless-continuity / Keel continuity is stateless / Native runtime state is not continuity authority`, whose exclusion list names only native runtime state. Neither spec excludes an issue tracker. The gate does, in effect, by enumerating three accepted forms.
 
-So this file is the gate-recognized pointer, and the issue above is the substantive owner. The mismatch itself is recorded as a separate finding on task 1.3 of the same change.
+So this file is the gate-recognized pointer, and the issue above is the substantive owner. The mismatch itself is GitHub issue https://github.com/TanglmChris/keel/issues/12, and the operational rule it forced is recorded in the Project Conventions section of `AGENTS.md`.
