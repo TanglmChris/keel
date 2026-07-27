@@ -11,7 +11,7 @@ The write-guard manifest is per-clone session state, not project content. Keel's
 
 #### Scenario: An existing ignore file is not overwritten
 - **WHEN** the project already has a `keel/.gitignore`
-- **THEN** install leaves that file byte-identical and reports the skip rather than merging into it
+- **THEN** install leaves that file byte-identical and writes nothing into it, the same scaffold-once treatment `keel/config.yaml` already receives
 
 ## MODIFIED Requirements
 

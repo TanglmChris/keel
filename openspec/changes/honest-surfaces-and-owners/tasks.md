@@ -36,30 +36,29 @@
 
 ## 2. A gate run leaves no undeclared file
 
-- [ ] 2.1 Scaffold keel/.gitignore declaring the guard manifest
+- [x] 2.1 Scaffold keel/.gitignore declaring the guard manifest
   - Covers:
     - D2 the guard manifest is declared ignorable by a scaffolded keel/.gitignore that install never overwrites
     - keel-touch-write-guard / The guard manifest is declared ignorable local state / Install declares the manifest ignorable
     - keel-touch-write-guard / The guard manifest is declared ignorable local state / An existing ignore file is not overwritten
   - Touch:
     - scripts/install_to_repo.py
-    - assets/keel/gitignore
     - keel/.gitignore
     - scripts/validate_plugin.py
     - openspec/changes/honest-surfaces-and-owners/tasks.md
   - Verify:
     - Strategy: regression-first
-    - M1: running keel --install in a temporary project with no keel/.gitignore creates one declaring the guard manifest, running a passing task-start there afterwards leaves git status reporting no untracked path for it, and running the same install against a project that already has that file leaves it byte-identical while reporting the skip; a new validator scenario locks all three, and this repository gains the same declaration so its own gate runs stop dirtying git status
+    - M1: running keel --install in a temporary project with no keel/.gitignore creates one declaring the guard manifest, a passing task-start in that project afterwards leaves git reporting no untracked path for the manifest, and running the same install against a project that already has that file leaves it byte-identical; a new validator scenario locks all three, and this repository gains the same declaration so its own gate runs stop dirtying git status
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:fdeaa52377bf39385331388934459dfad8fe23b2dd77b40596cb191ae9aa7568
+    - M1: `keel_gitignore_action` adds `keel/.gitignore` to the install plan carrying a template that declares `guard.json` and says why — `keel/` otherwise holds committed project content, and the manifest is per-clone session state a gate writes and `keel guard clear` removes. It reuses the existing `keel-config-scaffold` strategy, so the scaffold-once semantics `keel/config.yaml` already has apply unchanged and a project's own file is never rewritten. This repository gained the same file
+    - M1.red: the new `guard-manifest-ignored` scenario exited 1 with "keel --install did not scaffold keel/.gitignore", and after the installer change it exited 1 again with "Keel's own repository does not declare the guard manifest ignorable" until the file was added here too
+    - M1.green: the scenario exits 0. It does not settle for inspecting the file: it runs `git init` in the fixture, drives a passing `task-start` that writes a real manifest, and asserts `git status --short --untracked-files=all` never mentions `guard.json`, then overwrites the file with its own content and confirms a second install leaves it byte-identical. Verified in this repository too — `git status` after the gate runs of this task lists no `keel/guard.json`, where every previous task in this session left one. `npm test` reported "validation --all passed: baseline plus 66 scenarios", so the install-matrix scenarios that assert on the produced file set absorbed the new action
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — an ordinary gate run leaves git status unchanged, proved through git itself rather than through the presence of a declaration, and an existing project file is not touched, satisfying D2 and both referenced scenarios
+      - Scope check: pass — `scripts/install_to_repo.py`, `keel/.gitignore`, `scripts/validate_plugin.py`, and this task's own `tasks.md`, all within Touch, verified against `--base HEAD`
+      - Findings: none
     - Blocker: none
 
 ## 3. A written manifest is not observed enforcement

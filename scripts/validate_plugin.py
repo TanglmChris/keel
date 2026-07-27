@@ -4382,6 +4382,98 @@ def validate_tracker_durable_owner_scenario() -> int:
     return 0
 
 
+def validate_guard_manifest_ignored_scenario() -> int:
+    """Issue #11: the guard manifest was written but declared ignorable nowhere.
+
+    Every gate run left an untracked `keel/guard.json` in the project, and
+    because completion attributes working-tree paths against Touch, that is a
+    permanent exception the author re-adjudicates at every completion.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-guard-ignore-") as raw:
+        project = Path(raw)
+        init = run_keel(project, "--install", "--target", "claude")
+        if init.returncode != 0:
+            report("guard-manifest-ignored: keel --install failed.")
+            report((init.stderr or init.stdout).strip())
+            return 1
+        ignore_path = project / "keel/.gitignore"
+        if not ignore_path.is_file():
+            report(
+                "guard-manifest-ignored: keel --install did not scaffold "
+                "keel/.gitignore."
+            )
+            return 1
+        declared = ignore_path.read_text(encoding="utf-8")
+        if "guard.json" not in declared:
+            report(
+                "guard-manifest-ignored: the scaffolded keel/.gitignore does "
+                "not declare the guard manifest."
+            )
+            report(declared)
+            return 1
+
+        # git must actually honour the declaration: initialize a repository,
+        # write a manifest through a passing task-start, and confirm the path
+        # never appears in porcelain status.
+        if subprocess.run(
+            ["git", "init", "--quiet"], cwd=project, capture_output=True
+        ).returncode != 0:
+            report("guard-manifest-ignored: git init failed in the fixture.")
+            return 1
+        write_text(
+            project / "openspec/changes/demo/tasks.md",
+            tracker_owner_tasks("none", "Covered by: 1.1").replace(
+                "- [x] 1.1", "- [ ] 1.1"
+            ),
+        )
+        started = run_keel(
+            project, "gate", "task-start",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        if started.returncode != 0 or not (project / "keel/guard.json").is_file():
+            report(
+                "guard-manifest-ignored: the fixture did not produce a guard "
+                "manifest to test the declaration against."
+            )
+            report((started.stderr or started.stdout).strip())
+            return 1
+        status = subprocess.run(
+            ["git", "status", "--short", "--untracked-files=all"],
+            cwd=project, capture_output=True, encoding="utf-8",
+        )
+        if "guard.json" in (status.stdout or ""):
+            report(
+                "guard-manifest-ignored: git still reports the guard manifest "
+                "after a gate run, so the declaration does not take effect."
+            )
+            report(status.stdout or "")
+            return 1
+
+        # Scaffold once: a project's own file is never rewritten.
+        own = "# mine\nguard.json\nscratch/\n"
+        write_text(ignore_path, own)
+        again = run_keel(project, "--install", "--target", "claude")
+        if again.returncode != 0 or ignore_path.read_text(encoding="utf-8") != own:
+            report(
+                "guard-manifest-ignored: a second install overwrote the "
+                "project's own keel/.gitignore."
+            )
+            report((again.stderr or again.stdout).strip())
+            return 1
+
+    if not (ROOT / "keel/.gitignore").is_file():
+        report(
+            "guard-manifest-ignored: Keel's own repository does not declare "
+            "the guard manifest ignorable."
+        )
+        return 1
+    if "guard-manifest-ignored" not in {name for name, _ in SCENARIOS}:
+        report("guard-manifest-ignored: the scenario registry does not include it.")
+        return 1
+    report("guard-manifest-ignored scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -11155,6 +11247,7 @@ SCENARIOS: tuple = (
         validate_source_repo_bootstrap_skip_scenario,
     ),
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
+    ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

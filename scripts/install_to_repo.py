@@ -33,6 +33,14 @@ KEEL_CONFIG_TEMPLATE = (
     "# Example:\n"
     "#   fast_check: npm test -- --fast\n"
 )
+KEEL_GITIGNORE_PATH = KEEL_ROOT / ".gitignore"
+KEEL_GITIGNORE_TEMPLATE = (
+    "# Keel local state. keel/ otherwise holds project content that belongs in\n"
+    "# version control (config.yaml, CHANGELOG.md, archive/); the write-guard\n"
+    "# manifest is per-clone session state that a gate run writes and\n"
+    "# `keel guard clear` removes.\n"
+    "guard.json\n"
+)
 GITHOOKS_DIR = ".githooks"
 PRE_PUSH_PATH = Path(GITHOOKS_DIR) / "pre-push"
 OPENSPEC_ROOT = Path("openspec")
@@ -218,6 +226,14 @@ def keel_config_action() -> InstallAction:
     return InstallAction(
         relative_path=KEEL_CONFIG_PATH,
         content=KEEL_CONFIG_TEMPLATE,
+        strategy="keel-config-scaffold",
+    )
+
+
+def keel_gitignore_action() -> InstallAction:
+    return InstallAction(
+        relative_path=KEEL_GITIGNORE_PATH,
+        content=KEEL_GITIGNORE_TEMPLATE,
         strategy="keel-config-scaffold",
     )
 
@@ -472,6 +488,7 @@ def collect_actions(repo: Path, target: str) -> list[InstallAction]:
 
     actions.append(openspec_config_action())
     actions.append(keel_config_action())
+    actions.append(keel_gitignore_action())
     actions.extend(openspec_schema_actions())
     return actions
 

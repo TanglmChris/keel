@@ -1,0 +1,5 @@
+# Keel local state. keel/ otherwise holds project content that belongs in
+# version control (config.yaml, CHANGELOG.md, archive/); the write-guard
+# manifest is per-clone session state that a gate run writes and
+# `keel guard clear` removes.
+guard.json
