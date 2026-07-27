@@ -123,10 +123,12 @@ function verification(task) {
     ? compact.filter((entry) => !/^Strategy:\s*/i.test(entry))
     : fieldValues(task, "Commands");
   const commands = commandSource.map((entry) => {
-    const match = entry.match(/^(M[1-9]\d*):\s*(.*)$/);
+    // An optional (fast)/(full) layer tag after the M<n> label marks which
+    // checks the fast inner loop runs; an untagged check is full.
+    const match = entry.match(/^(M[1-9]\d*)(?:\s*\((fast|full)\))?:\s*(.*)$/);
     return match
-      ? { label: match[1], check: normalizeText(match[2]) }
-      : { label: null, check: entry };
+      ? { label: match[1], layer: match[2] || "full", check: normalizeText(match[3]) }
+      : { label: null, layer: "full", check: entry };
   });
   return {
     compact: compact.length > 0,
@@ -678,7 +680,15 @@ function compileTaskContract(repo, change, task) {
     acceptance: [...new Set([...derivedAcceptance, ...explicitAcceptance])],
     verification: {
       strategy: taskVerification.strategy,
-      commands: taskVerification.commands.filter((entry) => entry.label),
+      // Emit the layer only when a check opts into the fast inner loop, so
+      // untagged (full) checks keep their existing capsule shape and fingerprint.
+      commands: taskVerification.commands
+        .filter((entry) => entry.label)
+        .map((entry) =>
+          entry.layer && entry.layer !== "full"
+            ? { label: entry.label, check: entry.check, layer: entry.layer }
+            : { label: entry.label, check: entry.check }
+        ),
     },
     boundaries: {
       autonomy,

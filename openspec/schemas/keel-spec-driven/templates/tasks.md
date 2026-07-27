@@ -20,7 +20,11 @@
          rendered-behavior, or evidence-first. Each M<n> check must prove the
          resolved Acceptance through the public interface, not build-only or
          shape-only evidence. Red-green strategies record per-label `.red` and
-         `.green` Evidence entries for the same check before completion. -->
+         `.green` Evidence entries for the same check before completion. An M<n>
+         check may carry an optional (fast) or (full) layer tag after its label
+         (e.g. `M1 (fast): …`) marking which checks the fast inner-loop pre-push
+         runs; an untagged check is full and change-close still needs every
+         M<n>'s Evidence. -->
     - Strategy: <strategy>
     - M1: <public behavior check>
   - Evidence:

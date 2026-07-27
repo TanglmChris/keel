@@ -7917,6 +7917,67 @@ def validate_fast_pre_push_doctor_scenario() -> int:
     return 0
 
 
+def validate_verify_layer_tag_scenario() -> int:
+    fixture = (
+        "# Tasks\n\n"
+        "- [ ] 1.1 Exercise the verification-layer tag\n"
+        "  - Covers:\n"
+        "    - E1: Public behavior passes.\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1 (fast): node fast.js\n"
+        "    - M2: node full.js\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - M1: pending\n"
+        "    - M2: pending\n"
+        "  - Stop if:\n"
+        "    - Requires files outside Touch.\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-verify-layer-") as raw_tmp:
+        repo = Path(raw_tmp)
+        write_text(repo / "openspec/changes/demo/tasks.md", fixture)
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("verify-layer-tag: task-start rejected the tagged fixture.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+        capsule = json.loads(started.stdout).get("contract", {}).get("capsule", {})
+        commands = capsule.get("verification", {}).get("commands", [])
+        by_label = {c.get("label"): c for c in commands}
+        if by_label.get("M1", {}).get("layer") != "fast":
+            report("verify-layer-tag: the (fast)-tagged check did not compile with layer fast.")
+            report(json.dumps(commands))
+            return 1
+        if "layer" in by_label.get("M2", {}):
+            report(
+                "verify-layer-tag: an untagged check emitted a layer field; full is "
+                "the implicit default and must stay off the capsule."
+            )
+            report(json.dumps(commands))
+            return 1
+        if (
+            by_label.get("M1", {}).get("check") != "node fast.js"
+            or by_label.get("M2", {}).get("check") != "node full.js"
+        ):
+            report("verify-layer-tag: the layer tag altered the check text.")
+            report(json.dumps(commands))
+            return 1
+
+    report("verify-layer-tag scenario passed.")
+    return 0
+
+
 def validate_native_goal_gate_order_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-goal-order-") as raw_tmp:
         root = Path(raw_tmp)
@@ -10338,6 +10399,7 @@ SCENARIOS: tuple = (
     ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
     ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),
     ("fast-pre-push-doctor", validate_fast_pre_push_doctor_scenario),
+    ("verify-layer-tag", validate_verify_layer_tag_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

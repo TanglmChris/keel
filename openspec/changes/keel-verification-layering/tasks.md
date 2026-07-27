@@ -117,7 +117,7 @@
 
 ## 5. Add the fast/full verification-layer tag to the task capsule
 
-- [ ] 5.1 Parse an optional M-check layer tag defaulting to full and lock it with a scenario
+- [x] 5.1 Parse an optional M-check layer tag defaulting to full and lock it with a scenario
   - Covers:
     - D4 Verify gains an optional fast or full layer tag, default full
     - keel-task-capsule / Verification strategy and evidence labels are connected / Checks may declare a verification layer
@@ -130,15 +130,17 @@
     - Strategy: regression-first
     - M1: task-contract.js parses an optional fast or full tag written after an M-check label into a layer on the compiled check, an untagged check compiles as full, and the tag does not alter the check text or Evidence label mapping; both tasks template copies document the tag; a new validator scenario locks the parsed layer
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:308110ebe3611b86ef752f74f92f82e15eb231b4fce65ee6b5924113d6116278
+    - M1: the verify-layer-tag validator scenario compiles a task whose Verify carries M1 (fast) and an untagged M2 through keel gate task-start --json and asserts the capsule records layer fast for M1, emits no layer for M2 (implicit full so the fingerprint stays stable), and leaves both check texts and Evidence labels unchanged; both tasks template copies document the tag
+    - M1.red: with src/core/task-contract.js stashed, the scenario failed at exit 1 — the old M-check regex did not match "M1 (fast):" so task-start rejected the tagged fixture
+    - M1.green: after verification() parses the optional (fast)/(full) tag into a layer (default full) and the capsule emits layer only when non-default, the scenario passed at exit 0 and npm test reported "validation --all passed: baseline plus 58 scenarios"; recorded fingerprints for the untagged tasks 1.1 and 3.1 recomputed unchanged
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — an optional fast/full M-check tag compiles into a check layer defaulting to full without changing check text, Evidence mapping, or completion rules
+      - Scope check: pass — only src/core/task-contract.js, both tasks template copies, and scripts/validate_plugin.py changed, all within Touch
+      - Findings: none
     - Blocker: none
 
 ## Expectation Coverage
