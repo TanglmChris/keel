@@ -7024,8 +7024,11 @@ def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
     if codex is None or claude is None:
-        report("native-plugin-marketplaces requires codex and claude CLIs.")
-        return 1
+        return skip_scenario(
+            "native-plugin-marketplaces",
+            "requires the codex and claude CLIs, which are not installed; it "
+            "probes native marketplace behavior no CI runner provides",
+        )
 
     with tempfile.TemporaryDirectory(prefix="keel-native-market-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -10129,8 +10132,11 @@ def validate_native_plugin_install_matrix_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
     if codex is None or claude is None:
-        report("native-plugin-install-matrix requires codex and claude CLIs.")
-        return 1
+        return skip_scenario(
+            "native-plugin-install-matrix",
+            "requires the codex and claude CLIs, which are not installed; it "
+            "probes native install behavior no CI runner provides",
+        )
 
     expected_version = json.loads(
         (ROOT / "package.json").read_text(encoding="utf-8")
@@ -10413,6 +10419,107 @@ def mode_fixture_tasks(mode: str, touch: str) -> str:
         "    - Contract: pending\n"
         "    - M1: pending\n"
     )
+
+
+def validate_runner_skip_accounting_scenario() -> int:
+    """Issue #10: the suite could not pass anywhere the native CLIs are absent.
+
+    Two of seventy scenarios probe native runtimes and used to `return 1` when
+    the CLI was missing, so no CI runner could ever go green. A skip must be
+    reported and counted, never conflated with a pass or a failure.
+    """
+    label = "runner-skip-accounting"
+    runner = str(ROOT / "scripts/validate_plugin.py")
+
+    def run_registry(results: str) -> subprocess.CompletedProcess[str]:
+        """Drive run_all over synthetic scenario results in a child process.
+
+        run_all dispatches each scenario as its own subprocess, which reads the
+        real registry from disk, so a substituted registry would be ignored.
+        The accounting is the behavior under test, so the process fan-out is
+        replaced with fixed (name, code, output) triples instead.
+        """
+        program = (
+            "import sys\n"
+            f"src = open({runner!r}, encoding='utf-8').read()\n"
+            "ns = {'__name__': 'v', '__file__': %r}\n" % runner
+            + "exec(compile(src, %r, 'exec'), ns)\n" % runner
+            + f"results = {results}\n"
+            "ns['SCENARIOS'] = tuple((n, None) for n, _, _ in results)\n"
+            "ns['run_baseline'] = lambda: 0\n"
+            "ns['run_scenario_processes'] = lambda names, jobs: results\n"
+            "sys.exit(ns['run_all'](2))\n"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", program],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT),
+        )
+
+    # A skipping scenario must not fail the run, must be named, and must be
+    # excluded from the verified count; a failing one must still fail it.
+    both = run_registry(
+        "[('fake-skip', 3, 'fake-skip scenario skipped: the frob CLI\\n'),"
+        " ('fake-pass', 0, 'fake-pass scenario passed.\\n')]"
+    )
+    out = (both.stdout or "") + (both.stderr or "")
+    if both.returncode != 0:
+        report(f"{label}: a skipping scenario must not fail the run.")
+        report(out.strip())
+        return 1
+    for needle in ("fake-skip", "skipped", "the frob CLI", "plus 1 scenario"):
+        if needle not in out:
+            report(f"{label}: the summary must report {needle!r}; got:\n{out.strip()}")
+            return 1
+    if "fake-pass" in out.split("passed:")[-1]:
+        report(f"{label}: a passing scenario must not be listed as skipped.")
+        report(out.strip())
+        return 1
+
+    mixed = run_registry(
+        "[('fake-skip', 3, 'fake-skip scenario skipped: the frob CLI\\n'),"
+        " ('fake-fail', 1, 'fake-fail scenario failed.\\n')]"
+    )
+    mixed_out = (mixed.stdout or "") + (mixed.stderr or "")
+    if mixed.returncode == 0 or "failed for: fake-fail" not in mixed_out:
+        report(
+            f"{label}: a skip beside a failure must still fail the run and name "
+            "the failure."
+        )
+        report(mixed_out.strip())
+        return 1
+    if "fake-skip" in mixed_out.split("failed for:")[-1]:
+        report(f"{label}: a skipped scenario must not be named as a failure.")
+        report(mixed_out.strip())
+        return 1
+
+    # The two real native-runtime scenarios must take the skip path, not fail,
+    # when their CLI cannot be resolved.
+    for name in ("native-plugin-marketplaces", "native-plugin-install-matrix"):
+        blinded = subprocess.run(
+            [sys.executable, runner, "--scenario", name],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT),
+            env={**os.environ, "PATH": str(ROOT), "PATHEXT": ""},
+        )
+        blinded_out = (blinded.stdout or "") + (blinded.stderr or "")
+        if blinded.returncode != 3 or "skipped" not in blinded_out:
+            report(
+                f"{label}: {name} must exit 3 with a reported skip when its CLI "
+                f"cannot be resolved; got {blinded.returncode}."
+            )
+            report(blinded_out.strip())
+            return 1
+        if "codex" not in blinded_out:
+            report(f"{label}: {name}'s skip does not name the runtime it needed.")
+            report(blinded_out.strip())
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
 
 
 def validate_repo_action_mode_scenario() -> int:
@@ -11752,6 +11859,7 @@ SCENARIOS: tuple = (
     ("touch-write-guard", validate_touch_write_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
+    ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("touch-guard-drift", validate_touch_guard_drift_scenario),
     ("touch-guard-surface", validate_touch_guard_surface_scenario),
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),
@@ -11868,6 +11976,19 @@ def validate_archive_overlay_hygiene(errors: list[str]) -> None:
         )
 
 
+# Exit code 3 means "this scenario did not run because an external runtime it
+# probes is absent". 0 is pass, 1 is fail, 2 is an unknown scenario or a usage
+# error, so conflating an unavailable runtime with either would hide both. The
+# reason is narrow on purpose: an inconvenient assertion, a hard fixture, or a
+# platform difference is a failure, never a skip.
+SKIPPED = 3
+
+
+def skip_scenario(label: str, reason: str) -> int:
+    report(f"{label} scenario skipped: {reason}")
+    return SKIPPED
+
+
 def run_baseline() -> int:
     errors: list[str] = []
     validate_manifest(errors)
@@ -11899,19 +12020,29 @@ def run_all(jobs: int) -> int:
     # completion, buffered output is replayed in registry order, and every
     # failure is named in one summary.
     failures = []
+    skipped = []
     if run_baseline() != 0:
         failures.append("baseline")
     ordered = run_scenario_processes([name for name, _ in SCENARIOS], jobs)
     for name, code, output in ordered:
         sys.stdout.write(output)
-        if code != 0:
+        if code == SKIPPED:
+            skipped.append(name)
+        elif code != 0:
             failures.append(name)
     if failures:
         report(f"validation --all failed for: {', '.join(failures)}")
         return 1
-    report(
-        f"validation --all passed: baseline plus {len(SCENARIOS)} scenarios."
+    # The verified count excludes skips, so the number that lands in evidence is
+    # the number actually run, and every skip is named with the run.
+    verified = len(SCENARIOS) - len(skipped)
+    summary = (
+        f"validation --all passed: baseline plus {verified} "
+        f"scenario{'' if verified == 1 else 's'}"
     )
+    if skipped:
+        summary += f", {len(skipped)} skipped: {', '.join(skipped)}"
+    report(f"{summary}.")
     return 0
 
 
