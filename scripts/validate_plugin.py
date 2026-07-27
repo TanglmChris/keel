@@ -10367,6 +10367,154 @@ def expect_guard_allow(
     return 0
 
 
+RECORD_LAYER_SPEC = (
+    "# demo-cap Specification\n\n"
+    "## Purpose\n"
+    "Fixture capability for the record-layer scenario.\n\n"
+    "## Requirements\n"
+    "### Requirement: Guarded behavior holds\n"
+    "The guarded feature MUST keep its public behavior.\n\n"
+    "#### Scenario: Guarded public behavior passes\n"
+    "- **WHEN** the guarded feature runs\n"
+    "- **THEN** it passes\n"
+)
+
+
+def record_layer_tasks(checked: bool = False, touch: str = "src/feature.js") -> str:
+    box = "x" if checked else " "
+    return (
+        "# Tasks\n\n"
+        f"- [{box}] 1.1 Exercise guarded feature\n"
+        "  - Covers:\n"
+        "    - demo-cap / Guarded behavior holds / Guarded public behavior passes\n"
+        "  - Touch:\n"
+        f"    - {touch}\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js\n"
+        "  - Evidence:\n"
+        "    - M1: pending\n"
+    )
+
+
+def validate_touch_guard_record_layer_scenario() -> int:
+    """Issue #8: the guard denied what the completion gate already forgives.
+
+    `scopeProblems` exempts the selected change's own `openspec/changes/<change>/`
+    directory from outside-Touch attribution, but the guard denied writes there
+    and treated the byte hash of that change's tasks.md as authority, so ticking
+    a checkbox or appending Evidence locked the task out of its own bookkeeping.
+    """
+    label = "touch-guard-record-layer"
+    with tempfile.TemporaryDirectory(prefix="keel-record-layer-") as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        spec = repo / "openspec/specs/demo-cap/spec.md"
+        write_text(tasks, record_layer_tasks())
+        write_text(spec, RECORD_LAYER_SPEC)
+        write_text(repo / "openspec/changes/other/tasks.md", "# Tasks\n")
+        write_text(repo / "keel/archive/follow-ups/note.md", "# Note\n")
+
+        started = run_keel(
+            repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report(f"{label}: guard start failed on the fixture.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+        manifest = json.loads(started.stdout).get("manifest", {})
+        authority = [entry.get("path") for entry in manifest.get("authority", [])]
+        if not any(item == "openspec/specs/demo-cap/spec.md" for item in authority):
+            report(
+                f"{label}: the fixture does not record an authority file outside "
+                f"the change directory, so the negative case is untested: {authority}"
+            )
+            return 1
+
+        # The record layer: writable although Touch never named it.
+        if expect_guard_allow(repo, tasks, f"{label} record write"):
+            return 1
+        # A record write already made must not lock the task out of its product
+        # writes — this is the drift half of the reported defect.
+        write_text(tasks, record_layer_tasks().replace("M1: pending", "M1: done"))
+        if expect_guard_allow(repo, repo / "src/feature.js", f"{label} after record write"):
+            return 1
+
+        # The layer is exactly this change's directory, nothing wider.
+        if expect_guard_deny(
+            repo,
+            repo / "openspec/changes/other/tasks.md",
+            ["outside Touch"],
+            f"{label} other change",
+        ):
+            return 1
+        if expect_guard_deny(
+            repo,
+            repo / "keel/archive/follow-ups/note.md",
+            ["outside Touch"],
+            f"{label} archive tree",
+        ):
+            return 1
+
+        # Authority outside the change directory still hashes and still denies.
+        write_text(spec, RECORD_LAYER_SPEC.replace("it passes", "it passes twice"))
+        if expect_guard_deny(
+            repo,
+            repo / "src/feature.js",
+            ["authority drift"],
+            f"{label} real authority drift",
+        ):
+            return 1
+        write_text(spec, RECORD_LAYER_SPEC)
+
+        status = run_keel(repo, "guard", "status", "--json")
+        status_payload = json.loads(status.stdout) if status.stdout else {}
+        codes = [item.get("code") for item in status_payload.get("problems", [])]
+        if status_payload.get("status") != "active" or codes:
+            report(
+                f"{label}: guard status reported {status_payload.get('status')!r} "
+                f"with problems {codes} after a record write; a checkbox or "
+                "Evidence write is not authority drift."
+            )
+            return 1
+
+        # A real contract edit in the same file must still hard-stop, through the
+        # fingerprint rather than through byte hashing.
+        write_text(tasks, record_layer_tasks(touch="src/other.js"))
+        drifted = run_keel(repo, "guard", "status", "--json")
+        drifted_codes = [
+            item.get("code")
+            for item in (json.loads(drifted.stdout) if drifted.stdout else {}).get(
+                "problems", []
+            )
+        ]
+        if "fingerprint-drift" not in drifted_codes:
+            report(
+                f"{label}: editing the task's Touch line did not report "
+                f"fingerprint drift; got {drifted_codes}."
+            )
+            return 1
+
+        # Once checked, product writes stop but the task can still finish its
+        # own records — the completion gate requires that Evidence.
+        write_text(tasks, record_layer_tasks(checked=True))
+        if expect_guard_deny(
+            repo,
+            repo / "src/feature.js",
+            ["checked complete"],
+            f"{label} completed product write",
+        ):
+            return 1
+        if expect_guard_allow(repo, tasks, f"{label} completed record write"):
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_touch_write_guard_scenario() -> int:
     with tempfile.TemporaryDirectory(
         prefix="keel-touch-guard-", ignore_cleanup_errors=True
@@ -11156,17 +11304,31 @@ def validate_touch_guard_drift_scenario() -> int:
                 "Exercise guarded feature", "Exercise guarded feature differently"
             ),
         )
-        if expect_guard_deny(
-            repo,
-            repo / "src/feature.js",
-            ["drift", "demo", "1.1", "keel guard start"],
-            "touch-guard-drift authority edit",
+        # A contract edit inside the guarded change's own directory is caught
+        # where the capsule is compiled, not at the next write: the hook cannot
+        # compile, so it cannot separate this from a checkbox or Evidence write
+        # in the same file. It therefore allows the write and `guard status`
+        # reports the drift. Authority *outside* that directory still denies at
+        # write time — see the touch-guard-record-layer scenario.
+        if expect_guard_allow(
+            repo, repo / "src/feature.js", "touch-guard-drift contract edit"
         ):
             return 1
         status = run_keel(repo, "guard", "status", "--json")
-        if status.returncode != 3 or json.loads(status.stdout).get("status") != "drifted":
+        status_payload = json.loads(status.stdout) if status.stdout else {}
+        if status.returncode != 3 or status_payload.get("status") != "drifted":
             report("touch-guard-drift: status did not report drifted.")
             report((status.stderr or status.stdout).strip())
+            return 1
+        if not any(
+            item.get("code") == "fingerprint-drift"
+            for item in status_payload.get("problems", [])
+        ):
+            report(
+                "touch-guard-drift: the contract edit was not reported as "
+                "fingerprint drift by the check that compiles the capsule."
+            )
+            report(status.stdout or "")
             return 1
 
         restarted = run_keel(
@@ -11184,29 +11346,40 @@ def validate_touch_guard_drift_scenario() -> int:
         ):
             return 1
 
+        # A fingerprint-neutral edit to the task's own file is a record write,
+        # not drift. This used to fail closed, which is the defect issue #8
+        # reports: appending Evidence blocked every following write.
         tasks_path.write_text(
             tasks_path.read_text(encoding="utf-8") + "\n", encoding="utf-8"
         )
-        if expect_guard_deny(
-            repo,
-            repo / "src/feature.js",
-            ["drift", "keel guard start"],
-            "touch-guard-drift cosmetic edit fails closed",
+        if expect_guard_allow(
+            repo, repo / "src/feature.js", "touch-guard-drift cosmetic edit"
         ):
             return 1
-        cosmetic = run_keel(
-            repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json"
-        )
-        if cosmetic.returncode != 0:
-            report("touch-guard-drift: cosmetic restart failed.")
+        cosmetic = run_keel(repo, "guard", "status", "--json")
+        cosmetic_payload = json.loads(cosmetic.stdout) if cosmetic.stdout else {}
+        if cosmetic_payload.get("status") != "active" or cosmetic_payload.get(
+            "problems"
+        ):
+            report(
+                "touch-guard-drift: a fingerprint-neutral edit to the task's "
+                "own file was reported as a guard problem."
+            )
+            report(cosmetic.stdout or "")
             return 1
-        third = json.loads(cosmetic.stdout)["manifest"]["fingerprint"]["value"]
+        restarted_cosmetic = run_keel(
+            repo, "guard", "start", "--change", "demo", "--task", "1.1",
+            "--force", "--json",
+        )
+        if restarted_cosmetic.returncode != 0:
+            report("touch-guard-drift: cosmetic restart failed.")
+            report((restarted_cosmetic.stderr or restarted_cosmetic.stdout).strip())
+            return 1
+        third = json.loads(restarted_cosmetic.stdout)["manifest"]["fingerprint"][
+            "value"
+        ]
         if third != second:
             report("touch-guard-drift: cosmetic edit drifted the capsule fingerprint.")
-            return 1
-        if expect_guard_allow(
-            repo, repo / "src/feature.js", "touch-guard-drift cosmetic restart"
-        ):
             return 1
 
         write_text(
@@ -11437,6 +11610,7 @@ SCENARIOS: tuple = (
     ("native-helper-targets", validate_native_helper_targets_scenario),
     ("native-single-task-matrix", validate_native_single_task_matrix_scenario),
     ("touch-write-guard", validate_touch_write_guard_scenario),
+    ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("touch-guard-drift", validate_touch_guard_drift_scenario),
     ("touch-guard-surface", validate_touch_guard_surface_scenario),
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),

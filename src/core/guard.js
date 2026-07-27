@@ -247,7 +247,13 @@ function guardStatus(repo) {
         + "reauthorize through `keel gate task-start` and `keel guard start`.",
     });
   }
+  // Bytes under the guarded change's own directory are records the task
+  // produces — checkbox, Evidence, Review — not authority it must not touch.
+  // The fingerprint comparison above already covers every part of that file
+  // the capsule reads, so hashing it here only reported progress as drift.
+  const recordPrefix = `openspec/changes/${manifest.change}/`;
   for (const entry of manifest.authority) {
+    if (entry.path.replace(/\\/g, "/").startsWith(recordPrefix)) continue;
     const file = path.join(repo, entry.path);
     if (!fs.existsSync(file) || sha256(fs.readFileSync(file)) !== entry.sha256) {
       problems.push({

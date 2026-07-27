@@ -84,6 +84,29 @@ function pathAllowed(candidate, touch) {
   });
 }
 
+// A checked task keeps its records writable so it can finish the Evidence its
+// completion gate requires, but earns no further product authorization. Byte
+// hashing used to enforce this by accident, since ticking the box changed
+// tasks.md; now it is stated. An unreadable or unmatched tasks.md is not read as
+// checked — every gate that compiles the capsule catches that, and denying
+// product writes on a parse miss would trade a real capability for a guess.
+function taskIsChecked(repo, manifest) {
+  const file = path.join(
+    repo, "openspec", "changes", manifest.change, "tasks.md"
+  );
+  let content = "";
+  try {
+    content = fs.readFileSync(file, "utf8");
+  } catch {
+    return false;
+  }
+  const id = manifest.task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = content.match(
+    new RegExp(`^\\s*-\\s*\\[([ xX])\\]\\s*${id}(?![0-9.])`, "m")
+  );
+  return Boolean(match && match[1].toLowerCase() === "x");
+}
+
 function main() {
   let event = {};
   try {
@@ -114,8 +137,30 @@ function main() {
     return 0;
   }
   const pointer = `${manifest.change}#${manifest.task}`;
+  // The record layer: the guarded change's own directory holds the records the
+  // task produces — its checkbox, Evidence, and Review — not the product it
+  // changes. `keel gate task-complete` already refuses to attribute this
+  // directory as an outside-Touch failure, so denying it here made the guard
+  // stop the one thing the completion gate is waiting for. Derived from the
+  // manifest's existing `change` field, so no manifest shape changes.
+  const recordPrefix = `openspec/changes/${manifest.change}/`;
+
+  const target = event.tool_input ? event.tool_input[pathField] : null;
+  if (typeof target !== "string" || !target) return 0;
+  const relative = path.relative(repo, path.resolve(repo, target));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return 0;
+  }
+  const candidate = relative.replace(/\\/g, "/");
+  if (candidate.startsWith(recordPrefix)) return 0;
 
   for (const entry of manifest.authority) {
+    // Same boundary: bytes under the guarded change's own directory are
+    // records, and the capsule fingerprint — which carries no checkbox state
+    // and no Evidence values — is what separates a record write from a
+    // contract change. `keel guard status` and `keel gate task-complete`
+    // compile the capsule and compare it; this hook cannot, and must not guess.
+    if (entry.path.replace(/\\/g, "/").startsWith(recordPrefix)) continue;
     const file = path.join(repo, entry.path);
     let fresh = null;
     try {
@@ -134,13 +179,17 @@ function main() {
     }
   }
 
-  const target = event.tool_input ? event.tool_input[pathField] : null;
-  if (typeof target !== "string" || !target) return 0;
-  const relative = path.relative(repo, path.resolve(repo, target));
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (taskIsChecked(repo, manifest)) {
+    deny(
+      `Keel write guard: ${pointer} is checked complete, so it authorizes no `
+        + `further product writes — ${candidate} is denied. Its own `
+        + `${recordPrefix} records stay writable so the task can finish its `
+        + "Evidence. Run `keel guard clear`, then authorize the next task "
+        + "explicitly with `keel gate task-start`."
+    );
     return 0;
   }
-  const candidate = relative.replace(/\\/g, "/");
+
   if (pathAllowed(candidate, manifest.touch)) return 0;
 
   deny(
