@@ -15,6 +15,11 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// This text is injected into the agent and never rendered for the human, so
+// without an explicit instruction the projection reaches nobody who can catch
+// it being wrong. Every branch carries the same phrase, degraded ones included.
+const DISCLOSURE = "to the user in your first reply";
+
 const TIMEOUT_MS = Number(process.env.KEEL_HOOK_TIMEOUT_MS || 8000) || 8000;
 const MAX_REASONS = 3;
 const MAX_REASON_LENGTH = 300;
@@ -51,7 +56,8 @@ function runKeel(cwd, args) {
 function fallback(reason) {
   emit(
     `Keel hook fallback: ${reason} Run \`keel context\` manually; `
-      + "OpenSpec and Git remain the durable authority."
+      + "OpenSpec and Git remain the durable authority. Report this failure "
+      + `and that command ${DISCLOSURE}.`
   );
 }
 
@@ -145,6 +151,7 @@ function main() {
         + "does not guess among candidates."
     );
   }
+  lines.push(`- report this state ${DISCLOSURE}; it authorizes nothing.`);
   emit(lines.join("\n"));
   return 0;
 }

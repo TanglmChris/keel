@@ -1,0 +1,71 @@
+## 1. Disclosure reaches the human
+
+- [x] 1.1 The SessionStart projection instructs the agent to state the context to the user on every branch
+  - Covers:
+    - keel-native-runtime-projection / Projected session state is reported to the user / Ready projection is disclosed before work begins
+    - keel-native-runtime-projection / Projected session state is reported to the user / Non-ready projection is disclosed rather than silently absorbed
+    - keel-native-runtime-projection / Projected session state is reported to the user / Degraded projection still reaches the human
+    - D2 one short line per branch rather than a paragraph, because the projection competes for attention with the pointer it carries
+    - D3 reporting is disclosure only and confers no authority on the projection
+  - Touch:
+    - plugins/keel/scripts/session-start.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the native-plugin-session-start scenario runs the hook against a ready fixture repository and the emitted additionalContext instructs the agent to state the selection and next action to the user in its first response
+    - M2: the same scenario runs the hook against a repository with no active change and against one with two candidate changes, and both emitted projections instruct the agent to state the status and its reasons to the user
+    - M3: the same scenario drives the missing-CLI, malformed-output, and timeout fallbacks and each emitted fallback instructs the agent to tell the user that the projection failed and which manual command replaces it
+    - M4: the projection still selects nothing and records nothing — the existing assertions that the hook writes no repository state, exits zero, keeps Codex and Claude output identical, and never emits a recorded fingerprint or created goal continue to hold
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:01ba71b532e0e26e8702668416d47bde796e434fb19d323757f965fe1de7f88f
+    - M1: pass. `python scripts/validate_plugin.py --scenario native-plugin-session-start` exits 0; the ready fixture projection for `demo#1.1` ends with `- report this state to the user in your first reply; it authorizes nothing.`
+    - M1.red: with the `lines.push` disclosure removed from `session-start.js`, the scenario failed `native-plugin-session-start ready projection lacks concise context`, dumping a ready projection whose last line was `- run \`keel gate task-start\` before implementation; this projection selects nothing and records nothing.`
+    - M1.green: the disclosure line restored; the ready projection carries the phrase and the scenario exits 0.
+    - M2: pass. A new idle fixture (an `openspec/changes` directory with no change) and the existing two-candidate ambiguous fixture both emit the disclosure phrase.
+    - M2.red: with the disclosure scoped to the ready branch only (`if (context.status === "ready") lines.push(...)`), the scenario failed `native-plugin-session-start idle projection did not disclose its status to the user`, dumping an idle projection that ended at `- next: run \`keel context\` and select an owner explicitly; this hook does not guess among candidates.`
+    - M2.green: the unconditional push covers both branches; idle and ambiguous carry the phrase, and the ambiguous projection still refuses to name `alpha#1.1`.
+    - M3: pass. The missing-CLI, malformed-output, and timeout fallbacks each emit `Report this failure and that command to the user in your first reply.` alongside the manual `keel context` command.
+    - M3.red: with that sentence removed from `fallback()`, the scenario failed `native-plugin-session-start missing-CLI fallback failed.`, dumping a fallback that stopped at `OpenSpec and Git remain the durable authority.`
+    - M3.green: the sentence restored; all three fallback branches carry the phrase and the scenario exits 0.
+    - M4: pass. The projection still writes no repository state, exits 0, keeps Codex and Claude output byte-identical, and emits neither a recorded fingerprint nor a created goal.
+    - M4.red: adding a `fs.writeFileSync` into the projection path made the scenario fail `native-plugin-session-start hook wrote repository state.`, proving the no-write assertion is not vacuous.
+    - M4.green: the mutation reverted; `npm test` passes the full suite, baseline plus 73 scenarios.
+    - Review:
+      - Status: pass
+      - Acceptance check: every resolved Acceptance statement is exercised through the hook's public interface, the emitted `additionalContext`, not through source inspection. The ready, idle, ambiguous, and all three fallback branches are each run as a real subprocess and asserted on their emitted text. The two negative clauses — the projection still guesses no owner, and the instruction authorizes nothing — are held by the retained `alpha#1.1` assertion and by M4's no-write, no-fingerprint, no-goal checks.
+      - Scope check: only the two declared Touch files changed, `plugins/keel/scripts/session-start.js` and `scripts/validate_plugin.py`. The mutation-testing edits used to produce each red were reverted from the same file and verified absent before the green run.
+      - Findings: none
+    - Blocker: none
+
+- [ ] 1.2 The resident Session Start protocol carries the same rule without the plugin
+  - Covers:
+    - keel-native-runtime-projection / Projected session state is reported to the user / Resident protocol carries the rule without the plugin
+    - D1 the report obligation is delivered through the projection text and this repository's resident protocol and not through the byte-wedged consumer bootstrap
+    - D4 consumers without the native plugin do not receive this rule in this change and the residue is recorded rather than hidden
+  - Touch:
+    - AGENTS.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the native-plugin-session-start scenario asserts that the repository's resident Session Start section requires the agent to state the keel context result to the user in its first response, so the resident rule and the projection text cannot drift apart without failing the suite
+    - M2: the resident Session Start section still requires running keel context first and still refuses to infer continuity from native memory, goals, transcripts, or Git dirty paths
+    - M3: the consumer bootstrap managed block is unchanged, keeping its sub-1024-byte assertion and its required topics green
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Expectation Coverage
+
+- E1: the projection instructs disclosure on the ready branch, the non-ready branch, and every fallback Covered by: 1.1
+- E2: disclosure survives the native plugin being absent or unloaded, at least in this repository Covered by: 1.2
+- E3: the projection stays disposable and authority-free while gaining the instruction Covered by: 1.1
+- E4: agent compliance with an instruction delivered through additionalContext cannot be proven by any repository-side gate. Discard reason: no check this repository can run observes what the agent says to the user; design.md records it as accepted risk A1, the repository owns only the presence of the instruction, and the user verifies the behavior in the next fresh session.
+- E5: consumers without the native plugin still do not receive this rule, because the bootstrap managed block has roughly seven bytes of headroom. Durable owner: https://github.com/TanglmChris/keel/issues/15

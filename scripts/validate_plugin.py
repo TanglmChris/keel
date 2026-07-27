@@ -6855,6 +6855,13 @@ def session_start_context(result: subprocess.CompletedProcess[str]) -> str | Non
     return output.get("additionalContext")
 
 
+# The projection is delivered through additionalContext, which the host injects
+# into the agent and never renders for the human. Every branch must therefore
+# carry the instruction to relay it, including — especially — the degraded ones,
+# because a projection nobody sees is a projection nobody checks.
+SESSION_START_DISCLOSURE = "to the user in your first reply"
+
+
 def validate_native_plugin_session_start_scenario() -> int:
     real_cli = f'node "{ROOT / "bin/keel.js"}"'
     codex_event = {"hook_event_name": "SessionStart", "source": "startup"}
@@ -6902,6 +6909,7 @@ def validate_native_plugin_session_start_scenario() -> int:
             or "demo#1.1" not in codex_context
             or "task-start" not in codex_context
             or "disposable" not in codex_context
+            or SESSION_START_DISCLOSURE not in codex_context
         ):
             report(
                 "native-plugin-session-start ready projection lacks concise "
@@ -6912,6 +6920,24 @@ def validate_native_plugin_session_start_scenario() -> int:
             if forbidden in (codex_context or ""):
                 report("native-plugin-session-start projection overstepped.")
                 return 1
+
+        idle_repo = tmp / "idle"
+        (idle_repo / "openspec/changes").mkdir(parents=True)
+        idle_result = run_session_start_hook(
+            idle_repo, codex_event, keel_cli=real_cli
+        )
+        idle_context = session_start_context(idle_result)
+        if (
+            idle_result.returncode != 0
+            or not idle_context
+            or "idle" not in idle_context
+            or SESSION_START_DISCLOSURE not in idle_context
+        ):
+            report(
+                "native-plugin-session-start idle projection did not disclose "
+                "its status to the user: " + repr(idle_context)
+            )
+            return 1
 
         ambiguous_repo = tmp / "ambiguous"
         ambiguous_repo.mkdir()
@@ -6929,6 +6955,7 @@ def validate_native_plugin_session_start_scenario() -> int:
             or not ambiguous_context
             or "ambiguous" not in ambiguous_context
             or "keel context" not in ambiguous_context
+            or SESSION_START_DISCLOSURE not in ambiguous_context
             or "alpha#1.1" in ambiguous_context
         ):
             report(
@@ -6958,6 +6985,7 @@ def validate_native_plugin_session_start_scenario() -> int:
             or not missing_context
             or "missing or incompatible" not in missing_context
             or "keel context" not in missing_context
+            or SESSION_START_DISCLOSURE not in missing_context
         ):
             report("native-plugin-session-start missing-CLI fallback failed.")
             report(repr(missing_context))
@@ -6980,6 +7008,7 @@ def validate_native_plugin_session_start_scenario() -> int:
             malformed_result.returncode != 0
             or not malformed_context
             or "malformed" not in malformed_context
+            or SESSION_START_DISCLOSURE not in malformed_context
         ):
             report("native-plugin-session-start malformed-output fallback failed.")
             report(repr(malformed_context))
@@ -7005,6 +7034,7 @@ def validate_native_plugin_session_start_scenario() -> int:
             hang_result.returncode != 0
             or not hang_context
             or "failed or timed out" not in hang_context
+            or SESSION_START_DISCLOSURE not in hang_context
         ):
             report("native-plugin-session-start timeout fallback failed.")
             report(repr(hang_context))
