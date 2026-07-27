@@ -3,6 +3,7 @@
 <!-- keel:start version=5.3.1 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
+- State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A plugin projection reaches only you, so a state the user never sees is a state the user cannot correct.
 - `keel/HANDOFF.md` is an optional validated override for otherwise ambiguous human intent. An absent file is normal; never infer continuity from native memory, goals, transcripts, or Git dirty paths.
 
 ## Full/Lite routing

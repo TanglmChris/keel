@@ -37,7 +37,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 The resident Session Start protocol carries the same rule without the plugin
+- [x] 1.2 The resident Session Start protocol carries the same rule without the plugin
   - Covers:
     - keel-native-runtime-projection / Projected session state is reported to the user / Resident protocol carries the rule without the plugin
     - D1 the report obligation is delivered through the projection text and this repository's resident protocol and not through the byte-wedged consumer bootstrap
@@ -48,18 +48,20 @@
   - Verify:
     - Strategy: vertical-tdd
     - M1: the native-plugin-session-start scenario asserts that the repository's resident Session Start section requires the agent to state the keel context result to the user in its first response, so the resident rule and the projection text cannot drift apart without failing the suite
-    - M2: the resident Session Start section still requires running keel context first and still refuses to infer continuity from native memory, goals, transcripts, or Git dirty paths
-    - M3: the consumer bootstrap managed block is unchanged, keeping its sub-1024-byte assertion and its required topics green
+    - M2: the same assertion holds the rest of the resident Session Start contract in place — running keel context first, and refusing to infer continuity from native memory, goals, transcripts, or Git dirty paths — so adding the disclosure rule cannot quietly displace them
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:6538e4d16eb78403d70adb3a9a964c292356121c4530e34d538c58a19fd5c458
+    - M1: pass. `native-plugin-session-start` now slices the resident `AGENTS.md` Session Start section and requires the same disclosure phrase the projection emits, so the two cannot drift apart without failing the suite.
+    - M1.red: with the assertion added and the resident rule not yet written, the scenario failed `native-plugin-session-start resident Session Start section is missing: to the user in your first reply`.
+    - M1.green: after adding the resident bullet, the scenario exits 0.
+    - M2: pass. The same assertion pins the two rules the section already carried, so the new bullet cannot displace them.
+    - M2.red: captured separately for each retained rule. Rewriting the first bullet to drop the command failed with `resident Session Start section is missing: keel context`; rewriting the HANDOFF bullet's refusal clause failed with `resident Session Start section is missing: never infer continuity from native memory`.
+    - M2.green: both mutations reverted, confirmed by `git diff --stat AGENTS.md` showing a single inserted line; `npm test` passes the full suite, baseline plus 73 scenarios.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the resident rule is read from the shipped protocol file itself rather than from a fixture, which is the observable surface an agent actually consults when no plugin projection runs. M1 proves the rule is present and worded compatibly with the projection; M2 proves the change was additive rather than a substitution.
+      - Scope check: only the two declared Touch files changed, `AGENTS.md` (one inserted line) and `scripts/validate_plugin.py`. `assets/bootstrap/AGENTS.md` is untouched, as D4 requires; the mutation-testing edits were reverted and verified by diff before the green run.
+      - Findings: none
     - Blocker: none
 
 ## Expectation Coverage

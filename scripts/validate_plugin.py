@@ -6861,6 +6861,24 @@ def session_start_context(result: subprocess.CompletedProcess[str]) -> str | Non
 # because a projection nobody sees is a projection nobody checks.
 SESSION_START_DISCLOSURE = "to the user in your first reply"
 
+# A host loads its plugins once per session, so the projection can be absent for
+# reasons no repository check can see. The resident protocol is the carrier of
+# last resort and must state the same obligation without trading away the
+# continuity rules it already carried.
+RESIDENT_SESSION_START_REQUIRED = (
+    SESSION_START_DISCLOSURE,
+    "keel context",
+    "never infer continuity from native memory",
+)
+
+
+def resident_session_start_section(path: Path) -> str | None:
+    text = path.read_text(encoding="utf-8")
+    match = re.search(
+        r"^## Session Start$(.*?)^## ", text, re.MULTILINE | re.DOTALL
+    )
+    return match.group(1) if match else None
+
 
 def validate_native_plugin_session_start_scenario() -> int:
     real_cli = f'node "{ROOT / "bin/keel.js"}"'
@@ -7054,6 +7072,21 @@ def validate_native_plugin_session_start_scenario() -> int:
             + ", ".join(declared_events)
         )
         return 1
+
+    resident = resident_session_start_section(ROOT / "AGENTS.md")
+    if resident is None:
+        report(
+            "native-plugin-session-start resident AGENTS.md has no Session "
+            "Start section."
+        )
+        return 1
+    for needle in RESIDENT_SESSION_START_REQUIRED:
+        if needle not in resident:
+            report(
+                "native-plugin-session-start resident Session Start section is "
+                f"missing: {needle}"
+            )
+            return 1
 
     report("native-plugin-session-start scenario passed.")
     return 0
