@@ -123,22 +123,32 @@ Keel Core MUST parse and compile a selected task once through the shared task-ca
 
 ### Requirement: Gate results expose capsule and fingerprint evidence
 
-The versioned machine-readable `task-start` result MUST include the capsule schema, normalized capsule, fingerprint, and diagnostics needed for the current agent to record a durable start anchor. When the caller explicitly passes `--record`, a passing `task-start` MUST write that anchor itself by replacing the selected task's literal `- Contract: pending` Evidence line with the compiled fingerprint line, and MUST refuse deterministically — writing nothing — when that literal anchor line is absent. Later task gates MUST report recorded-versus-current fingerprint status.
+The versioned machine-readable `task-start` result MUST include the capsule schema, normalized capsule, fingerprint, and diagnostics needed for the current agent to record a durable start anchor. When the caller explicitly passes `--record`, a passing `task-start` MUST write that anchor itself by replacing the selected task's `- Contract:` Evidence line with the compiled fingerprint line, whatever value that line currently holds, and MUST refuse deterministically — writing nothing — only when the selected task has no `- Contract:` line at all. The result MUST report which outcome occurred, and a re-record that replaces a different recorded fingerprint MUST warn that execution evidence produced under the previous contract is stale. Later task gates MUST report recorded-versus-current fingerprint status.
 
 #### Scenario: Passing start exposes recording data
 - **WHEN** `task-start` passes
 - **THEN** its JSON includes `keel-task-capsule/v1`, the fingerprint algorithm and value, and the complete normalized contract
 - **AND THEN** human-readable output identifies the fingerprint without dumping unnecessary capsule detail
 
-#### Scenario: Explicit record replaces only the pending anchor
-- **WHEN** `task-start` passes with `--record` and the selected task's Evidence contains the literal line `- Contract: pending`
-- **THEN** the gate replaces exactly that line with the compiled `keel-task-capsule/v1` fingerprint line consumed by the existing anchor read path
+#### Scenario: Explicit record replaces only the Contract anchor
+- **WHEN** `task-start` passes with `--record` and the selected task's Evidence contains the line `- Contract: pending`
+- **THEN** the gate replaces exactly that line with the compiled `keel-task-capsule/v1` fingerprint line consumed by the existing anchor read path, and reports the outcome as `recorded`
 - **AND THEN** no other line of `tasks.md` changes, and the recompiled fingerprint is unchanged so any active guard stays valid
 
-#### Scenario: Record without a pending anchor refuses
-- **WHEN** `--record` is passed but the selected task's Contract anchor is already recorded or missing
-- **THEN** `task-start` fails with a deterministic record refusal naming the expected literal anchor line
-- **AND THEN** it writes nothing, and behavior without `--record` remains byte-identical to the pre-flag gate
+#### Scenario: Reauthorization replaces a recorded anchor and warns
+- **WHEN** `--record` is passed and the selected task's `- Contract:` line already carries a fingerprint that differs from the freshly compiled one
+- **THEN** the gate replaces that line with the new fingerprint line, reports the outcome as `rerecorded`, and carries the replaced value in the result
+- **AND THEN** it warns that the previous contract's execution evidence is stale, naming the previous fingerprint, and no other line of `tasks.md` changes
+
+#### Scenario: Re-recording an unchanged contract writes nothing
+- **WHEN** `--record` is passed and the selected task's `- Contract:` line already carries exactly the freshly compiled fingerprint line
+- **THEN** the gate reports the outcome as `unchanged` and leaves `tasks.md` byte-identical
+- **AND THEN** it emits no stale-evidence warning, because the contract did not move
+
+#### Scenario: Record without a Contract anchor refuses
+- **WHEN** `--record` is passed but the selected task has no `- Contract:` Evidence line to anchor
+- **THEN** `task-start` fails with a deterministic record refusal naming the missing anchor line and the literal form to add
+- **AND THEN** it writes nothing, not even the guard manifest, and behavior without `--record` remains byte-identical to the pre-flag gate
 
 #### Scenario: Completion sees contract drift
 - **WHEN** the recorded start fingerprint differs from fresh compilation
@@ -181,7 +191,7 @@ Native goal execution MUST consume the shared read-only `task-start` and `task-c
 
 ### Requirement: Gate execution is deterministic and write-bounded
 
-Core gates MUST run locally without network access or model calls. The only permitted project writes are the disposable `keel-write-guard/v1` manifest written by a passing `task-start` on the Claude target when `--no-guard` is absent, and the single-line replacement of the selected task's literal `- Contract: pending` Evidence anchor performed by a passing `task-start` when the caller explicitly passes `--record`. `task-complete`, `change-close`, and every failing or `needs-review` outcome MUST NOT write project state. Gates MUST return `pass`, `fail`, or `needs-review` through one versioned machine-readable result.
+Core gates MUST run locally without network access or model calls. The only permitted project writes are the disposable `keel-write-guard/v1` manifest written by a passing `task-start` on the Claude target when `--no-guard` is absent, and the single-line replacement of the selected task's `- Contract:` Evidence anchor performed by a passing `task-start` when the caller explicitly passes `--record` and the anchor does not already hold the compiled fingerprint line. `task-complete`, `change-close`, and every failing or `needs-review` outcome MUST NOT write project state. Gates MUST return `pass`, `fail`, or `needs-review` through one versioned machine-readable result.
 
 #### Scenario: Passing gate is process success
 - **WHEN** every deterministic requirement for a gate is satisfied
@@ -196,7 +206,7 @@ Core gates MUST run locally without network access or model calls. The only perm
 #### Scenario: Gate does not mutate evidence
 - **WHEN** a gate evaluates task or change state
 - **THEN** it does not mark tasks complete, write Review evidence, update HANDOFF, or repair artifacts
-- **AND THEN** the guard manifest and the explicit `--record` pending-anchor replacement, each written only by a passing `task-start`, are the sole exceptions to gate write-freedom
+- **AND THEN** the guard manifest and the explicit `--record` Contract-anchor replacement, each written only by a passing `task-start`, are the sole exceptions to gate write-freedom
 
 ### Requirement: Accepted Review Status vocabulary is single-sourced and includes `done`
 
