@@ -8,7 +8,16 @@ const SUPPORTED_MODES = new Set([
   "implementation",
   "diagnose-only",
   "plan-first",
+  // A task whose whole effect is an authorized repository-level action — the
+  // repository's first commit, a tag — writes no worktree file, so it has no
+  // concrete Touch to declare. It is not diagnose-only either: it has real side
+  // effects that need evidence. It is the one mode that may commit.
+  "repo-action",
 ]);
+
+// Modes whose contract is "no worktree writes", so `Touch: none` is required
+// rather than merely tolerated.
+const NO_WRITE_MODES = new Set(["diagnose-only", "repo-action"]);
 
 const UNFILLED_TOKEN = /(<[^>]+>|\bTODO\b|\bTBD\b|\bplaceholder\b)/i;
 
@@ -241,16 +250,17 @@ function taskStartContractProblems(task) {
         code: "unsupported-mode",
         message:
           `Unsupported Mode \`${mode}\`; expected implementation, `
-          + "diagnose-only, or plan-first.",
+          + "diagnose-only, plan-first, or repo-action.",
       },
     ];
   }
-  if (mode === "diagnose-only") {
+  if (NO_WRITE_MODES.has(mode)) {
     if (touch.length !== 1 || touch[0].toLowerCase() !== "none") {
       return [
         {
           code: "invalid-touch",
-          message: "diagnose-only requires `Touch: none`.",
+          message: `${mode} writes no worktree file and requires `
+            + "`Touch: none`.",
         },
       ];
     }
@@ -819,13 +829,17 @@ function compileTaskContract(repo, change, task) {
     helperAuthority: "read-only-evidence-only",
     prohibitions: [
       "must not change Acceptance",
-      "must not commit",
+      // repo-action is the one mode whose authorized effect is the repository
+      // action itself, so it alone does not carry the commit prohibition.
+      // Whether the action it performed was the authorized one is a Review
+      // judgment; what the capsule fixes is the write posture.
+      ...(mode === "repo-action" ? [] : ["must not commit"]),
       "must not continue to another task",
       "must not mark tasks complete",
       "must not push",
       "must not sync or archive",
       "must not transfer Keel ownership",
-      ...(mode === "diagnose-only" ? ["must not write product files"] : []),
+      ...(NO_WRITE_MODES.has(mode) ? ["must not write product files"] : []),
     ],
   };
   if (resolved.diagnostics.length > 0) {

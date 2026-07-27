@@ -37,7 +37,7 @@
 
 ## 2. A repository action is a legal task
 
-- [ ] 2.1 Add Mode repo-action for an authorized repository action with no worktree writes
+- [x] 2.1 Add Mode repo-action for an authorized repository action with no worktree writes
   - Covers:
     - D3 repo-action is a fourth mode requiring Touch none, prohibiting product writes, and alone omitting the commit prohibition
     - D4 whether the repository action was authorized stays a Review judgment, while the gate enforces the write posture
@@ -45,20 +45,24 @@
     - keel-task-capsule / Task modes and conditional fields are executable / Repo-action still refuses a product Touch
   - Touch:
     - src/core/task-contract.js
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - AGENTS.md
+    - assets/bootstrap/AGENTS.md
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: regression-first
-    - M1: through the gate CLI, a task declaring Mode repo-action with Touch none passes task-start and compiles to a capsule whose mode is repo-action, whose prohibitions include the product-write prohibition, and whose prohibitions are the only ones that omit the commit prohibition; the same mode with a concrete Touch path fails with a diagnostic naming the Touch none it requires; an unsupported mode value is still rejected by a message listing all four supported modes; and diagnose-only, implementation, and plan-first keep their existing acceptance and their existing prohibitions unchanged. A new validator scenario locks every case
+    - M1: through the gate CLI, a task declaring Mode repo-action with Touch none passes task-start and compiles to a capsule whose mode is repo-action, whose prohibitions include the product-write prohibition, and whose prohibitions are the only ones that omit the commit prohibition; the same mode with a concrete Touch path fails with a diagnostic naming the Touch none it requires; an unsupported mode value is still rejected by a message listing all four supported modes; and diagnose-only, implementation, and plan-first keep their existing acceptance and their existing prohibitions unchanged. A new validator scenario locks every case, and the authoring surface an author actually reads — the shipped tasks template and the resident protocol's mode sentence — names the new mode and what it authorizes
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:535ba3f93a1761a9ddd2f5fb1f5ca2bc19e99b3408875c3b39ec33580d7820bb
+    - M1: `SUPPORTED_MODES` gains `repo-action`, and a new `NO_WRITE_MODES` set holds the two modes whose contract is "no worktree writes", so `Touch: none` is required rather than merely tolerated and the `invalid-touch` message names the mode by name. The capsule's prohibition list is now assembled rather than fixed: `repo-action` is the one mode that omits `must not commit`, because performing that action is the task, and it carries `must not write product files` alongside `diagnose-only`. Every other prohibition, including push, sync, archive, and marking tasks complete, is unchanged for it. The authoring surface an author reads was updated with it — the shipped `keel-spec-driven` tasks template comment and its byte-identical repository copy, and the mode sentence in this repository's resident protocol, which also gained the record-layer rule from task 1.1
+    - M1.red: the new `repo-action-mode` scenario exited 1 at its first case, "`Mode: repo-action` with `Touch: none` was rejected", dumping a `task-start` result of `status: fail` — issue #8's example 2, where the author had no legal contract for a task whose effect is the repository's first commit
+    - M1.green: the scenario exits 0 across seven cases: `repo-action` with `Touch: none` compiles, records the mode in the capsule, prohibits product writes, and omits the commit prohibition; `implementation`, `plan-first`, and `diagnose-only` each still compile, each keep the commit prohibition, and each keep their product-write prohibition exactly as before; `repo-action` with a concrete Touch fails with a diagnostic naming the `Touch: none` it requires; and an unsupported mode is rejected by a message listing all four supported modes. `npm test` reported "validation --all passed: baseline plus 70 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — a task whose whole effect is a repository action now has a contract of its own instead of a Touch path chosen to satisfy the validator, the authorization is visible in the capsule and therefore in the fingerprint, and the three pre-existing modes are asserted unchanged case by case, satisfying D3, D4 and both referenced scenarios
+      - Scope check: pass — `src/core/task-contract.js`, both copies of the tasks template, `AGENTS.md`, and `scripts/validate_plugin.py`, all within Touch, verified against `--base HEAD`. `assets/bootstrap/AGENTS.md` was declared in Touch and deliberately left unchanged, see Findings. The contract was re-recorded twice as the authoring surface was brought into scope; the second re-record warned about stale evidence and M1 was re-run green afterwards
+      - Findings: the consumer-facing bootstrap still says `Touch is the write boundary` without the record-layer qualifier, so a consumer who reads only that is still pointed at the trap issue #8 reports. It could not be fixed here: the block is 1013 bytes against a 1024-byte budget asserted by `thin-native-install`, the literal phrase is a required topic asserted by baseline and `skill-portability-policy`, and the qualifier needs about 60 bytes. Making room means compressing other protocol text in the same paragraph, which is a value judgment unrelated to this change. The edit was reverted rather than forced. Durable owner: https://github.com/TanglmChris/keel/issues/15
     - Blocker: none
 
 ## Expectation Coverage

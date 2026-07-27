@@ -20,7 +20,8 @@
 - After implementation, update OpenSpec state or keel/CHANGELOG.md only when they are the correct long-term location. Create HANDOFF only as an explicit pointer override.
 
 ## Task contract discipline
-- `implementation` means implement only the selected task and modify only Touch files; `diagnose-only` means reproduce, inspect, and report evidence without product writes unless Touch authorizes diagnostics; `plan-first` means propose the minimal plan before product writes.
+- `implementation` means implement only the selected task and modify only Touch files; `diagnose-only` means reproduce, inspect, and report evidence without product writes unless Touch authorizes diagnostics; `plan-first` means propose the minimal plan before product writes; `repo-action` means the task's whole effect is an authorized repository-level action such as a commit or a tag, requires `Touch: none`, writes no worktree file, and is the only mode that may commit — it still may not push, sync, archive, or mark tasks complete.
+- A task's own change directory is a record-write layer: its `tasks.md` checkbox, Evidence, and Review are writable under an active guard without being declared in Touch, and changes there are not authority drift. Declare in Touch only the product files the task changes. A contract edit in that file — Touch, Verify, Covers, or a boundary — still hard-stops at `keel guard status` and `keel gate task-complete`, which recompile the fingerprint.
 - Do not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.
 - Reports include Summary, Changed Files, Scope Check, Tests Run, Risks, Out-of-scope Need, and Follow-ups. Do not commit, push, create archive entries, or create handoff entries unless the selected task or human instruction explicitly allows it.
 

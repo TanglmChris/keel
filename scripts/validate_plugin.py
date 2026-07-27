@@ -10397,6 +10397,146 @@ def record_layer_tasks(checked: bool = False, touch: str = "src/feature.js") -> 
     )
 
 
+def mode_fixture_tasks(mode: str, touch: str) -> str:
+    return (
+        "# Tasks\n\n"
+        "- [ ] 1.1 Establish the version baseline\n"
+        f"  - Mode: {mode}\n"
+        "  - Covers:\n"
+        "    - E1: the repository carries its first commit\n"
+        "  - Touch:\n"
+        f"    - {touch}\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: git rev-parse HEAD resolves and git log reports one commit\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: pending\n"
+    )
+
+
+def validate_repo_action_mode_scenario() -> int:
+    """Issue #8 example 2: a repository action had no legal contract.
+
+    A task whose whole effect is the repository's first commit writes no
+    worktree file, so it has no concrete Touch; it is not diagnose-only,
+    because it has real side effects needing evidence; and `Touch: none` was
+    accepted for no other mode. The author was forced to name a path the task
+    did not write, which then tripped the drift defect in example 1.
+    """
+    label = "repo-action-mode"
+
+    def compile_task(repo: Path, mode: str, touch: str):
+        write_text(repo / "openspec/changes/demo/tasks.md", mode_fixture_tasks(mode, touch))
+        return run_keel(
+            repo, "gate", "task-start",
+            "--change", "demo", "--task", "1.1", "--no-guard", "--json",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-repo-action-") as raw:
+        repo = Path(raw)
+
+        started = compile_task(repo, "repo-action", "none")
+        if started.returncode != 0:
+            report(f"{label}: `Mode: repo-action` with `Touch: none` was rejected.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+        capsule = json.loads(started.stdout).get("contract", {}).get("capsule", {})
+        prohibitions = capsule.get("prohibitions", [])
+        if capsule.get("mode") != "repo-action":
+            report(f"{label}: the capsule did not record the repo-action mode.")
+            return 1
+        if "must not write product files" not in prohibitions:
+            report(
+                f"{label}: repo-action must prohibit product writes; got "
+                f"{prohibitions}."
+            )
+            return 1
+        if "must not commit" in prohibitions:
+            report(
+                f"{label}: repo-action must be the mode that may commit; got "
+                f"{prohibitions}."
+            )
+            return 1
+
+        # Every other mode keeps the commit prohibition.
+        for mode, touch in (
+            ("implementation", "src/feature.js"),
+            ("plan-first", "src/feature.js"),
+            ("diagnose-only", "none"),
+        ):
+            other = compile_task(repo, mode, touch)
+            if other.returncode != 0:
+                report(f"{label}: `Mode: {mode}` regressed and no longer compiles.")
+                report((other.stderr or other.stdout).strip())
+                return 1
+            other_capsule = (
+                json.loads(other.stdout).get("contract", {}).get("capsule", {})
+            )
+            if "must not commit" not in other_capsule.get("prohibitions", []):
+                report(f"{label}: `Mode: {mode}` lost the commit prohibition.")
+                return 1
+            product_write_prohibited = (
+                "must not write product files"
+                in other_capsule.get("prohibitions", [])
+            )
+            if product_write_prohibited != (mode == "diagnose-only"):
+                report(
+                    f"{label}: `Mode: {mode}` changed its product-write "
+                    "prohibition."
+                )
+                return 1
+
+        # repo-action means no worktree writes, so a concrete Touch contradicts it.
+        with_touch = compile_task(repo, "repo-action", "src/feature.js")
+        with_touch_problems = (
+            json.loads(with_touch.stdout).get("problems", [])
+            if with_touch.stdout
+            else []
+        )
+        touch_message = " ".join(
+            item.get("message", "")
+            for item in with_touch_problems
+            if item.get("code") == "invalid-touch"
+        )
+        if with_touch.returncode == 0 or "Touch: none" not in touch_message:
+            report(
+                f"{label}: repo-action with a concrete Touch must fail with a "
+                "diagnostic naming the `Touch: none` it requires."
+            )
+            report((with_touch.stderr or with_touch.stdout).strip())
+            return 1
+
+        unsupported = compile_task(repo, "repo-actions", "none")
+        unsupported_message = " ".join(
+            item.get("message", "")
+            for item in (
+                json.loads(unsupported.stdout).get("problems", [])
+                if unsupported.stdout
+                else []
+            )
+            if item.get("code") == "unsupported-mode"
+        )
+        missing = [
+            mode
+            for mode in ("implementation", "diagnose-only", "plan-first", "repo-action")
+            if mode not in unsupported_message
+        ]
+        if unsupported.returncode == 0 or missing:
+            report(
+                f"{label}: the unsupported-mode diagnostic must list every "
+                f"supported mode; missing {missing}."
+            )
+            report((unsupported.stderr or unsupported.stdout).strip())
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_touch_guard_record_layer_scenario() -> int:
     """Issue #8: the guard denied what the completion gate already forgives.
 
@@ -11611,6 +11751,7 @@ SCENARIOS: tuple = (
     ("native-single-task-matrix", validate_native_single_task_matrix_scenario),
     ("touch-write-guard", validate_touch_write_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
+    ("repo-action-mode", validate_repo_action_mode_scenario),
     ("touch-guard-drift", validate_touch_guard_drift_scenario),
     ("touch-guard-surface", validate_touch_guard_surface_scenario),
     ("plugin-compaction-continuity", validate_plugin_compaction_continuity_scenario),

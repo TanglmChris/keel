@@ -40,7 +40,11 @@
     - Blocker: none
 
 <!-- Exceptional boundaries are declared only when they differ from defaults:
-     - Mode: diagnose-only (with `Touch: none`) or plan-first
+     - Mode: diagnose-only or repo-action (both with `Touch: none`), or plan-first.
+       repo-action is for a task whose whole effect is an authorized
+       repository-level action — a commit, a tag — and which writes no worktree
+       file; it is the one mode that may commit, and it still may not push,
+       sync, archive, or mark tasks complete
      - Read: additional required starting context beyond the base set
      - Acceptance: a task-specific observable delta the Covers authority does not express
      - Execution recommendation / Rationale: advisory notes for the current agent
