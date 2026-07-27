@@ -32,24 +32,27 @@
       - Findings: the defect is wider than issue #7 reported. the token pattern also matches three bare keywords case-insensitively, so prose describing them trips it. This change hit that three times while being authored: task 1.1's own Verify, a Covers reference whose target scenario name used one keyword, and this Evidence block itself, which cannot quote the tokens it describes. Recorded as F6 in this change's design.md; task 1.2 narrows the angle-bracket case, and whether the bare keywords should also be narrowed is deferred. Durable owner: keel/archive/follow-ups/2026-07-27-unfilled-token-keywords.md
     - Blocker: none
 
-- [ ] 1.2 Treat angle brackets inside inline code spans as concrete prose
+- [x] 1.2 Treat token forms inside inline code spans as concrete prose
   - Covers:
     - D2 angle brackets inside inline code spans are concrete prose
     - keel-task-capsule / Expanded v3 tasks normalize through the same compiler / Documented patterns in inline code are concrete
   - Touch:
     - src/core/task-contract.js
     - scripts/validate_plugin.py
+    - keel/archive/follow-ups/2026-07-27-unfilled-token-keywords.md
   - Verify:
     - Strategy: regression-first
-    - M1: a field whose angle brackets appear only inside inline code spans compiles as concrete, a bare angle-bracket token outside inline code is still judged unfilled, and the existing fingerprint-stability scenarios still pass unchanged; a new validator scenario locks the positive and the negative case together
+    - M1: a field whose token forms appear only inside inline code spans compiles as filled, the same form outside inline code is still judged unfilled, a field whose whole value is one inline code span is not judged empty, and the existing fingerprint-stability scenarios still pass unchanged; a new validator scenario locks all three cases together
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:97266399531b8d8de2cb2fac3e0f4d4bfd558a52cf768ef7005ffee01258cfde
+    - M1: `withoutInlineCode` strips backtick-delimited spans and is applied inside both `isConcrete` and `unfilledToken`, after the empty/none/pending test so a field whose whole value is one span is not read as empty. The exemption covers all four token forms per the widened D2, not only angle brackets. This Evidence line is itself the demonstration: it quotes `<date>`, `TODO`, and `TBD` inside code spans and the gate accepts it, which it refused to do on task 1.1
+    - M1.red: with only the `src/core/task-contract.js` change stashed against post-1.1 HEAD, the new `inline-code-is-concrete` scenario exited 1 with "token forms inside inline code spans were still judged unfilled"
+    - M1.green: the scenario exits 0, asserting all three cases — fenced tokens accepted, the same token bare still reported as `non-concrete-verify`, and a whole-value code span not judged empty. Issue #7's original reproduction (a filename pattern written inside backticks) now returns `status: pass` with **0 problems**, against 10 before task 1.1 and 2 after it. `npm test` reported "validation --all passed: baseline plus 60 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — documented patterns and prose naming the token forms are writable in task fields, while a token left bare is still reported, satisfying the widened D2
+      - Scope check: pass — `src/core/task-contract.js`, `scripts/validate_plugin.py`, and the archive note, all within Touch
+      - Findings: task 1.1's `non-concrete-verify-diagnostic` scenario fixture had written its token inside backticks, so this task correctly made it stop firing; the fixture was moved to a bare token, which is what that scenario must exercise now. E6 verified directly: task 1.1's recorded fingerprint `sha256:2821a573...` recomputes unchanged after this task, so no existing valid task shifts. Durable owner for the residual false-negative, an unfilled slot deliberately written inside backticks: openspec/changes/diagnostics-must-not-mislead/design.md risk A1, accepted with the mitigation that Touch-path checks still reject a path that does not exist
     - Blocker: none
 
 ## 2. Make Covers and authority diagnostics name their cause

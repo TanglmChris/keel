@@ -19,10 +19,18 @@ function normalizeFieldText(value) {
     .trim();
 }
 
+// Inline code spans hold documented patterns — a filename shape, or prose that
+// has to name the token forms themselves. Strip them before looking for an
+// unfilled slot, but only after the emptiness test, so a field whose whole
+// value is one code span is not mistaken for an empty field.
+function withoutInlineCode(text) {
+  return text.replace(/`[^`]*`/g, " ");
+}
+
 function isConcrete(value) {
   const normalized = normalizeFieldText(value);
   if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return false;
-  return !UNFILLED_TOKEN.test(normalized);
+  return !UNFILLED_TOKEN.test(withoutInlineCode(normalized));
 }
 
 // The unfilled token that made a field non-concrete, or null when the field is
@@ -31,7 +39,7 @@ function isConcrete(value) {
 function unfilledToken(value) {
   const normalized = normalizeFieldText(value);
   if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return null;
-  const match = normalized.match(UNFILLED_TOKEN);
+  const match = withoutInlineCode(normalized).match(UNFILLED_TOKEN);
   return match ? match[0] : null;
 }
 

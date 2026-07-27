@@ -3730,10 +3730,13 @@ def validate_non_concrete_verify_diagnostic_scenario() -> int:
     )
     with tempfile.TemporaryDirectory(prefix="keel-non-concrete-verify-") as raw_tmp:
         repo = Path(raw_tmp)
-        # The token sits inside prose, which is exactly the reported case.
+        # A bare token in prose. The reporter's own case wrote it inside an
+        # inline code span, which the inline-code-is-concrete scenario now
+        # covers as legitimately filled; what must still be reported is a token
+        # standing unfenced in the text.
         task = task_capsule_compact_fixture().replace(
             "    - M1: node test.js\n",
-            "    - M1: node test.js writes `ledger/scan-log/<date>.md`\n",
+            "    - M1: node test.js writes ledger/scan-log/<date>.md\n",
         )
         write_text(repo / "openspec/changes/demo/tasks.md", task)
         started = run_keel(
@@ -3819,6 +3822,85 @@ def validate_non_concrete_verify_diagnostic_scenario() -> int:
         )
         return 1
     report("non-concrete-verify-diagnostic scenario passed.")
+    return 0
+
+
+def validate_inline_code_is_concrete_scenario() -> int:
+    """Unfilled-token forms inside inline code spans are documented patterns.
+
+    Regression for issue #7 example 1: the reporter's Verify wrote a filename
+    pattern inside backticks and it was still judged unfilled. The exemption
+    covers every token form, not only angle brackets, because prose naming the
+    keywords is equally common — see
+    keel/archive/follow-ups/2026-07-27-unfilled-token-keywords.md.
+    """
+    fenced_m1 = (
+        "    - M1: node test.js writes `ledger/scan-log/<date>.md`, skips a "
+        "`TODO` marker, and leaves `TBD` rows alone\n"
+    )
+    bare_m1 = "    - M1: node test.js writes ledger/scan-log/<date>.md\n"
+    with tempfile.TemporaryDirectory(prefix="keel-inline-code-") as raw_tmp:
+        repo = Path(raw_tmp)
+        write_text(
+            repo / "openspec/changes/fenced/tasks.md",
+            task_capsule_compact_fixture().replace(
+                "    - M1: node test.js\n", fenced_m1
+            ),
+        )
+        fenced = run_keel(
+            repo, "gate", "task-start", "--change", "fenced", "--task", "1.1", "--json"
+        )
+        if fenced.returncode != 0:
+            report(
+                "inline-code-is-concrete: token forms inside inline code spans "
+                "were still judged unfilled."
+            )
+            report((fenced.stdout or fenced.stderr).strip())
+            return 1
+        # The same token outside inline code must still be caught, otherwise the
+        # exemption has swallowed the check it is narrowing.
+        write_text(
+            repo / "openspec/changes/bare/tasks.md",
+            task_capsule_compact_fixture().replace(
+                "    - M1: node test.js\n", bare_m1
+            ),
+        )
+        bare = run_keel(
+            repo, "gate", "task-start", "--change", "bare", "--task", "1.1", "--json"
+        )
+        bare_codes = {
+            problem.get("code")
+            for problem in json.loads(bare.stdout).get("problems", [])
+        }
+        if "non-concrete-verify" not in bare_codes:
+            report(
+                "inline-code-is-concrete: a bare token outside inline code was "
+                "no longer reported as unfilled."
+            )
+            report(bare.stdout.strip())
+            return 1
+        # Stripping runs after the emptiness test, so a field that is entirely
+        # one code span must not read as empty.
+        write_text(
+            repo / "openspec/changes/whole/tasks.md",
+            task_capsule_compact_fixture()
+            .replace("    - M1: node test.js\n", "    - M1: `node test.js`\n")
+            .replace("    - src/feature.js\n", "    - `src/feature.js`\n"),
+        )
+        whole = run_keel(
+            repo, "gate", "task-start", "--change", "whole", "--task", "1.1", "--json"
+        )
+        if whole.returncode != 0:
+            report(
+                "inline-code-is-concrete: a field whose whole value is one "
+                "inline code span was judged empty."
+            )
+            report((whole.stdout or whole.stderr).strip())
+            return 1
+    if "inline-code-is-concrete" not in {name for name, _ in SCENARIOS}:
+        report("inline-code-is-concrete: the scenario registry does not include it.")
+        return 1
+    report("inline-code-is-concrete scenario passed.")
     return 0
 
 
@@ -10513,6 +10595,7 @@ SCENARIOS: tuple = (
         "non-concrete-verify-diagnostic",
         validate_non_concrete_verify_diagnostic_scenario,
     ),
+    ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

@@ -18,9 +18,10 @@ Keel v4 MUST accept compatible expanded v3 task fields through the same parser a
 - **AND THEN** the task is not reported as missing the expanded v3 fields it never declared
 
 #### Scenario: Documented patterns in inline code are concrete
-- **WHEN** a field's text contains angle brackets only inside inline code spans, such as a filename pattern
-- **THEN** the placeholder test judges the field concrete
-- **AND THEN** a bare angle-bracket token outside inline code is still judged a placeholder
+- **WHEN** a field's text carries unfilled-token forms only inside inline code spans, such as a filename pattern or prose naming the token forms themselves
+- **THEN** the concreteness test judges the field filled
+- **AND THEN** the same token form written outside inline code is still judged unfilled
+- **AND THEN** a field whose entire text is one inline code span is not judged empty by the stripping
 
 ### Requirement: Covers resolves durable authority and Acceptance
 Keel MUST resolve every `Covers` reference to durable authority and derive the task's Acceptance from it. An unresolvable reference MUST fail with a diagnostic that identifies the unresolved reference. When a candidate requirement or scenario name in the target capability itself contains the ` / ` hierarchy separator, the diagnostic MUST say so, because no spelling of the reference can resolve.

@@ -27,13 +27,12 @@ The third instance is the sharpest: **a task cannot record evidence about the co
 
 Task 1.1 of this change makes the failure *legible*: a declared-but-unfilled `Verify` now produces one `non-concrete-verify` diagnostic naming the matched token, instead of silently selecting the expanded v3 field set. That covers the keyword case too — the diagnostic names `placeholder` just as it names `<date>`, and its text says the bare keywords read as unfilled including inside prose.
 
-Task 1.2 narrows only the angle-bracket case, exempting angle brackets inside inline code spans.
+Task 1.2 narrows the rule for **all four token forms**, not only angle brackets: the concreteness test now strips inline code spans before looking for a token, and does so *after* the empty/none/pending test so a field whose whole value is one code span is not misread as empty.
 
-**Deferred:** whether the bare keywords should also be narrowed — for example by exempting them inside inline code spans, or by requiring them to stand alone as a whole field value. Arguments both ways:
+**Resolved.** The question this note originally left open — whether the bare keywords deserved the same exemption as angle brackets — was answered yes, and task 1.2 shipped it that way. The deciding argument was the third instance above: an author is far more likely to write these words *about* unfilled slots than to leave one unfilled inside backticks, and the backtick is a deliberate act. The narrower rule still stands where it matters, because a token left bare in the text is still reported.
 
-- For narrowing: a task legitimately describing placeholder handling, TODO scanning, or TBD conventions cannot write those words in prose. Keel's own change here is the existence proof.
-- Against narrowing: the keywords exist to catch a template the author forgot to fill, and an author writing `TODO` in a `Verify` check is more often unfinished than descriptive. Narrowing trades a false positive for a false negative in a gate whose purpose is refusing unfinished authority.
+Effect on the three instances: all three would now be non-events. Evidence blocks can quote the token forms directly, provided they are fenced — this note does so throughout, and the evidence recorded on tasks 1.1 and 1.2 does too.
 
-The diagnostic from task 1.1 lowers the cost — the author is now told which token to change instead of being handed the wrong schema — but three hits inside one change is not a hypothetical. The recommended narrowing is to exempt all four token forms inside inline code spans, which is what task 1.2 does for the angle-bracket form; extending the same exemption to the three keywords would have made every one of the three instances above a non-event, because each wrote the keyword as prose rather than as an unfilled slot.
+The remaining false-negative surface is a genuinely unfilled slot someone wrote inside backticks, e.g. a `Touch` entry of `` `<path>` ``. Risk A1 in the change design accepts it: the Touch-path checks still reject a path that does not exist, so the slot fails later on a check that names the path rather than the token.
 
-Deliberately not a separate GitHub issue: issue #7 already owns this family, and task 1.2 is the natural place to widen the exemption. If task 1.2 ships angle-brackets-only, attach this note to issue #7 as the argument for the rest.
+Deliberately not a separate GitHub issue: issue #7 already owns this family and task 1.2 closes this part of it.
