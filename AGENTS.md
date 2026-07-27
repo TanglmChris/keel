@@ -79,3 +79,13 @@
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
 - If this repo is missing or partially missing the v5.2.2 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
+
+## Project Conventions
+
+<!-- Deliberately outside the Keel managed block above: `keel --install` rewrites
+     that block from assets/bootstrap/AGENTS.md and would discard anything placed
+     inside it. -->
+
+- Deferred, actionable project follow-ups are owned by **GitHub issues** on this repository. Record the source evidence, the rationale, and the consequence of not doing it in the issue body. This satisfies the durable-owner requirement in `keel-expectation-slice-evidence-gates`, which never required an OpenSpec change as the owner.
+- `keel/HANDOFF.md` stays a pointer-only override and never owns follow-ups, findings, or expectation state. `keel/archive/` holds historical evidence, not active follow-ups.
+- Do not create a standing OpenSpec change as a follow-up store. A change directory carrying a proposal or specs but no task checkboxes is inferred as actionable authoring work in perpetuity (`keel-stateless-continuity / Incomplete authoring remains actionable`), which turns every session start into a false pointer.
