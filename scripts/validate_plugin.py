@@ -1082,6 +1082,17 @@ def validate_skill_portability_policy_scenario() -> int:
     return 0
 
 
+def posix_paths(text: str) -> str:
+    """Fold path separators so an assertion does not encode the host's spelling.
+
+    Keel prints these paths through the host's path joiner, so the same doctor
+    line reads `.claude\\commands\\opsx` on Windows and `.claude/commands/opsx`
+    on a POSIX runner. Assertions state the forward-slash form and normalize the
+    captured output, rather than branching on the platform or accepting both.
+    """
+    return (text or "").replace("\\", "/")
+
+
 def validate_target_surface_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-surface-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -1098,9 +1109,9 @@ def validate_target_surface_scenario() -> int:
             claude_doctor.returncode != 0
             or "Target surface:" not in claude_doctor.stdout
             or "OpenSpec commands: ok" not in claude_doctor.stdout
-            or ".claude\\commands\\opsx" not in claude_doctor.stdout
+            or ".claude/commands/opsx" not in posix_paths(claude_doctor.stdout)
             or "OpenSpec action skills: ok" not in claude_doctor.stdout
-            or ".claude\\skills" not in claude_doctor.stdout
+            or ".claude/skills" not in posix_paths(claude_doctor.stdout)
             or "bootstrap: ok" not in claude_doctor.stdout
             or "CLAUDE import: ok" not in claude_doctor.stdout
             or "native plugin runtime: manual" not in claude_doctor.stdout
@@ -1130,9 +1141,9 @@ def validate_target_surface_scenario() -> int:
         if (
             codex_doctor.returncode != 0
             or "OpenSpec commands: ok" not in codex_doctor.stdout
-            or codex_prompt_dir not in codex_doctor.stdout
+            or posix_paths(codex_prompt_dir) not in posix_paths(codex_doctor.stdout)
             or "OpenSpec action skills: ok" not in codex_doctor.stdout
-            or ".codex\\skills" not in codex_doctor.stdout
+            or ".codex/skills" not in posix_paths(codex_doctor.stdout)
             or "bootstrap: ok" not in codex_doctor.stdout
             or "native plugin runtime: manual" not in codex_doctor.stdout
             or "Target capabilities (codex):" not in codex_doctor.stdout
@@ -1173,9 +1184,9 @@ def validate_target_surface_scenario() -> int:
         if (
             opencode_doctor.returncode != 0
             or "OpenSpec commands: ok" not in opencode_doctor.stdout
-            or ".opencode\\commands" not in opencode_doctor.stdout
+            or ".opencode/commands" not in posix_paths(opencode_doctor.stdout)
             or "OpenSpec action skills: ok" not in opencode_doctor.stdout
-            or ".opencode\\skills" not in opencode_doctor.stdout
+            or ".opencode/skills" not in posix_paths(opencode_doctor.stdout)
             or "bootstrap: ok" not in opencode_doctor.stdout
             or "native plugin: manual" not in opencode_doctor.stdout
             or "Target capabilities (opencode):" not in opencode_doctor.stdout

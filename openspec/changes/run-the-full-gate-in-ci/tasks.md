@@ -32,7 +32,7 @@
       - Findings: the first version of the new scenario tried to substitute the registry inside a child process, which cannot work — `run_all` dispatches each scenario as its own subprocess that re-reads the real registry from disk, so the substitution was ignored and the harness failed for the wrong reason. It was retargeted at the accounting seam instead, replacing `run_scenario_processes` with fixed result triples, which is the behavior this task changes; the process fan-out itself is already covered by the existing `validation-runner` scenario. No product code was affected. Discard reason: resolved while authoring, nothing remains to own
     - Blocker: none
 
-- [ ] 1.2 Make the doctor path assertions independent of the host separator
+- [x] 1.2 Make the doctor path assertions independent of the host separator
   - Covers:
     - D2 platform-dependent path assertions normalize the captured output rather than branching on the host
     - keel-validation-runner / The full gate runs on a clean CI runner / Path assertions do not depend on the host separator
@@ -40,17 +40,17 @@
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: regression-first
-    - M1: the five target-surface assertions that compared doctor output against backslash paths now fold the captured output's separators to forward slashes and assert forward-slash paths, no assertion in the suite compares against a literal backslash path any more, the target-surface scenario still passes on this Windows machine, and the same assertions hold against output captured with forward slashes; the full suite stays green
+    - M1: every target-surface assertion that compared doctor output against a host-spelled path now folds the captured output's separators and states the forward-slash form, and no assertion in the suite compares against a literal backslash path any more. Because the old assertions passed on this Windows machine, the proof is run against POSIX-shaped output instead: the old form fails on it and the new form passes, while both still pass on the Windows-shaped output this machine produces. The target-surface scenario and the full suite stay green here
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:cffd801c145794a27ba89343a0f72d5d28c9358da91cadca127169017b0f9146
+    - M1: a `posix_paths` helper folds separators, with a docstring stating why the assertion normalizes rather than branching on the platform or accepting both spellings. **Six** assertions were rewritten, not the five the issue implies: the five literal `.claude/commands/opsx`, `.claude/skills`, `.codex/skills`, `.opencode/commands`, `.opencode/skills` checks, plus `codex_prompt_dir`, which is built from a `Path` and so carried the host separator on both sides of the comparison. A search for a literal backslash path assertion now returns only the helper's own docstring
+    - M1.red: the old form was applied to POSIX-shaped doctor output — what a Linux runner prints — and failed: `old assertions (literal backslash, no fold): FAIL missing ['.claude\\commands\\opsx', '.codex\\skills', '.opencode\\commands']`. This is the regression CI would have hit, and it is invisible on Windows, where the same old form passes
+    - M1.green: the new form passes against both shapes — `new assertions (forward slash, folded): PASS` on POSIX-shaped output and on Windows-shaped output — while the old form still passes on Windows only, confirming the change is a no-op here and a fix there. Note this makes the Windows run a real proof of the POSIX assertion: after folding, what the assertion compares *is* the forward-slash form, so the spelling CI will see is the spelling this machine already exercises. `node scripts/run_python.js scripts/validate_plugin.py --scenario target-surface` passes, and `npm test` reported "validation --all passed: baseline plus 71 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — no assertion in the suite encodes a host separator any more, the regression is demonstrated against the output shape CI will actually produce, and the Windows run exercises the forward-slash comparison directly, satisfying D2 and the referenced scenario
+      - Scope check: pass — `scripts/validate_plugin.py` only, within Touch, verified against `--base HEAD`. The red/green harness is a throwaway script under the job scratch directory and was not added to the repository
+      - Findings: the task's Verify said "five" assertions; the sixth, `codex_prompt_dir`, was found during implementation and is the more interesting one, since it compares two host-built strings rather than a literal. Verify was corrected and the contract re-recorded before completion rather than letting the evidence contradict the stated bar. Discard reason: corrected in place, nothing remains to own
     - Blocker: none
 
 ## 2. Run it in CI
