@@ -103,7 +103,7 @@
 
 ## 3. Separate Keel's own repository from a consuming project
 
-- [ ] 3.1 Add the Keel-source-repository predicate and scope the dev-only doctor check to it
+- [x] 3.1 Add the Keel-source-repository predicate and scope the dev-only doctor check to it
   - Covers:
     - D3 one exported predicate answers whether this is Keel's own repository
     - D4 a consumer repository omits the native plugin source line
@@ -116,13 +116,15 @@
     - Strategy: regression-first
     - M1: doctor run in a temporary consumer repository prints no native plugin source line and no remediation directing the author to install an already-installed plugin, while doctor run in this repository still prints the line as ok; a new validator scenario asserts both directions
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:f14d9b5f71f24c836239cf002aa41354422fec1c84dc064b6a21b1b9c4c93763
+    - M1: `isKeelSourceRepo` is exported from `src/core/capabilities.js` and requires both signals from D3 — `package.json` name equal to the Keel package, and an existing `plugins/keel/` directory. Three surfaces now consult it: `pluginObservation` omits the source clause outside Keel's repository, doctor omits the `native plugin source` line entirely, and the `Keel behavioral skills` remediation stops saying "install the plugin if it is missing" and instead directs the reader to the runtime's own plugin listing, since Keel cannot observe installation from the repository
+    - M1.red: with `src/core/capabilities.js` and `bin/keel.js` stashed, the new `dev-only-plugin-source-scoping` scenario exited 1 with "a consuming project was still shown the development-only plugin source check"
+    - M1.green: the scenario exits 0, asserting a consumer project built by `keel --init` shows neither the source line, nor the install-if-missing remediation, nor any leaked plugin source clause in its capability lines, while this repository still reports `native plugin source: ok`. Verified by hand in both directions: the consumer capability line now begins with the runtime-evidence clause, and this repository's still carries `plugin source valid ... (version 5.2.2)`. `npm test` reported "validation --all passed: baseline plus 63 scenarios"
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — a consuming project is shown neither a permanently unactionable `missing` nor a remediation it has already performed, while the check keeps working where it means something, satisfying D3 and D4
+      - Scope check: pass — `src/core/capabilities.js`, `bin/keel.js`, and `scripts/validate_plugin.py`, all within Touch
+      - Findings: the existing `thin-native-install` scenario asserted the reported defect as a requirement. Its Case E required a consuming temp repository to report `native plugin source`, and a bare repository to report `plugin source absent` — so the suite was locking issue #6 in rather than catching it. Case E now asserts the opposite for the source line while keeping its runtime-line and install-remediation assertions, with a comment recording why. Durable owner: openspec/changes/diagnostics-must-not-mislead/design.md decision D4
     - Blocker: none
 
 - [ ] 3.2 Skip the AGENTS.md bootstrap write inside Keel's own repository

@@ -35,10 +35,33 @@ function codexHome() {
   return path.resolve(configured || path.join(os.homedir(), ".codex"));
 }
 
+// Keel's own repository ships the plugin source under plugins/keel/. A project
+// that consumes Keel never has it, and `keel --init` never creates it, so any
+// check reading that path is a development-only check. Require both signals so
+// a project that merely vendors a plugins/keel/ directory is not misread as
+// Keel's own source.
+function isKeelSourceRepo(repo) {
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(repo, "package.json"), "utf8")
+    );
+    if (manifest.name !== "@christang/keel") return false;
+  } catch {
+    return false;
+  }
+  return fs.existsSync(path.join(repo, "plugins", "keel"));
+}
+
+const PLUGIN_RUNTIME_OBSERVATION =
+  "installed/enabled/trusted/active/behavior-verified plugin states need "
+  + "native runtime evidence and remain advisory or manual until probed";
+
 function pluginObservation(repo, target) {
   if (target === "opencode") {
     return "OpenCode has no v4 native plugin surface; manual CLI compatibility only";
   }
+  // The plugin source path is meaningful only in Keel's own repository.
+  if (!isKeelSourceRepo(repo)) return PLUGIN_RUNTIME_OBSERVATION;
   const manifestRelative = path.join(
     "plugins",
     "keel",
@@ -58,11 +81,7 @@ function pluginObservation(repo, target) {
       sourceState = `plugin source unreadable at ${manifestRelative}`;
     }
   }
-  return (
-    `${sourceState}; installed/enabled/trusted/active/behavior-verified plugin `
-      + "states need native runtime evidence and remain advisory or manual "
-      + "until probed"
-  );
+  return `${sourceState}; ${PLUGIN_RUNTIME_OBSERVATION}`;
 }
 
 function targetObservation(repo, target) {
@@ -286,6 +305,7 @@ function renderCapabilities(result) {
 
 module.exports = {
   CAPABILITY_COMMANDS,
+  isKeelSourceRepo,
   probeCapabilities,
   renderCapabilities,
 };

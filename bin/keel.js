@@ -15,6 +15,7 @@ const {
   runGate,
 } = require("../src/core/gates");
 const {
+  isKeelSourceRepo,
   probeCapabilities,
   renderCapabilities,
 } = require("../src/core/capabilities");
@@ -1202,7 +1203,12 @@ function printTargetSurface(repo, target) {
         sourceDetail = `plugin source unreadable at ${manifestRelative}`;
       }
     }
-    printDoctorLine("native plugin source", sourceStatus, sourceDetail);
+    // Development-only check: plugins/keel/ exists only in Keel's own source
+    // repository, so in a consuming project it is permanently `missing` and
+    // there is nothing the author can do about it.
+    if (isKeelSourceRepo(repo)) {
+      printDoctorLine("native plugin source", sourceStatus, sourceDetail);
+    }
     printDoctorLine(
       "native plugin runtime",
       "manual",
@@ -1229,7 +1235,12 @@ function printTargetSurface(repo, target) {
   printDoctorLine(
     "Keel behavioral skills",
     "plugin",
-    "keel-* skills are delivered by the installed Keel plugin (see native plugin status above); install the plugin if it is missing"
+    isKeelSourceRepo(repo)
+      ? "keel-* skills are delivered by the installed Keel plugin (see native "
+        + "plugin status above); install the plugin if it is missing"
+      : "keel-* skills are delivered by the installed Keel plugin; verify it "
+        + "with the runtime's own plugin listing, since Keel cannot observe "
+        + "installation from this repository"
   );
 
   const commands = commandSurfaceForTarget(target, repo);

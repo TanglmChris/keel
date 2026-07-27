@@ -4106,6 +4106,62 @@ def validate_unresolved_authority_names_field_scenario() -> int:
     return 0
 
 
+def validate_dev_only_plugin_source_scoping_scenario() -> int:
+    """Issue #6: plugins/keel/ exists only in Keel's own repository.
+
+    In a consuming project the source check is permanently `missing` and the
+    next line told the author to install a plugin they had just installed.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-dev-only-scope-") as raw:
+        consumer = Path(raw)
+        init = run_keel(consumer, "--init", "--target", "claude")
+        if init.returncode != 0:
+            report("dev-only-plugin-source-scoping: keel --init failed.")
+            report((init.stderr or init.stdout).strip())
+            return 1
+        doctor = run_keel(consumer, "--doctor")
+        out = doctor.stdout or ""
+        if "native plugin source" in out:
+            report(
+                "dev-only-plugin-source-scoping: a consuming project was still "
+                "shown the development-only plugin source check."
+            )
+            report(out)
+            return 1
+        if "install the plugin if it is missing" in out:
+            report(
+                "dev-only-plugin-source-scoping: a consuming project was still "
+                "told to install an already-installed plugin."
+            )
+            report(out)
+            return 1
+        if "plugin source" in out:
+            report(
+                "dev-only-plugin-source-scoping: the plugin source clause "
+                "leaked into a consuming project's capability lines."
+            )
+            report(out)
+            return 1
+        # Keel's own repository must keep the check, which is where it means
+        # something: the manifest and the CLI have to agree before release.
+        own = run_keel(ROOT, "--doctor")
+        if "native plugin source" not in (own.stdout or ""):
+            report(
+                "dev-only-plugin-source-scoping: Keel's own repository lost the "
+                "plugin source check."
+            )
+            report((own.stdout or own.stderr).strip())
+            return 1
+    if "dev-only-plugin-source-scoping" not in {name for name, _ in SCENARIOS}:
+        report(
+            "dev-only-plugin-source-scoping: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("dev-only-plugin-source-scoping scenario passed.")
+    return 0
+
+
 def validate_task_capsule_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-task-capsule-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -9503,12 +9559,16 @@ def validate_thin_native_install_scenario() -> int:
             report(uncertain_text.strip())
             return 1
 
-        # --- Case E: doctor reports the missing native plugin with remediation ---
+        # --- Case E: doctor reports the native plugin runtime with remediation ---
+        # These repos consume Keel, so the runtime line and its install
+        # remediation must appear, while the plugin *source* check must not:
+        # plugins/keel/ exists only in Keel's own repository and `keel --init`
+        # never creates it, so reporting it here is a permanent unactionable
+        # `missing`. See the dev-only-plugin-source-scoping scenario.
         doctor = run_keel(repo, "--doctor")
         doctor_text = (doctor.stdout or "") + (doctor.stderr or "")
         if (
-            "native plugin source" not in doctor_text
-            or "native plugin runtime" not in doctor_text
+            "native plugin runtime" not in doctor_text
             or "keel@<marketplace>" not in doctor_text
         ):
             report(
@@ -9517,14 +9577,21 @@ def validate_thin_native_install_scenario() -> int:
             )
             report(doctor_text.strip())
             return 1
+        if "native plugin source" in doctor_text:
+            report(
+                "thin-native-install doctor reported the development-only "
+                "plugin source check in a consuming project."
+            )
+            report(doctor_text.strip())
+            return 1
         missing_repo = tmp / "no-plugin"
         missing_repo.mkdir()
         missing_doctor = run_keel(missing_repo, "--doctor")
         missing_text = (missing_doctor.stdout or "") + (missing_doctor.stderr or "")
-        if "plugin source absent" not in missing_text:
+        if "plugin source" in missing_text:
             report(
-                "thin-native-install doctor does not diagnose an absent native "
-                "plugin source."
+                "thin-native-install doctor diagnosed a plugin source outside "
+                "Keel's own repository."
             )
             report(missing_text.strip())
             return 1
@@ -10802,6 +10869,10 @@ SCENARIOS: tuple = (
     (
         "unresolved-authority-names-field",
         validate_unresolved_authority_names_field_scenario,
+    ),
+    (
+        "dev-only-plugin-source-scoping",
+        validate_dev_only_plugin_source_scoping_scenario,
     ),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
