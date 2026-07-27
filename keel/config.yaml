@@ -1,0 +1,9 @@
+# Keel project configuration.
+#
+# fast_check (optional): your project's fast inner-loop check — a
+# seconds-scale command run at a local pre-push (see
+# `keel --install --with-git-hooks`) and during iteration. The full or slow
+# suite belongs to CI or `keel gate change-close`, not the local pre-push.
+#
+# Example:
+#   fast_check: npm test -- --fast
