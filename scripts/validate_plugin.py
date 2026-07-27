@@ -7720,6 +7720,47 @@ def validate_verification_layering_docs_scenario() -> int:
     return 0
 
 
+def validate_fast_check_config_scaffold_scenario() -> int:
+    with tempfile.TemporaryDirectory(prefix="keel-fastcfg-") as raw_tmp:
+        repo = Path(raw_tmp)
+        first = run_keel(repo, "--install")
+        if first.returncode != 0:
+            report("fast-check-config-scaffold: keel --install failed.")
+            report((first.stderr or first.stdout).strip())
+            return 1
+
+        config_path = repo / "keel" / "config.yaml"
+        if not config_path.is_file():
+            report("fast-check-config-scaffold: install did not scaffold keel/config.yaml.")
+            return 1
+        scaffolded = config_path.read_text(encoding="utf-8")
+        for needle in ("fast_check", "keel gate change-close", "--with-git-hooks"):
+            if needle not in scaffolded:
+                report(
+                    "fast-check-config-scaffold: scaffolded keel/config.yaml lacks the "
+                    f"fast_check guidance marker: {needle}"
+                )
+                return 1
+
+        # A project's own edits to keel/config.yaml must survive re-install.
+        edited = "fast_check: pytest -m 'not slow' -q\n"
+        config_path.write_text(edited, encoding="utf-8")
+        second = run_keel(repo, "--install")
+        if second.returncode != 0:
+            report("fast-check-config-scaffold: second keel --install failed.")
+            report((second.stderr or second.stdout).strip())
+            return 1
+        if config_path.read_text(encoding="utf-8") != edited:
+            report(
+                "fast-check-config-scaffold: re-install overwrote an existing "
+                "keel/config.yaml."
+            )
+            return 1
+
+    report("fast-check-config-scaffold scenario passed.")
+    return 0
+
+
 def validate_native_goal_gate_order_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-goal-order-") as raw_tmp:
         root = Path(raw_tmp)
@@ -10138,6 +10179,7 @@ SCENARIOS: tuple = (
     ("update-pack-install", validate_update_pack_install_scenario),
     ("update-default-registry", validate_update_default_registry_scenario),
     ("verification-layering-docs", validate_verification_layering_docs_scenario),
+    ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),
     ("task-capsule", validate_task_capsule_scenario),
     ("task-verification-strategies", validate_task_verification_strategies_scenario),

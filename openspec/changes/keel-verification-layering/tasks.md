@@ -34,7 +34,7 @@
 
 ## 2. Scaffold the keel/config.yaml fast-check declaration
 
-- [ ] 2.1 Scaffold a commented keel/config.yaml template on install without clobbering an existing one
+- [x] 2.1 Scaffold a commented keel/config.yaml template on install without clobbering an existing one
   - Covers:
     - D2 fast check lives in keel config yaml, flat-key parsed
     - keel-verification-layering / Keel projects declare a fast inner-loop check / Install scaffolds the config template once
@@ -45,15 +45,17 @@
     - Strategy: regression-first
     - M1: keel --install writes a commented keel/config.yaml template describing fast_check when none exists and leaves an existing keel/config.yaml untouched; a new validator scenario locks both behaviors
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:1ecda60b4b4057204a39c27f58450810a9abe1c19beac56d09f31468ebe44107
+    - M1: the fast-check-config-scaffold validator scenario runs keel --install in a temp repo and asserts keel/config.yaml is scaffolded carrying the fast_check guidance, then edits it and re-installs and asserts it stays byte-identical
+    - M1.red: with the install_to_repo.py scaffold change stashed, the scenario failed at exit 1 — install did not scaffold keel/config.yaml
+    - M1.green: after keel_config_action scaffolds the commented template once (keel-config-scaffold strategy skips an existing file), the scenario passed at exit 0 and npm test reported "validation --all passed: baseline plus 55 scenarios"
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
       <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: pass — install scaffolds a commented keel/config.yaml fast_check template once and never overwrites an existing one
+      - Scope check: pass — only scripts/install_to_repo.py and scripts/validate_plugin.py changed, both within Touch
+      - Findings: none
     - Blocker: none
 
 ## 3. Scaffold an opt-in fast local pre-push

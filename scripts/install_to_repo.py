@@ -19,6 +19,18 @@ TEMPLATE_CHECKSUM_PREFIX = "<!-- keel:content-sha256 "
 TEMPLATE_CHECKSUM_SUFFIX = " -->"
 KEEL_ROOT = Path("keel")
 HANDOFF_PATH = KEEL_ROOT / "HANDOFF.md"
+KEEL_CONFIG_PATH = KEEL_ROOT / "config.yaml"
+KEEL_CONFIG_TEMPLATE = (
+    "# Keel project configuration.\n"
+    "#\n"
+    "# fast_check (optional): your project's fast inner-loop check — a\n"
+    "# seconds-scale command run at a local pre-push (see\n"
+    "# `keel --install --with-git-hooks`) and during iteration. The full or slow\n"
+    "# suite belongs to CI or `keel gate change-close`, not the local pre-push.\n"
+    "#\n"
+    "# Example:\n"
+    "#   fast_check: npm test -- --fast\n"
+)
 OPENSPEC_ROOT = Path("openspec")
 OPENSPEC_CONFIG_PATH = OPENSPEC_ROOT / "config.yaml"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
@@ -198,6 +210,14 @@ def openspec_config_action() -> InstallAction:
     )
 
 
+def keel_config_action() -> InstallAction:
+    return InstallAction(
+        relative_path=KEEL_CONFIG_PATH,
+        content=KEEL_CONFIG_TEMPLATE,
+        strategy="keel-config-scaffold",
+    )
+
+
 def openspec_schema_actions() -> list[InstallAction]:
     schema_root = PACKAGE_ROOT / OPENSPEC_ASSET_ROOT / "schemas" / OPENSPEC_SCHEMA_NAME
     if not schema_root.is_dir():
@@ -310,6 +330,7 @@ def collect_actions(repo: Path, target: str) -> list[InstallAction]:
         actions.append(managed_content_action("CLAUDE.md", CLAUDE_IMPORT_BLOCK))
 
     actions.append(openspec_config_action())
+    actions.append(keel_config_action())
     actions.extend(openspec_schema_actions())
     return actions
 
@@ -768,6 +789,9 @@ def plan_action(
     if action.strategy == "openspec-config":
         merged, kind = merge_openspec_config(existing)
         return PlannedAction(kind, action.relative_path, None if kind == "skip" else merged)
+    if action.strategy == "keel-config-scaffold":
+        # Scaffold once: never overwrite a project's own keel/config.yaml.
+        return PlannedAction("skip", action.relative_path)
 
     if existing == source_content:
         return PlannedAction("skip", action.relative_path)
