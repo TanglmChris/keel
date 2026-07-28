@@ -259,14 +259,13 @@ repair from the message without reading validator source.
 #### Scenario: Findings rejection shows the accepted ownership forms
 
 - **WHEN** `task-complete` produces `finding-owner` because a non-`none` Findings value has no durable owner
-- **THEN** the error names the `Findings` field and shows the accepted forms: a `discard reason:`/`discard rationale:` prefix, a `keel/archive/…` path, an existing `openspec/changes/<change>/…` artifact, or an absolute `http`/`https` tracker reference
+- **THEN** the error names the `Findings` field and shows the accepted forms: a `discard reason:`/`discard rationale:` prefix, a `keel/archive/…` path, an existing `openspec/changes/<change>/…` artifact, any other repo-relative path that exists, or an absolute `http`/`https` tracker reference
 - **AND THEN** the error states that `keel/HANDOFF.md` is not an accepted owner
 
 #### Scenario: Expectation Coverage rejection carries a format sample
 
 - **WHEN** `change-close` produces `expectation-coverage` because the section is missing or declares no `E<n>` closure
 - **THEN** the error names the `## Expectation Coverage` section and carries a minimal `- E<n>: … Covered by: <task ids>` format sample
-
 ### Requirement: The tasks template emits a record-compatible Contract anchor
 
 The shipped `keel-spec-driven` tasks template MUST emit the Contract evidence
