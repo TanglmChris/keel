@@ -33,7 +33,7 @@
 
 ## 2. Retired paths stop being referenced
 
-- [ ] 2.1 Remove the dead references and lock the class out
+- [x] 2.1 Remove the dead references and lock the class out
   - Covers:
     - keel-validation-runner / A derived assertion set that collapses to empty fails instead of passing / Retired distribution paths are not referenced
     - F1 dist and src/assets do not exist and are asserted not to exist
@@ -48,14 +48,18 @@
     - M1: a baseline assertion fails when the validator's own source resolves a path under a retired distribution tree, naming the tree and the offending expression; it fails today and passes once the references are gone
     - M2: the deletions cost no live coverage — with `SCHEMA_COPY_PAIRS` pointed at a deliberately divergent pair, `invalidation-authoring-surface` still fails on the divergence the removed projection loop was meant to catch, and `validate_openspec_schema` still reports a missing packaged schema file
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:1650fde0d22c33c0ec1155dfe566207a9dd7ee600f8b7e545d65c8c59a3766a4
+    - M1: pass. `validate_paths` now reads the validator's own source and fails on any line building a `Path` into a retired tree (`RETIRED_PATH_EXPRESSIONS`), reporting file, line number, and the offending expression. It keys on the construction form, not the name, so the retirement list itself and the README/`package.json` string literals that must name `dist/` stay legal — which is the same distinction the covered scenario draws between naming a retired tree and resolving one.
+    - M1.red: before the deletions, baseline validation failed with seven such lines: the two `for base in (ROOT / "src" / "assets", ROOT / "dist")` hygiene loops, the two `shared/backlog` roots, `run_keel_hook`'s `dist/claude/hooks/…/keel-gate.js`, and `compact-task-authoring`'s `source_root` and `dist_root`.
+    - M1.green: baseline passes; a grep for the same expressions returns nothing outside the pattern table.
+    - M2: pass. Both surviving checks bite. Repointing `SCHEMA_COPY_PAIRS` at a deliberately divergent pair fails `invalidation-authoring-surface` with `schema copies diverge: openspec/schemas/keel-spec-driven/schema.yaml vs assets/openspec/schemas/keel-spec-driven/templates/spec.md` — the comparison the removed projection loop was meant to perform. Adding a nonexistent entry to `validate_openspec_schema`'s `required_files` fails baseline with `OpenSpec source schema missing file: assets/openspec/schemas/keel-spec-driven/templates/nonexistent.md`.
+    - M2.red: the two mutations above are the red; unmutated, both checks pass and `npm test` reports baseline plus 76 scenarios.
+    - M2.green: both mutations reverted from a byte copy taken before the first one; suite green.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 asserts on the validator's real baseline output — the run an author actually meets — rather than on a fixture, and its red enumerated every live instance before the fix. M2 addresses the risk this task carries, that deleting checks costs coverage, by mutating each surviving check and observing it fail with the specific diagnostic. D3's repointing is covered by M1 turning green with the hygiene loops still present but rooted at `package.json`'s `files`, so they now scan what really ships.
+      - Scope check: only `scripts/validate_plugin.py` changed, the sole declared Touch path; `git diff --stat` shows +58/-88. `KEEL_HOOK_NAME` became unused when `run_keel_hook` was deleted and was removed as an orphan of this change, not as unrelated cleanup. Both M2 mutations were reverted from a byte copy and the suite re-run green afterwards.
+      - Findings: `validate_openspec_schema` also carried a source-versus-dist comparison whose `dist_root` was assigned `source_root`, so it diffed a directory against itself and could never fail — a second tautological check, removed here under D4 rather than left as a third instance of the same class. Separately, `openspec/specs/keel-expectation-slice-evidence-gates/spec.md` still carries a live requirement pinning the version to `3.0.0` and asking for `dist/` asset markers, which the retired-path sweep surfaced and which is out of this change's Touch. Durable owner: https://github.com/TanglmChris/keel/issues/22
     - Blocker: none
 
 ## Invalidates

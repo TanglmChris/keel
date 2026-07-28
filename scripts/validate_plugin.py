@@ -50,7 +50,6 @@ OPENSPEC_SURFACE_OVERLAY_END = "<!-- keel:openspec-surface-overlay:end -->"
 
 SKILL_TARGETS = {"claude", "codex", "opencode"}
 HOOK_TARGETS = {"claude"}
-KEEL_HOOK_NAME = "keel-gate"
 AGENT_TARGETS: set[str] = set()
 ADAPTER_TARGETS = {"claude", "codex", "opencode"}
 AGENT_PROTOCOL_TARGETS = {"codex", "opencode"}
@@ -415,6 +414,17 @@ def validate_npm_package(errors: list[str]) -> None:
             errors.append(f"bin/keel.js missing required CLI support: {required}")
 
 
+# Path expressions rooted at a tree the retirement check above requires to be
+# absent. `src/core` and `src/skills` are live, so only the retired `src`
+# children are listed.
+RETIRED_PATH_EXPRESSIONS = (
+    r'ROOT\s*/\s*"dist"',
+    r'ROOT\s*/\s*"src"\s*/\s*"assets"',
+    r'ROOT\s*/\s*"src"\s*/\s*"hooks"',
+    r'ROOT\s*/\s*"src"\s*/\s*"adapters"',
+)
+
+
 def validate_paths(errors: list[str]) -> None:
     for directory in REQUIRED_DIRECTORIES:
         if not (ROOT / directory).is_dir():
@@ -446,6 +456,22 @@ def validate_paths(errors: list[str]) -> None:
         if (ROOT / retired).exists():
             errors.append(
                 f"retired custom distribution path must be removed: {retired}"
+            )
+
+    # Asserting the trees are gone is not enough: a check that still resolves a
+    # path into one of them can only ever find nothing, and rglob over a missing
+    # directory yields no error, so the check reports success forever. Naming a
+    # retired tree in a string literal is fine — that is how the checks above
+    # state what must not exist; building a Path into one is not.
+    validator_source = (ROOT / "scripts" / "validate_plugin.py").read_text(
+        encoding="utf-8"
+    )
+    for line_number, line in enumerate(validator_source.splitlines(), start=1):
+        if any(re.search(pattern, line) for pattern in RETIRED_PATH_EXPRESSIONS):
+            errors.append(
+                "validator resolves a path under a retired distribution tree, "
+                "so the check it feeds can only iterate nothing: "
+                f"scripts/validate_plugin.py:{line_number}: {line.strip()}"
             )
 
 
@@ -571,10 +597,20 @@ def validate_templates(errors: list[str]) -> None:
                     f"{template['name']} includes forbidden content: {forbidden}"
                 )
 
+    # What actually ships is whatever package.json declares, so derive the roots
+    # from there rather than naming a tree that can retire out from under the
+    # check the way `src/assets` and `dist` did.
+    packaged_roots = [
+        ROOT / entry
+        for entry in json.loads(
+            (ROOT / "package.json").read_text(encoding="utf-8")
+        ).get("files", [])
+        if (ROOT / entry).is_dir()
+    ]
+
     active_task_placeholders = [
         path.relative_to(ROOT).as_posix()
-        for base in (ROOT / "src" / "assets", ROOT / "dist")
-        if base.exists()
+        for base in packaged_roots
         for path in base.rglob("keel/TASK.md")
     ]
     if active_task_placeholders:
@@ -585,18 +621,9 @@ def validate_templates(errors: list[str]) -> None:
 
     backlog_assets = [
         path.relative_to(ROOT).as_posix()
-        for base in (ROOT / "src" / "assets", ROOT / "dist")
-        if base.exists()
+        for base in packaged_roots
         for path in base.rglob("keel/backlog/*")
     ]
-    backlog_assets.extend(
-        path.relative_to(ROOT).as_posix()
-        for path in (
-            ROOT / "src" / "assets" / "shared" / "backlog",
-            ROOT / "dist" / "shared" / "assets" / "backlog",
-        )
-        if path.exists()
-    )
     if backlog_assets:
         errors.append(
             "package must not include keel backlog assets: "
@@ -606,7 +633,6 @@ def validate_templates(errors: list[str]) -> None:
 
 def validate_openspec_schema(errors: list[str]) -> None:
     source_root = ROOT / "assets" / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
-    dist_root = source_root
     required_files = [
         "schema.yaml",
         "templates/proposal.md",
@@ -615,13 +641,12 @@ def validate_openspec_schema(errors: list[str]) -> None:
         "templates/tasks.md",
     ]
 
-    for root_name, root in (("source", source_root), ("dist", dist_root)):
-        for relative in required_files:
-            if not (root / relative).is_file():
-                errors.append(
-                    f"OpenSpec {root_name} schema missing file: "
-                    f"{root.relative_to(ROOT).as_posix()}/{relative}"
-                )
+    for relative in required_files:
+        if not (source_root / relative).is_file():
+            errors.append(
+                "OpenSpec source schema missing file: "
+                f"{source_root.relative_to(ROOT).as_posix()}/{relative}"
+            )
 
     schema_path = source_root / "schema.yaml"
     tasks_template_path = source_root / "templates" / "tasks.md"
@@ -717,33 +742,11 @@ def validate_openspec_schema(errors: list[str]) -> None:
                     f"{forbidden}"
                 )
 
-    if source_root.is_dir() and dist_root.is_dir():
-        source_files = {
-            path.relative_to(source_root).as_posix(): path.read_text(encoding="utf-8")
-            for path in sorted(source_root.rglob("*"))
-            if path.is_file()
-        }
-        dist_files = {
-            path.relative_to(dist_root).as_posix(): path.read_text(encoding="utf-8")
-            for path in sorted(dist_root.rglob("*"))
-            if path.is_file()
-        }
-        if source_files != dist_files:
-            missing = sorted(set(source_files) - set(dist_files))
-            unexpected = sorted(set(dist_files) - set(source_files))
-            changed = sorted(
-                path
-                for path in set(source_files) & set(dist_files)
-                if source_files[path] != dist_files[path]
-            )
-            errors.append(
-                "OpenSpec dist schema differs from source"
-                + (
-                    f"; missing={missing}, unexpected={unexpected}, changed={changed}"
-                    if missing or unexpected or changed
-                    else ""
-                )
-            )
+    # A source-versus-dist comparison stood here, but `dist_root` was assigned
+    # `source_root`, so it diffed a directory against itself and could not fail.
+    # The pair that really needs comparing — this packaged copy against the
+    # repo-local one OpenSpec resolves — is asserted by
+    # `invalidation-authoring-surface`.
 
 
 def validate_skill_docs(errors: list[str]) -> None:
@@ -2461,22 +2464,6 @@ def validate_update_default_registry_scenario() -> int:
     return 0
 
 
-def run_keel_hook(repo: Path, event: dict) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ)
-    env["KEEL_CLI"] = str(ROOT / "bin/keel.js")
-    return subprocess.run(
-        ["node", str(ROOT / "dist" / "claude" / "hooks" / KEEL_HOOK_NAME / "keel-gate.js")],
-        cwd=repo,
-        env=env,
-        input=json.dumps(event),
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        check=False,
-    )
-
-
 def gate_task(
     *,
     checked: bool,
@@ -3701,9 +3688,10 @@ def validate_invalidation_authoring_surface_scenario() -> int:
     label = "invalidation-authoring-surface"
 
     # The two schema copies are the repo-local one OpenSpec resolves and the
-    # packaged one `keel --init` writes. compact-task-authoring already means to
-    # assert they agree, but its canonical root does not exist in this layout, so
-    # its rglob compares nothing; this states the pair explicitly.
+    # packaged one `keel --init` writes. This is the only check that asserts they
+    # agree: compact-task-authoring used to imply it through a projection loop
+    # rooted at trees that no longer exist, so it compared nothing and has since
+    # been removed.
     for local, packaged in SCHEMA_COPY_PAIRS:
         local_text = (ROOT / local).read_text(encoding="utf-8")
         packaged_text = (ROOT / packaged).read_text(encoding="utf-8")
@@ -7716,13 +7704,7 @@ def validate_expectation_alignment_real_tasks_scenario() -> int:
 
 
 def validate_compact_task_authoring_scenario() -> int:
-    source_root = (
-        ROOT / "src" / "assets" / "shared" / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
-    )
     local_root = ROOT / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
-    dist_root = (
-        ROOT / "dist" / "shared" / "assets" / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
-    )
 
     which = run_openspec(ROOT, "schema", "which", OPENSPEC_SCHEMA_NAME, "--json")
     if which is None or which.returncode != 0:
@@ -7781,21 +7763,9 @@ def validate_compact_task_authoring_scenario() -> int:
             )
             return 1
 
-    for projection_root, label in ((dist_root, "dist"), (local_root, "repo-local")):
-        for source_file in sorted(source_root.rglob("*")):
-            if not source_file.is_file():
-                continue
-            relative = source_file.relative_to(source_root)
-            projected = projection_root / relative
-            if not projected.is_file() or (
-                source_file.read_text(encoding="utf-8")
-                != projected.read_text(encoding="utf-8")
-            ):
-                report(
-                    f"compact-task-authoring {label} projection diverges from "
-                    f"canonical source: {relative.as_posix()}"
-                )
-                return 1
+    # The projection loop that stood here compared against `src/assets` and
+    # `dist`, both retired, so it iterated nothing. `invalidation-authoring-surface`
+    # asserts the two copies that do exist are byte-identical.
 
     with tempfile.TemporaryDirectory(prefix="keel-compact-") as raw_tmp:
         repo = Path(raw_tmp) / "fixture"
