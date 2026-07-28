@@ -222,9 +222,18 @@ function commandLabelProblems(task) {
     seen.add(command[1]);
     labels.push(command[1]);
     if (!isConcrete(command[2])) {
+      // Name the matched slot, the way the Verify diagnostic already does. The
+      // unqualified wording described the consequence, so an author with
+      // several slots in one check had to guess which one was read.
+      const token = unfilledToken(command[2]);
       problems.push({
         code: "missing-command-check",
-        message: `${command[1]} must define a concrete public check.`,
+        message: token
+          ? `${command[1]} carries the unfilled slot \`${token}\`, so it does `
+            + "not define a concrete public check. Replace that slot with the "
+            + "value the check actually runs against, or fence it in inline "
+            + "code when it is a documented pattern rather than a slot."
+          : `${command[1]} must define a concrete public check.`,
       });
     }
   }

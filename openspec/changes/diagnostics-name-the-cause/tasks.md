@@ -24,7 +24,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 A non-concrete check names the unfilled-slot token that made it non-concrete
+- [x] 1.2 A non-concrete check names the unfilled-slot token that made it non-concrete
   - Covers:
     - keel-task-capsule / A non-concrete check names the token that made it non-concrete
   - Touch:
@@ -34,15 +34,15 @@
     - Strategy: vertical-tdd
     - M1: `python scripts/validate_plugin.py` scenario `non-concrete-check-names-token` asserts that a `M2` check carrying a bare unfilled slot outside inline code yields a `missing-command-check` diagnostic whose message contains that slot text, that replacing exactly what the diagnostic names removes the diagnostic, and that a `M2` whose value is `pending` keeps the unqualified wording with no token named.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:a36f477dbe403ad17dc087f3c127361895157b729b2243d4deeb285e8ae7f4b3
+    - M1: `python scripts/validate_plugin.py --scenario non-concrete-check-names-token` passes, and `npm test` reports baseline plus 83 scenarios.
+    - M1.red: before the fix the scenario failed with "the diagnostic did not name the slot it matched", printing the wording issue #28 item 5 quotes verbatim: `M2 must define a concrete public check.`
+    - M1.green: the diagnostic now names the matched slot and tells the author to replace it or fence it in inline code; substituting the named slot with a concrete URL clears it, and a check whose value is `pending` still gets the unqualified wording because there is no slot to name.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: both scenarios of the requirement are asserted — the named-token case and the empty-check case that must keep the unqualified wording. The scenario also applies exactly what the diagnostic asks and asserts it clears, so the message is verified as actionable rather than merely more specific.
+      - Scope check: only `src/core/task-contract.js` and `scripts/validate_plugin.py` changed, both declared in Touch; base `HEAD`.
+      - Findings: none
     - Blocker: none
 
 - [ ] 1.3 A task declaring no verification form reports one problem, and no defaulted field is required

@@ -5049,6 +5049,99 @@ def validate_unresolved_authority_names_field_scenario() -> int:
     return 0
 
 
+def validate_non_concrete_check_names_token_scenario() -> int:
+    """Issue #28 item 5: the check diagnostic must name the slot it matched.
+
+    `unfilledToken` already identifies the matched token and `Verify` already
+    reports it. The per-check message said only that the check "must define a
+    concrete public check", which describes the consequence rather than the
+    cause, so the reporter had to guess which of several inline slots was the
+    problem.
+    """
+    slot = "<" + "url" + ">"
+    with tempfile.TemporaryDirectory(prefix="keel-check-token-") as raw:
+        repo = Path(raw)
+        base = task_capsule_compact_fixture().replace(
+            "    - M1: node test.js\n",
+            "    - M1: node test.js\n"
+            f"    - M2: run the fetch script against {slot} and assert the "
+            "recorded status\n",
+        ).replace("    - M1: pending\n", "    - M1: pending\n    - M2: pending\n")
+        write_text(repo / "openspec/changes/tokened/tasks.md", base)
+
+        def check_messages(change: str) -> list:
+            result = run_keel(
+                repo,
+                "gate",
+                "task-start",
+                "--change",
+                change,
+                "--task",
+                "1.1",
+                "--json",
+            )
+            payload = json.loads(result.stdout)
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == "missing-command-check"
+            ]
+
+        tokened = check_messages("tokened")
+        if not tokened:
+            report(
+                "non-concrete-check-names-token: a check carrying a bare "
+                "unfilled slot produced no missing-command-check diagnostic."
+            )
+            return 1
+        if slot not in tokened[0]:
+            report(
+                "non-concrete-check-names-token: the diagnostic did not name "
+                f"the {slot} slot it matched."
+            )
+            report(tokened[0])
+            return 1
+        # Replacing exactly what the diagnostic names must clear it.
+        fixed = base.replace(slot, "`https://example.test/feed`")
+        write_text(repo / "openspec/changes/fixed/tasks.md", fixed)
+        if check_messages("fixed"):
+            report(
+                "non-concrete-check-names-token: replacing the named slot did "
+                "not clear the diagnostic."
+            )
+            return 1
+        # An empty check has no token to name, so the unqualified wording is
+        # still the honest one there.
+        empty = base.replace(
+            f"    - M2: run the fetch script against {slot} and assert the "
+            "recorded status\n",
+            "    - M2: pending\n",
+        )
+        write_text(repo / "openspec/changes/empty/tasks.md", empty)
+        bare = check_messages("empty")
+        if not bare:
+            report(
+                "non-concrete-check-names-token: a pending check produced no "
+                "missing-command-check diagnostic."
+            )
+            return 1
+        if "must define a concrete public check" not in bare[0]:
+            report(
+                "non-concrete-check-names-token: a pending check lost the "
+                "unqualified wording."
+            )
+            report(bare[0])
+            return 1
+    if "non-concrete-check-names-token" not in {name for name, _ in SCENARIOS}:
+        report(
+            "non-concrete-check-names-token: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("non-concrete-check-names-token scenario passed.")
+    return 0
+
+
 def validate_covers_question_reference_scope_scenario() -> int:
     """Issue #28 item 9: citing a resolved question must not re-open it.
 
@@ -13188,6 +13281,10 @@ SCENARIOS: tuple = (
     (
         "covers-question-reference-scope",
         validate_covers_question_reference_scope_scenario,
+    ),
+    (
+        "non-concrete-check-names-token",
+        validate_non_concrete_check_names_token_scenario,
     ),
     (
         "dev-only-plugin-source-scoping",
