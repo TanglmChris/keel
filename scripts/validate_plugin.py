@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.3.3"
-PROTOCOL_VERSION = "5.3.3"
+PACKAGE_VERSION = "5.3.4"
+PROTOCOL_VERSION = "5.3.4"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 OPENSPEC_CONFIG_PATH = Path("openspec/config.yaml")

@@ -1,5 +1,18 @@
 # Keel Changelog
 
+## 5.3.4 - a check that fails by doing nothing
+
+Closes issue #18. No behavior change for consumers; this restores verification that had silently stopped running and removes the class of check that can stop running unobserved.
+
+- **Six assertions covering the packaged OpenSpec schema had never executed** (closes #18). `packaged_openspec_schema_install_paths()` resolved a root under `dist/` — a tree the validator itself asserts has been removed — and answered `[]`. All six call sites were `for … in <empty>`, so whether `keel --install` writes the schema into a consumer repository, and whether `--uninstall` and `--clear` remove it, had no executing verification at all, while `keel-openspec-surface-overlay` requires that behavior. The helper now resolves `assets/openspec/schemas/keel-spec-driven`, the root `install_to_repo.openspec_schema_actions` reads, and **raises** on a missing root. The installer already raised on exactly that condition; the same fact being fatal there and silent here was the defect, not the wrong path string. (keel-validation-runner)
+- The restored coverage is real and was measured, not assumed: with the old helper, deleting a packaged schema template from an installed fixture left `thin-native-install` passing clean. `cli` and `uninstall` turned out to have adjacent nets that catch the same fault with a vaguer message, so for those two this sharpens the diagnostic rather than adding a catch — recorded as measured rather than claimed as more.
+- **All four restored scenarios passed on first real execution**, so nothing was hiding behind the vacuity. Had one failed it would have been a product defect, which is why the change was authored to stop and reauthorize rather than fix inline.
+- New: `validate_paths` reads the validator's own source and fails on any line building a `Path` into a retired distribution tree, naming file, line, and expression. It keys on the construction form, so the retirement list itself and the README and `package.json` literals that must name `dist/` stay legal. Seven live instances failed it before the sweep.
+- Removed: `run_keel_hook` (zero callers, pointing at a hook the custom distribution took with it); `compact-task-authoring`'s projection loop, whose comparison `invalidation-authoring-surface` now performs against the copies that exist; and `validate_openspec_schema`'s source-versus-dist diff, which assigned `dist_root = source_root` and so compared a directory against itself. Both survivors were mutation-tested to confirm the deletions cost no coverage. The package-hygiene loops were repointed rather than removed, and now scan the roots `package.json` actually ships.
+- The shape worth naming: this is issue #16's rule turned on tests. #16 required an invalidation entry to quote a *searchable symptom phrase* because the text that goes stale is the text you were not thinking about. The same asymmetry governs assertions — the ones that go vacuous are the ones nobody rereads, and a check whose failure mode is silence never asks to be reread. Validator at **76 scenarios**.
+- Filed #22 from the same sweep: `keel-expectation-slice-evidence-gates` still carries a live requirement pinning the version to `3.0.0` and asking for `dist/` asset markers.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.4; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.3.3 - a change declares what it makes stale
 
 Closes issue #16. **Migration: every change in flight gains a required `## Invalidates` section in tasks.md**, and `keel gate task-start` refuses without it. The migration is one line — `- None.` — and the template supplies it for new changes.
