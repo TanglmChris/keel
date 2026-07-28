@@ -3509,6 +3509,11 @@ def task_contract_fixture(
         "  - Stop Rules:\n"
         "    - Stop on failure.\n"
         "  - Evidence:\n"
+        # Emitted unconditionally rather than through `evidence`, which callers
+        # override to control the M-entries. Completion requires a recorded
+        # fingerprint, and `--record` rewrites this line in place, so a caller
+        # that customizes its evidence must not be able to drop the anchor.
+        "    - Contract: pending\n"
         f"{evidence_lines}"
         "    - Review:\n"
         "      - Status: pending\n"
@@ -3545,7 +3550,7 @@ def invalidation_repo(root: Path, name: str, section: str | None) -> Path:
     # A real Contract anchor, so the missing-section case can prove that a
     # failing authoring gate leaves the anchor untouched rather than merely
     # failing earlier for want of one.
-    body = task_contract_fixture(evidence=("Contract: pending", "M1: pending"))
+    body = task_contract_fixture()
     body = body.replace(INVALIDATES_NONE, "" if section is None else section)
     write_text(repo / "openspec/changes/demo/tasks.md", body)
     return repo
@@ -3781,7 +3786,7 @@ def validate_anchor_reverification_bound_scenario() -> int:
         repo = Path(raw_tmp) / "repo"
         repo.mkdir()
         live = repo / "openspec/changes/demo/tasks.md"
-        write_text(live, task_contract_fixture(evidence=("Contract: pending", "M1: pending")))
+        write_text(live, task_contract_fixture())
 
         recorded = run_keel(
             repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
@@ -3993,6 +3998,7 @@ def validate_durable_owner_vocabulary_scenario() -> int:
                 )
             )
             write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
             result = run_keel(
                 repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
             )
@@ -4138,6 +4144,7 @@ def validate_regression_check_tag_scenario() -> int:
 
         def complete(fixture: str) -> dict:
             write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
             result = run_keel(
                 repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
             )
@@ -4654,10 +4661,37 @@ def task_capsule_compact_fixture() -> str:
         "  - Stop Rules:\n"
         "    - Stop on failure.\n"
         "  - Evidence:\n"
+        # Completion requires a recorded fingerprint here, so the anchor line
+        # must exist for `--record` to rewrite in place. See
+        # record_contract_anchor.
+        "    - Contract: pending\n"
         "    - M1: pending\n"
         "  - Stop if:\n"
         "    - Requires files outside Touch.\n"
     )
+
+
+def record_contract_anchor(repo: Path, change: str, task: str = "1.1") -> bool:
+    """Run `task-start --record` so a fixture can reach completion.
+
+    Completion refuses a task whose `Contract` anchor holds no compiled
+    fingerprint (issue #30), so a scenario that only wanted to exercise
+    task-complete still has to start the task first. That is the real loop, not
+    a workaround: a task that was never started is not a task being completed.
+    """
+    result = run_keel(
+        repo,
+        "gate",
+        "task-start",
+        "--change",
+        change,
+        "--task",
+        task,
+        "--record",
+        "--no-guard",
+        "--json",
+    )
+    return result.returncode == 0
 
 
 def validate_non_concrete_verify_diagnostic_scenario() -> int:
@@ -5096,6 +5130,129 @@ def fill_template_slots(text: str, comments: str = "strip") -> str:
         if collapsed == text:
             return text
         text = collapsed
+
+
+def validate_completion_requires_a_recorded_anchor_scenario() -> int:
+    """Issue #30: an unrecorded anchor made the drift guarantee conditional.
+
+    `anchoredFingerprint` returns null for a non-digest value and completion
+    then skipped the comparison entirely, so a task with `Contract: pending`
+    passed with zero problems. It could be implemented against one contract,
+    have its Touch or Verify rewritten mid-flight, and complete clean — purely
+    by never running `task-start --record`. 5.3.7 closed the inference path;
+    this closes the explicitly named one.
+    """
+    header = "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+
+    def task(contract: str) -> str:
+        return (
+            "- [ ] 1.1 Exercise task contract\n"
+            "  - Covers:\n"
+            "    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n"
+            f"    - Contract: {contract}\n"
+            "    - M1: the suite passed\n"
+            "    - Review:\n"
+            "      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-anchor-required-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/unrecorded/tasks.md", header + task("pending"))
+
+        def gate(change: str, stage: str) -> dict:
+            return json.loads(
+                run_keel(
+                    repo,
+                    "gate",
+                    stage,
+                    "--change",
+                    change,
+                    "--task",
+                    "1.1",
+                    "--json",
+                ).stdout
+            )
+
+        payload = gate("unrecorded", "task-complete")
+        if payload.get("status") == "pass":
+            report(
+                "completion-requires-a-recorded-anchor: an explicitly named task "
+                "with `Contract: pending` passed task-complete, so the "
+                "fingerprint comparison still compares nothing."
+            )
+            return 1
+        named = [
+            problem.get("message", "")
+            for problem in payload.get("problems", [])
+            if problem.get("code") == "missing-contract-anchor"
+        ]
+        if not named:
+            report(
+                "completion-requires-a-recorded-anchor: the task did not pass, "
+                "but no missing-contract-anchor diagnostic explained why."
+            )
+            for problem in payload.get("problems", []):
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+        for needle in ("Contract", "--record"):
+            if needle not in named[0]:
+                report(
+                    "completion-requires-a-recorded-anchor: the diagnostic did "
+                    f"not name {needle}."
+                )
+                report(named[0])
+                return 1
+        # Doing what the diagnostic asks must clear it. The fingerprint is the
+        # one this task actually compiles to, so the anchor comparison that
+        # follows is a real comparison rather than a shape check.
+        started = gate("unrecorded", "task-start")
+        fingerprint = started.get("contract", {}).get("fingerprint", {}).get("value")
+        if not fingerprint:
+            report(
+                "completion-requires-a-recorded-anchor: task-start returned no "
+                "fingerprint to record."
+            )
+            return 1
+        if any(
+            problem.get("code") == "missing-contract-anchor"
+            for problem in started.get("problems", [])
+        ):
+            report(
+                "completion-requires-a-recorded-anchor: task-start reported the "
+                "missing anchor, but it runs before one can exist."
+            )
+            return 1
+        write_text(
+            repo / "openspec/changes/recorded/tasks.md",
+            header + task(f"keel-task-capsule/v1 sha256:{fingerprint}"),
+        )
+        recorded = gate("recorded", "task-complete")
+        if recorded.get("status") != "pass":
+            report(
+                "completion-requires-a-recorded-anchor: recording the anchor did "
+                "not clear the refusal."
+            )
+            for problem in recorded.get("problems", []):
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+    if "completion-requires-a-recorded-anchor" not in {name for name, _ in SCENARIOS}:
+        report(
+            "completion-requires-a-recorded-anchor: the scenario registry does "
+            "not include it."
+        )
+        return 1
+    report("completion-requires-a-recorded-anchor scenario passed.")
+    return 0
 
 
 def validate_task_body_ends_at_heading_scenario() -> int:
@@ -6064,6 +6221,7 @@ def tracker_owner_tasks(findings: str, closure: str) -> str:
         "  - Stop Rules:\n"
         "    - Stop on failure.\n"
         "  - Evidence:\n"
+        "    - Contract: pending\n"
         "    - M1: passed\n"
         "    - Review:\n"
         "      - Status: pass\n"
@@ -6098,6 +6256,7 @@ def validate_tracker_durable_owner_scenario() -> int:
 
         def complete(findings: str, closure: str = "Covered by: 1.1"):
             write_text(tasks, tracker_owner_tasks(findings, closure))
+            record_contract_anchor(repo, "demo")
             return run_keel(
                 repo, "gate", "task-complete",
                 "--change", "demo", "--task", "1.1", "--json",
@@ -6519,6 +6678,7 @@ def validate_task_capsule_scenario() -> int:
             repo / "openspec/changes/demo/tasks.md",
             completion_task,
         )
+        record_contract_anchor(repo, "demo")
         completed = run_keel(
             repo,
             "gate",
@@ -7213,6 +7373,10 @@ def validate_core_gates_scenario() -> int:
                 "  - Stop Rules:\n"
                 "    - Stop on final assertion failure.\n"
                 "  - Evidence:\n"
+                # Read at call time, so every variant below carries the anchor
+                # recorded once for this fixture. Evidence is not in the capsule,
+                # so one fingerprint is correct for all of them.
+                f"    - Contract: {completion_anchor}\n"
                 f"    - M1: {evidence}\n"
                 "    - Review:\n"
                 f"      - Status: {review_status}\n"
@@ -7225,6 +7389,19 @@ def validate_core_gates_scenario() -> int:
                 "  - Report:\n"
                 "    - Summary\n"
             )
+
+        completion_anchor = "pending"
+        write_text(completion_tasks, completion_task("pending", "pass"))
+        if not record_contract_anchor(completion_repo, "demo"):
+            report("core-gates scenario could not record the completion anchor.")
+            return 1
+        recorded_line = re.search(
+            r"-\s*Contract:\s*(.+)", completion_tasks.read_text(encoding="utf-8")
+        )
+        if not recorded_line:
+            report("core-gates scenario found no recorded Contract anchor.")
+            return 1
+        completion_anchor = recorded_line.group(1).strip()
 
         write_text(completion_tasks, completion_task("pending", "pass"))
         missing_evidence = run_keel(
@@ -8028,6 +8205,7 @@ def validate_scope_rename_attribution_scenario() -> int:
         "  - Stop Rules:\n"
         "    - Stop on final assertion failure.\n"
         "  - Evidence:\n"
+        "    - Contract: pending\n"
         "    - M1: passed\n"
         "    - Review:\n"
         "      - Status: pass\n"
@@ -8071,6 +8249,7 @@ def validate_scope_rename_attribution_scenario() -> int:
             report("scope-rename scenario git mv failed:")
             report((moved.stderr or moved.stdout).strip())
             return 1
+        record_contract_anchor(repo, "demo")
         completed = run_keel(
             repo,
             "gate",
@@ -9432,6 +9611,7 @@ def validate_task_verification_strategies_scenario() -> int:
 
         def run_completion(fixture: str) -> subprocess.CompletedProcess[str]:
             write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
             return run_keel(
                 repo,
                 "gate",
@@ -10171,6 +10351,7 @@ def _goal_task_block(
             "  - Stop Rules:",
             "    - stop on failure",
             "  - Evidence:",
+            "    - Contract: pending",
         ]
     )
     if filled:
@@ -10874,6 +11055,7 @@ def validate_native_goal_gate_order_scenario() -> int:
 
         # 4. With evidence and a passing Review recorded, task-complete passes.
         write_text(tasks_path, _goal_tasks_file([_goal_task_block(filled=True)]))
+        record_contract_anchor(repo, "sample-change")
         completed = run_keel(
             repo, "gate", "task-complete",
             "--change", "sample-change", "--task", "1.1", "--json",
@@ -11437,6 +11619,7 @@ def validate_single_task_goal_real_tasks_scenario() -> int:
                     [_goal_task_block(strategy=strategy, filled=True, redgreen=redgreen)]
                 ),
             )
+            record_contract_anchor(repo, "sample-change")
             done = run_keel(
                 repo, "gate", "task-complete",
                 "--change", "sample-change", "--task", "1.1", "--json", env=env,
@@ -11732,6 +11915,7 @@ def _single_task_matrix_target(target: str, root: Path) -> int:
             ]
         ),
     )
+    record_contract_anchor(repo, "sample-change")
     done = run_keel(repo, "gate", "task-complete", "--change", "sample-change", "--task", "1.1", "--json", env=env)
     if done.returncode != 0:
         report("native-single-task-matrix %s could not complete with evidence." % target)
@@ -13957,6 +14141,10 @@ SCENARIOS: tuple = (
         validate_task_complete_selection_requires_a_started_task_scenario,
     ),
     ("task-body-ends-at-heading", validate_task_body_ends_at_heading_scenario),
+    (
+        "completion-requires-a-recorded-anchor",
+        validate_completion_requires_a_recorded_anchor_scenario,
+    ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
         "tasks-template-red-green-example",

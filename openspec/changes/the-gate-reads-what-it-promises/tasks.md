@@ -26,7 +26,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 Completion requires a recorded start fingerprint
+- [x] 1.2 Completion requires a recorded start fingerprint
   - Covers:
     - keel-core-gates / Completion requires a recorded start fingerprint
   - Touch:
@@ -36,15 +36,15 @@
     - Strategy: vertical-tdd
     - M1: `python scripts/validate_plugin.py` scenario `completion-requires-a-recorded-anchor` asserts that `node bin/keel.js gate task-complete` with an explicitly named task whose `Contract` anchor reads `pending` does not pass and names both the anchor and `task-start --record`, that the same task passes once the anchor holds a compiled fingerprint, and that `task-start` reports no problem for the unrecorded task.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:e4f6e9cdbec648e4dc7d9b8552935cb4cec9b9e2dd4b9e4a8e0dcce7725a1ded
+    - M1: `python scripts/validate_plugin.py --scenario completion-requires-a-recorded-anchor` passes; `npm test` reports baseline plus 89 scenarios.
+    - M1.red: before the fix the scenario failed with "an explicitly named task with `Contract: pending` passed task-complete, so the fingerprint comparison still compares nothing" — issue #30 as filed.
+    - M1.green: the named task now fails with `missing-contract-anchor`, naming the `Contract` anchor and `--record`. The scenario then does exactly what the diagnostic asks, recording the fingerprint `task-start` actually compiled, and the same task passes — so the anchor comparison that follows is a real comparison rather than a shape check. `task-start` reports no such problem, because it runs before an anchor can exist.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: all three scenarios of the requirement are asserted, and the refusal is verified as actionable by following it to a pass rather than only by matching its text.
+      - Scope check: `src/core/gates.js` and `scripts/validate_plugin.py` changed, both declared in Touch; base `HEAD`.
+      - Findings: the change broke 11 existing scenarios, every one of them a fixture that completed a task without ever starting it — which is the behavior being introduced, not collateral damage. Fixed by giving the shared fixtures a `Contract` anchor line and inserting a `task-start --record` step before completion, so each scenario runs the real loop. Two shaping decisions came out of that: the anchor line is emitted unconditionally by `task_contract_fixture` rather than through its `evidence` parameter, because a caller overriding its M-entries was silently dropping it; and a named task's missing anchor joins the problem list instead of short-circuiting, since an early return would hide every other problem the task has — the same masking defect this session already removed twice. Discard reason: both are recorded in the code they affect, and the loop they enforce is the documented one.
     - Blocker: none
 
 - [ ] 1.3 Promote the deltas, restate the recording step, and archive the change

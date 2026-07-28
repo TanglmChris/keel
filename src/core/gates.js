@@ -110,10 +110,29 @@ function loadSelection(repo, options, requireTask = true) {
 // of the task they just finished. A task that has started records a fingerprint
 // in its Evidence `Contract` anchor, so that anchor is what makes the inference
 // safe — and without one there is nothing for completion to compare against.
+function hasRecordedAnchor(selection, task) {
+  const plan = contractAnchorPlan(selection, task);
+  return Boolean(plan && anchoredFingerprint(plan.previous));
+}
+
+// A task that recorded no anchor has no drift detection at all while presenting
+// as fully gated: completion skipped the comparison rather than reporting that
+// it had nothing to compare. Recording is already the documented step; this is
+// what makes the guarantee unconditional instead of aspirational.
+function missingAnchorProblem(selection, task) {
+  if (hasRecordedAnchor(selection, task)) return null;
+  return problem(
+    "missing-contract-anchor",
+    `${selection.change}#${task.id} records no compiled fingerprint in its `
+      + "Evidence `Contract` anchor, so completion has nothing to compare and "
+      + "the task has no drift detection. Run `keel gate task-start --record` "
+      + "for this task, which rewrites the anchor in place, then complete it."
+  );
+}
+
 function unstartedInferenceProblem(selection) {
   const task = selection.selected[0];
-  const plan = contractAnchorPlan(selection, task);
-  if (plan && anchoredFingerprint(plan.previous)) return null;
+  if (hasRecordedAnchor(selection, task)) return null;
   const checked = [...selection.tasks].filter((item) => item.checked).pop();
   return problem(
     "ambiguous-completion-selection",
@@ -583,6 +602,10 @@ function completionChecks(repo, task, contract = null) {
 function taskComplete(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
+  // Selection ambiguity short-circuits, because the gate does not know which
+  // task the caller meant and evaluating the wrong one is the defect. A named
+  // task is not ambiguous: its missing anchor is one problem among however many
+  // else it has, so it joins the list rather than hiding the rest.
   if (!options.task) {
     const ambiguous = unstartedInferenceProblem(selection);
     if (ambiguous) {
@@ -601,6 +624,8 @@ function taskComplete(repo, options) {
   const usableContract = contract.diagnostics.length === 0 ? contract : null;
   const checks = completionChecks(repo, task, usableContract);
   checks.problems.push(...contract.diagnostics);
+  const missingAnchor = missingAnchorProblem(selection, task);
+  if (missingAnchor) checks.problems.push(missingAnchor);
   const scope = scopeEvidence(
     repo,
     task,
