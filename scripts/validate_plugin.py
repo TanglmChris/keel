@@ -5049,6 +5049,85 @@ def validate_unresolved_authority_names_field_scenario() -> int:
     return 0
 
 
+def validate_covers_question_reference_scope_scenario() -> int:
+    """Issue #28 item 9: citing a resolved question must not re-open it.
+
+    The question scan used to run over the whole Covers field, so a task that
+    named `Q1` beside the fact that closed it was told to declare a fallback for
+    a question it does not carry. The reporter's only available fix was to
+    delete the reference, which makes traceability worse.
+
+    Both sides are asserted. A scenario that only checked the newly passing
+    shape would also be satisfied by deleting the check outright.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-covers-question-") as raw:
+        repo = Path(raw)
+        base = task_capsule_compact_fixture()
+        # Still in scope: the question is the subject of its entry.
+        subject = base.replace(
+            "    - E1: Public behavior passes.\n",
+            "    - Q1: Should the widget retry on timeout?\n",
+        )
+        write_text(repo / "openspec/changes/subject/tasks.md", subject)
+        # Out of scope: the entry's subject is the fact, and the resolved
+        # question is named as the supporting detail that points at it.
+        detail = base.replace(
+            "    - E1: Public behavior passes.\n",
+            "    - F13 (Q1 resolved: the widget retries twice, then stops)\n",
+        )
+        write_text(repo / "openspec/changes/detail/tasks.md", detail)
+
+        def authority_messages(change: str) -> list:
+            result = run_keel(
+                repo,
+                "gate",
+                "task-start",
+                "--change",
+                change,
+                "--task",
+                "1.1",
+                "--json",
+            )
+            payload = json.loads(result.stdout)
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == "unresolved-authority"
+            ]
+
+        blocking = authority_messages("subject")
+        if not blocking:
+            report(
+                "covers-question-reference-scope: a question that opens its "
+                "Covers entry produced no unresolved-authority diagnostic, so "
+                "the check no longer refuses anything."
+            )
+            return 1
+        if "Q1" not in blocking[0]:
+            report(
+                "covers-question-reference-scope: the diagnostic did not name "
+                "the question it read."
+            )
+            report(blocking[0])
+            return 1
+        citing = authority_messages("detail")
+        if citing:
+            report(
+                "covers-question-reference-scope: naming a resolved question as "
+                "supporting detail still demands a fallback for it."
+            )
+            report(citing[0])
+            return 1
+    if "covers-question-reference-scope" not in {name for name, _ in SCENARIOS}:
+        report(
+            "covers-question-reference-scope: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("covers-question-reference-scope scenario passed.")
+    return 0
+
+
 def validate_dev_only_plugin_source_scoping_scenario() -> int:
     """Issue #6: plugins/keel/ exists only in Keel's own repository.
 
@@ -13105,6 +13184,10 @@ SCENARIOS: tuple = (
     (
         "unresolved-authority-names-field",
         validate_unresolved_authority_names_field_scenario,
+    ),
+    (
+        "covers-question-reference-scope",
+        validate_covers_question_reference_scope_scenario,
     ),
     (
         "dev-only-plugin-source-scoping",

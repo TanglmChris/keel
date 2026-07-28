@@ -808,8 +808,18 @@ function compileTaskContract(repo, change, task) {
   if (!autonomy.some((item) => /^Pre-authorized fallback:/i.test(item))) {
     autonomy.push("Pre-authorized fallback: none");
   }
+  // A question is unresolved authority when it is the subject of its Covers
+  // entry. Scanning the whole field also matched a resolved question named as
+  // supporting detail beside the fact that closed it, and the only fix
+  // available to the author was deleting the reference — so the check punished
+  // the traceability it exists to protect.
   const questionIds = [
-    ...new Set(field(task, "Covers").match(/\bQ\d+\b/g) || []),
+    ...new Set(
+      normalizedValues(task, "Covers", { ordered: true })
+        .map((entry) => entry.match(/^(Q\d+)\b/))
+        .filter(Boolean)
+        .map((match) => match[1])
+    ),
   ];
   const fallback = autonomy.find((item) =>
     /^Pre-authorized fallback:/i.test(item)
