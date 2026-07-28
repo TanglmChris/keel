@@ -82,6 +82,36 @@
       - Findings: pending
     - Blocker: none
 
+## 3. <!-- Task Group Name -->
+
+- [ ] 3.1 <!-- Red-green example: a vertical-tdd task and the Evidence it must record -->
+  - Covers:
+    - <source expectation whose observable behavior this slice proves>
+  - Touch:
+    - <path>
+  - Verify:
+    <!-- The untagged check below is load-bearing: a red-green strategy whose
+         every check is tagged (regression) is refused as regression-only,
+         because a regression check has no honest red to record. -->
+    - Strategy: vertical-tdd
+    - M1: <public behavior check for the new behavior>
+    - M2 (regression): <check asserting behavior that is already green stays green>
+  - Evidence:
+    <!-- M1 is red-green, so it records THREE entries: the bare M1 plus M1.red
+         and M1.green. M2 is tagged regression, so it records only its bare
+         entry — it is exempt from .red/.green, not from Evidence. -->
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
 ## Invalidates
 
 <!-- task-start requires this section before any task of this change runs, so

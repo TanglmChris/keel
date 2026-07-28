@@ -24,7 +24,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 The tasks template shows the red-green shape it describes
+- [x] 1.2 The tasks template shows the red-green shape it describes
   - Covers:
     - keel-validation-runner / A shipped tasks template carries a worked example of every strategy shape it documents
   - Touch:
@@ -35,15 +35,15 @@
     - Strategy: vertical-tdd
     - M1: `python scripts/validate_plugin.py` scenario `tasks-template-red-green-example` fills the shipped tasks template's slots mechanically, runs `node bin/keel.js gate task-start` over every task the template defines, and asserts each passes; it asserts the red-green group carries a bare, a `.red`, and a `.green` Evidence entry for its untagged check and only a bare entry for its `regression`-tagged check, and that both shipped copies are byte-identical.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:bfeed95c482d15bf913c8a13f0641c80a82781f64756d225fa99863f4f1323da
+    - M1: `python scripts/validate_plugin.py --scenario tasks-template-red-green-example` passes; `npm test` reports baseline plus 87 scenarios. Confirmed the scenario gates task ids `1.1`, `2.1`, and `3.1` — so the new group is gated, not just the pre-existing ones — and that the filled template leaves no unfilled slot.
+    - M1.red: before the fix the scenario failed with "the template defines no task group with a red-green strategy, so it still only describes one", which is issue #28 items 2 and 3 stated as an assertion.
+    - M1.green: group 3 now shows a `vertical-tdd` strategy, an untagged `M1` carrying bare, `.red`, and `.green` Evidence entries, and an `M2 (regression)` carrying only its bare entry, each annotated with why. All three template groups pass `task-start` once filled.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the example is proven by gating it, which is the property that keeps it from drifting from the rule it illustrates — the structural assertions alone would still pass for an example the gate refuses. The regression exemption is asserted in both directions: the tagged check must exist, and it must not carry the entries it is exempt from.
+      - Scope check: both copies of `templates/tasks.md` and `scripts/validate_plugin.py` changed, all declared in Touch; base `HEAD`.
+      - Findings: the mechanical filler needed two rules beyond the design's "strip comments, replace angle-bracket runs". A task title is itself a comment, so stripping own-line comments but filling inline ones is what keeps the task line parseable; and a slot may quote an identifier shape, whose inner brackets block the outer match unless the substitution runs innermost-first to a fixed point. `Strategy:` is a fixed-vocabulary slot and is named explicitly. Each is a property of the templates worth knowing, and all three are recorded in the helper's comments. Discard reason: the filler now handles every slot both shipped templates contain, verified by asserting none remains.
     - Blocker: none
 
 - [ ] 1.3 Promote the delta, record the release notes, and archive the change

@@ -5059,6 +5059,7 @@ SPEC_TEMPLATE_RELATIVE = "schemas/keel-spec-driven/templates/spec.md"
 
 
 SLOT_FILLER = "the recorded feed status"
+SLOT_VOCABULARY = {"<strategy>": "evidence-first"}
 
 
 def fill_template_slots(text: str, comments: str = "strip") -> str:
@@ -5077,8 +5078,137 @@ def fill_template_slots(text: str, comments: str = "strip") -> str:
     if comments == "replace":
         text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
     else:
-        text = re.sub(r"<!--[\s\S]*?-->", "", text)
-    return re.sub(r"<[^<>\n]+>", SLOT_FILLER, text)
+        # An own-line comment is an instruction to the author, so it goes. A
+        # comment with text before it on the line is that line's slot — a task
+        # title, a group name — and stripping it leaves a task line the parser
+        # cannot read, so it is filled like any other slot.
+        text = re.sub(r"^[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n", "", text, flags=re.M)
+        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
+    # A slot whose value comes from a fixed vocabulary needs a member of it, so
+    # those are named. Everything else takes the generic filler.
+    for slot, value in SLOT_VOCABULARY.items():
+        text = text.replace(slot, value)
+    # Innermost-first to a fixed point: a slot may quote an identifier shape such
+    # as `Q<n>`, and the inner brackets would otherwise block the outer match and
+    # leave the whole slot unfilled.
+    while True:
+        collapsed = re.sub(r"<[^<>\n]*>", SLOT_FILLER, text)
+        if collapsed == text:
+            return text
+        text = collapsed
+
+
+TASKS_TEMPLATE_RELATIVE = "schemas/keel-spec-driven/templates/tasks.md"
+
+
+def validate_tasks_template_red_green_example_scenario() -> int:
+    """Issue #28 items 2 and 3: the red-green shape was described, never shown.
+
+    The template's prose has said since 5.3.4 that the `.red`/`.green` entries
+    come in addition to the bare `M<n>` entry, but it showed only the flat form.
+    The reporter tried annotated labels, was refused, landed on the flat form,
+    and was refused again for the missing bare entry. One worked example closes
+    both attempts — and it is asserted by gating it, so it cannot drift from the
+    rule it illustrates.
+    """
+    shipped = ROOT / "openspec" / TASKS_TEMPLATE_RELATIVE
+    packaged = ROOT / "assets" / "openspec" / TASKS_TEMPLATE_RELATIVE
+    for path in (shipped, packaged):
+        if not path.is_file():
+            report(f"tasks-template-red-green-example: missing template {path}.")
+            return 1
+    if shipped.read_bytes() != packaged.read_bytes():
+        report(
+            "tasks-template-red-green-example: the two shipped copies of the "
+            "tasks template have diverged."
+        )
+        return 1
+
+    source = shipped.read_text(encoding="utf-8")
+    red_green = [
+        block
+        for block in re.split(r"^## ", source, flags=re.MULTILINE)
+        if re.search(r"^\s*-\s*Strategy:\s*(vertical-tdd|regression-first)", block, re.M)
+    ]
+    if not red_green:
+        report(
+            "tasks-template-red-green-example: the template defines no task "
+            "group with a red-green strategy, so it still only describes one."
+        )
+        return 1
+    group = red_green[0]
+    untagged = re.findall(r"^\s*-\s*(M[1-9]\d*):\s*(?!pending)", group, re.M)
+    tagged = re.findall(r"^\s*-\s*(M[1-9]\d*)\s*\([^)]*regression[^)]*\):", group, re.M)
+    if not untagged:
+        report(
+            "tasks-template-red-green-example: the red-green group has no "
+            "untagged check, which task-start refuses as regression-only."
+        )
+        return 1
+    if not tagged:
+        report(
+            "tasks-template-red-green-example: the red-green group shows no "
+            "(regression)-tagged check, so the exemption is still unillustrated."
+        )
+        return 1
+    label = untagged[0]
+    for suffix in ("", ".red", ".green"):
+        if not re.search(rf"^\s*-\s*{label}{re.escape(suffix)}:", group, re.M):
+            report(
+                "tasks-template-red-green-example: the untagged check is missing "
+                f"its `{label}{suffix}` Evidence entry."
+            )
+            return 1
+    for suffix in (".red", ".green"):
+        if re.search(rf"^\s*-\s*{tagged[0]}{re.escape(suffix)}:", group, re.M):
+            report(
+                "tasks-template-red-green-example: the (regression)-tagged check "
+                f"carries a `{suffix}` entry it is exempt from."
+            )
+            return 1
+
+    # Gating the filled template is what keeps the example from drifting from
+    # the rule it illustrates.
+    filled = fill_template_slots(source)
+    with tempfile.TemporaryDirectory(prefix="keel-tasks-template-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/from-template/tasks.md", filled)
+        ids = re.findall(r"^\s*-\s*\[[ xX]\]\s+(\d+(?:\.\d+)+)\s", filled, re.M)
+        if not ids:
+            report(
+                "tasks-template-red-green-example: the filled template defines "
+                "no task the gate can read."
+            )
+            return 1
+        for task_id in ids:
+            result = run_keel(
+                repo,
+                "gate",
+                "task-start",
+                "--change",
+                "from-template",
+                "--task",
+                task_id,
+                "--json",
+            )
+            payload = json.loads(result.stdout)
+            if payload.get("status") != "pass":
+                report(
+                    "tasks-template-red-green-example: task "
+                    f"{task_id} written from the shipped template did not pass "
+                    "task-start."
+                )
+                for problem in payload.get("problems", []):
+                    report(f"  {problem.get('code')}: {problem.get('message')}")
+                return 1
+    if "tasks-template-red-green-example" not in {name for name, _ in SCENARIOS}:
+        report(
+            "tasks-template-red-green-example: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("tasks-template-red-green-example scenario passed.")
+    return 0
 
 
 def validate_spec_template_validates_scenario() -> int:
@@ -13639,6 +13769,10 @@ SCENARIOS: tuple = (
         validate_task_complete_selection_requires_a_started_task_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
+    (
+        "tasks-template-red-green-example",
+        validate_tasks_template_red_green_example_scenario,
+    ),
     (
         "dev-only-plugin-source-scoping",
         validate_dev_only_plugin_source_scoping_scenario,
