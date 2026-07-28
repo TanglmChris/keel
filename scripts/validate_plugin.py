@@ -5051,6 +5051,136 @@ def validate_unresolved_authority_names_field_scenario() -> int:
     return 0
 
 
+def validate_task_complete_selection_requires_a_started_task_scenario() -> int:
+    """Issue #28 item 6: the no-arg default reported another task's problems.
+
+    The documented order is gate-then-checkbox, so first-unchecked is the right
+    inference and stays. The hazard is narrower: inferring a task that never
+    started, then printing its readiness problems under a selection heading the
+    author reads as their own task's failure. A task that has started records a
+    fingerprint in its Evidence `Contract` anchor, so that anchor is what makes
+    the inference safe.
+    """
+    header = "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+
+    def task(number: str, checked: bool, contract: str) -> str:
+        box = "x" if checked else " "
+        return (
+            f"- [{box}] {number} Exercise task contract\n"
+            "  - Covers:\n"
+            "    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js\n"
+            "  - Evidence:\n"
+            f"    - Contract: {contract}\n"
+            "    - M1: the suite passed\n"
+            "    - Review:\n"
+            "      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    digest = "a" * 64
+    anchored = f"keel-task-capsule/v1 sha256:{digest}"
+    with tempfile.TemporaryDirectory(prefix="keel-complete-selection-") as raw:
+        repo = Path(raw)
+
+        def gate(change: str, stage: str) -> dict:
+            result = run_keel(
+                repo, "gate", stage, "--change", change, "--json"
+            )
+            return json.loads(result.stdout)
+
+        # 1.1 is finished; 1.2 has never started, so its anchor is still pending.
+        write_text(
+            repo / "openspec/changes/unstarted/tasks.md",
+            header
+            + task("1.1", True, anchored)
+            + "\n"
+            + task("1.2", False, "pending"),
+        )
+        payload = gate("unstarted", "task-complete")
+        codes = {problem.get("code") for problem in payload.get("problems", [])}
+        if "ambiguous-completion-selection" not in codes:
+            report(
+                "task-complete-selection-requires-a-started-task: no-arg "
+                "task-complete did not refuse on selection for a task that "
+                "records no start fingerprint."
+            )
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+        message = next(
+            problem.get("message", "")
+            for problem in payload.get("problems", [])
+            if problem.get("code") == "ambiguous-completion-selection"
+        )
+        for needle in ("1.2", "1.1", "--task"):
+            if needle not in message:
+                report(
+                    "task-complete-selection-requires-a-started-task: the "
+                    f"refusal did not name {needle}."
+                )
+                report(message)
+                return 1
+        # The same shape, once 1.2 has recorded its start fingerprint.
+        write_text(
+            repo / "openspec/changes/started/tasks.md",
+            header
+            + task("1.1", True, anchored)
+            + "\n"
+            + task("1.2", False, anchored),
+        )
+        started = gate("started", "task-complete")
+        started_codes = {
+            problem.get("code") for problem in started.get("problems", [])
+        }
+        if "ambiguous-completion-selection" in started_codes:
+            report(
+                "task-complete-selection-requires-a-started-task: a task that "
+                "recorded its start fingerprint was still refused on selection."
+            )
+            return 1
+        if started.get("selection", {}).get("tasks") != ["1.2"]:
+            report(
+                "task-complete-selection-requires-a-started-task: the started "
+                "task was not the inferred selection."
+            )
+            report(json.dumps(started.get("selection", {}), indent=2))
+            return 1
+        # task-start keeps the plain first-unchecked default: selecting a task
+        # that has not started is exactly its job.
+        start = gate("unstarted", "task-start")
+        if start.get("selection", {}).get("tasks") != ["1.2"]:
+            report(
+                "task-complete-selection-requires-a-started-task: no-arg "
+                "task-start no longer selects the first unchecked task."
+            )
+            report(json.dumps(start.get("selection", {}), indent=2))
+            return 1
+        start_codes = {problem.get("code") for problem in start.get("problems", [])}
+        if "ambiguous-completion-selection" in start_codes:
+            report(
+                "task-complete-selection-requires-a-started-task: the selection "
+                "refusal leaked into task-start."
+            )
+            return 1
+    if "task-complete-selection-requires-a-started-task" not in {
+        name for name, _ in SCENARIOS
+    }:
+        report(
+            "task-complete-selection-requires-a-started-task: the scenario "
+            "registry does not include it."
+        )
+        return 1
+    report("task-complete-selection-requires-a-started-task scenario passed.")
+    return 0
+
+
 def validate_absent_verification_form_is_one_problem_scenario() -> int:
     """Issue #28 item 4: the cascade reported a schema the author never chose.
 
@@ -13414,6 +13544,10 @@ SCENARIOS: tuple = (
     (
         "absent-verification-form-is-one-problem",
         validate_absent_verification_form_is_one_problem_scenario,
+    ),
+    (
+        "task-complete-selection-requires-a-started-task",
+        validate_task_complete_selection_requires_a_started_task_scenario,
     ),
     (
         "dev-only-plugin-source-scoping",

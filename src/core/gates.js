@@ -103,6 +103,32 @@ function loadSelection(repo, options, requireTask = true) {
   return { change, tasksPath, content, tasks, selected: [selected] };
 }
 
+// The documented order is gate-then-checkbox, so first-unchecked is the right
+// inference for task-start and stays. The hazard is narrower: completing without
+// an explicit task infers a task that has not started, then reports its
+// readiness problems under a selection heading the author reads as the failure
+// of the task they just finished. A task that has started records a fingerprint
+// in its Evidence `Contract` anchor, so that anchor is what makes the inference
+// safe — and without one there is nothing for completion to compare against.
+function unstartedInferenceProblem(selection) {
+  const task = selection.selected[0];
+  const plan = contractAnchorPlan(selection, task);
+  if (plan && anchoredFingerprint(plan.previous)) return null;
+  const checked = [...selection.tasks].filter((item) => item.checked).pop();
+  return problem(
+    "ambiguous-completion-selection",
+    `task-complete inferred ${selection.change}#${task.id}, the first unchecked `
+      + "task, but that task records no start fingerprint in its Evidence "
+      + "`Contract` anchor, so it has not started and there is nothing to "
+      + `compare. ${
+        checked
+          ? `The most recently checked task is ${checked.id}. `
+          : ""
+      }Name the task you mean with \`--task\`, or run \`task-start --record\` `
+      + "first."
+  );
+}
+
 function contractAnchorPlan(selection, task) {
   const lines = selection.content.split("\n");
   const index = selection.tasks.findIndex((item) => item.id === task.id);
@@ -559,6 +585,20 @@ function completionChecks(repo, task, contract = null) {
 function taskComplete(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
+  if (!options.task) {
+    const ambiguous = unstartedInferenceProblem(selection);
+    if (ambiguous) {
+      return gateResult(
+        "task-complete",
+        "fail",
+        selection.change,
+        [task.id],
+        [ambiguous],
+        [],
+        null
+      );
+    }
+  }
   const contract = compileTaskContract(repo, selection.change, task);
   const usableContract = contract.diagnostics.length === 0 ? contract : null;
   const checks = completionChecks(repo, task, usableContract);

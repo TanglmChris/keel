@@ -70,7 +70,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.4 task-complete refuses to infer a task that has never started
+- [x] 1.4 task-complete refuses to infer a task that has never started
   - Covers:
     - keel-core-gates / task-complete infers only a task that has started
   - Touch:
@@ -80,15 +80,15 @@
     - Strategy: vertical-tdd
     - M1: `python scripts/validate_plugin.py` scenario `task-complete-selection-requires-a-started-task` asserts that `node bin/keel.js gate task-complete` with no task named refuses on selection when the first unchecked task records no fingerprint in its Evidence `Contract` anchor, that the message names the inferred task, the most recently checked task, and the explicit selection flag, that the same change passes selection once that anchor records a fingerprint, and that `task-start` with no task named still selects the first unchecked task.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:8dd04f4e3fae85f485f061c6ba7335ece596a98cb0a8b159cb84bc493071916b
+    - M1: `python scripts/validate_plugin.py --scenario task-complete-selection-requires-a-started-task` passes; `npm test` reports baseline plus 85 scenarios.
+    - M1.red: before the fix the scenario reported that no-arg `task-complete` did not refuse on selection, and printed the problem list it got instead: the empty list. The unstarted task did not merely report the wrong problems — it passed clean, which is a sharper defect than issue #28 item 6 describes and is filed separately.
+    - M1.green: no-arg `task-complete` now returns `ambiguous-completion-selection`, naming the inferred task `1.2`, the most recently checked task `1.1`, and both `--task` and `task-start --record` as the ways out. The same fixture with a recorded anchor on `1.2` selects `1.2` and produces no selection problem, and no-arg `task-start` still selects `1.2` with no selection problem, so the refusal did not leak into the stage whose job is to start an unstarted task.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: all three scenarios of the requirement are asserted — the unstarted refusal with every named element checked, the started task evaluating as before, and `task-start` keeping its first-unchecked default. The refusal is verified as actionable in both directions it offers.
+      - Scope check: only `src/core/gates.js` and `scripts/validate_plugin.py` changed, both declared in Touch; base `HEAD`.
+      - Findings: an explicitly named task whose `Contract` anchor is `pending` still passes `task-complete` with nothing compared, so the fingerprint guarantee holds only for tasks that recorded an anchor. Out of scope here, because making an unrecorded anchor a hard failure changes completion for every consumer repo and is a decision of its own. Durable owner: https://github.com/TanglmChris/keel/issues/30
     - Blocker: none
 
 ## 2. The shipped statements agree with the shipped behavior
