@@ -10713,6 +10713,20 @@ def validate_thin_native_install_scenario() -> int:
             )
             return 1
 
+        # The bootstrap is the whole resident protocol a consumer gets, and the
+        # qualifier "for product files" left readers to infer what it excluded.
+        # The inference actually made was that tasks.md belongs in Touch.
+        if not re.search(r"Touch\b[^\n]*\bbound", block, re.IGNORECASE):
+            report("thin-native-install bootstrap does not state what Touch bounds.")
+            return 1
+        if not re.search(r"change'?s own dir|own change dir", block, re.IGNORECASE):
+            report(
+                "thin-native-install bootstrap does not name the record-write "
+                "exemption, so a consumer still infers that tasks.md belongs in "
+                "Touch."
+            )
+            return 1
+
         claude_text = (repo / "CLAUDE.md").read_text(encoding="utf-8")
         if claude_text.count("@AGENTS.md") != 1:
             report(
@@ -11432,7 +11446,7 @@ def validate_resident_topic_matching_scenario() -> int:
     """
     label = "resident-topic-matching"
     source = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
-    original = "Touch is the write boundary for product files;"
+    original = "Touch bounds product writes; the change's own dir is exempt."
     if original not in source:
         report(
             f"{label}: the fixture's anchor sentence is not in the bootstrap; "
@@ -12499,7 +12513,11 @@ def validate_touch_guard_surface_scenario() -> int:
                 report(f"touch-guard-surface: README lacks guard guidance: {needle}.")
                 return 1
         bootstrap = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
-        if "keel guard" not in bootstrap:
+        # The bootstrap must tell a consumer the guard exists and how to opt out;
+        # it no longer spends bytes naming `keel guard clear`, which `keel --help`
+        # and `keel guard status` carry. `--no-guard` is the flag it does name, so
+        # that one stays literal and a rename of it still fails here.
+        if "--no-guard" not in bootstrap or "guards it by default" not in bootstrap:
             report("touch-guard-surface: bootstrap does not mention the guard.")
             return 1
         registered = {name for name, _ in SCENARIOS}
