@@ -5,8 +5,10 @@
 // file edits while an explicit keel/guard.json manifest is active. Absence of
 // the manifest allows everything silently; a present-but-untrusted manifest
 // fails closed. The hook never writes state, never spawns the keel CLI, and
-// always exits 0 — denial is expressed only through hook output. Paths that
-// resolve outside the repository root are not product writes and pass through.
+// always exits 0 — denial is expressed only through hook output. The
+// repository is the guard's scope: a path resolving outside it is not a product
+// write and passes through, decided before the manifest is read so that no
+// manifest state can reach it.
 
 const crypto = require("crypto");
 const fs = require("fs");
@@ -116,11 +118,26 @@ function main() {
   }
   const repo =
     typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
-  const manifestPath = path.join(repo, "keel", "guard.json");
-  if (!fs.existsSync(manifestPath)) return 0;
 
   const pathField = FILE_EDIT_TOOLS.get(event.tool_name);
   if (!pathField) return 0;
+
+  // The repository is the guard's scope, so this boundary is settled before the
+  // manifest is read at all. It needs only the event's cwd and target, so no
+  // manifest state — absent, invalid, drifted, or completed — has anything to
+  // say about a path outside it. Deciding it here rather than further down is
+  // what stops a branch added to the manifest section from denying a file the
+  // guard never protected; that ordering has already failed twice.
+  const target = event.tool_input ? event.tool_input[pathField] : null;
+  if (typeof target !== "string" || !target) return 0;
+  const relative = path.relative(repo, path.resolve(repo, target));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return 0;
+  }
+  const candidate = relative.replace(/\\/g, "/");
+
+  const manifestPath = path.join(repo, "keel", "guard.json");
+  if (!fs.existsSync(manifestPath)) return 0;
 
   let manifest = null;
   try {
@@ -144,14 +161,6 @@ function main() {
   // stop the one thing the completion gate is waiting for. Derived from the
   // manifest's existing `change` field, so no manifest shape changes.
   const recordPrefix = `openspec/changes/${manifest.change}/`;
-
-  const target = event.tool_input ? event.tool_input[pathField] : null;
-  if (typeof target !== "string" || !target) return 0;
-  const relative = path.relative(repo, path.resolve(repo, target));
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    return 0;
-  }
-  const candidate = relative.replace(/\\/g, "/");
   if (candidate.startsWith(recordPrefix)) return 0;
 
   for (const entry of manifest.authority) {

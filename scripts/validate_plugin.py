@@ -5132,6 +5132,164 @@ def fill_template_slots(text: str, comments: str = "strip") -> str:
         text = collapsed
 
 
+def validate_guard_scope_is_the_repository_scenario() -> int:
+    """Issue #31: a decision needing no manifest sat downstream of reading one.
+
+    Whether a target lies outside the repository is computable from the event's
+    cwd and target path alone, but the invalid-manifest denial ran first, so a
+    corrupt `keel/guard.json` denied writes to files the guard never protected.
+    The precedence is what is asserted here, not the passthrough: a scenario
+    checking only that an out-of-repo path passes under a valid manifest would
+    have passed before this change too.
+    """
+    hook = ROOT / "plugins/keel/scripts/pretooluse-guard.js"
+    if not hook.is_file():
+        report(f"guard-scope-is-the-repository: missing hook {hook}.")
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-guard-scope-") as raw:
+        root = Path(raw)
+        repo = root / "repo"
+        outside = root / "scratch"
+        outside.mkdir(parents=True)
+        write_text(repo / "src/feature.js", "// product\n")
+        # A live spec, so the Covers source lands outside the record layer and
+        # authority drift can actually fire. Drifting the change's own tasks.md
+        # produces no drift at all, because the record layer exempts it.
+        live = repo / "openspec/specs/demo-cap/spec.md"
+        write_text(
+            live,
+            "# demo-cap\n\n## Purpose\n\nFixture.\n\n"
+            "### Requirement: The system emits a feed status\n"
+            "The system SHALL emit the recorded feed status.\n\n"
+            "#### Scenario: A status is emitted\n"
+            "- **WHEN** the feed runs\n- **THEN** the status is recorded\n",
+        )
+        write_text(
+            repo / "openspec/changes/demo/tasks.md",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise the guard\n"
+            "  - Covers:\n    - demo-cap / The system emits a feed status\n"
+            "  - Touch:\n    - src/feature.js\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: pending\n"
+            "    - Review:\n      - Status: pending\n"
+            "      - Acceptance check: pending\n      - Scope check: pending\n"
+            "      - Findings: pending\n    - Blocker: none\n",
+        )
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--record", "--json",
+        )
+        if started.returncode != 0:
+            report("guard-scope-is-the-repository: the fixture did not start.")
+            report((started.stdout or started.stderr).strip())
+            return 1
+        manifest_path = repo / "keel/guard.json"
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        hashed = [
+            item["path"] for item in json.loads(manifest_text).get("authority", [])
+        ]
+        if "openspec/specs/demo-cap/spec.md" not in hashed:
+            report(
+                "guard-scope-is-the-repository: the fixture hashed no authority "
+                f"outside the change directory, so drift cannot fire: {hashed}."
+            )
+            return 1
+
+        def decide(target: Path) -> str:
+            event = json.dumps({
+                "cwd": str(repo),
+                "tool_name": "Edit",
+                "tool_input": {"file_path": str(target)},
+            })
+            result = subprocess.run(
+                ["node", str(hook)],
+                input=event,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            out = (result.stdout or "").strip()
+            if not out:
+                return "allow"
+            payload = json.loads(out)["hookSpecificOutput"]
+            return payload.get("permissionDecisionReason", "deny")
+
+        def expect(label: str, target: Path, allow: bool, needle: str = "") -> bool:
+            verdict = decide(target)
+            if allow:
+                if verdict != "allow":
+                    report(f"guard-scope-is-the-repository: {label} was denied.")
+                    report(f"  {verdict}")
+                    return False
+                return True
+            if verdict == "allow":
+                report(f"guard-scope-is-the-repository: {label} was allowed.")
+                return False
+            if needle and needle not in verdict:
+                report(
+                    f"guard-scope-is-the-repository: {label} was denied for the "
+                    f"wrong reason; expected {needle!r}."
+                )
+                report(f"  {verdict}")
+                return False
+            return True
+
+        scratch = outside / "notes.md"
+        # M2 — the in-repository denials must survive the reordering.
+        checks = [
+            expect("an in-Touch write", repo / "src/feature.js", True),
+            expect(
+                "an in-repository path outside Touch",
+                repo / "other.js",
+                False,
+                "outside Touch",
+            ),
+            expect(
+                "the guarded change's own records",
+                repo / "openspec/changes/demo/notes.md",
+                True,
+            ),
+            expect("an out-of-repository write", scratch, True),
+        ]
+
+        # M1, first half — genuine authority drift.
+        write_text(live, live.read_text(encoding="utf-8") + "\nDRIFTED\n")
+        checks.append(
+            expect("an in-Touch write under drift", repo / "src/feature.js", False, "drift")
+        )
+        checks.append(
+            expect("an out-of-repository write under drift", scratch, True)
+        )
+
+        # M1, second half — the corrupt manifest, which is the reported defect.
+        manifest_path.write_text("{ not json", encoding="utf-8")
+        checks.append(
+            expect("an out-of-repository write under a corrupt manifest", scratch, True)
+        )
+        checks.append(
+            expect(
+                "an in-repository write under a corrupt manifest",
+                repo / "src/feature.js",
+                False,
+                "invalid",
+            )
+        )
+        if not all(checks):
+            return 1
+    if "guard-scope-is-the-repository" not in {name for name, _ in SCENARIOS}:
+        report(
+            "guard-scope-is-the-repository: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("guard-scope-is-the-repository scenario passed.")
+    return 0
+
+
 def validate_completion_requires_a_recorded_anchor_scenario() -> int:
     """Issue #30: an unrecorded anchor made the drift guarantee conditional.
 
@@ -14144,6 +14302,10 @@ SCENARIOS: tuple = (
     (
         "completion-requires-a-recorded-anchor",
         validate_completion_requires_a_recorded_anchor_scenario,
+    ),
+    (
+        "guard-scope-is-the-repository",
+        validate_guard_scope_is_the_repository_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
