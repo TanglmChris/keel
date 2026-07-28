@@ -136,7 +136,7 @@ function taskStart(repo, options) {
   const compiled = compileTaskContract(repo, selection.change, task);
   const problems = [
     ...compiled.diagnostics,
-    ...invalidationProblems(selection.content, selection.tasks),
+    ...invalidationProblems(repo, selection.content, selection.tasks),
   ];
   // Recording the current fingerprint is idempotent: --record replaces the
   // selected task's Contract anchor whatever it holds, so reauthorizing a task
@@ -255,19 +255,52 @@ function reviewValue(task, label) {
 // confirmed that an archive path resolves either, so an external tracker
 // reference is no less checkable than what was already accepted; whether the
 // owner is real stays a Review judgment.
-const SHARED_DURABLE_OWNER_FORMS =
-  /(?:\bkeel\/archive\/[A-Za-z0-9._/-]+|\bhttps?:\/\/\S)/i;
+const TRACKER_REFERENCE = /\bhttps?:\/\/\S/i;
+
+// The owner forms, stated once so every refusal that lists them agrees with
+// every other and with what the checks below actually accept.
+const DURABLE_OWNER_FORMS =
+  "an absolute `https://…` tracker reference, or any repo-relative path that "
+  + "exists — `keel/archive/…`, an `openspec/changes/…` artifact, or the "
+  + "repository's own ledger; `keel/HANDOFF.md` is a pointer override rather "
+  + "than an owner";
+
+// Classify a declared `Durable owner:` value. A gate runs without network, so a
+// URL is accepted on shape alone; a path is the one form it can actually check,
+// and checking it is stricter than the prefix whitelist this replaced.
+function durableOwnerVerdict(repo, value) {
+  const owner = String(value || "").trim();
+  if (!owner) return { ok: false, reason: "unrecognized" };
+  if (/keel\/HANDOFF\.md/i.test(owner)) return { ok: false, reason: "handoff" };
+  if (TRACKER_REFERENCE.test(owner)) return { ok: true };
+  const candidate = owner.match(/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+/);
+  if (!candidate) return { ok: false, reason: "unrecognized" };
+  if (fs.existsSync(path.join(repo, candidate[0]))) return { ok: true };
+  return { ok: false, reason: "missing", path: candidate[0] };
+}
 
 function findingOwnerIsDurable(repo, findings) {
   if (/keel\/HANDOFF\.md/i.test(findings)) return false;
   if (/\b(?:explicit\s+)?discard (?:reason|rationale)\s*:/i.test(findings)) {
     return true;
   }
-  if (SHARED_DURABLE_OWNER_FORMS.test(findings)) return true;
-  const owner = findings.match(
+  if (TRACKER_REFERENCE.test(findings)) return true;
+  // A path counts here only when it is named as the owner. Findings is free
+  // prose, and a finding that merely mentions the source file it concerns has
+  // not thereby given that finding an owner.
+  const declared = findings.match(/Durable owner:\s*(\S[^\n]*)/i);
+  if (declared) return durableOwnerVerdict(repo, declared[1]).ok;
+  const artifact = findings.match(
     /\b(openspec\/changes\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:proposal|design|tasks)\.md)(?:#\d+(?:\.\d+)*)?/i
   );
-  return Boolean(owner && fs.existsSync(path.join(repo, owner[1])));
+  if (artifact && fs.existsSync(path.join(repo, artifact[1]))) return true;
+  return /\bkeel\/archive\/[A-Za-z0-9._/-]+/i.test(findings)
+    && fs.existsSync(
+      path.join(
+        repo,
+        findings.match(/\bkeel\/archive\/[A-Za-z0-9._/-]+/i)[0]
+      )
+    );
 }
 
 function gitPaths(repo) {
@@ -514,9 +547,9 @@ function completionChecks(repo, task, contract = null) {
       problem(
         "finding-owner",
         "Review Findings must be `none` or carry a durable owner — a "
-          + "`Discard reason:`/`Discard rationale:` prefix, a `keel/archive/…` "
-          + "path, an existing `openspec/changes/…` artifact, or an absolute "
-          + "`https://…` tracker reference; `keel/HANDOFF.md` is not an owner."
+          + "`Discard reason:`/`Discard rationale:` prefix, or "
+          + `${DURABLE_OWNER_FORMS}. Name a path after \`Durable owner:\` so `
+          + "it reads as the owner rather than a file the finding mentions."
       )
     );
   }
@@ -566,7 +599,7 @@ function taskComplete(repo, options) {
 // the author was not already holding in mind, so a list of remembered files
 // reproduces the failure; a searchable phrase is what turns the declaration
 // into a grep. What the phrase says is the agent's judgment, not the gate's.
-function invalidationProblems(content, tasks) {
+function invalidationProblems(repo, content, tasks) {
   const heading = content.search(/^## Invalidates\s*$/m);
   if (heading < 0) {
     return [
@@ -616,20 +649,38 @@ function invalidationProblems(content, tasks) {
     }
     const updated = body.match(/Updated by:\s*([0-9.,\s-]+)/i);
     const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
-    const hasDurableOwner = Boolean(
-      declaredOwner
-      && (/^openspec\/changes\//i.test(declaredOwner[1].trim())
-        || SHARED_DURABLE_OWNER_FORMS.test(declaredOwner[1]))
-    );
+    const verdict = declaredOwner
+      ? durableOwnerVerdict(repo, declaredOwner[1])
+      : { ok: false, reason: "absent" };
     const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
-    if (!updated && !hasDurableOwner && !discarded) {
-      problems.push(
-        problem(
-          "invalidation-closure",
-          `${id} lacks an updating task, a durable owner, or a discard `
-            + "rationale."
-        )
-      );
+    if (!updated && !verdict.ok && !discarded) {
+      if (verdict.reason === "missing") {
+        problems.push(
+          problem(
+            "invalidation-owner-missing",
+            `${id} names \`${verdict.path}\` as its durable owner, but no such `
+              + "file exists in this repository."
+          )
+        );
+      } else if (verdict.reason === "handoff") {
+        problems.push(
+          problem(
+            "invalidation-closure",
+            `${id} names keel/HANDOFF.md, which is a pointer override rather `
+              + `than a durable owner. Accepted forms: ${DURABLE_OWNER_FORMS}.`
+          )
+        );
+      } else {
+        problems.push(
+          problem(
+            "invalidation-closure",
+            `${id} lacks an updating task, a durable owner, or a discard `
+              + "rationale. Close it with `Updated by: <task ids>` naming tasks "
+              + "of this change, a `Discard reason:`, or a `Durable owner:` "
+              + `naming ${DURABLE_OWNER_FORMS}.`
+          )
+        );
+      }
       continue;
     }
     // Deliberately weaker than Expectation Coverage, which requires a checked
@@ -653,7 +704,7 @@ function invalidationProblems(content, tasks) {
   return problems;
 }
 
-function expectationProblems(content, tasks) {
+function expectationProblems(repo, content, tasks) {
   const heading = content.search(/^## Expectation Coverage\s*$/m);
   if (heading < 0) {
     return [
@@ -691,19 +742,30 @@ function expectationProblems(content, tasks) {
     const [, id, body] = entry;
     const covered = body.match(/Covered by:\s*([0-9.,\s-]+)/i);
     const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
-    const hasDurableOwner = Boolean(
-      declaredOwner
-      && (/^openspec\/changes\//i.test(declaredOwner[1].trim())
-        || SHARED_DURABLE_OWNER_FORMS.test(declaredOwner[1]))
-    );
+    const verdict = declaredOwner
+      ? durableOwnerVerdict(repo, declaredOwner[1])
+      : { ok: false, reason: "absent" };
     const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
-    if (!covered && !hasDurableOwner && !discarded) {
-      problems.push(
-        problem(
-          "expectation-closure",
-          `${id} lacks behavior coverage, durable owner, or discard rationale.`
-        )
-      );
+    if (!covered && !verdict.ok && !discarded) {
+      if (verdict.reason === "missing") {
+        problems.push(
+          problem(
+            "expectation-owner-missing",
+            `${id} names \`${verdict.path}\` as its durable owner, but no such `
+              + "file exists in this repository."
+          )
+        );
+      } else {
+        problems.push(
+          problem(
+            "expectation-closure",
+            `${id} lacks behavior coverage, durable owner, or discard `
+              + "rationale. Close it with `Covered by: <task ids>`, a "
+              + "`Discard reason:`, or a `Durable owner:` naming "
+              + `${DURABLE_OWNER_FORMS}.`
+          )
+        );
+      }
       continue;
     }
     if (covered) {
@@ -785,7 +847,7 @@ function changeClose(repo, options) {
       )
     );
   }
-  problems.push(...expectationProblems(selection.content, selection.tasks));
+  problems.push(...expectationProblems(repo, selection.content, selection.tasks));
 
   const changePath = path.dirname(selection.tasksPath);
   if (!hasDeltaSpec(changePath)) {

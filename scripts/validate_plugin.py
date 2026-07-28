@@ -3628,6 +3628,160 @@ SCHEMA_COPY_PAIRS = (
 )
 
 
+def validate_durable_owner_vocabulary_scenario() -> int:
+    label = "durable-owner-vocabulary"
+
+    # The accepted owner forms are shape checks: a gate cannot resolve a URL or
+    # confirm an archive path is the right one. A repo-relative path is the one
+    # form it can actually check, so refusing it drew the line in the least
+    # defensible place.
+    with tempfile.TemporaryDirectory(prefix="keel-owner-vocab-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/FOLLOWUP.md", "# Follow-ups\n")
+        write_text(repo / "keel/HANDOFF.md", "pointer\n")
+        write_text(repo / "keel/archive/notes/2026-07-28-example.md", "note\n")
+
+        def invalidation_start(closure: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture().replace(
+                    "## Invalidates\n\n- None.\n\n",
+                    '## Invalidates\n\n- I1: "the wording that is now wrong" '
+                    f"— somewhere in the repo. {closure}\n\n",
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return json.loads(result.stdout)
+
+        def completion(findings: str) -> dict:
+            fixture = (
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: behavior proven through the public CLI.\n",
+                )
+                .replace(
+                    "      - Scope check: pending\n",
+                    "      - Scope check: writes stayed inside Touch.\n",
+                )
+                .replace(
+                    "      - Findings: pending\n", f"      - Findings: {findings}\n"
+                )
+            )
+            write_text(tasks_path, fixture)
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return json.loads(result.stdout)
+
+        def close(closure: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: proven.\n",
+                )
+                .replace("      - Scope check: pending\n", "      - Scope check: inside Touch.\n")
+                .replace("      - Findings: pending\n", "      - Findings: none\n")
+                + f"\n## Expectation Coverage\n\n- E1: the expectation. {closure}\n",
+            )
+            write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+            write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+            write_text(
+                repo / "openspec/changes/demo/specs/demo/spec.md",
+                "## ADDED Requirements\n",
+            )
+            result = run_keel(
+                repo, "gate", "change-close", "--change", "demo", "--action", "sync", "--json"
+            )
+            return json.loads(result.stdout)
+
+        # M1 — an existing repo path closes an entry in all three shared places.
+        ledger = "Durable owner: openspec/FOLLOWUP.md"
+        payload = invalidation_start(ledger)
+        if payload.get("status") != "pass":
+            report(f"{label} refused a repo ledger as an invalidation owner.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        payload = completion(f"the IDE shell contract gap. {ledger}")
+        if payload.get("status") != "pass":
+            report(f"{label} refused a repo ledger as a Findings owner.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        payload = close(ledger)
+        if any(
+            item.get("code") == "expectation-closure"
+            for item in payload.get("problems", [])
+        ):
+            report(f"{label} refused a repo ledger as an Expectation Coverage owner.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # And a path with no file behind it is refused, distinguishably.
+        payload = invalidation_start("Durable owner: openspec/NOT-THERE.md")
+        codes = {item.get("code") for item in payload.get("problems", [])}
+        messages = " ".join(
+            item.get("message", "") for item in payload.get("problems", [])
+        )
+        if (
+            payload.get("status") != "fail"
+            or "invalidation-owner-missing" not in codes
+            or "openspec/NOT-THERE.md" not in messages
+        ):
+            report(f"{label} accepted a durable owner with no file behind it.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # M2 — the pointer override is still not an owner, although it exists.
+        payload = invalidation_start("Durable owner: keel/HANDOFF.md")
+        messages = " ".join(
+            item.get("message", "") for item in payload.get("problems", [])
+        )
+        if payload.get("status") != "fail" or "HANDOFF" not in messages:
+            report(f"{label} accepted keel/HANDOFF.md as a durable owner.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # A refusal names the forms it accepts, including the new one.
+        payload = invalidation_start("no closure at all")
+        messages = " ".join(
+            item.get("message", "") for item in payload.get("problems", [])
+        )
+        for expected in ("Durable owner:", "repo-relative path that exists", "Discard reason:"):
+            if expected not in messages:
+                report(f"{label} refusal does not name the accepted form: {expected}")
+                report(messages)
+                return 1
+
+        # M3 — every previously accepted form still closes.
+        for closure in (
+            "Durable owner: openspec/changes/demo/proposal.md",
+            "Durable owner: keel/archive/notes/2026-07-28-example.md",
+            "Durable owner: https://github.com/TanglmChris/keel/issues/20",
+            "Discard reason: it stands as written.",
+        ):
+            write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+            payload = invalidation_start(closure)
+            if payload.get("status") != "pass":
+                report(f"{label} dropped a previously accepted form: {closure}")
+                report(json.dumps(payload.get("problems", []), indent=2))
+                return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def regression_tag_fixture(
     commands: tuple[str, ...],
     evidence: tuple[str, ...],
@@ -4814,6 +4968,9 @@ def validate_tracker_durable_owner_scenario() -> int:
             report((handoff.stderr or handoff.stdout).strip())
             return 1
 
+        # The archive path must now exist to own anything: a note nobody wrote
+        # owns nothing, and a path is the one owner form a gate can check.
+        write_text(repo / "keel/archive/follow-ups/x.md", "follow-up note\n")
         archived = complete("stale local note; owner keel/archive/follow-ups/x.md")
         if archived.returncode != 0:
             report(
@@ -12638,6 +12795,7 @@ SCENARIOS: tuple = (
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
     ("regression-check-tag", validate_regression_check_tag_scenario),
+    ("durable-owner-vocabulary", validate_durable_owner_vocabulary_scenario),
     (
         "packaged-schema-derivation",
         validate_packaged_schema_derivation_scenario,

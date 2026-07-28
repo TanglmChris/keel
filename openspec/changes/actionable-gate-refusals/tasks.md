@@ -39,7 +39,7 @@
 
 ## 2. An owner can be a file the repo keeps
 
-- [ ] 2.1 Widen the durable-owner vocabulary and make every refusal name its forms
+- [x] 2.1 Widen the durable-owner vocabulary and make every refusal name its forms
   - Covers:
     - keel-expectation-slice-evidence-gates / A durable owner may be any file the repository keeps, and a refusal names what it accepts / A repo ledger is a legitimate owner
     - keel-expectation-slice-evidence-gates / A durable owner may be any file the repository keeps, and a refusal names what it accepts / An owner that does not exist is refused
@@ -59,15 +59,19 @@
     - M2: `keel/HANDOFF.md` is still refused although the file exists, and the refusal says it is a pointer override rather than a durable owner
     - M3 (regression): the previously accepted forms still close — `openspec/changes/…`, `keel/archive/…`, `https://…`, and a discard rationale — so the widening adds vocabulary without dropping any
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:89615f954a06f14768a6c6d2f80148e5b4f51d15b46bd31d8bcfa9612a5b1582
+    - M1: pass. New scenario `durable-owner-vocabulary`. `Durable owner: openspec/FOLLOWUP.md` — the exact entry issue #20 reported — now closes an `## Invalidates` entry at task-start, a Review `Findings` at task-complete, and an `## Expectation Coverage` entry at change-close, from one fixture repository that really contains that file. `openspec/NOT-THERE.md` is refused with the new code `invalidation-owner-missing`, naming the path, distinct from the closure-missing code. The refusal for an entry with no closure at all now lists `Updated by:`, `Discard reason:`, and `Durable owner:` with the repo-path form spelled out.
+    - M1.red: the same fixture failed with `invalidation-closure: I1 lacks an updating task, a durable owner, or a discard rationale.` — issue #20's complaint reproduced exactly: the entry plainly names an owner and the gate says it has none, while saying nothing about what it would take.
+    - M1.green: `durableOwnerVerdict` accepts a URL on shape and a path on existence, `repo` is threaded into both closure checks, and each refusal carries the shared `DURABLE_OWNER_FORMS` text so the three messages cannot drift apart.
+    - M2: pass. `keel/HANDOFF.md` exists in the fixture and is still refused, with a message saying it is a pointer override rather than a durable owner.
+    - M2.red: with the handoff guard removed from `durableOwnerVerdict`, task-start returned `problems: []` for an entry owned by `keel/HANDOFF.md` — the pointer accepted as an owner, which existence alone would have allowed.
+    - M2.green: guard restored; the entry is refused and the message explains why the file existing is not enough.
+    - M3: pass. All four previously accepted closures still pass: `openspec/changes/…`, `keel/archive/…`, `https://…`, and a discard rationale. The archive and changes forms now require the file to exist, which is the stricter half of D1 rather than a dropped form.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: each check drives the real CLI against a temporary repository whose contents decide the outcome, so "the file exists" is asserted by creating it rather than by mocking a lookup. The five covered scenarios map directly: the ledger case and the missing-path case to M1, the pointer override to M2, the refusal wording to M1's last assertion, and `keel-core-gates`'s Findings-rejection scenario to the updated `finding-owner` message. M3 is tagged `(regression)` — the first real use of the tag task 1.1 shipped — because it asserts that forms already accepted stay accepted and has no honest red.
+      - Scope check: two files changed, both declared in Touch. The M2 mutation was reverted from a byte copy of `src/core/gates.js`; `grep MUTATION` returns nothing and `npm test` passes with baseline plus 78 scenarios. One deliberate refinement inside D1: in Review `Findings`, which is free prose, a path counts as an owner only when it follows `Durable owner:`, because a finding that merely mentions the file it concerns has not thereby been given an owner. This matches the spec scenario as written ("closes with a `Durable owner:`") and does not change Touch or Acceptance. It was then demonstrated on this very task: the first Findings draft named `keel/archive/follow-ups/x.md` in prose and `task-complete` refused it, exactly as intended, until the finding was closed explicitly.
+      - Findings: the pre-existing `tracker-durable-owner` scenario failed when the existence requirement landed, because its fixture named `keel/archive/follow-ups/x.md` without creating it. Repaired by creating the file, which is the behavior change design.md recorded as accepted: a note nobody wrote owns nothing. Recorded rather than passed over silently, since it is the one place this change makes a previously passing input fail. Discard reason: resolved inside this task's own Touch, so no work is left for anyone to own.
     - Blocker: none
 
 ## 3. The authoring surface says both
