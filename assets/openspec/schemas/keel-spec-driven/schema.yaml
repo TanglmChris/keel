@@ -75,7 +75,10 @@ artifacts:
       Every executable task MUST be a checkbox authored in the compact v4 form
       from the template: Covers, Touch, Verify (Strategy plus ordered M<n>
       public checks), and an Evidence anchor with its Contract line, per-check
-      results, semantic Review, and Blocker state. Omitted fields inherit
+      results, semantic Review, and Blocker state. `task-start --record` writes
+      the compiled fingerprint into that Contract line, and task-complete
+      refuses a task that recorded none: without an anchor there is nothing for
+      completion to compare against, so the task has no drift detection. Omitted fields inherit
       versioned keel-task-capsule/v1 defaults: Owner is the current Keel
       agent, Mode is implementation, Read is the change artifacts plus
       discovered repository context, Acceptance derives from the resolved

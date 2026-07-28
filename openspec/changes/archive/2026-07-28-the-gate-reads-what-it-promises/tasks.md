@@ -47,7 +47,7 @@
       - Findings: the change broke 11 existing scenarios, every one of them a fixture that completed a task without ever starting it — which is the behavior being introduced, not collateral damage. Fixed by giving the shared fixtures a `Contract` anchor line and inserting a `task-start --record` step before completion, so each scenario runs the real loop. Two shaping decisions came out of that: the anchor line is emitted unconditionally by `task_contract_fixture` rather than through its `evidence` parameter, because a caller overriding its M-entries was silently dropping it; and a named task's missing anchor joins the problem list instead of short-circuiting, since an early return would hide every other problem the task has — the same masking defect this session already removed twice. Discard reason: both are recorded in the code they affect, and the loop they enforce is the documented one.
     - Blocker: none
 
-- [ ] 1.3 Promote the deltas, restate the recording step, and archive the change
+- [x] 1.3 Promote the deltas, restate the recording step, and archive the change
   - Covers:
     - keel-core-gates / Completion requires a recorded start fingerprint
     - keel-task-capsule / A task body ends at the next task or the next heading
@@ -64,14 +64,14 @@
     - M1: after the deltas are promoted into `openspec/specs`, `npx openspec validate the-gate-reads-what-it-promises` reports no error, `python scripts/validate_plugin.py` reports pass at the raised scenario count, and both copies of `schema.yaml` plus both protocol documents state that completion requires a recorded anchor. The bootstrap block stays within its byte budget.
     - M2: `node bin/keel.js gate change-close . --change the-gate-reads-what-it-promises --action archive --json` returns pass, after which this task is authorized to archive the change with `--skip-specs`.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:b49973a28e6ab7987811a3e4ba1dc77b6e60fcad45d213d370aca9e223bdb530
+    - M1: `npx openspec validate the-gate-reads-what-it-promises` reports "Change 'the-gate-reads-what-it-promises' is valid" with both deltas promoted; `npm test` reports baseline plus 89 scenarios; `diff` confirms the two `schema.yaml` copies stay byte-identical and both now say `task-complete` refuses a task that recorded no anchor; `AGENTS.md` and the bootstrap line say the same. The bootstrap block measures 1013 bytes against a ceiling of 1023 — the check fails at 1024 or more, so an exactly-1024 wording I first drafted would have broken it.
+    - M2: `node bin/keel.js gate change-close . --change the-gate-reads-what-it-promises --action archive --json` returns pass once this task is checked, and the change is then archived with `--skip-specs` under the authorization this task carries.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: every statement the change made stale is corrected where it lives. The recording step is now stated as a precondition in the two documents an author actually reads — the protocol file and the 1 KB bootstrap block — rather than only in the spec, because the upgrade note is worthless to someone who never opens the spec.
+      - Scope check: both promoted specs, both `schema.yaml` copies, `AGENTS.md`, `assets/bootstrap/AGENTS.md`, and `keel/CHANGELOG.md` changed, all declared in Touch; base `HEAD`.
+      - Findings: the two superseded changelog claims were annotated with a forward pointer rather than rewritten. A changelog entry is a record of what was true at that release, so falsifying it would cost more than the stale reading it prevents; the pointer fixes the stale reading without editing history. Discard reason: the claims are now dated and self-correcting, and the current behavior is stated in this release's own entry.
     - Blocker: none
 
 ## Invalidates
