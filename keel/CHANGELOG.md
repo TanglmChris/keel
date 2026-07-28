@@ -1,8 +1,12 @@
 # Keel Changelog
 
-## Unreleased - diagnostics name the cause
+## 5.3.7 - the diagnostic and the template both name what to do
 
-Closes four of the ten findings in issue #28. All four are gate diagnostics that knew what was wrong and reported something else. Three of the changes **widen** what is accepted; the fourth adds one refusal, described below.
+Closes the six actionable findings of issue #28, an authoring-DX report measured at roughly eight extra gate round-trips on one real change — every one of them an authoring-format problem, not a design problem. Item 8 is upstream OpenSpec CLI; items 1 and 10's second half already shipped; item 10's first half is unverified and stays open. Two dogfooded Full-mode changes, archived as `2026-07-28-diagnostics-name-the-cause` and `2026-07-28-templates-pass-their-own-gates`.
+
+### Diagnostics name the cause (closes #28 items 4, 5, 6, 9)
+
+All four are gate diagnostics that knew what was wrong and reported something else. Three of the changes **widen** what is accepted; the fourth adds one refusal, described below.
 
 - **Citing a resolved question no longer re-opens it** (closes #28 item 9). The question scan ran over the whole `Covers` field, so a task whose entry read `F13 (Q1 resolved: …)` was told to declare a pre-authorized fallback for a question it does not carry. The only fix available to the reporter was deleting the strings `Q1`/`Q2` from their traceability text — the check punished the authoring it exists to protect. A `Q<n>` is now read only where it opens a `Covers` entry. (keel-task-capsule)
 - **A non-concrete `M<n>` check names the slot it matched** (closes #28 item 5). `unfilledToken` already identifies the matched slot and the `Verify` diagnostic already reports it; the per-check message said only that the check "must define a concrete public check", which is the consequence rather than the cause. An author with several slots in one check had to guess which one was read. An empty or `pending` check keeps the unqualified wording, because there is no slot to name. (keel-task-capsule)
@@ -11,8 +15,6 @@ Closes four of the ten findings in issue #28. All four are gate diagnostics that
 - **Filed #30 from that task's red.** The unstarted task did not report the wrong problems — it passed clean, zero problems, with `Contract: pending`. `anchoredFingerprint` returns null for a non-digest anchor, so completion compares nothing and says nothing; the fingerprint guarantee reads as unconditional but holds only for tasks that recorded an anchor. This change closes the inference path only. An explicitly named unrecorded task still passes, and making that a hard failure changes completion for every consumer repo, so it is its own decision.
 - **A narrowed refusal is now asserted from both sides** (keel-validation-runner). Each of the three widenings ships a scenario that also asserts the shape which must still be refused, because a scenario checking only the newly-passing shape would be satisfied by deleting the check outright — which is the defect family issue #18 opened.
 - **#29 bit three times while authoring this change, and the third time was a hard contradiction.** `invalidation-phrase` requires the searchable wording in double quotes; the concreteness test rejects an angle-bracket slot outside inline code; and `## Invalidates` is absorbed into the last task's `Evidence`. So an entry quoting wording that contains `<n>` cannot satisfy both checks at once, and the resulting failure names a task whose Evidence is fine. Worked around by quoting a slot-free excerpt.
-- Validator at **85 scenarios**.
-
 ### Following the template no longer guarantees a refusal (closes #28 items 2, 3, 7)
 
 Both remaining findings are the same shape: an author who copies the shipped template exactly produces something the gate then refuses. Neither gate changes; the templates were disagreeing with rules that were already correct.
@@ -21,7 +23,13 @@ Both remaining findings are the same shape: an author who copies the shipped tem
 - **The tasks template shows the red-green shape it describes** (closes #28 items 2 and 3). The prose has said since 5.3.4 that `.red`/`.green` come *in addition to* the bare `M<n>` entry, but the only example was the flat form — so the reporter tried annotated labels, was refused, landed on the flat form, and was refused again for the missing bare entry. A third template group now shows a `vertical-tdd` strategy, an untagged check carrying all three Evidence entries, and a `(regression)`-tagged check carrying only its bare entry, each annotated with why. The untagged check is annotated as load-bearing, since a red-green group whose every check is tagged refuses itself.
 - **Both are asserted by running the template, not by reading it** (keel-validation-runner). The scenarios fill each template's author-facing slots and hand the result to the tool that consumes it — the real `openspec validate`, and `task-start` over all three template groups. A prose assertion would be satisfied by a template that mentions the rule only in a comment, which is exactly the state that produced the reported failures; and a structural assertion alone would still pass for an example the gate refuses. The templates can no longer drift from the gates without the suite noticing, which is the durable property — the two findings are only today's instances.
 - The mechanical slot filler needed three rules the templates taught it: a task title is itself a comment, so own-line comments are stripped while inline ones are filled; a slot may quote an identifier shape like `Q<n>`, whose inner brackets block the outer match unless substitution runs innermost-first to a fixed point; and `Strategy:` is a fixed-vocabulary slot, so it is named explicitly.
+
+### Upgrade notes
+
+- Every currently passing `tasks.md` keeps passing. The three widenings only remove refusals, and the shipped templates gained text without changing any field they already emitted.
+- The one behavior to know about: `keel gate task-complete` **without** `--task` now refuses when the first unchecked task has recorded no fingerprint in its Evidence `Contract` anchor. A repo that checks the box before gating, or that never passes `task-start --record`, needs `--task` — which the refusal names. `task-start` is unchanged.
 - Validator at **87 scenarios**.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.7; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.3.6 - the dry run accounts for what the real run writes
 
