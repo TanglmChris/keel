@@ -5055,6 +5055,91 @@ def validate_unresolved_authority_names_field_scenario() -> int:
     return 0
 
 
+SPEC_TEMPLATE_RELATIVE = "schemas/keel-spec-driven/templates/spec.md"
+
+
+SLOT_FILLER = "the recorded feed status"
+
+
+def fill_template_slots(text: str, comments: str = "strip") -> str:
+    """Fill a shipped template's author-facing slots the way an author would.
+
+    Deliberately mechanical, so a slot added to the template later is handled
+    without touching the scenario: what is asserted is the template's structure
+    rather than a hand-maintained copy of it.
+
+    The two templates use HTML comments for different jobs, so the caller says
+    which. In the spec template a comment *is* the slot — the requirement name
+    and body are both comments — so it is replaced. In the tasks template
+    comments are instructions to the author sitting on their own lines, and the
+    slots are angle-bracket runs, so the comments are stripped.
+    """
+    if comments == "replace":
+        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
+    else:
+        text = re.sub(r"<!--[\s\S]*?-->", "", text)
+    return re.sub(r"<[^<>\n]+>", SLOT_FILLER, text)
+
+
+def validate_spec_template_validates_scenario() -> int:
+    """Issue #28 item 7: following the spec template guaranteed a first failure.
+
+    The template's requirement body is a comment with no modal verb, and
+    `openspec validate` requires SHALL or MUST, so the reporter's 16 requirements
+    produced 16 errors. Asserted by running the filled template through the
+    validator rather than by matching the template's prose, because a template
+    that only mentions the requirement in a comment would satisfy the latter.
+    """
+    shipped = ROOT / "openspec" / SPEC_TEMPLATE_RELATIVE
+    packaged = ROOT / "assets" / "openspec" / SPEC_TEMPLATE_RELATIVE
+    for path in (shipped, packaged):
+        if not path.is_file():
+            report(f"spec-template-validates: missing shipped template {path}.")
+            return 1
+    if shipped.read_bytes() != packaged.read_bytes():
+        report(
+            "spec-template-validates: the two shipped copies of the spec "
+            "template have diverged."
+        )
+        return 1
+    if run_openspec(ROOT, "--version") is None:
+        report("spec-template-validates skipped: the openspec CLI is not on PATH.")
+        return 0
+
+    filled = fill_template_slots(
+        shipped.read_text(encoding="utf-8"), comments="replace"
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-spec-template-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/project.md", "# Project\n\nA fixture.\n")
+        change = repo / "openspec/changes/from-template"
+        write_text(
+            change / "proposal.md",
+            "# from-template\n\n## Why\n\nExercise the shipped spec template.\n"
+            "\n## What Changes\n\n- One requirement written from the template.\n",
+        )
+        write_text(change / "specs/demo-capability/spec.md", filled)
+        result = run_openspec(repo, "validate", "from-template")
+        if result is None:
+            report(
+                "spec-template-validates skipped: the openspec CLI vanished "
+                "mid-scenario."
+            )
+            return 0
+        if result.returncode != 0:
+            report(
+                "spec-template-validates: a requirement written from the "
+                "shipped template did not validate."
+            )
+            report((result.stdout or result.stderr).strip())
+            return 1
+    if "spec-template-validates" not in {name for name, _ in SCENARIOS}:
+        report("spec-template-validates: the scenario registry does not include it.")
+        return 1
+    report("spec-template-validates scenario passed.")
+    return 0
+
+
 def validate_task_complete_selection_requires_a_started_task_scenario() -> int:
     """Issue #28 item 6: the no-arg default reported another task's problems.
 
@@ -13553,6 +13638,7 @@ SCENARIOS: tuple = (
         "task-complete-selection-requires-a-started-task",
         validate_task_complete_selection_requires_a_started_task_scenario,
     ),
+    ("spec-template-validates", validate_spec_template_validates_scenario),
     (
         "dev-only-plugin-source-scoping",
         validate_dev_only_plugin_source_scoping_scenario,
