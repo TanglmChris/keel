@@ -30,7 +30,7 @@
 
 ## 2. Version alignment stops naming a version and starts being checked
 
-- [ ] 2.1 One derived check over every shipped marker, and a bump that reaches every target
+- [x] 2.1 One derived check over every shipped marker, and a bump that reaches every target
   - Covers:
     - keel-expectation-slice-evidence-gates / Shipped version markers agree with the package version / Every shipped marker matches the package version
     - keel-expectation-slice-evidence-gates / Shipped version markers agree with the package version / The release bump reaches every target
@@ -48,15 +48,19 @@
     - M2: running the release bump refreshes the overlay markers of every initialized target in one step, so the marker set is uniform immediately afterwards with no manual `keel --install` call
     - M3 (regression): the bump's existing pins still move together and `npm test` stays green at the bumped version, so adding targets did not break the eight pins it already maintained
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:a4653053dc80ab54978cf899345ce19dd5804e32eea42c46b7b1efdc9d0566cc
+    - M1: pass. Baseline validation walks every shipped `.md`/`.json`, extracts each `keel:… version=` marker, and fails naming the file when one disagrees with `PACKAGE_VERSION`. Twelve markers carry a version; the list is discovered, not declared, so a new marker-bearing surface is covered without editing the check (A2). Archive trees are excluded, because a historical marker is a record.
+    - M1.red: rolling one `.codex/` marker back to `5.3.3` — the exact state issue #23 recorded twice — failed baseline with `shipped version marker disagrees with the package version 5.3.4: .codex/skills/openspec-apply-change/SKILL.md says 5.3.3`. Before this check the same state was silent, which is why it survived four releases.
+    - M1.green: marker restored; baseline passes with all twelve at `5.3.4`.
+    - M2: pass. `node scripts/bump_version.js 5.3.5` moved all twelve markers in one step, `.codex/` included, and printed each one. Rolled back to `5.3.4` the same way and confirmed twelve markers at the old version again, so the sweep is symmetric rather than one-directional.
+    - M2.red: before the sweep, the same bump left the three `.codex/` markers at the old version while `.claude/` moved — reproducing #23 on demand rather than waiting a release for it.
+    - M2.green: the sweep is derived from the markers present, so no target list exists to fall behind.
+    - M3: pass. The eight pins the bump already maintained still move together — `package.json`, `package-lock.json`, both plugin manifests, both validator constants, `AGENTS.md`, `assets/bootstrap/AGENTS.md` — verified by bumping to `5.3.5` and back with `git diff` clean of version noise afterwards. `npm test` passes with baseline plus 79 scenarios at the restored version.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 and M2 exercise the real scripts against the real repository rather than a fixture, which is the only place the defect lives — the marker set *is* the repository's shipped surface. The three covered scenarios map directly: the failing rollback to "Every shipped marker matches the package version", the twelve-in-one-step bump to "The release bump reaches every target", and the discovered-not-declared marker list to "The marker list is derived, not fixed".
+      - Scope check: two files changed, both declared in Touch. The 5.3.5 bump used to exercise M2 was fully reverted, including the changelog stub it prepended; `git status` shows only the two Touch files plus this tasks.md.
+      - Findings: two, both discovered by exercising the bump and both repaired inside Touch. **First, my own account of #23's cause was wrong.** `bump_version.js` never touched `.claude/` — the validator scenario `source-repo-bootstrap-skip` runs a real `keel --install --target claude` against the repository root, and that install silently refreshed the Claude overlays and `CLAUDE.md`. So the drift was not "the bump carries one target along"; it was "a test installs one target and nothing installs the other". The issue and the earlier changelog wording both need correcting, and the deeper problem — a validator scenario mutating the working tree — is now the only thing keeping the marker check honest by accident. **Second, `prependChangelogEntry` compared against an LF header while the working copy is CRLF**, so it aborted *after* every marker had been written, leaving the repository half-bumped; normalized before comparison. Discard reason: both were repaired within this task's Touch, and the residual — the scenario's tree mutation — is carried as its own entry below rather than left implicit. Durable owner: https://github.com/TanglmChris/keel/issues/26
     - Blocker: none
 
 ## 3. The fingerprint guarantee states its bound

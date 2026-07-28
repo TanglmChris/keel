@@ -74,8 +74,45 @@ function replaceInFile(relPath, replacements) {
   process.stdout.write(`  updated ${relPath}\n`);
 }
 
+// Every Keel marker carrying `version=` is a shipped claim about which version
+// this is, and they must all move together. Sweeping for the markers that exist
+// is what keeps a target from falling behind: the `.codex/` overlays sat four
+// versions back because only the surfaces something happened to touch got
+// refreshed, and nothing failed while they drifted.
+const MARKER_SKIP_PREFIXES = [
+  "node_modules",
+  ".git",
+  path.join("openspec", "changes", "archive"),
+  path.join("keel", "archive"),
+];
+
+function sweepVersionMarkers(dir, oldVersion, newVersion, touched) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    const relative = path.relative(ROOT, full);
+    if (MARKER_SKIP_PREFIXES.some((prefix) => relative.startsWith(prefix))) continue;
+    if (entry.isDirectory()) {
+      sweepVersionMarkers(full, oldVersion, newVersion, touched);
+      continue;
+    }
+    if (!/\.(md|json)$/.test(entry.name)) continue;
+    const content = fs.readFileSync(full, "utf8");
+    const updated = content.replace(
+      new RegExp(`(keel:[a-z-]+(?::end)?\\s+version=)${oldVersion.replace(/\./g, "\\.")}\\b`, "g"),
+      `$1${newVersion}`
+    );
+    if (updated !== content) {
+      fs.writeFileSync(full, updated);
+      touched.push(relative.split(path.sep).join("/"));
+    }
+  }
+}
+
 function prependChangelogEntry(newVersion) {
-  let content = fs.readFileSync(CHANGELOG_PATH, "utf8");
+  // Read line endings as the file has them: a CRLF checkout made the header
+  // comparison below fail after every version marker had already been written,
+  // leaving the repository half-bumped.
+  let content = fs.readFileSync(CHANGELOG_PATH, "utf8").replace(/\r\n/g, "\n");
   if (content.includes(`## ${newVersion} `) || content.includes(`## ${newVersion}\n`)) {
     process.stdout.write(`  keel/CHANGELOG.md already has a ${newVersion} entry\n`);
     return;
@@ -118,13 +155,14 @@ function main() {
     [`PACKAGE_VERSION = "${oldVersion}"`, `PACKAGE_VERSION = "${newVersion}"`],
     [`PROTOCOL_VERSION = "${oldVersion}"`, `PROTOCOL_VERSION = "${newVersion}"`],
   ]);
-  replaceInFile("AGENTS.md", [
-    [`v${oldVersion}`, `v${newVersion}`],
-    [`version=${oldVersion}`, `version=${newVersion}`],
-  ]);
-  replaceInFile("assets/bootstrap/AGENTS.md", [
-    [`version=${oldVersion}`, `version=${newVersion}`],
-  ]);
+  replaceInFile("AGENTS.md", [[`v${oldVersion}`, `v${newVersion}`]]);
+
+  const touched = [];
+  sweepVersionMarkers(ROOT, oldVersion, newVersion, touched);
+  for (const relative of touched) {
+    process.stdout.write(`  updated marker ${relative}\n`);
+  }
+
   prependChangelogEntry(newVersion);
 
   process.stdout.write(

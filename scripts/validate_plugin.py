@@ -458,6 +458,27 @@ def validate_paths(errors: list[str]) -> None:
                 f"retired custom distribution path must be removed: {retired}"
             )
 
+    # Every Keel marker that carries a version is a shipped claim about which
+    # version this is. Derive the set from the markers that exist rather than a
+    # fixed list, because a fixed list is the next thing to fall behind — which
+    # is exactly how the `.codex/` overlays sat four versions back unnoticed.
+    for marker_file in sorted(ROOT.rglob("*")):
+        if not marker_file.is_file() or not marker_file.suffix in (".md", ".json"):
+            continue
+        relative = marker_file.relative_to(ROOT).as_posix()
+        if relative.startswith(("node_modules/", "openspec/changes/archive/", "keel/archive/")):
+            continue
+        try:
+            text = marker_file.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for found in re.findall(r"keel:[a-z-]+(?::end)?\s+version=([0-9][^\s>]*)", text):
+            if found != PACKAGE_VERSION:
+                errors.append(
+                    "shipped version marker disagrees with the package version "
+                    f"{PACKAGE_VERSION}: {relative} says {found}"
+                )
+
     # Asserting the trees are gone is not enough: a check that still resolves a
     # path into one of them can only ever find nothing, and rglob over a missing
     # directory yields no error, so the check reports success forever. Naming a
