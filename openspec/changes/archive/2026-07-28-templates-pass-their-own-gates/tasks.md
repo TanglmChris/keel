@@ -46,7 +46,7 @@
       - Findings: the mechanical filler needed two rules beyond the design's "strip comments, replace angle-bracket runs". A task title is itself a comment, so stripping own-line comments but filling inline ones is what keeps the task line parseable; and a slot may quote an identifier shape, whose inner brackets block the outer match unless the substitution runs innermost-first to a fixed point. `Strategy:` is a fixed-vocabulary slot and is named explicitly. Each is a property of the templates worth knowing, and all three are recorded in the helper's comments. Discard reason: the filler now handles every slot both shipped templates contain, verified by asserting none remains.
     - Blocker: none
 
-- [ ] 1.3 Promote the delta, record the release notes, and archive the change
+- [x] 1.3 Promote the delta, record the release notes, and archive the change
   - Covers:
     - keel-validation-runner / A shipped template is validated by the tool that consumes it
   - Touch:
@@ -57,14 +57,14 @@
     - M1: after the delta is promoted into `openspec/specs`, `npx openspec validate templates-pass-their-own-gates` reports no error and `python scripts/validate_plugin.py` reports pass at the raised scenario count.
     - M2: `node bin/keel.js gate change-close . --change templates-pass-their-own-gates --action archive --json` returns pass, after which this task is authorized to archive the change with `--skip-specs`.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:145dfc9794c18ff4015cb789425e383fba90bc90b5929f2beefba96ee2114d02
+    - M1: with the two requirements promoted into `openspec/specs/keel-validation-runner/spec.md`, `npx openspec validate templates-pass-their-own-gates` reports "Change 'templates-pass-their-own-gates' is valid" and `npm test` reports baseline plus 87 scenarios.
+    - M2: `node bin/keel.js gate change-close . --change templates-pass-their-own-gates --action archive --json` returns pass once this task is checked, and the change is then archived with `--skip-specs` under the authorization this task carries.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the promoted requirements state the durable property both tasks proved — that a shipped template is asserted through the tool consuming it, and that a tasks template shows every Evidence shape its prose requires. The release notes record both findings and the three filler rules the templates taught, so the next author meets them as documentation rather than as a red.
+      - Scope check: `openspec/specs/keel-validation-runner/spec.md` and `keel/CHANGELOG.md` changed, both declared in Touch; base `HEAD`.
+      - Findings: task 1.2's first completion attempt was committed while its gate was failing, because the shell chain checking the result matched the failure line and returned success. The gate was right: an ad-hoc verification script had imported the suite as a module and left a 645 KB `scripts/__pycache__/*.pyc` outside Touch, which the commit then included. Corrected by unwinding the commit, removing the artifact, re-gating to a genuine pass, and re-committing; the recorded Evidence is from the passing run. The repository has no `.gitignore` entry for `__pycache__`, which is worth adding but is unrelated to this change. Durable owner: https://github.com/TanglmChris/keel/issues/28
     - Blocker: none
 
 ## Invalidates

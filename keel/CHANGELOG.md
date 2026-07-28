@@ -13,6 +13,16 @@ Closes four of the ten findings in issue #28. All four are gate diagnostics that
 - **#29 bit three times while authoring this change, and the third time was a hard contradiction.** `invalidation-phrase` requires the searchable wording in double quotes; the concreteness test rejects an angle-bracket slot outside inline code; and `## Invalidates` is absorbed into the last task's `Evidence`. So an entry quoting wording that contains `<n>` cannot satisfy both checks at once, and the resulting failure names a task whose Evidence is fine. Worked around by quoting a slot-free excerpt.
 - Validator at **85 scenarios**.
 
+### Following the template no longer guarantees a refusal (closes #28 items 2, 3, 7)
+
+Both remaining findings are the same shape: an author who copies the shipped template exactly produces something the gate then refuses. Neither gate changes; the templates were disagreeing with rules that were already correct.
+
+- **A requirement written from the spec template validates on first run** (closes #28 item 7). The template's requirement body was the comment `<!-- requirement text -->` with no modal verb, and `openspec validate` requires `SHALL` or `MUST`, so the reporter's 16 requirements produced 16 errors. The body now carries the literal line `The system SHALL` before its behavior slot.
+- **The tasks template shows the red-green shape it describes** (closes #28 items 2 and 3). The prose has said since 5.3.4 that `.red`/`.green` come *in addition to* the bare `M<n>` entry, but the only example was the flat form — so the reporter tried annotated labels, was refused, landed on the flat form, and was refused again for the missing bare entry. A third template group now shows a `vertical-tdd` strategy, an untagged check carrying all three Evidence entries, and a `(regression)`-tagged check carrying only its bare entry, each annotated with why. The untagged check is annotated as load-bearing, since a red-green group whose every check is tagged refuses itself.
+- **Both are asserted by running the template, not by reading it** (keel-validation-runner). The scenarios fill each template's author-facing slots and hand the result to the tool that consumes it — the real `openspec validate`, and `task-start` over all three template groups. A prose assertion would be satisfied by a template that mentions the rule only in a comment, which is exactly the state that produced the reported failures; and a structural assertion alone would still pass for an example the gate refuses. The templates can no longer drift from the gates without the suite noticing, which is the durable property — the two findings are only today's instances.
+- The mechanical slot filler needed three rules the templates taught it: a task title is itself a comment, so own-line comments are stripped while inline ones are filled; a slot may quote an identifier shape like `Q<n>`, whose inner brackets block the outer match unless substitution runs innermost-first to a fixed point; and `Strategy:` is a fixed-vocabulary slot, so it is named explicitly.
+- Validator at **87 scenarios**.
+
 ## 5.3.6 - the dry run accounts for what the real run writes
 
 Closes issue #27. No install behavior changes; only what the dry runs say about it.
