@@ -1,6 +1,6 @@
 # Keel Changelog
 
-## Unreleased - the gate reads what it promises
+## 5.3.8 - the gate reads what it promises
 
 Closes **#29** and **#30**. Both are cases where a structure was read differently from how it is documented, and the gap stayed invisible until it misfired.
 
@@ -14,6 +14,11 @@ Closes **#29** and **#30**. Both are cases where a structure was read differentl
 ### Upgrade notes
 
 **This is a narrowing.** `keel gate task-complete` now refuses any task whose Evidence `Contract` anchor holds no compiled fingerprint. A repo that never ran `task-start --record` must now run it before completing — the refusal names the command, and `--record` rewrites the anchor in place, so recovery is one command with no manual edit. The step was already the documented loop in `AGENTS.md` and the bootstrap block; it is now enforced rather than assumed.
+
+The `## Invalidates` fix has no upgrade action: it only stops a section from being read as a field it never belonged to, and the compiled fingerprints are unchanged, so no live change drifts.
+
+- Validator at **89 scenarios**.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.8; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.3.7 - the diagnostic and the template both name what to do
 
