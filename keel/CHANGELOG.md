@@ -1,6 +1,6 @@
 # Keel Changelog
 
-## Unreleased - the guard's scope is the repository
+## 5.3.9 - the guard's scope is the repository
 
 Closes **#31**, found while verifying the last unverified item of #28 against 5.3.8.
 
@@ -8,8 +8,9 @@ Closes **#31**, found while verifying the last unverified item of #28 against 5.
 - **The boundary is now decided before the manifest is read at all**, not merely before it is validated. Every manifest-derived denial sits structurally downstream of a check that needs no manifest, so a branch added to the manifest section inherits the correct behavior. That matters because this is the third ordering defect in the same function: #28 item 10 was the drift check running before the passthrough, fixed on 2026-07-27 by moving the passthrough up one step. This is the same correction one step further up.
 - **The spec now owns the behavior.** The hook's header comment stated the passthrough unconditionally while `keel-touch-write-guard` never mentioned the repository boundary and said a path outside the Touch list is denied — which reads as covering every path anywhere. A reviewer reading the spec would have concluded the opposite of what the code does and reasonably "corrected" the code toward denying. The requirement now states the scope and its precedence, and the outside-Touch requirement is scoped to in-repository paths so the two cannot be read as contradicting.
 - The scenario asserts the **precedence**, not the passthrough: it drives the hook through the corrupt-manifest and drift states, because a check of the valid-manifest passthrough alone would have been green before this change. Seven of its eight assertions were already green at red time, which is the evidence that the reordering changes nothing else.
-- No in-repository behavior changes. The invalid-manifest, drift, completed-task, and outside-Touch denials all keep their current behavior.
+- No in-repository behavior changes. The invalid-manifest, drift, completed-task, and outside-Touch denials all keep their current behavior. Nothing to do on upgrade.
 - Validator at **90 scenarios**.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.9; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.3.8 - the gate reads what it promises
 
