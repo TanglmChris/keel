@@ -68,7 +68,21 @@ function parseTasks(content) {
     });
   }
   for (let index = 0; index < tasks.length; index += 1) {
-    const end = index + 1 < tasks.length ? tasks[index + 1].line : lines.length;
+    // A task body ends at the next task or the next `##` heading, whichever
+    // comes first. Without the heading bound a change-level section such as
+    // `## Invalidates` was appended to whichever field was open last — the
+    // Evidence, in every shipped template — so a token quoted there made the
+    // Evidence non-concrete and the gate blamed a task that was fine.
+    const nextTask =
+      index + 1 < tasks.length ? tasks[index + 1].line : lines.length;
+    let end = nextTask;
+    for (let cursor = tasks[index].line + 1; cursor < nextTask; cursor += 1) {
+      if (/^\s*##\s/.test(lines[cursor])) {
+        end = cursor;
+        break;
+      }
+    }
+    tasks[index].endLine = end;
     const bodyLines = lines.slice(tasks[index].line, end);
     tasks[index].body = bodyLines.join("\n");
     tasks[index].fields = new Map();

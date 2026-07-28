@@ -5098,6 +5098,194 @@ def fill_template_slots(text: str, comments: str = "strip") -> str:
         text = collapsed
 
 
+def validate_task_body_ends_at_heading_scenario() -> int:
+    """Issue #29: a change-level section was read as the last task's Evidence.
+
+    parseTasks gave a task every line up to the next task or EOF, and a `##`
+    heading did not stop it, so `## Invalidates` and `## Expectation Coverage`
+    landed in whichever field was open last. That made the two checks look
+    contradictory: `invalidation-phrase` requires the searchable wording in
+    double quotes, while the concreteness test rejects an angle-bracket slot
+    outside inline code, so an entry quoting wording that carries one could
+    satisfy neither. They were never in conflict — the parser only made them
+    appear so.
+    """
+    slot = "<" + "n" + ">"
+    header = "# Tasks\n\n"
+
+    def task(number: str, contract: str) -> str:
+        return (
+            f"- [ ] {number} Exercise task contract\n"
+            "  - Covers:\n"
+            "    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n"
+            f"    - Contract: {contract}\n"
+            "    - M1: the suite passed\n"
+            "    - Review:\n"
+            "      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    # The entry quotes stale wording carrying an unfilled slot, which is exactly
+    # what issue #16 asks an invalidation to quote. A stray Contract line sits
+    # in the trailing section to prove the anchor search stops at the heading.
+    sections = (
+        "\n## Invalidates\n\n"
+        f'- I1: "an unresolved Q{slot} without an authorized fallback blocks '
+        'implementation" — the schema prose. Updated by: 1.1\n'
+        "    - Contract: keel-task-capsule/v1 sha256:" + "b" * 64 + "\n"
+        "\n## Expectation Coverage\n\n"
+        f"- E1: Every Q{slot} reference resolves Covered by: 1.1\n"
+    )
+    body = header + task("1.1", "pending") + "\n## 2. Second group\n\n" + task(
+        "2.1", "pending"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-task-extent-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/demo/tasks.md", body + sections)
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "2.1", "--json"
+        )
+        payload = json.loads(started.stdout)
+        problems = payload.get("problems", [])
+        if payload.get("status") != "pass":
+            report(
+                "task-body-ends-at-heading: the last task did not pass task-start "
+                "with a trailing section quoting an unfilled slot."
+            )
+            for problem in problems:
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+        # The same run proves the phrase check is satisfied: an entry the phrase
+        # check rejected would have produced invalidation-phrase above.
+        malformed = body + (
+            "\n## Invalidates\n\n"
+            "- I1: the schema prose is stale. Updated by: 1.1\n"
+        )
+        write_text(repo / "openspec/changes/unquoted/tasks.md", malformed)
+        unquoted = json.loads(
+            run_keel(
+                repo,
+                "gate",
+                "task-start",
+                "--change",
+                "unquoted",
+                "--task",
+                "2.1",
+                "--json",
+            ).stdout
+        )
+        if not any(
+            problem.get("code") == "invalidation-phrase"
+            for problem in unquoted.get("problems", [])
+        ):
+            report(
+                "task-body-ends-at-heading: an unquoted invalidation entry was "
+                "accepted, so the phrase check is no longer being satisfied by "
+                "the quoted one."
+            )
+            return 1
+        # A group heading must not be appended to the preceding task's field.
+        first = json.loads(
+            run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+            ).stdout
+        )
+        evidence = json.dumps(first)
+        if "Second group" in evidence:
+            report(
+                "task-body-ends-at-heading: the group heading leaked into the "
+                "preceding task's fields."
+            )
+            return 1
+        # --record must anchor the last task's own Contract line, not the stray
+        # one planted in the trailing section.
+        recorded = run_keel(
+            repo,
+            "gate",
+            "task-start",
+            "--change",
+            "demo",
+            "--task",
+            "2.1",
+            "--record",
+            "--json",
+        )
+        if recorded.returncode != 0:
+            report("task-body-ends-at-heading: --record failed on the last task.")
+            report((recorded.stdout or recorded.stderr).strip())
+            return 1
+        written = (repo / "openspec/changes/demo/tasks.md").read_text(
+            encoding="utf-8"
+        )
+        after_heading = written.split("## Invalidates", 1)[1]
+        if "b" * 64 not in after_heading:
+            report(
+                "task-body-ends-at-heading: --record overwrote the Contract line "
+                "planted inside the trailing section."
+            )
+            return 1
+        # The extent change must move no fingerprint: an anchor that shifted
+        # would drift every live change in every consumer repo at once. Pinned
+        # rather than merely measured, so a future extent change cannot move one
+        # silently. A deliberate capsule-shape change will fail here too — that
+        # is the point; it should be looked at, not absorbed.
+        pinned = {
+            "1.1": "2f723a8778160a2d51cd91e34255bf19f2c654fa23cdcd7b013915727a541d17",
+            "2.1": "5e0481362b06992d0317c91d34bbd5d6746fb9c1fee47566060f61fbba7cbf05",
+        }
+        plain = (
+            "# Tasks\n\n"
+            + task("1.1", "pending")
+            + "\n## 2. Second group\n\n"
+            + task("2.1", "pending")
+            + '\n## Invalidates\n\n- I1: "the schema prose is stale here" — the '
+            "schema. Updated by: 1.1\n\n## Expectation Coverage\n\n"
+            "- E1: Covered by: 1.1\n"
+        )
+        write_text(repo / "openspec/changes/pinned/tasks.md", plain)
+        for task_id, expected in pinned.items():
+            payload = json.loads(
+                run_keel(
+                    repo,
+                    "gate",
+                    "task-start",
+                    "--change",
+                    "pinned",
+                    "--task",
+                    task_id,
+                    "--json",
+                ).stdout
+            )
+            actual = (
+                payload.get("contract", {}).get("fingerprint", {}).get("value")
+            )
+            if actual != expected:
+                report(
+                    "task-body-ends-at-heading: the compiled fingerprint for "
+                    f"task {task_id} moved. Expected {expected}, got {actual}. "
+                    "An extent or capsule-shape change that moves an anchor "
+                    "drifts every live change in every consumer repo."
+                )
+                return 1
+    if "task-body-ends-at-heading" not in {name for name, _ in SCENARIOS}:
+        report(
+            "task-body-ends-at-heading: the scenario registry does not include it."
+        )
+        return 1
+    report("task-body-ends-at-heading scenario passed.")
+    return 0
+
+
 TASKS_TEMPLATE_RELATIVE = "schemas/keel-spec-driven/templates/tasks.md"
 
 
@@ -13768,6 +13956,7 @@ SCENARIOS: tuple = (
         "task-complete-selection-requires-a-started-task",
         validate_task_complete_selection_requires_a_started_task_scenario,
     ),
+    ("task-body-ends-at-heading", validate_task_body_ends_at_heading_scenario),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
         "tasks-template-red-green-example",

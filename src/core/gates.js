@@ -131,11 +131,9 @@ function unstartedInferenceProblem(selection) {
 
 function contractAnchorPlan(selection, task) {
   const lines = selection.content.split("\n");
-  const index = selection.tasks.findIndex((item) => item.id === task.id);
-  const end =
-    index + 1 < selection.tasks.length
-      ? selection.tasks[index + 1].line
-      : lines.length;
+  // The task carries its own extent, so the anchor search cannot reach a
+  // `- Contract:` line sitting in a trailing change-level section.
+  const end = task.endLine !== undefined ? task.endLine : lines.length;
   for (let cursor = task.line; cursor < end; cursor += 1) {
     const match = lines[cursor].match(/^(\s*)-\s*Contract:\s*(.*?)(\r?)$/);
     if (match) {
