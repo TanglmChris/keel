@@ -45,7 +45,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.3 A task declaring no verification form reports one problem, and no defaulted field is required
+- [x] 1.3 A task declaring no verification form reports one problem, and no defaulted field is required
   - Covers:
     - keel-task-capsule / Expanded v3 tasks normalize through the same compiler
   - Touch:
@@ -56,18 +56,18 @@
     - M1: `python scripts/validate_plugin.py` scenario `absent-verification-form-is-one-problem` asserts that a task declaring neither `Verify` nor `Commands` produces a single diagnostic naming `Verify` as the compact field to add, and produces no `missing-field` diagnostic for `Owner`, `Mode`, `Read`, `Acceptance`, `Report`, `Candidate Boundary`, or `Stop Rules`.
     - M2: the same scenario asserts that an expanded task declaring `Commands`, `Covers`, `Evidence` and a boundary but omitting every defaulted field passes `node bin/keel.js gate task-start`, that the same task with `Commands` removed still fails, and that a `Candidate Boundary` diagnostic appears only once the task declares `Coupling: required`.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
+    - Contract: keel-task-capsule/v1 sha256:cdec9dadb31d687411ec4b966e50229084d7b5ef1a6b37ff4bf28e32f851c1f1
+    - M1: `python scripts/validate_plugin.py --scenario absent-verification-form-is-one-problem` passes; `npm test` reports baseline plus 84 scenarios.
+    - M1.red: before the fix the scenario printed the whole cascade issue #28 item 4 reports — ten diagnostics, `Owner`, `Mode`, `Read`, `Commands`, `Acceptance`, `Candidate Boundary`, `Stop Rules`, `Report`, a boundary line, and an Evidence-label mismatch — and reported "expected exactly one diagnostic naming Verify, found 0".
+    - M1.green: a task declaring neither form now produces one `missing-verification-form` diagnostic naming `Verify` and the `Strategy:` and check entries it needs, and no `missing-field` diagnostic for any of the seven defaulted or coupling-owned fields. The orphan Evidence label is no longer restated, because it is a consequence of the same absence.
+    - M2: the same scenario asserts the expanded path; `python scripts/validate_plugin.py --scenario core-gates` also passes, which is the near-empty-task case that keeps its `Covers` diagnostic.
+    - M2.red: the first implementation returned early on the missing form and swallowed everything else, which broke `core-gates`: its fixture declares only `Owner:` and asserts a diagnostic naming `Covers`, and that diagnostic had disappeared. The red was the real regression, not a fixture artifact.
+    - M2.green: the diagnostic now replaces only the expanded v3 cascade — the compact `Covers` and `Evidence` requirements still report — so an expanded task declaring `Commands`, `Covers`, `Touch` and `Evidence` and omitting every defaulted field passes, removing `Commands` from it still fails, and `Candidate Boundary` is required only once the task declares `Coupling: required`.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: both added scenarios of the requirement are proven — the one-problem case and the defaulted-field case — and the narrowing keeps a refusing case on each side: `Commands` removed still fails, `Coupling: required` still demands its boundary, and a near-empty task still learns that `Covers` is missing. The removed fields were verified in design F4 to resolve to defaults, derive from Covers, be consumed nowhere, or be owned by the coupling contract.
+      - Scope check: only `src/core/task-contract.js` and `scripts/validate_plugin.py` changed, both declared in Touch; base `HEAD`. The stale fixture comment corrected in the suite is I6 of this change's Invalidates.
+      - Findings: none
     - Blocker: none
 
 - [ ] 1.4 task-complete refuses to infer a task that has never started
@@ -128,6 +128,7 @@
 - I2: "requires an authorized fallback" — the Covers slot comment in both copies of `openspec/schemas/keel-spec-driven/templates/tasks.md`. Updated by: 2.1
 - I3: "the parser falls back to expanded-v3 mode (demands Owner/Mode/Commands/…)" — gotcha 2 in the native memory file `keel-dogfood-authoring-gotchas.md`. After 1.3 an absent verification form is reported as one missing field, and the expanded set no longer names `Owner` or `Mode`. Updated by: 2.1
 - I4: "Fill Evidence + Review → check the box → `keel gate task-complete`" — step 4 of the loop in the native memory file `dogfood-full-discipline.md`. That order is the reverse of the documented one and contradicts the loop recorded in `keel-dogfood-authoring-gotchas.md`; 1.4 makes the order load-bearing for no-arg selection. Updated by: 2.1
+- I6: "is a genuine expanded v3 task and must keep its existing required-field diagnostics" — the fixture comment in the `non-concrete-verify-diagnostic` scenario in `scripts/validate_plugin.py`. After 1.3 that task is reported as one missing verification form instead. Updated by: 1.3
 - I5: "must define a concrete public check" — the unqualified wording quoted in issue #28 item 5. After 1.2 it appears only for an empty or `pending` check. Durable owner: https://github.com/TanglmChris/keel/issues/28
 
 ## Expectation Coverage

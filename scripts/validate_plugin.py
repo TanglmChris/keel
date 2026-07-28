@@ -4729,8 +4729,10 @@ def validate_non_concrete_verify_diagnostic_scenario() -> int:
             )
             report(started.stdout.strip())
             return 1
-        # A task with no Verify at all is a genuine expanded v3 task and must
-        # keep its existing required-field diagnostics.
+        # A task with no Verify at all must not be reported as carrying a token
+        # it never wrote. What it is reported as instead — one missing
+        # verification form rather than the expanded v3 set — belongs to the
+        # absent-verification-form-is-one-problem scenario.
         bare = task_capsule_compact_fixture()
         for block in (
             "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n",
@@ -5046,6 +5048,129 @@ def validate_unresolved_authority_names_field_scenario() -> int:
         )
         return 1
     report("unresolved-authority-names-field scenario passed.")
+    return 0
+
+
+def validate_absent_verification_form_is_one_problem_scenario() -> int:
+    """Issue #28 item 4: the cascade reported a schema the author never chose.
+
+    Compact detection read only `isConcrete(Verify)`, so a task that simply had
+    no verification field was reported as an expanded v3 task missing nine
+    fields. Seven of them either resolve to a documented default, derive from
+    other authority, are consumed nowhere, or belong to the coupling contract —
+    leaving the one actionable line last.
+    """
+    defaulted = (
+        "Owner",
+        "Mode",
+        "Read",
+        "Acceptance",
+        "Report",
+        "Candidate Boundary",
+        "Stop Rules",
+    )
+    header = "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+    body = (
+        "- [ ] 1.1 Exercise task contract\n"
+        "  - Covers:\n"
+        "    - E1: Public behavior passes.\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+    )
+    evidence = "  - Evidence:\n    - M1: pending\n"
+    commands = "  - Commands:\n    - M1: node test.js\n"
+
+    with tempfile.TemporaryDirectory(prefix="keel-absent-verification-") as raw:
+        repo = Path(raw)
+
+        def problems_for(change: str, content: str) -> list:
+            write_text(repo / f"openspec/changes/{change}/tasks.md", content)
+            result = run_keel(
+                repo,
+                "gate",
+                "task-start",
+                "--change",
+                change,
+                "--task",
+                "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout).get("problems", [])
+
+        # M1 — neither verification form declared.
+        none_declared = problems_for("noform", header + body + evidence)
+        naming = [
+            problem
+            for problem in none_declared
+            if "Verify" in problem.get("message", "")
+        ]
+        if len(naming) != 1:
+            report(
+                "absent-verification-form-is-one-problem: expected exactly one "
+                f"diagnostic naming Verify, found {len(naming)}."
+            )
+            for problem in none_declared:
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+        leaked = sorted(
+            name
+            for problem in none_declared
+            if problem.get("code") == "missing-field"
+            for name in defaulted
+            if problem.get("message", "").startswith(f"{name} must be concrete")
+        )
+        if leaked:
+            report(
+                "absent-verification-form-is-one-problem: fields with documented "
+                f"defaults were still required: {', '.join(leaked)}."
+            )
+            return 1
+
+        # M2 — a genuine expanded v3 task that omits every defaulted field.
+        expanded = problems_for("expanded", header + body + commands + evidence)
+        if expanded:
+            report(
+                "absent-verification-form-is-one-problem: an expanded task "
+                "declaring Commands, Covers, Touch and Evidence did not pass."
+            )
+            for problem in expanded:
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+        # Removing Commands from that same task must still fail.
+        if not problems_for("expanded-no-commands", header + body + evidence):
+            report(
+                "absent-verification-form-is-one-problem: removing Commands "
+                "from the expanded task left it passing."
+            )
+            return 1
+        # Candidate Boundary is the coupling contract's to require.
+        coupled = problems_for(
+            "coupled",
+            header
+            + body
+            + "  - Coupling: required\n"
+            + commands
+            + evidence,
+        )
+        if not any(
+            "Candidate Boundary" in problem.get("message", "") for problem in coupled
+        ):
+            report(
+                "absent-verification-form-is-one-problem: Coupling required did "
+                "not require a Candidate Boundary."
+            )
+            for problem in coupled:
+                report(f"  {problem.get('code')}: {problem.get('message')}")
+            return 1
+    if "absent-verification-form-is-one-problem" not in {
+        name for name, _ in SCENARIOS
+    }:
+        report(
+            "absent-verification-form-is-one-problem: the scenario registry does "
+            "not include it."
+        )
+        return 1
+    report("absent-verification-form-is-one-problem scenario passed.")
     return 0
 
 
@@ -13285,6 +13410,10 @@ SCENARIOS: tuple = (
     (
         "non-concrete-check-names-token",
         validate_non_concrete_check_names_token_scenario,
+    ),
+    (
+        "absent-verification-form-is-one-problem",
+        validate_absent_verification_form_is_one_problem_scenario,
     ),
     (
         "dev-only-plugin-source-scoping",

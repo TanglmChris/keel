@@ -192,6 +192,16 @@ function verification(task) {
 }
 
 function commandLabelProblems(task) {
+  // A task that declared no verification form at all is reported once, by
+  // requiredFieldProblems, as the one field it is missing. Its orphan Evidence
+  // labels are a consequence of that same absence, and restating them here is
+  // the cascade that buries the actionable line.
+  if (
+    fieldValues(task, "Verify").length === 0
+    && fieldValues(task, "Commands").length === 0
+  ) {
+    return [];
+  }
   const problems = [];
   const seen = new Set();
   const labels = [];
@@ -352,38 +362,44 @@ function requiredFieldProblems(task) {
         },
       ];
     }
-  }
-  const required = compact
-    ? ["Covers", "Verify", "Evidence"]
-    : [
-        "Owner",
-        "Mode",
-        "Covers",
-        "Read",
-        "Commands",
-        "Acceptance",
-        "Candidate Boundary",
-        "Stop Rules",
-        "Evidence",
-        "Report",
+    // Neither verification form declared. That is a compact v4 task missing one
+    // field, not an expanded v3 task missing nine — and listing the v3 set here
+    // reported a schema this author never chose.
+    if (!isConcrete(field(task, "Commands"))) {
+      return [
+        {
+          code: "missing-verification-form",
+          message:
+            "The task declares no verification form. Add a `Verify` field with "
+            + "a `Strategy:` entry and one `M<n>:` check per behavior the task "
+            + "proves. The expanded v3 `Commands` field is the other accepted "
+            + "form; the remaining v3 fields are not required.",
+        },
+        // The rest of the compact set is still reported, so a near-empty task
+        // learns everything it is missing. Only the v3 cascade is replaced.
+        ...missingFieldProblems(task, ["Covers", "Evidence"]),
       ];
-  const problems = required
+    }
+  }
+  // The expanded set is the compact set with `Commands` in place of `Verify`.
+  // Owner, Mode, Read, and Acceptance resolve to documented defaults or derive
+  // from Covers, Report is consumed nowhere, and Candidate Boundary and Stop
+  // Rules belong to couplingProblems, which requires them when the coupling
+  // contract does. Requiring them here reported fields that were already in
+  // effect.
+  return missingFieldProblems(
+    task,
+    compact ? ["Covers", "Verify", "Evidence"] : ["Covers", "Commands", "Evidence"]
+  );
+}
+
+function missingFieldProblems(task, names) {
+  return names
     .filter((name) => !isConcrete(field(task, name)))
     .map((name) => ({
       code: "missing-field",
       message: `${name} must be concrete.`,
     }));
-  if (
-    !compact
-    && !isConcrete(field(task, "Autonomy boundary"))
-    && !isConcrete(field(task, "Stop if"))
-  ) {
-    problems.push({
-      code: "missing-boundary",
-      message: "Stop if or Autonomy boundary must be concrete.",
-    });
-  }
-  return problems;
 }
 
 function canonical(value) {
