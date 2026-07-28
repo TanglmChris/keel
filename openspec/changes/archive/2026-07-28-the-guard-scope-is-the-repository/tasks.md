@@ -25,7 +25,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 1.2 Promote the delta, record the release notes, and archive the change
+- [x] 1.2 Promote the delta, record the release notes, and archive the change
   - Covers:
     - keel-touch-write-guard / The guard's scope is the repository it was started in
   - Touch:
@@ -36,14 +36,14 @@
     - M1: after the delta is promoted into `openspec/specs`, `npx openspec validate the-guard-scope-is-the-repository` reports no error and `python scripts/validate_plugin.py` reports pass at the raised scenario count, with the live spec stating both the repository scope and its precedence over manifest-derived decisions.
     - M2: `node bin/keel.js gate change-close . --change the-guard-scope-is-the-repository --action archive --json` returns pass, after which this task is authorized to archive the change with `--skip-specs`.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:d4c452d481b850c4e69325eced9963e1ec7b44db6122cc7688df66001cfa7481
+    - M1: `npx openspec validate the-guard-scope-is-the-repository` reports "Change 'the-guard-scope-is-the-repository' is valid" with the delta promoted; `npm test` reports baseline plus 90 scenarios. The live spec now carries the repository-scope requirement and its precedence clause, and the outside-Touch requirement is scoped to in-repository paths so the two cannot be read against each other.
+    - M2: `node bin/keel.js gate change-close . --change the-guard-scope-is-the-repository --action archive --json` returns pass once this task is checked, and the change is then archived with `--skip-specs` under the authorization this task carries.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the spec change is the durable half of this fix. The code ordering was already corrected once for the same reason and regressed at a different step, which is what an unowned behavior does; naming the scope and its precedence in the requirement is what makes the next reviewer agree with the code instead of correcting it toward denying.
+      - Scope check: `openspec/specs/keel-touch-write-guard/spec.md` and `keel/CHANGELOG.md` changed, both declared in Touch; base `HEAD`.
+      - Findings: none
     - Blocker: none
 
 ## Invalidates
