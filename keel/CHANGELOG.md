@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.3.5 - the suite stops writing to the repository it validates
+
+Closes issue #26. No product behavior changes; `keel --install` against the source repository is still supported. What changes is that the *test* stops calling it there.
+
+- **A validation run now leaves the working tree byte-identical** (closes #26). `source-repo-bootstrap-skip` ran a real `keel --install --target claude` against the repository root to prove that install skips `AGENTS.md` in Keel's own repo. It asserted the skip and nothing else, so the install's overlay refresh silently rewrote the `.claude/` markers and `CLAUDE.md` every time. The scenario now builds a fixture carrying the two signals `is_keel_source_repo` actually reads — a `package.json` named `@christang/keel` and a `plugins/keel/` directory — and additionally fails naming any file the install rewrote without announcing it, which is the assertion whose absence was the real defect. (keel-validation-runner)
+- **The worse half, and the reason this is not just tidiness.** The marker-alignment check added in 5.3.4 was green on the `.claude/` side *because the suite wrote those markers*, not because anything guaranteed them. One run demonstrates both fixes at once: rolling a `.claude/` marker back to `5.3.3` and running `npm test` now leaves it at `5.3.3` **and fails** with `shipped version marker disagrees with the package version 5.3.4`. Before, the same rollback ended the run repaired and green. A check whose input its own run produces cannot fail, however green it reports.
+- A baseline check refuses any scenario passing the repository root to a mutating Keel command, naming file, line, and invocation. It keys on the subcommand rather than on the root, so the many read-only invocations — `--help`, `--version`, `--doctor`, `gate …` — stay legal. The sweep confirmed the relocated call was the only offender.
+- This is the third form in the family issue #18 opened. First: a check that compares nothing, because its root does not exist. Second: a check comparing a directory against itself (`dist_root = source_root`). Third: a check kept green by a side effect of the same run. The shared question that catches all three — **can this assertion's input be changed by the process running it?**
+- Filed #27 from the same investigation: `keel --check` prints an empty dry-run plan while `keel --install` reports `refreshed=1` and rewrites a file, because the overlay refresh runs outside the action plan. A dry-run that under-reports is why this side effect stayed invisible to anyone reading the plan.
+- Validator stays at **80 scenarios**.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.5; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.3.4 - refusals that name what they accept, and checks that actually run
 
 Closes issues #15, #18, #20, #21, #22, and #23. Both gate changes **widen** what is accepted, so every currently passing tasks.md keeps passing; two narrowings are called out below.

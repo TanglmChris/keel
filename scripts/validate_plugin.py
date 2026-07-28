@@ -37,10 +37,13 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.3.4"
-PROTOCOL_VERSION = "5.3.4"
+PACKAGE_VERSION = "5.3.5"
+PROTOCOL_VERSION = "5.3.5"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
+# Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
+# signals is_keel_source_repo reads.
+KEEL_PACKAGE_NAME = "@christang/keel"
 OPENSPEC_CONFIG_PATH = Path("openspec/config.yaml")
 OPENSPEC_SCHEMA_ROOT = Path("openspec/schemas") / OPENSPEC_SCHEMA_NAME
 OPENSPEC_SURFACE_OVERLAY_START = (
@@ -417,6 +420,17 @@ def validate_npm_package(errors: list[str]) -> None:
 # Path expressions rooted at a tree the retirement check above requires to be
 # absent. `src/core` and `src/skills` are live, so only the retired `src`
 # children are listed.
+# Keel subcommands that write. A scenario may point read-only ones at the
+# repository root; these need a fixture.
+MUTATING_KEEL_COMMANDS = (
+    "--install",
+    "--init",
+    "--uninstall",
+    "--clear",
+    "--update",
+    "--with-git-hooks",
+)
+
 RETIRED_PATH_EXPRESSIONS = (
     r'ROOT\s*/\s*"dist"',
     r'ROOT\s*/\s*"src"\s*/\s*"assets"',
@@ -458,6 +472,29 @@ def validate_paths(errors: list[str]) -> None:
                 f"retired custom distribution path must be removed: {retired}"
             )
 
+    validator_source = (ROOT / "scripts" / "validate_plugin.py").read_text(
+        encoding="utf-8"
+    )
+
+    # A scenario that writes to the repository it validates can satisfy the very
+    # condition another check asserts, and a check whose input its own run
+    # produces cannot fail. Reads against ROOT are fine and common; writes are
+    # not. Keyed on the mutating subcommand rather than on ROOT itself, so
+    # `--version`, `--doctor`, and the gates stay legal.
+    for line_number, line in enumerate(validator_source.splitlines(), start=1):
+        invocation = re.search(r"run_(?:keel|install)\(\s*ROOT\s*,([^)]*)", line)
+        if not invocation:
+            continue
+        if any(
+            re.search(rf'"{command}"', invocation.group(1))
+            for command in MUTATING_KEEL_COMMANDS
+        ):
+            errors.append(
+                "a scenario must not run a mutating Keel command against the "
+                "repository it validates; build a fixture instead: "
+                f"scripts/validate_plugin.py:{line_number}: {line.strip()}"
+            )
+
     # Every Keel marker that carries a version is a shipped claim about which
     # version this is. Derive the set from the markers that exist rather than a
     # fixed list, because a fixed list is the next thing to fall behind — which
@@ -484,9 +521,6 @@ def validate_paths(errors: list[str]) -> None:
     # directory yields no error, so the check reports success forever. Naming a
     # retired tree in a string literal is fine — that is how the checks above
     # state what must not exist; building a Path into one is not.
-    validator_source = (ROOT / "scripts" / "validate_plugin.py").read_text(
-        encoding="utf-8"
-    )
     for line_number, line in enumerate(validator_source.splitlines(), start=1):
         if any(re.search(pattern, line) for pattern in RETIRED_PATH_EXPRESSIONS):
             errors.append(
@@ -5004,29 +5038,56 @@ def validate_source_repo_bootstrap_skip_scenario() -> int:
         found = managed.search(path.read_text(encoding="utf-8"))
         return found.group(0) if found else ""
 
-    own_agents = ROOT / "AGENTS.md"
-    before = block(own_agents)
-    if not before:
+    # `is_keel_source_repo` reads exactly two signals — the package name and a
+    # plugins/keel directory — so a fixture carrying both exercises the same
+    # branch. Running this against the real repository used to work and used to
+    # rewrite the .claude/ overlay markers as a side effect, which is how the
+    # marker check ended up green on that side for the wrong reason.
+    if not (ROOT / "AGENTS.md").is_file() or not block(ROOT / "AGENTS.md"):
         report("source-repo-bootstrap-skip: Keel's AGENTS.md has no managed block.")
         return 1
-    result = run_keel(ROOT, "--install", "--target", "claude")
-    if result.returncode != 0:
-        report("source-repo-bootstrap-skip: keel --install failed in Keel's repo.")
-        report((result.stderr or result.stdout).strip())
-        return 1
-    if block(own_agents) != before:
-        report(
-            "source-repo-bootstrap-skip: keel --install rewrote Keel's own "
-            "AGENTS.md managed block."
-        )
-        return 1
-    if "skip AGENTS.md" not in (result.stdout or ""):
-        report(
-            "source-repo-bootstrap-skip: the skip was silent; it must be "
-            "reported explicitly."
-        )
-        report((result.stdout or "").strip())
-        return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-source-repo-") as raw:
+        fixture = Path(raw) / "keel"
+        write_text(fixture / "package.json", json.dumps({"name": KEEL_PACKAGE_NAME}))
+        write_text(fixture / "plugins/keel/.keep", "")
+        own_agents = fixture / "AGENTS.md"
+        write_text(own_agents, (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        before_tree = snapshot_files(fixture)
+        before = block(own_agents)
+
+        result = run_keel(fixture, "--install", "--target", "claude")
+        if result.returncode != 0:
+            report("source-repo-bootstrap-skip: keel --install failed in Keel's repo.")
+            report((result.stderr or result.stdout).strip())
+            return 1
+        if block(own_agents) != before:
+            report(
+                "source-repo-bootstrap-skip: keel --install rewrote Keel's own "
+                "AGENTS.md managed block."
+            )
+            return 1
+        if "skip AGENTS.md" not in (result.stdout or ""):
+            report(
+                "source-repo-bootstrap-skip: the skip was silent; it must be "
+                "reported explicitly."
+            )
+            report((result.stdout or "").strip())
+            return 1
+        # The original defect was the missing assertion, not only the wrong
+        # repository: name what the install must not have rewritten.
+        rewritten = [
+            name
+            for name, text in before_tree.items()
+            if (fixture / name).is_file()
+            and (fixture / name).read_text(encoding="utf-8") != text
+        ]
+        if rewritten:
+            report(
+                "source-repo-bootstrap-skip: keel --install rewrote files it "
+                "did not announce: " + ", ".join(sorted(rewritten))
+            )
+            return 1
     # A consuming project must still receive the bootstrap.
     with tempfile.TemporaryDirectory(prefix="keel-bootstrap-consumer-") as raw:
         consumer = Path(raw)
