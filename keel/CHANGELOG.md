@@ -2,7 +2,15 @@
 
 ## 5.3.4 - refusals that name what they accept, and checks that actually run
 
-Closes issues #18, #20, and #21. Both gate changes **widen** what is accepted, so every currently passing tasks.md keeps passing; one narrowing is called out below.
+Closes issues #15, #18, #20, #21, #22, and #23. Both gate changes **widen** what is accepted, so every currently passing tasks.md keeps passing; two narrowings are called out below.
+
+### Statements that stopped being true (closes #15, #22, #23)
+
+- **The consumer bootstrap now names the record-write exemption** (closes #15). It said Touch is the write boundary "for product files" and left the reader to infer what the qualifier excluded; the inference actually made is that `tasks.md` belongs in Touch, the trap #8 reported. It now says "Touch bounds product writes; the change's own dir is exempt." Room was made by listing one guard opt-out instead of two — `keel guard clear` is unchanged as a command, it just no longer costs resident bytes — so the block **shrank** to 1012 against an unchanged 1024-byte budget. (keel-openspec-surface-overlay)
+- **Live specs stopped requiring versions that already shipped** (closes #22). A sweep found **seven** version-pinned statements across two capabilities — `3.0.0`, `4.0.0`, a forbidden `2.7.0` — all false at 5.3.4, one of them asking for version markers on the retired `dist/` tree. The requirement naming a version is replaced by the invariant it was reaching for: every shipped marker agrees with the package version. Zero version literals remain in live specs.
+- **That invariant is now enforced rather than asserted** (closes #23). Baseline validation walks every shipped `.md`/`.json`, extracts each `keel:… version=` marker, and fails naming the file when one disagrees. The marker list is discovered, not declared, so it cannot become the next thing to fall behind, and `bump_version.js` sweeps the same set — all twelve markers move in one step instead of `.codex/` waiting for someone to remember.
+- **Correction to the 5.3.3-era account of that drift.** It was recorded as "the release bump carries `.claude/` along and leaves `.codex/` behind". That was wrong: `bump_version.js` never touched either. The validator scenario `source-repo-bootstrap-skip` runs a real `keel --install --target claude` against the repository root, and that install silently refreshed the Claude overlays. So it was "a test installs one target and nothing installs the other" — and a test mutating the working tree is its own defect, filed as **#26**.
+- **The contract-anchor guarantee states its bound** (closes #24 as documented). An anchor is reverifiable while its change is live; once archived it is a historical record. The boundary turned out to be **enforced** rather than merely undocumented — the gates reject a change name under `archive/`, so no CLI path recompiles an archived task. **Second narrowing:** `bump_version.js` compared an LF changelog header against a CRLF working copy and aborted after every marker had been written, leaving the repository half-bumped; fixed.
 
 ### A regression check can stand on its own (closes #21)
 
@@ -30,7 +38,7 @@ Closes issues #18, #20, and #21. Both gate changes **widen** what is accepted, s
 - The shape worth naming: this is issue #16's rule turned on tests. #16 required an invalidation entry to quote a *searchable symptom phrase* because the text that goes stale is the text you were not thinking about. The same asymmetry governs assertions — the ones that go vacuous are the ones nobody rereads, and a check whose failure mode is silence never asks to be reread.
 - Filed #22 from the same sweep: `keel-expectation-slice-evidence-gates` still carries a live requirement pinning the version to `3.0.0` and asking for `dist/` asset markers.
 - Filed #24 from task 1.1: recompiling an archived task no longer reproduces its recorded fingerprint, all 47 of them. It blocks nothing — archived tasks are never resumed — but it is why the fingerprint evidence above uses before-and-after values rather than the archive as a corpus.
-- Validator at **79 scenarios**.
+- Validator at **80 scenarios**.
 - Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.4; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.3.3 - a change declares what it makes stale

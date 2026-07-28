@@ -125,20 +125,6 @@ Keel MUST treat `keel/HANDOFF.md` as an optional override pointer and MUST NOT u
 - **THEN** a versioned HANDOFF may point to the relevant OpenSpec owner and action with a concise reason
 - **AND THEN** the full recovery context remains in design, specs, tasks, or archive evidence
 
-### Requirement: Keel version reflects expectation gate capability
-
-Keel MUST release the stateless continuity, deterministic Core gate, semantic Review, provenance, and capability-adapter contract as version `3.0.0` and keep versioned package, plugin, protocol, build/install/validation, overlay, and generated assets aligned.
-
-#### Scenario: Package and plugin report the new capability version
-- **WHEN** the Keel package metadata, plugin metadata, or CLI version is inspected after implementation
-- **THEN** the reported Keel version is `3.0.0`
-- **AND THEN** dependency versions are not changed by this version bump
-
-#### Scenario: Versioned protocol and generated assets agree
-- **WHEN** Keel source assets, installed target protocol assets, build/install/validation constants, OpenSpec overlay markers, or generated `dist/` assets are inspected after implementation
-- **THEN** their Keel protocol/version markers use `3.0.0`
-- **AND THEN** no current generated target asset continues to advertise `2.7.0`
-
 ### Requirement: Compact tasks do not duplicate accepted expectations
 Keel MUST keep accepted observable behavior in OpenSpec specs or identified critical statements and MUST allow a task to reference that authority rather than restating it. A task-specific Acceptance clause is permitted only for a slice boundary or observable outcome not already expressed by the referenced authority.
 
@@ -314,3 +300,38 @@ see the boundary can only find it by trial.
 - **WHEN** a gate refuses an entry for lacking a closure or a valid owner
 - **THEN** the diagnostic names the forms it accepts, including the existing-path form
 - **AND THEN** the author does not have to discover the boundary by trying candidates
+
+### Requirement: Shipped version markers agree with the package version
+
+A requirement that names the version being released is true for one release and
+false for every release after it, while reading as a standing rule. What the
+rule was reaching for is the invariant, not the number: **every version marker
+Keel ships MUST agree with the package version**, across npm metadata, both
+native plugin manifests, protocol and bootstrap markers, build/install/validation
+constants, and the OpenSpec overlay markers of every initialized target.
+
+The invariant MUST be enforced by a check rather than asserted, and that check
+MUST derive the markers it compares from what the repository actually ships
+rather than from a fixed list, because a fixed list is the next thing to fall
+behind. The release bump MUST refresh every initialized target's markers, not
+only those of the target it happens to touch: a marker that only a human
+remembers to update falls behind by one version per release, silently, because
+nothing fails when it does.
+
+#### Scenario: Every shipped marker matches the package version
+
+- **WHEN** the repository's shipped version markers are inspected at any commit
+- **THEN** each one reports the package version
+- **AND THEN** a marker left behind fails the check and is named with its path
+
+#### Scenario: The release bump reaches every target
+
+- **WHEN** the version is bumped for a release
+- **THEN** the overlay markers of every initialized target are refreshed together
+- **AND THEN** no target's markers depend on a separate manual step
+
+#### Scenario: The marker list is derived, not fixed
+
+- **WHEN** a new shipped surface carrying a version marker is added
+- **THEN** the check covers it without being edited
+- **AND THEN** the invariant cannot be satisfied by a list that stopped tracking reality

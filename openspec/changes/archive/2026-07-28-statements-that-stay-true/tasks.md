@@ -65,7 +65,7 @@
 
 ## 3. The fingerprint guarantee states its bound
 
-- [ ] 3.1 Say that an anchor is reverifiable while its change is live
+- [x] 3.1 Say that an anchor is reverifiable while its change is live
   - Covers:
     - keel-core-gates / A contract anchor is reverifiable while its change is live / A live anchor recompiles to its recorded value
     - keel-core-gates / A contract anchor is reverifiable while its change is live / An archived anchor is a record, not an assertion
@@ -78,13 +78,15 @@
     - Strategy: vertical-tdd
     - M1: a check demonstrates the boundary rather than asserting prose — a task of a live change recompiles to its recorded anchor, and the same task under an archive path does not — and the resident protocol states that bound where it describes recompilation
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:9a9fe5d92cf5951f459d24a1ccc6c93d3dfeddad93eac77505f58b53f89e56e9
+    - M1: pass. New scenario `anchor-reverification-bound` demonstrates the boundary in three steps against a real temporary repository. A live task recorded with `--record` recompiles to exactly its recorded value. The same tasks.md copied under `openspec/changes/archive/…` is **refused outright** by the gate with `invalid change name`, and compiling it directly through `loadTaskContract` yields a different fingerprint — which is why the refusal is the right behavior rather than an omission. The resident protocol now states the bound where it describes recompilation.
+    - M1.red: with the resident sentence unchanged, the scenario failed `the resident protocol describes recompilation without stating that it holds while the change is live` — the guarantee stated without its boundary, which is the whole of issue #24.
+    - M1.green: the sentence now ends "That comparison holds while its change is live; once the change is archived the anchor is a historical record, and the gates refuse an archived change rather than recompiling one."
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the check demonstrates the boundary instead of asserting prose about it, which is what the task authored. Both covered scenarios map directly: the record-then-recompile step to "A live anchor recompiles to its recorded value", and the refusal plus differing direct compile to "An archived anchor is a record, not an assertion". The last assertion pins the resident wording, so the documentation and the behavior cannot drift apart silently — which is the defect class this whole change is about.
+      - Scope check: two files changed, both declared in Touch. `npm test` passes with baseline plus 80 scenarios.
+      - Findings: the boundary turns out to be **enforced, not merely undocumented** — `selectChange` rejects a change name containing `/`, so no CLI path can point a gate at an archived change. Issue #24 and design F3 both describe it only as "recompiles differently", which is what a direct library call does; the CLI never gets that far. This is stronger than what was authored, so the delta scenario stands as written and the evidence records the stronger fact rather than the spec being loosened to match. Discard reason: nothing is left undone — the finding makes the documented bound safer, not weaker.
     - Blocker: none
 
 ## Invalidates

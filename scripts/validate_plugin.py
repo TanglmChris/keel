@@ -3649,6 +3649,99 @@ SCHEMA_COPY_PAIRS = (
 )
 
 
+def validate_anchor_reverification_bound_scenario() -> int:
+    label = "anchor-reverification-bound"
+
+    # The fingerprint is described as recompiled and compared at resume,
+    # projection, and completion, with no stated bound. It holds while the
+    # change is live: the capsule records each authority's source as a path
+    # under the change directory, and archiving renames that directory. An
+    # unstated boundary reads as no boundary, so demonstrate where it is.
+    with tempfile.TemporaryDirectory(prefix="keel-anchor-bound-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        live = repo / "openspec/changes/demo/tasks.md"
+        write_text(live, task_contract_fixture(evidence=("Contract: pending", "M1: pending")))
+
+        recorded = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--record", "--json",
+        )
+        payload = json.loads(recorded.stdout)
+        if payload.get("status") != "pass":
+            report(f"{label} could not record an anchor on a live change.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+        anchor = payload["contract"]["fingerprint"]["value"]
+
+        # Live: recompiling reproduces the recorded value, which is the
+        # guarantee the resident protocol states.
+        again = json.loads(
+            run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+            ).stdout
+        )
+        if again["contract"]["fingerprint"]["value"] != anchor:
+            report(f"{label} a live anchor did not recompile to its recorded value.")
+            return 1
+
+        # Archived: the gate refuses to select the change at all, so the bound
+        # is enforced rather than merely documented.
+        archived = repo / "openspec/changes/archive/2026-07-28-demo/tasks.md"
+        write_text(archived, live.read_text(encoding="utf-8"))
+        refused = run_keel(
+            repo, "gate", "task-start",
+            "--change", "archive/2026-07-28-demo", "--task", "1.1",
+        )
+        if refused.returncode == 0 or "invalid change name" not in (
+            refused.stderr + refused.stdout
+        ):
+            report(
+                f"{label} the gate accepted an archived change; the bound this "
+                "documents is supposed to be enforced, not advisory."
+            )
+            report((refused.stderr or refused.stdout).strip())
+            return 1
+
+        # And the reason the refusal is right: compiling the archived copy
+        # directly yields a different fingerprint, because each authority's
+        # `source` names the directory the task now lives in.
+        probe = subprocess.run(
+            [
+                "node", "-e",
+                "const {loadTaskContract}=require(process.argv[1]);"
+                "const c=loadTaskContract(process.argv[2],'archive/2026-07-28-demo','1.1');"
+                "process.stdout.write(c.contract.fingerprint.value);",
+                str(ROOT / "src/core/task-contract.js"),
+                str(repo),
+            ],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        if probe.returncode != 0:
+            report(f"{label} could not compile the archived copy directly.")
+            report((probe.stderr or probe.stdout).strip())
+            return 1
+        if probe.stdout.strip() == anchor:
+            report(
+                f"{label} the archived copy reproduced the anchor, so the "
+                "documented bound no longer describes reality — revisit the "
+                "protocol wording rather than relaxing this check."
+            )
+            return 1
+
+    # And the resident protocol must say where the guarantee stops.
+    resident = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    if "while its change is live" not in resident:
+        report(
+            f"{label} the resident protocol describes recompilation without "
+            "stating that it holds while the change is live."
+        )
+        return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_authoring_surface_owner_and_tags_scenario() -> int:
     label = "authoring-surface-owner-and-tags"
 
@@ -12919,6 +13012,7 @@ SCENARIOS: tuple = (
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
     ("regression-check-tag", validate_regression_check_tag_scenario),
     ("durable-owner-vocabulary", validate_durable_owner_vocabulary_scenario),
+    ("anchor-reverification-bound", validate_anchor_reverification_bound_scenario),
     (
         "authoring-surface-owner-and-tags",
         validate_authoring_surface_owner_and_tags_scenario,

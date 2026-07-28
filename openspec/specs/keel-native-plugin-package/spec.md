@@ -4,22 +4,21 @@
 TBD - created by archiving change native-plugin-packaging. Update Purpose after archive.
 ## Requirements
 ### Requirement: Keel has one canonical dual-runtime plugin source
-Keel 4.0.0 MUST package one plugin at `plugins/keel` with native Codex and Claude manifests, one canonical portable skill/reference tree, and default-discovered hook assets. It MUST NOT generate per-target copies of the same skill or protocol authority.
+Keel MUST package one plugin at `plugins/keel` with native Codex and Claude manifests, one canonical portable skill/reference tree, and default-discovered hook assets. It MUST NOT generate per-target copies of the same skill or protocol authority.
 
 #### Scenario: Codex manifest is native
 - **WHEN** the plugin source is inspected or installed by the supported Codex baseline
-- **THEN** `plugins/keel/.codex-plugin/plugin.json` has valid native metadata, name `keel`, version `4.0.0`, and the canonical skills path
+- **THEN** `plugins/keel/.codex-plugin/plugin.json` has valid native metadata, name `keel`, the package version, and the canonical skills path
 - **AND THEN** it uses default hook discovery rather than an unsupported explicit hooks field
 
 #### Scenario: Claude manifest is native
 - **WHEN** the plugin source is validated or installed by the supported Claude baseline
-- **THEN** `plugins/keel/.claude-plugin/plugin.json` has valid native metadata, name `keel`, version `4.0.0`, and the same canonical skills/hooks inventory
+- **THEN** `plugins/keel/.claude-plugin/plugin.json` has valid native metadata, name `keel`, the package version, and the same canonical skills/hooks inventory
 
 #### Scenario: Skill authority is singular
 - **WHEN** the package, repository, or installed plugin inventory is inspected
 - **THEN** every Keel skill and reference has one canonical source under `plugins/keel/skills`
-- **AND THEN** no `src/skills` or `dist/<target>/skills` copy is current authority
-
+- **AND THEN** no `src/skills` or per-target skills copy is current authority
 ### Requirement: Native marketplaces install and update Keel in isolation
 Keel MUST provide valid repo marketplace catalogs for Codex and Claude that reference the same `plugins/keel` source and MUST prove fresh install, update/cache refresh, discovery in a fresh session, disable/remove, and reinstall without mutating the developer's personal marketplace during tests.
 
@@ -83,19 +82,6 @@ Keel MUST remove custom manifest, builder, generated dist, adapters, duplicate p
 - **WHEN** migration encounters `.opencode` Keel files
 - **THEN** it preserves them and reports compatibility-only status
 - **AND THEN** no v4 OpenCode plugin, hook, marketplace, or acceptance path is generated
-
-### Requirement: Keel 4.0.0 release surfaces stay aligned
-The npm package, Codex manifest, Claude manifest, applicable marketplace metadata, bootstrap/protocol markers, capability schema, changelog, migration diagnostics, and tests MUST report one compatible Keel 4.0.0 base version.
-
-#### Scenario: Package and plugins agree
-- **WHEN** release artifacts are inspected
-- **THEN** npm and both plugin manifests report base version `4.0.0`
-- **AND THEN** no current artifact advertises Keel 3.x as its protocol
-
-#### Scenario: Package contents are thin
-- **WHEN** the packed npm tarball is inspected
-- **THEN** it includes the CLI/Core, OpenSpec schema assets, `plugins/keel`, required migration/validation scripts, README, and license metadata
-- **AND THEN** it excludes custom target `dist` trees and duplicate skill/protocol authority
 
 ### Requirement: Continuity projection is compaction-aware
 The plugin's session continuity projection MUST distinguish the runtime-reported start source and MUST reinject a recomputed, disposable continuity pointer after a compaction, using only OpenSpec and Git as input.
