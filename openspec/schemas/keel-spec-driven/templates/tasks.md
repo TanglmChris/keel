@@ -20,10 +20,16 @@
          rendered-behavior, or evidence-first. Each M<n> check must prove the
          resolved Acceptance through the public interface, not build-only or
          shape-only evidence. Red-green strategies record per-label `.red` and
-         `.green` Evidence entries for the same check before completion. An M<n>
-         check may carry an optional (fast) or (full) layer tag after its label
-         (e.g. `M1 (fast): …`) marking which checks the fast inner-loop pre-push
-         runs; an untagged check is full and change-close still needs every
+         `.green` Evidence entries IN ADDITION TO the bare `M<n>` entry, which
+         is always required; all three must be concrete before completion.
+         An M<n> check may carry an optional comma-separated tag set after its
+         label, drawn from fast, full, and regression (e.g. `M1 (fast): …`,
+         `M2 (regression): …`, `M3 (fast, regression): …`). fast/full marks
+         which checks the fast inner-loop pre-push runs; an untagged check is
+         full. regression marks a check that asserts something already green
+         stays green: it has no honest red, so it is exempt from `.red`/`.green`
+         but still needs its bare `M<n>` Evidence, and a red-green strategy must
+         keep at least one check untagged. change-close still needs every
          M<n>'s Evidence. -->
     - Strategy: <strategy>
     - M1: <public behavior check>
@@ -32,7 +38,7 @@
     - M1: pending
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
-      <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, a keel/archive/… path, or an existing openspec/changes/… artifact; not keel/HANDOFF.md -->
+      <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, an absolute https://… reference, or any repo-relative path that exists (keel/archive/…, an openspec/changes/… artifact, or the repository's own ledger) named after "Durable owner:"; not keel/HANDOFF.md, which is a pointer override -->
       - Status: pending
       - Acceptance check: pending
       - Scope check: pending
@@ -84,8 +90,9 @@
      Each entry quotes the wording a reader would SEARCH for — not just the
      files you already remembered, because the text that goes stale is the text
      you were not thinking about — then says where it lives, then closes:
-     `Updated by: 1.1` (tasks of this change), `Durable owner: <url or path>`,
-     or `Discard reason: why it stands`. Use `- None.` when this change makes
+     `Updated by: 1.1` (tasks of this change), `Durable owner: <url or path>`
+     — an absolute https:// reference, or any repo-relative path that exists;
+     keel/HANDOFF.md is refused — or `Discard reason: why it stands`. Use `- None.` when this change makes
      no existing statement wrong.
 
      - I1: "the exact wording that is now wrong" — where that wording lives. Updated by: 1.1
@@ -96,6 +103,6 @@
 
 <!-- change-close requires this section. One line per critical expectation:
      `- E1: the expectation Covered by: 1.1` (task ids that own it), or a
-     `Durable owner: openspec/changes/<change>/tasks.md` / `Discard reason: why`
-     closure. Use `- None.` only when the change has no critical expectations. -->
+     `Durable owner: <url or any repo-relative path that exists>` /
+     `Discard reason: why` closure. Use `- None.` only when the change has no critical expectations. -->
 - None.

@@ -93,8 +93,15 @@ artifacts:
       Verify selects the least-cost strategy that still proves the resolved
       Acceptance: vertical-tdd, regression-first, characterization,
       snapshot-characterization, rendered-behavior, or evidence-first.
-      Red-green strategies record per-label `.red` and `.green` Evidence for
-      the same check before completion.
+      Red-green strategies record per-label `.red` and `.green` Evidence in
+      addition to the bare `M<n>` Evidence, which is always required; all three
+      must be concrete before completion. An `M<n>` may carry a comma-separated
+      tag set after its label, drawn from `fast`, `full`, and `regression`.
+      `fast`/`full` marks which checks the fast inner-loop pre-push runs.
+      `regression` marks a check asserting that something already green stays
+      green: it has no honest red, so it is exempt from `.red`/`.green` while
+      still needing its bare `M<n>` Evidence, and a red-green strategy must keep
+      at least one check untagged.
       The Task Authoring Gate requires every relevant critical expectation to
       be covered by a slice, deferred to a durable owner, or explicitly
       discarded with rationale before the slice can be selected for execution.
@@ -137,14 +144,19 @@ artifacts:
       Review with Status, Acceptance check, Scope check, and Findings. Status is
       one of pass, passed, complete, completed, ok, or done. Findings
       are `none` or carry a durable owner — a `Discard reason:`/`Discard
-      rationale:` prefix, a `keel/archive/…` path, or an existing
-      `openspec/changes/…` artifact; `keel/HANDOFF.md` is never the owner.
+      rationale:` prefix, an absolute `https://…` reference, or any
+      repo-relative path that exists, named after `Durable owner:` so it reads
+      as the owner rather than a file the finding mentions;
+      `keel/HANDOFF.md` is never the owner.
       tasks.md carries two change-level sections beside its tasks.
       `## Invalidates` is required by task-start, before any task of the
       change runs: one `- I<n>: "the wording that is now wrong" — where it lives.`
       line per statement this change makes stale, closed by `Updated by: <task
       ids>` naming tasks of this change, a `Durable owner:`, or a `Discard
       reason:`, or `- None.` when the change makes no existing statement wrong.
+      A `Durable owner:` is an absolute `https://…` reference or any
+      repo-relative path that exists; a path with no file behind it is refused,
+      and `keel/HANDOFF.md` is a pointer override rather than an owner.
       Quote the wording a reader would search for rather than only listing
       files, because the text that goes stale is the text the author was not
       already holding in mind; naming it while tasks are authored is what lets

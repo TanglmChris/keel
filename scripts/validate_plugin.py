@@ -3628,6 +3628,90 @@ SCHEMA_COPY_PAIRS = (
 )
 
 
+def validate_authoring_surface_owner_and_tags_scenario() -> int:
+    label = "authoring-surface-owner-and-tags"
+
+    # Both rules this change adds widen what a gate accepts. An author only
+    # benefits if the shipped surface says so, so the template, the artifact
+    # instruction the CLI hands back, and the resident protocol each state them.
+    template = (
+        ROOT / "openspec/schemas/keel-spec-driven/templates/tasks.md"
+    ).read_text(encoding="utf-8")
+    resident = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    # Read the instruction the way an author receives it — through the CLI in a
+    # repository Keel installed — rather than from the schema file it is
+    # composed from, so a change that never reaches the author is a failure.
+    with tempfile.TemporaryDirectory(prefix="keel-authoring-surface-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        install = run_keel(repo, "--install")
+        if install.returncode != 0:
+            report(f"{label} keel --install failed.")
+            report((install.stderr or install.stdout).strip())
+            return 1
+        created = run_openspec(repo, "new", "change", "surface-probe")
+        if created is None:
+            report(f"{label} skipped: the openspec CLI is not on PATH.")
+            return 3
+        if created.returncode != 0:
+            report(f"{label} could not scaffold a change to read the instruction.")
+            report((created.stderr or created.stdout).strip())
+            return 1
+        instructions = run_openspec(
+            repo, "instructions", "tasks", "--change", "surface-probe"
+        )
+        if instructions is None or instructions.returncode != 0:
+            report(f"{label} could not read the tasks artifact instruction.")
+            if instructions is not None:
+                report((instructions.stderr or instructions.stdout).strip())
+            return 1
+        instruction = instructions.stdout
+
+    for surface, text in (("tasks template", template), ("tasks instruction", instruction)):
+        for needle in (
+            "regression",
+            "at least one check untagged",
+        ):
+            if needle not in text:
+                report(f"{label} {surface} does not describe the tag: {needle}")
+                return 1
+        # D6 — the wording trap: red and green accompany the bare label.
+        if "in addition to" not in text.lower():
+            report(
+                f"{label} {surface} still reads as though `.red`/`.green` "
+                "replace the bare M<n> Evidence rather than accompanying it."
+            )
+            return 1
+        if "repo-relative path that exists" not in text:
+            report(
+                f"{label} {surface} does not state the existing-path owner form."
+            )
+            return 1
+        if "HANDOFF" not in text:
+            report(f"{label} {surface} does not state that HANDOFF is refused.")
+            return 1
+
+    for needle in (
+        "regression-only-strategy",
+        "in addition to the bare",
+        "any repo-relative path that exists",
+    ):
+        if needle not in resident:
+            report(f"{label} resident protocol does not state: {needle}")
+            return 1
+
+    for local, packaged in SCHEMA_COPY_PAIRS:
+        if (ROOT / local).read_text(encoding="utf-8") != (
+            ROOT / packaged
+        ).read_text(encoding="utf-8"):
+            report(f"{label} schema copies diverge: {local} vs {packaged}")
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_durable_owner_vocabulary_scenario() -> int:
     label = "durable-owner-vocabulary"
 
@@ -12796,6 +12880,10 @@ SCENARIOS: tuple = (
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
     ("regression-check-tag", validate_regression_check_tag_scenario),
     ("durable-owner-vocabulary", validate_durable_owner_vocabulary_scenario),
+    (
+        "authoring-surface-owner-and-tags",
+        validate_authoring_surface_owner_and_tags_scenario,
+    ),
     (
         "packaged-schema-derivation",
         validate_packaged_schema_derivation_scenario,

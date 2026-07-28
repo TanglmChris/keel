@@ -76,7 +76,7 @@
 
 ## 3. The authoring surface says both
 
-- [ ] 3.1 The template, the schema instruction, and the resident protocol carry the new forms
+- [x] 3.1 The template, the schema instruction, and the resident protocol carry the new forms
   - Covers:
     - keel-expectation-slice-evidence-gates / Gate-validated forms are expressed in the author-facing surface / Accepted Findings forms are documented for authors
     - keel-task-capsule / A regression check declares itself and is exempt from red-green / Red and green are additional to the bare label
@@ -93,14 +93,18 @@
     - M1: the tasks template and the `tasks` artifact instruction the CLI returns both enumerate the existing-repo-path owner form and describe the `(regression)` tag, and both state that `.red`/`.green` accompany the bare `M<n>` label rather than replacing it
     - M2: the resident protocol states the red-green exemption and the widened owner vocabulary, and the two schema copies and two template copies stay byte-identical to each other
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:1f2732fd4ae9fff693ef802da1f746677b2acf16b4077fdbd834d736afc9b79f
+    - M1: pass. New scenario `authoring-surface-owner-and-tags`. The tasks template and the `tasks` artifact instruction both describe the tag set, the "at least one check untagged" rule, the existing-repo-path owner form, and that `keel/HANDOFF.md` is refused; both also state that `.red`/`.green` are recorded **in addition to** the bare `M<n>` entry, which is D6's wording fix. The instruction is read the way an author receives it — `keel --install` into a temporary repository, `openspec new change`, then `openspec instructions tasks` — rather than from the schema file it is composed from, so a change that never reaches the author fails.
+    - M1.red: with the template's "IN ADDITION TO" reverted to the old "for the same check" phrasing, the scenario failed `tasks template still reads as though .red/.green replace the bare M<n> Evidence rather than accompanying it` — the exact misreading #21 reported as its second finding.
+    - M1.green: both template copies and both schema instructions carry the new wording; the scenario reads the CLI's own output and passes.
+    - M2: pass. `AGENTS.md` states `regression-only-strategy`, the "in addition to the bare" rule, and "any repo-relative path that exists"; both template copies and both schema copies are byte-identical to their packaged counterparts.
+    - M2.red: captured twice. Softening the resident sentence to "or task-start refuses it" failed `resident protocol does not state: regression-only-strategy`. Appending one line to the packaged `schema.yaml` failed `schema copies diverge: openspec/schemas/keel-spec-driven/schema.yaml vs assets/openspec/…`.
+    - M2.green: resident wording restored and the packaged copy re-synced; both halves pass.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 asserts on what the CLI actually hands an author in a repository Keel installed, which is the surface the covered scenario names ("an author consults the tasks template or the `tasks` artifact instruction"), not on the schema source. D6's clause is checked as its own assertion with its own red, because it is a distinct defect from the tag being undocumented. M2 covers the resident protocol and the byte-identity of both shipped copies, so the packaged consumer surface cannot drift from the repo-local one.
+      - Scope check: six files changed, all declared in Touch. All three mutations were reverted from byte copies taken before the first one, and `npm test` passes with baseline plus 79 scenarios. All five `Updated by: 3.1` entries were updated: I1 and I4 (the owner forms) in `AGENTS.md` and both template copies, I2 and I3 (the red-green wording) in `AGENTS.md`, both template copies, and both schema copies, and I5 as `## MODIFIED Requirements` deltas on `keel-core-gates` and `keel-expectation-slice-evidence-gates`.
+      - Findings: none
     - Blocker: none
 
 ## Invalidates
