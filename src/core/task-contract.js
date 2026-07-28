@@ -130,6 +130,9 @@ const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
   "regression-first",
 ]);
 
+// Tags an M<n> check may carry after its label, as a comma-separated set.
+const COMMAND_TAGS = new Set(["fast", "full", "regression"]);
+
 // Single source of truth for the accepted completion Review `Status`
 // vocabulary. Consumed by both the completion gate (src/core/gates.js) and the
 // context "already reviewed" probe (src/core/context.js) so the two never
@@ -156,12 +159,26 @@ function verification(task) {
     ? compact.filter((entry) => !/^Strategy:\s*/i.test(entry))
     : fieldValues(task, "Commands");
   const commands = commandSource.map((entry) => {
-    // An optional (fast)/(full) layer tag after the M<n> label marks which
-    // checks the fast inner loop runs; an untagged check is full.
-    const match = entry.match(/^(M[1-9]\d*)(?:\s*\((fast|full)\))?:\s*(.*)$/);
-    return match
-      ? { label: match[1], layer: match[2] || "full", check: normalizeText(match[3]) }
-      : { label: null, layer: "full", check: entry };
+    // An optional tag set after the M<n> label. `fast`/`full` marks which checks
+    // the fast inner loop runs; `regression` marks a check that asserts
+    // something already green is still green, which has no honest red and is
+    // therefore exempt from the red-green evidence requirement. A check may
+    // carry both, so the tag is a comma-separated set rather than one word.
+    const match = entry.match(/^(M[1-9]\d*)(?:\s*\(([^)\n]*)\))?:\s*(.*)$/);
+    if (!match) return { label: null, layer: "full", regression: false, check: entry };
+    const tags = (match[2] || "")
+      .split(",")
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean);
+    if (tags.some((tag) => !COMMAND_TAGS.has(tag))) {
+      return { label: null, layer: "full", regression: false, check: entry };
+    }
+    return {
+      label: match[1],
+      layer: tags.includes("fast") ? "fast" : "full",
+      regression: tags.includes("regression"),
+      check: normalizeText(match[3]),
+    };
   });
   return {
     compact: compact.length > 0,
@@ -189,7 +206,9 @@ function commandLabelProblems(task) {
       malformed = true;
       problems.push({
         code: "invalid-command-label",
-        message: `Command entry must use an M<n> label: ${entry}`,
+        message: `Command entry must use an M<n> label, optionally followed by `
+          + `a tag set drawn from ${[...COMMAND_TAGS].join(", ")} — `
+          + `for example \`M2 (regression): …\`: ${entry}`,
       });
       continue;
     }
@@ -264,7 +283,7 @@ function taskStartContractProblems(task) {
         },
       ];
     }
-    return commandLabelProblems(task);
+    return [...commandLabelProblems(task), ...regressionOnlyProblems(task)];
   }
   if (!touch.some((entry) => isConcrete(entry))) {
     return [
@@ -273,9 +292,34 @@ function taskStartContractProblems(task) {
         message: "implementation and plan-first require a concrete Touch path.",
       },
       ...commandLabelProblems(task),
+      ...regressionOnlyProblems(task),
     ];
   }
-  return commandLabelProblems(task);
+  return [...commandLabelProblems(task), ...regressionOnlyProblems(task)];
+}
+
+// A red-green strategy whose every check is exempt from red-green is that
+// strategy in name only, and the tag would become the escape hatch rather than
+// the declaration it is meant to be.
+function regressionOnlyProblems(task) {
+  const parsed = verification(task);
+  if (!RED_GREEN_VERIFICATION_STRATEGIES.has(parsed.strategy.toLowerCase())) {
+    return [];
+  }
+  const labelled = parsed.commands.filter((entry) => entry.label);
+  if (labelled.length === 0 || labelled.some((entry) => !entry.regression)) {
+    return [];
+  }
+  return [
+    {
+      code: "regression-only-strategy",
+      message:
+        `\`${parsed.strategy}\` requires at least one check that is not tagged `
+        + "`(regression)`, because a regression check has no red to record. "
+        + "Untag the check that proves the new behavior, or name a strategy "
+        + "that is not red-green.",
+    },
+  ];
 }
 
 function requiredFieldProblems(task) {
@@ -803,15 +847,17 @@ function compileTaskContract(repo, change, task) {
     acceptance: [...new Set([...derivedAcceptance, ...explicitAcceptance])],
     verification: {
       strategy: taskVerification.strategy,
-      // Emit the layer only when a check opts into the fast inner loop, so
-      // untagged (full) checks keep their existing capsule shape and fingerprint.
+      // Emit a tag only when the check opts out of a default, so an untagged
+      // check keeps the capsule shape and fingerprint it had before either tag
+      // existed. `layer` appears only for `fast`, `regression` only when true.
       commands: taskVerification.commands
         .filter((entry) => entry.label)
-        .map((entry) =>
-          entry.layer && entry.layer !== "full"
-            ? { label: entry.label, check: entry.check, layer: entry.layer }
-            : { label: entry.label, check: entry.check }
-        ),
+        .map((entry) => {
+          const emitted = { label: entry.label, check: entry.check };
+          if (entry.layer && entry.layer !== "full") emitted.layer = entry.layer;
+          if (entry.regression) emitted.regression = true;
+          return emitted;
+        }),
     },
     boundaries: {
       autonomy,

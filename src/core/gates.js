@@ -435,14 +435,24 @@ function completionChecks(repo, task, contract = null) {
     ? contract.capsule.verification.strategy.toLowerCase()
     : "";
   if (RED_GREEN_VERIFICATION_STRATEGIES.has(strategy)) {
+    // A `(regression)` check asserts that something already green is still
+    // green, so it has no honest red. It is exempt from red-green but not from
+    // evidence: the bare-label check above still applies to it.
+    const exempt = new Set(
+      (contract ? contract.capsule.verification.commands : [])
+        .filter((entry) => entry.regression)
+        .map((entry) => entry.label)
+    );
     for (const label of commands) {
+      if (exempt.has(label)) continue;
       for (const phase of ["red", "green"]) {
         if (!isConcrete(evidenceValue(task, `${label}.${phase}`))) {
           problems.push(
             problem(
               "missing-strategy-evidence",
               `${strategy} requires concrete ${label}.${phase} Evidence for `
-                + "the same behavior check."
+                + "the same behavior check. Tag the check `(regression)` if it "
+                + "asserts that something already green stays green."
             )
           );
         }

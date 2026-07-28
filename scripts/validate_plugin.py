@@ -3628,6 +3628,166 @@ SCHEMA_COPY_PAIRS = (
 )
 
 
+def regression_tag_fixture(
+    commands: tuple[str, ...],
+    evidence: tuple[str, ...],
+    *,
+    strategy: str = "vertical-tdd",
+) -> str:
+    return (
+        task_contract_fixture(commands=commands, evidence=evidence)
+        .replace(
+            "  - Commands:\n",
+            f"  - Verification Strategy: {strategy}\n  - Commands:\n",
+        )
+        .replace("      - Status: pending\n", "      - Status: pass\n")
+        .replace(
+            "      - Acceptance check: pending\n",
+            "      - Acceptance check: behavior proven through the public CLI.\n",
+        )
+        .replace(
+            "      - Scope check: pending\n",
+            "      - Scope check: writes stayed inside Touch.\n",
+        )
+        .replace("      - Findings: pending\n", "      - Findings: none\n")
+    )
+
+
+def validate_regression_check_tag_scenario() -> int:
+    label = "regression-check-tag"
+
+    # A regression check asserts that something already green is still green, so
+    # it has no honest red. Requiring one leaves an author fabricating evidence
+    # or folding the guard into the behavior check; the tag is the third option.
+    with tempfile.TemporaryDirectory(prefix="keel-regression-tag-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+
+        def complete(fixture: str) -> dict:
+            write_text(tasks_path, fixture)
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return json.loads(result.stdout)
+
+        def start(fixture: str) -> dict:
+            write_text(tasks_path, fixture)
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return json.loads(result.stdout)
+
+        mixed_commands = (
+            "M1: behavior reaches the public interface",
+            "M2 (regression): the existing suite stays green",
+        )
+
+        # M1 — a tagged check completes without red/green, and the untagged one
+        # still needs both.
+        payload = complete(
+            regression_tag_fixture(
+                mixed_commands,
+                (
+                    "M1: behavior exercised.",
+                    "M1.red: failed before the implementation.",
+                    "M1.green: passed after.",
+                    "M2: existing suite still green.",
+                ),
+            )
+        )
+        if payload.get("status") != "pass":
+            report(f"{label} refused a tagged regression check that needs no red.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # D5 — the exemption is from red-green, not from evidence.
+        payload = complete(
+            regression_tag_fixture(
+                mixed_commands,
+                (
+                    "M1: behavior exercised.",
+                    "M1.red: failed before the implementation.",
+                    "M1.green: passed after.",
+                    "M2: pending",
+                ),
+            )
+        )
+        if payload.get("status") != "fail" or not any(
+            "M2" in item.get("message", "")
+            for item in payload.get("problems", [])
+        ):
+            report(f"{label} completed a tagged check with no evidence at all.")
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # M2 — the strategy cannot be emptied out by tagging every check.
+        payload = start(
+            regression_tag_fixture(
+                (
+                    "M1 (regression): the existing suite stays green",
+                    "M2 (regression): the golden files stay byte-identical",
+                ),
+                ("M1: pending", "M2: pending"),
+            )
+        )
+        codes = {item.get("code") for item in payload.get("problems", [])}
+        if payload.get("status") != "fail" or "regression-only-strategy" not in codes:
+            report(
+                f"{label} accepted a red-green strategy whose every check is tagged."
+            )
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # M3 — an untagged check emits no tag key, so its capsule and fingerprint
+        # are byte-identical to what they were before the tag existed.
+        payload = start(
+            regression_tag_fixture(
+                ("M1: behavior reaches the public interface",),
+                ("M1: pending",),
+            )
+        )
+        entries = (
+            payload.get("contract", {})
+            .get("capsule", {})
+            .get("verification", {})
+            .get("commands", [])
+        )
+        if payload.get("status") != "pass" or [sorted(entry) for entry in entries] != [
+            ["check", "label"]
+        ]:
+            report(
+                f"{label} changed the compiled shape of an untagged check, which "
+                "moves every recorded contract fingerprint."
+            )
+            report(json.dumps(entries, indent=2))
+            return 1
+
+        # And a tagged check does declare itself in the capsule, so the exemption
+        # is a visible term of the contract rather than a silent skip.
+        payload = start(
+            regression_tag_fixture(mixed_commands, ("M1: pending", "M2: pending"))
+        )
+        tagged = next(
+            (
+                entry
+                for entry in payload.get("contract", {})
+                .get("capsule", {})
+                .get("verification", {})
+                .get("commands", [])
+                if entry.get("label") == "M2"
+            ),
+            None,
+        )
+        if not tagged or tagged.get("regression") is not True:
+            report(f"{label} did not record the regression tag in the capsule.")
+            report(json.dumps(payload.get("contract", {}), indent=2))
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_packaged_schema_derivation_scenario() -> int:
     label = "packaged-schema-derivation"
 
@@ -12477,6 +12637,7 @@ SCENARIOS: tuple = (
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
+    ("regression-check-tag", validate_regression_check_tag_scenario),
     (
         "packaged-schema-derivation",
         validate_packaged_schema_derivation_scenario,
