@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.3.5"
-PROTOCOL_VERSION = "5.3.5"
+PACKAGE_VERSION = "5.3.6"
+PROTOCOL_VERSION = "5.3.6"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3681,6 +3681,88 @@ SCHEMA_COPY_PAIRS = (
         "assets/openspec/schemas/keel-spec-driven/schema.yaml",
     ),
 )
+
+
+def validate_dry_run_overlay_accounting_scenario() -> int:
+    label = "dry-run-overlay-accounting"
+
+    # A dry run is relied on, so it is wrong in both directions: naming a write
+    # that will not happen trains the reader to ignore it, and omitting one
+    # breaks the promise the dry run exists to make. `--check` used to omit the
+    # overlay step entirely while `--install --dry-run` claimed every surface.
+    def overlay_lines(text: str) -> list[str]:
+        return [line for line in text.splitlines() if "overlay" in line]
+
+    def counts(text: str) -> str | None:
+        found = re.search(r"refreshed=(\d+) current=(\d+) missing=(\d+)", text)
+        return found.group(0) if found else None
+
+    with tempfile.TemporaryDirectory(prefix="keel-dry-run-overlay-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        # The overlay surfaces are files OpenSpec generates; install merges into
+        # them and skips the ones that are absent. Create them so this scenario
+        # exercises the classification rather than the missing branch.
+        for relative in (
+            ".claude/skills/openspec-propose/SKILL.md",
+            ".claude/skills/openspec-apply-change/SKILL.md",
+            ".claude/skills/openspec-archive-change/SKILL.md",
+            ".claude/commands/opsx/propose.md",
+            ".claude/commands/opsx/apply.md",
+            ".claude/commands/opsx/archive.md",
+        ):
+            write_text(repo / relative, "# OpenSpec surface\n\nGenerated body.\n")
+        if run_keel(repo, "--install", "--target", "claude").returncode != 0:
+            report(f"{label} could not install a fixture repository.")
+            return 1
+
+        # Nothing stale: neither dry run may name a file.
+        check = run_keel(repo, "--check", "--target", "claude")
+        if any("would refresh OpenSpec" in line and ".md" in line
+               for line in overlay_lines(check.stdout)):
+            report(f"{label} named a surface that would not change.")
+            report("\n".join(overlay_lines(check.stdout)))
+            return 1
+
+        # Make exactly one surface stale and require both dry runs to say so.
+        stale = repo / ".claude/skills/openspec-apply-change/SKILL.md"
+        if not stale.is_file():
+            report(f"{label} fixture has no overlay surface to make stale.")
+            return 1
+        original = stale.read_text(encoding="utf-8")
+        stale.write_text(
+            re.sub(r"(keel:openspec-surface-overlay version=)[0-9.]+", r"\g<1>0.0.1",
+                   original, count=1),
+            encoding="utf-8",
+        )
+
+        check = run_keel(repo, "--check", "--target", "claude")
+        dry = run_keel(repo, "--install", "--dry-run", "--target", "claude")
+        named = [line for line in overlay_lines(check.stdout) if ".md" in line]
+        if len(named) != 1 or "openspec-apply-change" not in named[0]:
+            report(f"{label} --check did not name exactly the one stale surface.")
+            report("\n".join(overlay_lines(check.stdout)) or "(no overlay output)")
+            return 1
+        if counts(check.stdout) != counts(dry.stdout):
+            report(f"{label} the two dry-run entry points disagree.")
+            report(f"--check: {counts(check.stdout)}  --install --dry-run: {counts(dry.stdout)}")
+            return 1
+        if "0.0.1" not in stale.read_text(encoding="utf-8"):
+            report(f"{label} a dry run wrote to the surface it was describing.")
+            return 1
+
+        # And the real run reports what the dry run promised.
+        real = run_keel(repo, "--install", "--target", "claude")
+        if counts(real.stdout) != counts(check.stdout):
+            report(f"{label} the real run's counts differ from the plan's.")
+            report(f"plan: {counts(check.stdout)}  real: {counts(real.stdout)}")
+            return 1
+        if "0.0.1" in stale.read_text(encoding="utf-8"):
+            report(f"{label} the real run did not refresh the stale surface.")
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
 
 
 def validate_anchor_reverification_bound_scenario() -> int:
@@ -13073,6 +13155,7 @@ SCENARIOS: tuple = (
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
     ("regression-check-tag", validate_regression_check_tag_scenario),
     ("durable-owner-vocabulary", validate_durable_owner_vocabulary_scenario),
+    ("dry-run-overlay-accounting", validate_dry_run_overlay_accounting_scenario),
     ("anchor-reverification-bound", validate_anchor_reverification_bound_scenario),
     (
         "authoring-surface-owner-and-tags",

@@ -1082,15 +1082,10 @@ function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
     missing: 0,
   };
 
-  if (options.dryRun) {
-    for (const surface of surfaces) {
-      process.stdout.write(
-        `keel: would refresh OpenSpec ${surface.action} overlay in ${surface.path}\n`
-      );
-    }
-    return { status: 0, ...counts };
-  }
-
+  // A dry run and the real run classify each surface the same way, from the
+  // same read-and-compare, so the plan cannot drift from the outcome. The dry
+  // run used to list every surface without reading one, which over-reported as
+  // badly as `--check` under-reported by never reaching this step at all.
   for (const surface of surfaces) {
     if (!fs.existsSync(surface.path)) {
       counts.missing += 1;
@@ -1102,14 +1097,20 @@ function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
       counts.current += 1;
       continue;
     }
-    fs.writeFileSync(surface.path, next, "utf8");
     counts.refreshed += 1;
+    if (options.dryRun) {
+      process.stdout.write(
+        `keel: would refresh OpenSpec ${surface.action} overlay in ${surface.path}\n`
+      );
+      continue;
+    }
+    fs.writeFileSync(surface.path, next, "utf8");
   }
 
   if (counts.refreshed > 0 || counts.current > 0) {
     process.stdout.write(
-      "keel: OpenSpec apply/archive overlay "
-        + `refreshed=${counts.refreshed} current=${counts.current} `
+      `keel: ${options.dryRun ? "would refresh " : ""}OpenSpec apply/archive `
+        + `overlay refreshed=${counts.refreshed} current=${counts.current} `
         + `missing=${counts.missing}\n`
     );
   }
@@ -1758,7 +1759,20 @@ function runAction(options) {
       return checkStatus;
     }
     process.stdout.write("\nDry-run install plan:\n");
-    return runPython(INSTALL_SCRIPT, installerArgs({ ...options, dryRun: true }));
+    const planStatus = runPython(
+      INSTALL_SCRIPT,
+      installerArgs({ ...options, dryRun: true })
+    );
+    if (planStatus !== 0) {
+      return planStatus;
+    }
+    // The overlay refresh is a Node-side step the installer's plan never sees,
+    // so without this `--check` reports an empty plan for a run that writes.
+    return refreshOpenSpecSurfaceOverlay(
+      path.resolve(options.repo || process.cwd()),
+      options.target,
+      { dryRun: true }
+    ).status;
   }
 
   if (options.action === "doctor") {

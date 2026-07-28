@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.3.6 - the dry run accounts for what the real run writes
+
+Closes issue #27. No install behavior changes; only what the dry runs say about it.
+
+- **`keel --check` printed an empty plan for a run that writes** (closes #27). The OpenSpec overlay refresh is a Node-side step after the Python installer, and `--check` only ran the installer, so the refresh was structurally outside its plan. A dry run exists so a reader can decide whether to proceed; one that under-reports offers a promise it does not keep. `--check` now runs the overlay step in dry-run mode. (keel-target-surface-diagnostics)
+- **The one place overlays *were* mentioned was wrong in the opposite direction.** `keel --install --dry-run` announced "would refresh" for every surface without reading any of them — with one stale marker out of six it claimed all six would change. Both dry runs now classify each surface with the same read-and-compare the real run uses, so they name only what would change and report it in the real run's own `refreshed=/current=/missing=` shape.
+- The two paths now share one definition of pending work, so a change to what counts as current cannot move one without the other. Measured: with one surface stale, both dry runs print `refreshed=1 current=5 missing=0` and the install immediately afterwards reports the same.
+- Filed **#29** while writing this change's own tasks. `## Invalidates` and `## Expectation Coverage` are absorbed into the last task's `Evidence` field, because the field parser appends every non-field line to the current field and a `##` heading does not stop it. Quoting a token like an angle-bracket slot inside either section therefore makes the Evidence non-concrete and `task-start` complains about a task whose Evidence is fine. **5.3.3's fingerprint claim holds** — verified, an added entry leaves the last task's fingerprint byte-identical — but its "stays outside every task body" does not. This one is sharpened by #16: an invalidation entry is *supposed* to quote wording that may well contain such a token.
+- Validator at **81 scenarios**.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.3.6; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.3.5 - the suite stops writing to the repository it validates
 
 Closes issue #26. No product behavior changes; `keel --install` against the source repository is still supported. What changes is that the *test* stops calling it there.
