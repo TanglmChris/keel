@@ -946,18 +946,17 @@ def snapshot_files(root: Path) -> dict[str, str]:
     return snapshot
 
 
-def packaged_openspec_schema_install_paths() -> list[str]:
-    schema_root = (
-        ROOT
-        / "dist"
-        / "shared"
-        / "assets"
-        / "openspec"
-        / "schemas"
-        / OPENSPEC_SCHEMA_NAME
+def packaged_openspec_schema_install_paths(root: Path | None = None) -> list[str]:
+    # The root the installer itself reads (install_to_repo.openspec_schema_actions),
+    # which raises on the same condition. A validator that answered `[]` here left
+    # six install/uninstall/clear assertions iterating nothing and reporting pass.
+    schema_root = root if root is not None else (
+        ROOT / "assets" / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
     )
     if not schema_root.is_dir():
-        return []
+        raise FileNotFoundError(
+            f"packaged OpenSpec schema root is missing: {schema_root}"
+        )
 
     return [
         (OPENSPEC_SCHEMA_ROOT / path.relative_to(schema_root)).as_posix()
@@ -3640,6 +3639,62 @@ SCHEMA_COPY_PAIRS = (
         "assets/openspec/schemas/keel-spec-driven/schema.yaml",
     ),
 )
+
+
+def validate_packaged_schema_derivation_scenario() -> int:
+    label = "packaged-schema-derivation"
+
+    # The helper derives the consumer-repo paths every install/uninstall/clear
+    # assertion iterates. When its root stopped existing it returned an empty
+    # list, so those loops compared nothing and reported success. Anchor it to
+    # what the installer really writes, and make emptiness a failure here.
+    try:
+        packaged_openspec_schema_install_paths(ROOT / "no-such-packaged-root")
+    except FileNotFoundError as error:
+        if "no-such-packaged-root" not in str(error):
+            report(f"{label} missing-root failure does not name the path it expected.")
+            report(str(error))
+            return 1
+    else:
+        report(
+            f"{label} returned a set for a missing packaged root instead of failing; "
+            "an absent root must not silently empty its callers' assertions."
+        )
+        return 1
+
+    derived = packaged_openspec_schema_install_paths()
+    if not derived:
+        report(
+            f"{label} derived no packaged schema paths, so every assertion that "
+            "iterates them verifies nothing."
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-packaged-schema-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        install = run_keel(repo, "--install")
+        if install.returncode != 0:
+            report(f"{label} keel --install failed.")
+            report((install.stderr or install.stdout).strip())
+            return 1
+
+        schema_root = repo / OPENSPEC_SCHEMA_ROOT
+        installed = sorted(
+            path.relative_to(repo).as_posix()
+            for path in schema_root.rglob("*")
+            if path.is_file()
+        )
+        if installed != sorted(derived):
+            report(
+                f"{label} derived paths do not match what keel --install wrote."
+            )
+            report(f"derived:   {sorted(derived)}")
+            report(f"installed: {installed}")
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
 
 
 def validate_invalidation_authoring_surface_scenario() -> int:
@@ -12452,6 +12507,10 @@ SCENARIOS: tuple = (
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
     ("resident-topic-matching", validate_resident_topic_matching_scenario),
     ("task-start-invalidation", validate_task_start_invalidation_scenario),
+    (
+        "packaged-schema-derivation",
+        validate_packaged_schema_derivation_scenario,
+    ),
     (
         "invalidation-authoring-surface",
         validate_invalidation_authoring_surface_scenario,
