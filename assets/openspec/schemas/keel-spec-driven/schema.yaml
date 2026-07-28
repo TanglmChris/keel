@@ -108,8 +108,11 @@ artifacts:
       Accepted hidden-knowledge assumptions from risk-triggered deep
       alignment or a domain lens are critical expectations when they
       affect completion definition or execution boundaries.
-      Covers references the relevant D/F/A/Q identifiers. An unresolved Q<n>
-      without an authorized fallback blocks implementation.
+      Covers references the relevant D/F/A/Q identifiers. A Q<n> that opens a
+      Covers entry is an open question and blocks implementation without an
+      authorized fallback; the same identifier named inside an entry whose
+      subject is a fact is a citation and does not block, so a resolved question
+      can be cited beside the fact that closed it.
       A new or materially expanded dedicated skill remains non-executable until
       design or task evidence identifies authoritative sources, provenance and license
       implications, realistic positive and negative trigger cases, and

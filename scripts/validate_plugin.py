@@ -1307,7 +1307,11 @@ def validate_expectation_slice_gates_scenario() -> int:
         "Covers:",
         "source expectation",
         "D<n>/F<n>/A<n>/Q<n>",
-        "unresolved Q<n>",
+        # The rule is no longer "an unresolved Q<n> requires a fallback"
+        # unconditionally: the identifier blocks only where it opens the entry,
+        # so a resolved question can be cited beside the fact that closed it.
+        "OPENS an entry",
+        "requires an authorized fallback",
     ]
     design_template_snippets = [
         "D<n>",

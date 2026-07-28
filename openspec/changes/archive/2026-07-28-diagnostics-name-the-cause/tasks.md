@@ -93,7 +93,7 @@
 
 ## 2. The shipped statements agree with the shipped behavior
 
-- [ ] 2.1 Promote the deltas, restate the affected authoring rules, and archive the change
+- [x] 2.1 Promote the deltas, restate the affected authoring rules, and archive the change
   - Covers:
     - keel-task-capsule / A Covers question reference is the subject of its entry
     - keel-core-gates / task-complete infers only a task that has started
@@ -105,6 +105,7 @@
     - openspec/schemas/keel-spec-driven/templates/tasks.md
     - assets/openspec/schemas/keel-spec-driven/schema.yaml
     - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - scripts/validate_plugin.py
     - AGENTS.md
     - keel/CHANGELOG.md
   - Verify:
@@ -112,14 +113,14 @@
     - M1: after the deltas are promoted into `openspec/specs`, `npx openspec validate diagnostics-name-the-cause` reports no error, `python scripts/validate_plugin.py` reports pass at the raised scenario count, and both copies of `schema.yaml` and both copies of the tasks template state that an unresolved question blocks only when it opens a Covers entry.
     - M2: `node bin/keel.js gate change-close . --change diagnostics-name-the-cause --action archive --json` returns pass, after which this task is authorized to archive the change with `--skip-specs`.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:fa13f010bad496c4b1f93df8e3e985f96400371aadf6682ee03f1b6af98f7f9b
+    - M1: `npx openspec validate diagnostics-name-the-cause` reports "Change 'diagnostics-name-the-cause' is valid" with the three deltas promoted into `openspec/specs`; `npm test` reports baseline plus 85 scenarios; `diff` confirms both `schema.yaml` copies and both tasks-template copies are byte-identical, and each pair now states that the identifier blocks only where it opens a Covers entry, so a resolved question can be cited beside the fact that closed it.
+    - M2: `node bin/keel.js gate change-close . --change diagnostics-name-the-cause --action archive --json` returns pass once this task is checked, and the change is then archived with `--skip-specs` under the authorization this task carries.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: every statement the change made stale is corrected in the same change, which is what E3 asks. The two behavior rules this task restates — the question-reference scope and the completion-selection refusal — are the two an author reads before writing a task, so they are carried in AGENTS.md as well as in the specs and the shipped schema.
+      - Scope check: the promoted specs, both schema copies, both template copies, `scripts/validate_plugin.py`, `AGENTS.md`, and `keel/CHANGELOG.md` changed, all declared in Touch; base `HEAD`.
+      - Findings: this task needed one reauthorization. Invalidates I2 named the shipped template sentence but not the `task_template_snippets` assertion in the suite that pins it, so promoting the wording broke `expectation-slice-gates` on a file outside the original Touch. Recorded as I7 and the Touch expanded before continuing. The lesson generalizes: a declared invalidation should be grepped for its own wording, since the assertion that pins a sentence lives nowhere near it. Durable owner: https://github.com/TanglmChris/keel/issues/28
     - Blocker: none
 
 ## Invalidates
@@ -128,6 +129,7 @@
 - I2: "requires an authorized fallback" — the Covers slot comment in both copies of `openspec/schemas/keel-spec-driven/templates/tasks.md`. Updated by: 2.1
 - I3: "the parser falls back to expanded-v3 mode (demands Owner/Mode/Commands/…)" — gotcha 2 in the native memory file `keel-dogfood-authoring-gotchas.md`. After 1.3 an absent verification form is reported as one missing field, and the expanded set no longer names `Owner` or `Mode`. Updated by: 2.1
 - I4: "Fill Evidence + Review → check the box → `keel gate task-complete`" — step 4 of the loop in the native memory file `dogfood-full-discipline.md`. That order is the reverse of the documented one and contradicts the loop recorded in `keel-dogfood-authoring-gotchas.md`; 1.4 makes the order load-bearing for no-arg selection. Updated by: 2.1
+- I7: "unresolved Q" — the entry reading `unresolved Q<n>` in the `task_template_snippets` required-text list in the `expectation-slice-gates` scenario in `scripts/validate_plugin.py`, which pins the template sentence I2 replaces. Updated by: 2.1
 - I6: "is a genuine expanded v3 task and must keep its existing required-field diagnostics" — the fixture comment in the `non-concrete-verify-diagnostic` scenario in `scripts/validate_plugin.py`. After 1.3 that task is reported as one missing verification form instead. Updated by: 1.3
 - I5: "must define a concrete public check" — the unqualified wording quoted in issue #28 item 5. After 1.2 it appears only for an empty or `pending` check. Durable owner: https://github.com/TanglmChris/keel/issues/28
 
