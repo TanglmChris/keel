@@ -48,6 +48,8 @@ const {
   STANDING_AUTHORIZATION_ACTIONS,
   readPrecedentStore,
   readStandingAuthorization,
+  readTriagePolicy,
+  triageIssue,
 } = require("../src/core/config");
 
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
@@ -177,6 +179,7 @@ function parseArgs(argv) {
     guardSubcommand: null,
     lensesSubcommand: null,
     lensName: null,
+    labels: null,
     openspecArgs: [],
     force: false,
     projectionEvent: null,
@@ -218,6 +221,14 @@ function parseArgs(argv) {
     }
     if (arg === "lenses" && parsed.action === null && parsed.repo === null) {
       parsed.action = "lenses";
+      continue;
+    }
+    if (arg === "triage" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "triage";
+      continue;
+    }
+    if (arg === "--labels" && parsed.action === "triage") {
+      parsed.labels = argv[++index] || "";
       continue;
     }
     if (arg === "openspec" && parsed.action === null && parsed.repo === null) {
@@ -471,7 +482,7 @@ function parseArgs(argv) {
     fail(`invalid target: ${parsed.target}`);
   }
   if (
-    !["context", "gate", "capabilities", "project", "guard"].includes(
+    !["context", "gate", "capabilities", "project", "guard", "triage"].includes(
       parsed.action
     )
     && (
@@ -539,6 +550,16 @@ function parseArgs(argv) {
     }
   } else if (parsed.lensesSubcommand !== null || parsed.lensName !== null) {
     fail("lens subcommands apply only to keel lenses");
+  }
+  if (parsed.action === "triage") {
+    if (parsed.labels === null) {
+      fail(
+        "keel triage requires --labels; Keel never fetches the issue, so pass "
+          + "what `gh issue view --json labels` returned"
+      );
+    }
+  } else if (parsed.labels !== null) {
+    fail("--labels applies only to keel triage");
   }
   if (parsed.noGuard && parsed.action !== "gate") {
     fail("--no-guard applies only to keel gate task-start");
@@ -1355,6 +1376,7 @@ function runDoctor(options) {
   printLensSurface(repo, options.target);
   const authorizationOk = printStandingAuthorizationSurface(repo);
   printPrecedentSurface(repo);
+  printTriageSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
@@ -1430,6 +1452,19 @@ function printStandingAuthorizationSurface(repo) {
     );
   }
   return true;
+}
+
+function printTriageSurface(repo) {
+  process.stdout.write("\nUnattended triage:\n");
+  const { labels } = readTriagePolicy(repo);
+  printDoctorLine(
+    "triage",
+    labels.length > 0 ? "ok" : "none",
+    labels.length > 0
+      ? `issues labelled ${labels.join(", ")} may start work unattended; `
+        + "admission decides nothing after it, and no declaration authorizes a merge"
+      : "undeclared; no issue starts work unattended"
+  );
 }
 
 function printPrecedentSurface(repo) {
@@ -1713,6 +1748,31 @@ function runAction(options) {
       : 3;
   }
 
+  if (options.action === "triage") {
+    const repo = path.resolve(options.repo || process.cwd());
+    const labels = String(options.labels || "")
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean);
+    const verdict = triageIssue(repo, labels);
+    const payload = {
+      schemaVersion: 1,
+      command: "triage",
+      ...verdict,
+      warnings: [
+        "Admission starts work and authorizes nothing after it; every gate, "
+          + "evidence requirement, Review, and the write guard still apply.",
+        "An unattended run may open a pull request and may not merge one.",
+        "Keel schedules nothing; the loop belongs to the host runtime.",
+      ],
+    };
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    } else {
+      process.stdout.write(`Triage: ${verdict.status}\n${verdict.reason}\n`);
+    }
+    return 0;
+  }
   if (options.action === "lenses") {
     if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
       fail("lenses does not accept install or update options");

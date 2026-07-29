@@ -1,9 +1,10 @@
 # Keel project configuration.
 #
-# Three independent declarations live here: fast_check, which names a command;
+# Four independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
-# proceed without being asked each time; and precedents, which points at a
-# directory of decisions already made and the reasoning behind them.
+# proceed without being asked each time; precedents, which points at a
+# directory of decisions already made and the reasoning behind them; and
+# triage, which names which work may start without being asked about at all.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -55,3 +56,23 @@ authorize:
 # this one — including CI — will not have it, and that is the point: a declared
 # path that is not there must behave exactly as no declaration.
 precedents: ../decision-precedents
+
+# triage (optional): the issue labels that admit work into an unattended run.
+# Evaluate with `keel triage --labels <labels>`, passing what `gh` returned —
+# Keel never fetches the issue, because a check that reaches the network trades
+# the local, offline, deterministic evaluation that makes its answer worth
+# trusting. An absent or empty block admits nothing, which is the default.
+#
+# A label is the unit deliberately: a human applies one to a specific issue, so
+# the policy authorizes a class curated one issue at a time rather than a guess
+# about which issues look easy. Keel cannot verify that a human applied it; if
+# automation can label issues, this declaration is broader than it appears.
+#
+# What this does NOT do: admission answers "may this begin" and nothing after
+# it. Alignment still escalates material choices, every gate still runs, and the
+# write guard still binds. It also never authorizes a merge — an unattended run
+# may open a pull request and may not merge one, and no key here changes that.
+# Admission comes from this declaration and never from a precedent.
+#
+# This repository declares none. Doing so would start unattended work on its own
+# issues, which is a decision for its owner rather than a default worth shipping.

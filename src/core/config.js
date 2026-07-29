@@ -11,18 +11,18 @@ const STANDING_AUTHORIZATION_ACTIONS = ["commit", "push", "release", "archive"];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
 
-// The declaration shares keel/config.yaml with fast_check, so the reader stays
+// The declarations share keel/config.yaml with fast_check, so the reader stays
 // line-oriented rather than pulling in a YAML dependency for a format Keel
 // controls and keeps flat on purpose.
-function readStandingAuthorization(repo) {
+function configList(repo, key) {
   const configPath = path.join(repo, "keel", "config.yaml");
-  const declared = [];
-  const unknown = [];
-  if (!fs.existsSync(configPath)) return { declared, unknown };
+  const entries = [];
+  if (!fs.existsSync(configPath)) return entries;
+  const opener = new RegExp(`^${key}\\s*:\\s*$`);
   let inBlock = false;
   for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
     if (/^\s*#/.test(line)) continue;
-    if (/^authorize\s*:\s*$/.test(line)) {
+    if (opener.test(line)) {
       inBlock = true;
       continue;
     }
@@ -32,8 +32,27 @@ function readStandingAuthorization(repo) {
     // Anything that is not a list item closes the block; the next top-level
     // key belongs to the rest of the file.
     if (!entry) break;
-    if (STANDING_AUTHORIZATION_ACTIONS.includes(entry[1])) declared.push(entry[1]);
-    else unknown.push(entry[1]);
+    entries.push(entry[1]);
+  }
+  return entries;
+}
+
+// Which issues may start work without asking. This is a declaration and never
+// an inference: "should this issue be done" sits in the materiality categories
+// that require asking, and a precedent may never move a decision out of them.
+// A label is the unit because a human applies one to a specific issue, so the
+// policy authorizes a class the owner curates one issue at a time rather than a
+// guess about which issues look easy.
+function readTriagePolicy(repo) {
+  return { labels: configList(repo, "triage") };
+}
+
+function readStandingAuthorization(repo) {
+  const declared = [];
+  const unknown = [];
+  for (const entry of configList(repo, "authorize")) {
+    if (STANDING_AUTHORIZATION_ACTIONS.includes(entry)) declared.push(entry);
+    else unknown.push(entry);
   }
   // Fail closed. A declaration Keel cannot fully read authorizes nothing,
   // because the alternative is granting the entries beside a typo while the
@@ -97,9 +116,52 @@ function readPrecedentStore(repo) {
   return { declared, path: resolved, precedents };
 }
 
+// Evaluate a declared policy against labels handed in. Keel never fetches the
+// issue: the agent reads it with `gh` and passes what it found, which keeps this
+// local, offline, deterministic, and testable without a network.
+function triageIssue(repo, labels) {
+  const { labels: accepted } = readTriagePolicy(repo);
+  const carried = labels.filter((label) => label);
+  if (accepted.length === 0) {
+    return {
+      status: "refuse",
+      accepted,
+      labels: carried,
+      reason:
+        "this repository declares no triage policy, so no issue starts work "
+        + "unattended; declare accepted labels under `triage:` in "
+        + "keel/config.yaml to change that. This is not a judgement about the "
+        + "issue.",
+    };
+  }
+  const matched = carried.filter((label) => accepted.includes(label));
+  if (matched.length > 0) {
+    return {
+      status: "admit",
+      accepted,
+      labels: carried,
+      matched,
+      reason:
+        `admitted by declared label ${matched.join(", ")}; admission starts `
+        + "work and decides nothing after it — every later gate still applies "
+        + "and a material decision still stops for the owner.",
+    };
+  }
+  return {
+    status: "refuse",
+    accepted,
+    labels: carried,
+    reason:
+      `the issue carries ${carried.length > 0 ? carried.join(", ") : "no labels"}`
+      + ` and this repository accepts ${accepted.join(", ")}.`,
+  };
+}
+
 module.exports = {
   CONFIG_RELATIVE_PATH,
   STANDING_AUTHORIZATION_ACTIONS,
   readPrecedentStore,
   readStandingAuthorization,
+  readTriagePolicy,
+  triageIssue,
 };

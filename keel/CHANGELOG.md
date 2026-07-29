@@ -1,5 +1,21 @@
 # Keel Changelog
 
+## 5.7.0 - declare what may run unattended
+
+Third layer of **#34**. 5.5.0 declared which *actions* may proceed; 5.6.0 recorded *why decisions went the way they did*. Neither said which **work** may start, so an unattended run had nothing to consult at the moment it mattered most — an issue arrives and something must decide whether it becomes a change at all.
+
+- **A repository declares which issues may start work unattended**, as a label allowlist under `triage:` in `keel/config.yaml`. `keel triage --labels <labels>` evaluates it and returns admit or refuse with a reason. Absent declaration admits nothing. (keel-unattended-triage)
+- **That decision could not have been reached any other way, and the reason is worth stating.** "Should this issue be done" sits in the materiality categories that require asking, and 5.6.0's precedent rules forbid a precedent from moving a decision out of that list — deliberately, because a system that can learn its way out of asking drifts toward asking nothing at a rate nobody notices. So no accumulation of triage history can make this automatic. The only route is the one standing authorization already established: the owner declares it, and a declaration *is* the decision rather than a claim about what the owner would decide. The precedent spec now says so explicitly, since a store of past triage decisions is the most tempting thing a reader would try to apply.
+- **A label is the unit on purpose.** A person applies one to a specific issue, so the policy admits a class the owner curates one issue at a time. The alternatives were considered and refused: author allowlists authorize a person rather than a piece of work; title or body keywords authorize whatever anyone chooses to type; and size or complexity estimates authorize the agent's guess about difficulty, which is exactly the judgement that should not be automated. Keel cannot verify a human applied the label and does not pretend to — a repository whose automation can label issues has a broader policy than it appears.
+- **Keel never fetches the issue.** The agent reads it with `gh` and passes the labels in. A check that reaches the network trades the local, offline, deterministic evaluation that makes every other Keel answer worth trusting, and it also makes the check untestable without a network. Proven under a preload that makes every network primitive throw, with the same inputs asserted to give the same answer twice.
+- **Admission answers "may this begin" and nothing after it.** Every gate, evidence requirement, Review, and the write guard behave exactly as they do for work nobody triaged — asserted by comparing a declaring repository against an identical silent one, with a positive control that was itself verified to fire.
+- **A run may open a pull request and may not merge one.** No configuration key grants a merge. Merging is where an unreviewed decision becomes the project's history, and a pull request is what makes an unattended run reviewable after the fact.
+- **Stopping at a material decision is the designed boundary, not a failure.** The protocol says so, and says not to widen the triage policy to stop it happening — without that sentence, "it keeps stopping" turns into exactly the pressure this design exists to resist.
+- **Keel schedules nothing.** `/loop`, cron, and CI triggers belong to the host runtime; claiming otherwise would be asserting a capability Keel does not have. This is a spec requirement rather than a disclaimer in prose.
+- This repository declares no triage policy of its own. Doing so would start unattended work on its own issues, which is its owner's decision rather than a default worth shipping — so unlike 5.5.0 and 5.6.0, this interface ships fixture-tested rather than in use, and that gap is recorded on #34.
+- No behavior change without a declaration, and nothing to do on upgrade. No new dependency.
+- Validator at **100 scenarios**, with three added for the declaration, its inertness, and the boundary.
+
 ## 5.6.0 - the reasoning is the part that transfers
 
 Second layer of **#34**. 5.5.0 gave a repository somewhere to record *that* an action is authorized. This gives it somewhere to record *why a decision went the way it did* — the part that would generalise to a decision not yet seen, and the part that a context reset destroys completely.

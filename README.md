@@ -192,6 +192,43 @@ gates, evidence, review, and the write guard are untouched by anything in the st
 start line reports the store's size and freshness only — precedent bodies load when a decision is
 actually being made.
 
+### Unattended runs
+
+The last thing a loop needs is permission to *start*. Declare which issues may begin work without
+being asked about:
+
+```yaml
+triage:             # issue labels that admit work; absent means nothing does
+  - auto
+```
+
+```bash
+gh issue view 42 --json labels --jq '[.labels[].name]|join(",")' | xargs keel triage --labels
+```
+
+**Keel never fetches the issue.** You pass what `gh` returned, and the evaluation stays local,
+offline and deterministic — the same properties that make every other Keel answer worth trusting.
+
+A **label** is the unit on purpose. A person applies one to one issue, so the policy admits a class
+you curate one issue at a time — not a guess about which issues look easy, which is exactly the
+judgement that should not be automated. Keel cannot check that a human applied the label; if your
+automation can label issues, this declaration is wider than it looks.
+
+**Admission answers "may this begin" and nothing after it.** Alignment still escalates every
+material choice, every gate still runs, and the write guard still binds. In particular:
+
+- An unattended run **may** triage, author, implement, verify, push where `authorize:` permits, and
+  **open a pull request**.
+- It **may not merge**. Merging is where an unreviewed decision becomes your project's history, and
+  no declaration in Keel authorizes one.
+- Admission comes from this declaration and **never from a precedent**, however much triage history
+  the store accumulates — whether an issue becomes work is a decision that stays yours to delegate
+  explicitly.
+
+**Keel schedules nothing.** `/loop`, cron, and CI triggers are your runtime's; Keel's part is making
+each step decidable with authority. And a run that stops at a real decision has ended the way it was
+designed to — resist widening the policy until it stops happening.
+
 ### Full vs Lite
 
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
@@ -285,6 +322,10 @@ keel guard clear  --json
 # (the other user-authored surface is the precedent store; see above)
 keel lenses list
 keel lenses add <name> [--force]
+
+# Unattended triage — may this issue start work without asking?
+# Keel never fetches the issue; pass what gh returned.
+keel triage --labels <l1,l2> [--json]
 
 # Install / maintenance
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]

@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.6.0"
-PROTOCOL_VERSION = "5.6.0"
+PACKAGE_VERSION = "5.7.0"
+PROTOCOL_VERSION = "5.7.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -11522,6 +11522,294 @@ def validate_precedent_store_declaration_scenario() -> int:
     return 0
 
 
+def validate_triage_declaration_scenario() -> int:
+    """Which work may start without asking is a declaration, never an inference.
+
+    The command must evaluate what it is handed. Keel does not fetch the issue,
+    because a gate that reaches the network trades the local, offline,
+    deterministic evaluation that makes its answer worth anything.
+    """
+
+    def declare(repo: Path, body: str | None) -> None:
+        (repo / "keel").mkdir(parents=True, exist_ok=True)
+        text = "fast_check: echo check\n"
+        if body is not None:
+            text += body
+        (repo / "keel" / "config.yaml").write_text(text, encoding="utf-8")
+
+    def triage(repo: Path, labels: str, env: dict | None = None) -> dict | None:
+        result = run_keel(repo, "triage", ".", "--labels", labels, "--json", env=env)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+    with tempfile.TemporaryDirectory(prefix="keel-triage-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declared label admits; anything else is refused by name.
+        declared = root / "declared"
+        declared.mkdir()
+        declare(declared, "triage:\n  - auto\n")
+        admitted = triage(declared, "auto,bug")
+        if admitted is None or admitted.get("status") != "admit":
+            report(f"triage: a declared label did not admit: {admitted}")
+            return 1
+        if "auto" not in (admitted.get("reason") or ""):
+            report(f"triage: the admission does not name the label: {admitted}")
+            return 1
+        refused = triage(declared, "bug,docs")
+        if refused is None or refused.get("status") != "refuse":
+            report(f"triage: an undeclared label was admitted: {refused}")
+            return 1
+        reason = refused.get("reason") or ""
+        for needle in ("bug", "docs", "auto"):
+            if needle not in reason:
+                report(
+                    "triage: the refusal must name both the labels carried and "
+                    f"the labels accepted; missing {needle}: {reason}"
+                )
+                return 1
+
+        # M2 — no policy refuses everything, and says so in those words.
+        for label, body in (("absent", None), ("empty", "triage:\n")):
+            silent = root / label
+            silent.mkdir()
+            declare(silent, body)
+            result = triage(silent, "auto")
+            if result is None or result.get("status") != "refuse":
+                report(f"triage: the {label} policy admitted an issue: {result}")
+                return 1
+            reason = result.get("reason") or ""
+            if "no triage policy" not in reason.lower():
+                report(
+                    f"triage: the {label} refusal does not distinguish an "
+                    f"undeclared policy from an unsuitable issue: {reason}"
+                )
+                return 1
+            out = run_keel(silent, "--doctor").stdout
+            if "triage: none" not in out:
+                report(f"triage: doctor does not report the {label} triage surface.")
+                report(out)
+                return 1
+        out = run_keel(declared, "--doctor").stdout
+        if "Unattended triage:" not in out or "triage: ok" not in out:
+            report("triage: doctor does not report a declared triage surface.")
+            report(out)
+            return 1
+
+        # M3 — no network, and the same inputs give the same answer.
+        guard = root / "no-network.cjs"
+        guard.write_text(
+            "const fail = (what) => {\n"
+            "  throw new Error('network attempted: ' + what);\n"
+            "};\n"
+            "require('net').Socket.prototype.connect = () => fail('net.connect');\n"
+            "const http = require('http');\n"
+            "http.request = () => fail('http.request');\n"
+            "http.get = () => fail('http.get');\n"
+            "const https = require('https');\n"
+            "https.request = () => fail('https.request');\n"
+            "https.get = () => fail('https.get');\n"
+            "const dns = require('dns');\n"
+            "dns.lookup = () => fail('dns.lookup');\n"
+            "globalThis.fetch = () => fail('fetch');\n",
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env["NODE_OPTIONS"] = f"--require {str(guard).replace(chr(92), '/')}"
+        # Two distinct failures, reported distinctly. Collapsing them would let
+        # a wrong verdict be reported as a network attempt, which sends the
+        # reader to the wrong place — the exact diagnostic failure this repo
+        # already has a rule against.
+        offline = triage(declared, "auto", env=env)
+        if offline is None:
+            report(
+                "triage: no JSON under the no-network guard, so evaluation "
+                "attempted network access or crashed."
+            )
+            return 1
+        if offline.get("status") != "admit":
+            report(
+                "triage: the offline run reached a different verdict than the "
+                f"online one: {offline}"
+            )
+            return 1
+        again = triage(declared, "auto", env=env)
+        if offline != again:
+            report(f"triage: the same inputs gave different answers: {offline} != {again}")
+            return 1
+
+    report("triage-declaration scenario passed.")
+    return 0
+
+
+def validate_unattended_boundary_scenario() -> int:
+    """The boundary must be readable where an unattended run will read it.
+
+    Phrases, not keywords: "unattended" appearing somewhere would satisfy a
+    keyword check while stating none of what a run may and may not do.
+    """
+
+    required = [
+        # What a run may do, and the one thing it may not.
+        "open a pull request",
+        "may not merge",
+        # Where the loop comes from.
+        "Keel schedules nothing",
+        # Stopping is the design, not a fault.
+        "designed boundary rather than a failure",
+        # Admission comes from a declaration, never from accumulated history.
+        "never from a precedent",
+    ]
+    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+    protocol = ROOT / "AGENTS.md"
+
+    for label, path in (
+        ("protocol", protocol),
+        ("canonical skill", canonical),
+        ("distributed skill", distributed),
+    ):
+        if not path.is_file():
+            report(f"unattended-boundary: missing {label}: {path}")
+            return 1
+        # Collapse whitespace: these are multi-word phrases in hard-wrapped
+        # prose, so raw matching would assert the line layout, not the wording.
+        content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        for phrase in required:
+            if phrase not in content:
+                report(f"unattended-boundary: {label} omits: {phrase}")
+                return 1
+
+    if canonical.read_bytes() != distributed.read_bytes():
+        report("unattended-boundary: the canonical and distributed skills diverged.")
+        return 1
+
+    report("unattended-boundary scenario passed.")
+    return 0
+
+
+def validate_triage_admits_only_a_start_scenario() -> int:
+    """Admission answers "may this begin". It answers nothing after that.
+
+    Same two-repository shape as the standing-authorization and precedent
+    inertness scenarios, and for the same reason: a comparison that passes when
+    two repositories agree also passes when the declaration silently failed to
+    load, so the difference is asserted before it is asserted to be inert.
+    """
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+    missing_evidence_task = complete_task.replace(
+        "    - M1: node test.js printed ok\n", "    - M1: pending\n"
+    )
+
+    def gate_result(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1", "--json"
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+        return {
+            "status": payload.get("status"),
+            "problems": sorted(
+                (problem.get("code", ""), problem.get("message", ""))
+                for problem in payload.get("problems") or []
+            ),
+        }
+
+    with tempfile.TemporaryDirectory(prefix="keel-triage-inert-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        def pair(name: str, tasks: str) -> tuple[Path, Path]:
+            declaring = root / f"{name}-declaring"
+            declaring.mkdir()
+            write_gate_fixture(declaring, tasks)
+            (declaring / "keel").mkdir(parents=True, exist_ok=True)
+            (declaring / "keel" / "config.yaml").write_text(
+                "triage:\n  - auto\n", encoding="utf-8"
+            )
+            silent = root / f"{name}-silent"
+            silent.mkdir()
+            write_gate_fixture(silent, tasks)
+            # Positive control: the two repositories must actually differ on the
+            # triage surface, or every comparison below is trivially true.
+            live = run_keel(declaring, "--doctor").stdout
+            inert = run_keel(silent, "--doctor").stdout
+            if "triage: ok" not in live:
+                report(
+                    f"triage-inert: the {name} declaring fixture never loaded a "
+                    "triage policy; the comparisons below would be vacuous."
+                )
+                raise AssertionError("declaring fixture is not declaring")
+            if "triage: none" not in inert:
+                report(f"triage-inert: the {name} silent fixture declared a policy.")
+                raise AssertionError("silent fixture is not silent")
+            return declaring, silent
+
+        # M1 — every gate stage agrees across the pair.
+        declaring, silent = pair("complete", complete_task)
+        for stage in ("task-start", "task-complete"):
+            live = gate_result(declaring, stage)
+            inert = gate_result(silent, stage)
+            if live is None or inert is None:
+                report(f"triage-inert: {stage} produced no JSON.")
+                return 1
+            if live != inert:
+                report(
+                    f"triage-inert: a triage policy changed the {stage} result: "
+                    f"{live} != {inert}"
+                )
+                return 1
+
+        # M2 — missing evidence still fails, with unchanged failure text.
+        declaring, silent = pair("missing", missing_evidence_task)
+        for repo in (declaring, silent):
+            if gate_result(repo, "task-start") is None:
+                report("triage-inert: task-start produced no JSON.")
+                return 1
+        live = gate_result(declaring, "task-complete")
+        inert = gate_result(silent, "task-complete")
+        if live is None or inert is None:
+            report("triage-inert: task-complete produced no JSON.")
+            return 1
+        if live.get("status") == "pass":
+            report(
+                "triage-inert: a declared triage policy let a task with missing "
+                "evidence pass completion."
+            )
+            return 1
+        if live != inert:
+            report(
+                f"triage-inert: a triage policy changed the failure text: "
+                f"{live} != {inert}"
+            )
+            return 1
+
+    report("triage-admits-only-a-start scenario passed.")
+    return 0
+
+
 def validate_precedent_rules_scenario() -> int:
     """The three rules the owner accepted must be in the skill, not in a chat.
 
@@ -15340,6 +15628,12 @@ SCENARIOS: tuple = (
     ),
     ("precedent-never-weakens", validate_precedent_never_weakens_scenario),
     ("precedent-rules", validate_precedent_rules_scenario),
+    ("triage-declaration", validate_triage_declaration_scenario),
+    (
+        "triage-admits-only-a-start",
+        validate_triage_admits_only_a_start_scenario,
+    ),
+    ("unattended-boundary", validate_unattended_boundary_scenario),
     (
         "precedent-projection-pointer",
         validate_precedent_projection_pointer_scenario,

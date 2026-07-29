@@ -71,6 +71,27 @@ Three rules govern use:
 A precedent informs a decision and never substitutes for a proof: gates, evidence, Review, and the
 write guard are untouched by anything in the store.
 
+## Unattended runs
+
+Work enters an unattended run only by the repository's declared triage policy — an issue carrying a
+label listed under `triage:` in `keel/config.yaml`, evaluated with `keel triage --labels <labels>`.
+Pass what `gh` returned; Keel never fetches the issue. Admission comes from that declaration and
+never from a precedent, however much triage history the store accumulates: whether an issue becomes
+work is a materiality decision, and a precedent may not move one out of that list.
+
+Admission answers "may this begin" and decides nothing after it. Alignment still escalates material
+choices, the gates still run, and the write guard still binds.
+
+An unattended run may triage, author, implement, verify, push where `authorize:` permits, and
+**open a pull request**. It **may not merge** one — merging is where an unreviewed decision becomes
+the project's history, and no declaration in Keel authorizes it.
+
+Stopping at a decision the user must make is the **designed boundary rather than a failure**.
+Report where the run stopped and why. Do not widen the triage policy to stop it happening.
+
+**Keel schedules nothing.** `/loop`, cron, and CI triggers belong to the host runtime; Keel's part
+is making each step decidable with authority.
+
 ## Domain lenses
 
 When the change signals a specific domain, look in `keel/lenses/` for a lens whose `Applies when:` header matches, and read only that lens before asking domain questions; do not load unrelated lenses. When no lens matches, or the repo defines none, proceed on the domain-agnostic path. Lenses are user-authored; scaffold the bundled starting points with `keel lenses add` (web, hardware, hardware-dsl).
