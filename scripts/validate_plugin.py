@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.7.0"
-PROTOCOL_VERSION = "5.7.0"
+PACKAGE_VERSION = "5.7.1"
+PROTOCOL_VERSION = "5.7.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -11644,6 +11644,45 @@ def validate_triage_declaration_scenario() -> int:
     return 0
 
 
+def validate_review_checks_content_scenario() -> int:
+    """Both checks concern content a gate can only shape-check.
+
+    Asserted by the phrases that carry the distinguishing content. "Durable
+    owner" or "diagnostic" appearing somewhere would satisfy a keyword check
+    while stating neither what to look at nor when.
+    """
+
+    required = [
+        # The URL owner check, and the timing that makes it useful.
+        "already carry the content",
+        "when it is cited",
+        # The message check, and the structure that triggers it.
+        "name the actual cause",
+        "two distinct failures",
+        # Neither belongs in a gate.
+        "not a deterministic gate check",
+    ]
+    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/keel-review-checklist/SKILL.md"
+
+    for label, path in (("canonical", canonical), ("distributed", distributed)):
+        if not path.is_file():
+            report(f"review-checks-content: missing {label} skill: {path}")
+            return 1
+        content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        for phrase in required:
+            if phrase not in content:
+                report(f"review-checks-content: {label} skill omits: {phrase}")
+                return 1
+
+    if canonical.read_bytes() != distributed.read_bytes():
+        report("review-checks-content: the canonical and distributed skills diverged.")
+        return 1
+
+    report("review-checks-content scenario passed.")
+    return 0
+
+
 def validate_unattended_boundary_scenario() -> int:
     """The boundary must be readable where an unattended run will read it.
 
@@ -15634,6 +15673,7 @@ SCENARIOS: tuple = (
         validate_triage_admits_only_a_start_scenario,
     ),
     ("unattended-boundary", validate_unattended_boundary_scenario),
+    ("review-checks-content", validate_review_checks_content_scenario),
     (
         "precedent-projection-pointer",
         validate_precedent_projection_pointer_scenario,

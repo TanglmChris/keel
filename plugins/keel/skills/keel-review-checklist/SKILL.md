@@ -21,6 +21,7 @@ Read the selected OpenSpec proposal, design, specs, tasks, diff, and command evi
 - Confirm the task's Evidence `Contract` line records the task-start capsule fingerprint and that completion recompiled the same fingerprint; a drift result returns the task to authoring for explicit reauthorization instead of review.
 - A behavioral task's checks must prove observable Acceptance through the public interface, not build-only or shape-only evidence.
 - For a red-green strategy (`vertical-tdd`, `regression-first`), confirm concrete per-label `.red` and `.green` Evidence exists for the same check; evidence-first tasks instead name their observable proof.
+- A failure message must **name the actual cause** of what it reports. Watch for one condition guarding **two distinct failures** — `if result is None or result["status"] != expected` reports the first failure's message when the second one happened, sending the reader to a place with no problem in it. Split the condition. No gate can judge this: deciding whether a sentence misleads needs a model, so it stays here.
 - When no trustworthy explicit Git base exists, do not attribute dirty paths automatically. Review scope semantically.
 - For `Coupling: required`, confirm one complete candidate reached its completion gate and generated artifacts are aligned.
 
@@ -42,6 +43,13 @@ When the change's artifacts or Touch extensions signal a domain, consult the mat
 ## Expectation and follow-up ownership
 
 Each related critical expectation needs behavior evidence, a durable follow-up owner, or an explicit discard reason. Relevant `D<n>`, `F<n>`, `A<n>`, and `Q<n>` references in Covers must agree with their OpenSpec basis and resolution owner. Unresolved authority returns to OpenSpec authoring.
+
+A durable owner declared as a URL must **already carry the content** it claims to hold, at the moment
+it is cited. A valid link to an empty issue owns nothing: create the content, then reference it. Check
+this **when it is cited**, not at archive — a check deferred to the close finds the same fact after
+the reauthorization it should have prevented. This is **not a deterministic gate check** and must not
+become one: a gate that fetched a reference would stop being local and offline, which is the property
+its verdict rests on.
 
 `keel/HANDOFF.md` is an optional pointer override and cannot own findings, critical expectation state, evidence details, or follow-ups.
 
