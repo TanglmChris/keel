@@ -155,6 +155,43 @@ Three things the declaration is not:
 The block is absent by default, and a repository that declares nothing behaves exactly as it did
 before this feature existed. `keel --doctor` reports what is declared.
 
+### Decision precedents
+
+A decision you make in conversation is spent at the next context reset, and the reasoning that
+settled it — the part that would generalise to a decision you have not met yet — goes with it.
+Point Keel at a directory of precedents and it consults them instead of asking you again:
+
+```yaml
+precedents: ../my-decisions   # any path; it may live outside this repository
+```
+
+Keel ships no precedent and creates no store. It reads that directory and nothing else — it never
+clones, pulls, or reaches the network — so one directory outside your repositories can serve all of
+them, and a path that is not there behaves exactly as no declaration at all.
+
+Each precedent is a markdown file carrying an `Applies when:` header, the materiality category it
+belongs to, a status of `recorded` or `authorized`, the decision, and **the rationale**. The last is
+load-bearing: *"chose A"* applies only to the situation literally recorded, while *"chose A because
+B fails offline"* can be applied to a case nobody has seen — and recognised as not applying when the
+new case is online. A precedent with no rationale is reported incomplete and is never applied.
+
+Three rules govern how they are used:
+
+- **A precedent is cited exactly where it replaced a question.** If applying it meant you were not
+  asked something you would have been asked, the reply names it. Routine decisions are not cited,
+  so a citation always marks a decision made in your place.
+- **Only you promote one.** A precedent enters as `recorded` and is offered as a recommendation
+  while the question is still asked. It becomes `authorized` when you accept a promotion that was
+  proposed to you — never by a usage count, which would cross with nobody watching.
+- **A precedent answers a recurrence; it never reclassifies.** It can shorten a decision inside its
+  category. It cannot move a decision out of the categories that require asking you, and no
+  accumulation of precedents makes a category stop mattering.
+
+As with standing authorization, a precedent informs a decision and never substitutes for a proof:
+gates, evidence, review, and the write guard are untouched by anything in the store. The session
+start line reports the store's size and freshness only — precedent bodies load when a decision is
+actually being made.
+
 ### Full vs Lite
 
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
@@ -210,7 +247,9 @@ is repo-local and reversible.
 
 ## Domain lenses
 
-Keel's core is pure process; it ships no domain knowledge of its own. Domain guidance lives in
+Keel's core is pure process; it ships no domain knowledge and no decisions of its own. Alongside
+the precedent store above, the other user-authored surface Keel loads on demand is domain guidance,
+which lives in
 **lenses** you author under `keel/lenses/*.md` in your repo. Each lens is self-describing: it
 opens with an `Applies when:` line stating the signals that trigger it (file extensions, artifact
 shapes) and carries an `Execution and review checks` section. When a change's artifacts or Touch
@@ -243,6 +282,7 @@ keel guard status --json
 keel guard clear  --json
 
 # Domain lenses — user-authored guidance in keel/lenses/
+# (the other user-authored surface is the precedent store; see above)
 keel lenses list
 keel lenses add <name> [--force]
 

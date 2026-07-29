@@ -46,6 +46,7 @@ const {
 } = require("../src/core/guard");
 const {
   STANDING_AUTHORIZATION_ACTIONS,
+  readPrecedentStore,
   readStandingAuthorization,
 } = require("../src/core/config");
 
@@ -1353,6 +1354,7 @@ function runDoctor(options) {
   printTargetSurface(repo, options.target);
   printLensSurface(repo, options.target);
   const authorizationOk = printStandingAuthorizationSurface(repo);
+  printPrecedentSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
@@ -1428,6 +1430,42 @@ function printStandingAuthorizationSurface(repo) {
     );
   }
   return true;
+}
+
+function printPrecedentSurface(repo) {
+  process.stdout.write("\nPrecedent store:\n");
+  const store = readPrecedentStore(repo);
+  if (store.precedents.length === 0) {
+    printDoctorLine(
+      "precedents",
+      "none",
+      store.declared
+        ? `declared at ${store.declared}, which holds no precedents here; `
+          + "an absent store behaves exactly as an undeclared one"
+        : "undeclared; no precedent informs any decision"
+    );
+    return;
+  }
+  const authorized = store.precedents.filter(
+    (item) => item.status === "authorized"
+  ).length;
+  printDoctorLine("precedents", String(store.precedents.length), store.declared);
+  printDoctorLine(
+    "authorized",
+    String(authorized),
+    `${store.precedents.length - authorized} recorded, offered as a `
+      + "recommendation rather than applied"
+  );
+  const incomplete = store.precedents.filter((item) => !item.complete);
+  printDoctorLine(
+    "incomplete",
+    String(incomplete.length),
+    incomplete.length > 0
+      ? `missing a Rationale, so not applicable to any decision: ${incomplete
+        .map((item) => item.name)
+        .join(", ")}`
+      : "every precedent states why, which is the part that transfers"
+  );
 }
 
 function printFastPrePushSurface(repo) {

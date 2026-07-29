@@ -40,6 +40,37 @@ Accepted alignment routes to existing OpenSpec owners; create no separate alignm
 - specs own observable requirements and positive/negative/edge/failure scenarios.
 - tasks.md owns Covers, verification strategy and checks, scope, and stop boundaries that reference the accepted authority instead of duplicating chat prose.
 
+## Decision precedents
+
+When the repository declares a precedent store, consult the precedent matching a decision before
+escalating it, and record a new precedent when the user decides something the store does not cover.
+A precedent store is user-authored and never bundled; a repository that declares none behaves
+exactly as one without this section.
+
+Record the reasoning, not only the conclusion. "Chose A" applies only to the situation literally
+recorded; "chose A because B fails offline" can be applied to a case nobody has seen yet, and — just
+as important — recognised as *not* applying when the new case is online. Only the reasoning transfers.
+A precedent with no rationale is incomplete and is not applied.
+
+Three rules govern use:
+
+- **Cite only where you replaced a question.** Name the precedent you applied exactly when, without
+  it, you would otherwise have interrupted the user. Decisions that would not have interrupted them
+  are not cited, so that a citation always marks a decision made in the user's place rather than
+  running commentary.
+- **Promotion is the user's act.** A precedent enters as `recorded` and is offered as a
+  recommendation while the question is still asked. To make one applicable without asking, propose
+  the promotion and name the precedent; it changes only when the user accepts. There is no usage
+  count, age, or other threshold that promotes anything, because a threshold crosses with nobody
+  watching.
+- **A precedent answers a recurrence; it never reclassifies.** It may shorten a decision inside its
+  materiality category by supplying the recorded answer and its reasoning. It never moves a decision
+  out of the categories that require asking, and no accumulation of precedents makes a category
+  immaterial. A decision that resembles a precedent but sits in a different category is not a match.
+
+A precedent informs a decision and never substitutes for a proof: gates, evidence, Review, and the
+write guard are untouched by anything in the store.
+
 ## Domain lenses
 
 When the change signals a specific domain, look in `keel/lenses/` for a lens whose `Applies when:` header matches, and read only that lens before asking domain questions; do not load unrelated lenses. When no lens matches, or the repo defines none, proceed on the domain-agnostic path. Lenses are user-authored; scaffold the bundled starting points with `keel lenses add` (web, hardware, hardware-dsl).

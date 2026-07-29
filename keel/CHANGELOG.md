@@ -1,5 +1,20 @@
 # Keel Changelog
 
+## 5.6.0 - the reasoning is the part that transfers
+
+Second layer of **#34**. 5.5.0 gave a repository somewhere to record *that* an action is authorized. This gives it somewhere to record *why a decision went the way it did* — the part that would generalise to a decision not yet seen, and the part that a context reset destroys completely.
+
+- **A repository can point Keel at a directory of precedents** by declaring `precedents:` in `keel/config.yaml`. Keel bundles none and creates none, exactly as it bundles no domain lens. The path is declarable rather than fixed — unlike `keel/lenses/`, which is necessarily in-repo because a lens describes that repository's domain — so one store outside your repositories can serve all of them. (keel-decision-precedent)
+- **The mechanism is the one Keel already had.** Domain lenses were already user-authored markdown in a declared directory, self-describing, loaded only on match, with nothing shipped. Precedents are a sibling of that surface rather than a new invention; they differ in two ways that made sharing the file space wrong — they accumulate over time, and each carries a promotion state a lens has no concept of.
+- **A precedent must carry its rationale, and one that carries only a conclusion is reported incomplete.** "Chose A" applies only to the situation literally recorded; "chose A because B fails offline" can be applied to a case nobody has seen — and, just as importantly, recognised as *not* applying when the new case is online. The check is structural: Keel reports the field's presence and never claims to have judged the reasoning.
+- **Three rules, all of them chosen against a specific failure.** A precedent is cited exactly where it replaced a question the user would otherwise have been asked, so a citation always marks a decision made in their place rather than running commentary. Promotion from `recorded` to `authorized` happens only when the user accepts a proposal — never by a usage count, because a threshold crosses with nobody watching. And a precedent answers a *recurrence* within a materiality category; it can never move a decision out of the categories that require asking, or the system drifts toward asking nothing at a rate too slow to notice.
+- **A precedent informs a decision and never substitutes for a proof.** Gates, evidence, Review, and the write guard are untouched. Asserted the same way 5.5.0 asserted it for standing authorization: compare a store-declaring repository against an identical silent one, with a positive control that first proves the two actually differ — a store that silently failed to load would make every such comparison trivially equal.
+- **SessionStart carries a pointer, never a body.** Counts and freshness only. The store grows without bound while the precedents relevant to any one session are a small subset, and the hook pays its cost on every session including post-compaction reinjection. The projection is checked against a sentinel string planted in the precedent bodies, so a leak fails loudly rather than being caught by a length limit.
+- **A declared store that is not there behaves exactly as no declaration** — no error, no changed exit code. This repository declares a private store, so that path is what every other clone and every CI run lands in, and it is tested by actually removing the store rather than by reasoning that the code handles it.
+- Three documents enumerated what `keel/config.yaml` holds or which surfaces are user-authored. All now include the precedent store; the config header's "two independent declarations" was written one release ago and is now three.
+- No behavior change without a declaration, and nothing to do on upgrade. No new dependency.
+- Validator at **97 scenarios**, with four added for the declaration, its inertness, the projection pointer, and the three rules.
+
 ## 5.5.0 - authorize once, in a file
 
 First layer of **#34**, which asked why execution keeps stopping for confirmations the owner already decided.

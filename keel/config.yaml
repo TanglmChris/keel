@@ -1,8 +1,9 @@
 # Keel project configuration.
 #
-# Two independent declarations live here: fast_check, which names a command,
-# and authorize, which names repository actions this project has decided may
-# proceed without being asked each time.
+# Three independent declarations live here: fast_check, which names a command;
+# authorize, which names repository actions this project has decided may
+# proceed without being asked each time; and precedents, which points at a
+# directory of decisions already made and the reasoning behind them.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -29,8 +30,28 @@
 # and the same failure text either way. It is also not a trigger: it authorizes
 # an action the workflow already reached, and schedules nothing.
 
+# precedents (optional): a path to a directory of precedent files — decisions
+# already made, each with the reasoning that produced it. Keel reads that
+# directory and nothing else: it never clones, pulls, or writes to a remote, so
+# the store is only as current as its working copy and the surfaces say so
+# rather than blocking on it. The path may sit outside this repository, which is
+# how one store serves several projects.
+#
+# A declared path that is not there behaves exactly as no declaration — the
+# state a fresh clone and CI land in, since the store below is private.
+#
+# What this does NOT do: a precedent informs a decision and never substitutes
+# for a proof. Gates, evidence, Review, and the write guard are untouched by
+# anything in the store. A precedent also never moves a decision out of the
+# categories that require asking; it answers a recurrence within one.
+
 authorize:
   - commit
   - push
   - release
   - archive
+
+# TanglmChris/decision-precedents, a private repository. Every other clone of
+# this one — including CI — will not have it, and that is the point: a declared
+# path that is not there must behave exactly as no declaration.
+precedents: ../decision-precedents

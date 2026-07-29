@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.5.0"
-PROTOCOL_VERSION = "5.5.0"
+PACKAGE_VERSION = "5.6.0"
+PROTOCOL_VERSION = "5.6.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -11363,6 +11363,430 @@ def validate_standing_authorization_inheritance_scenario() -> int:
     return 0
 
 
+def write_precedent(
+    store: Path,
+    name: str,
+    *,
+    category: str = "external interface",
+    status: str = "recorded",
+    decision: str = "Return 404 rather than 200 with an empty body.",
+    rationale: str | None = "A 200 teaches every caller to parse the body to learn it failed.",
+) -> None:
+    store.mkdir(parents=True, exist_ok=True)
+    body = (
+        f"# {name}\n\n"
+        f"Applies when: a handler must report that a resource is absent.\n\n"
+        f"- Category: {category}\n"
+        f"- Status: {status}\n\n"
+        "## Decision\n\n"
+        f"{decision}\n"
+    )
+    if rationale is not None:
+        body += f"\n## Rationale\n\n{rationale}\n"
+    (store / f"{name}.md").write_text(body, encoding="utf-8")
+
+
+def validate_precedent_store_declaration_scenario() -> int:
+    with tempfile.TemporaryDirectory(prefix="keel-precedent-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # A store deliberately placed OUTSIDE every repository that reads it.
+        shared = root / "shared-store"
+        write_precedent(shared, "absent-resource-status")
+        write_precedent(shared, "irreversible-cost", status="authorized")
+
+        def declare(repo: Path, store: str | None) -> None:
+            (repo / "keel").mkdir(parents=True, exist_ok=True)
+            body = "fast_check: echo check\n"
+            if store is not None:
+                body += f"precedents: {store}\n"
+            (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
+
+        # M1 — a declared, existing store is reported with its counts.
+        declared = root / "declared"
+        declared.mkdir()
+        declare(declared, str(shared).replace("\\", "/"))
+        out = run_keel(declared, "--doctor").stdout
+        if "Precedent store:" not in out:
+            report("precedent-store: doctor has no precedent surface.")
+            report(out)
+            return 1
+        for needle in ("precedents: 2", "authorized: 1"):
+            if needle not in out:
+                report(f"precedent-store: doctor does not report {needle}.")
+                report(out)
+                return 1
+
+        # M1 (continued) — an undeclared store leaves every surface alone.
+        silent = root / "silent"
+        silent.mkdir()
+        declare(silent, None)
+        silent_out = run_keel(silent, "--doctor").stdout
+        if "precedents: none" not in silent_out:
+            report("precedent-store: an undeclared store is not reported as none.")
+            report(silent_out)
+            return 1
+        if "fast_check: ok - declared in keel/config.yaml: echo check" not in silent_out:
+            report("precedent-store: the fast_check surface changed.")
+            report(silent_out)
+            return 1
+
+        # M2 — two repositories declaring the same out-of-tree path read the
+        # same precedents, which is the whole point of a declarable path.
+        second = root / "second"
+        second.mkdir()
+        declare(second, str(shared).replace("\\", "/"))
+        second_out = run_keel(second, "--doctor").stdout
+        if "precedents: 2" not in second_out or "authorized: 1" not in second_out:
+            report("precedent-store: a second repo did not read the shared store.")
+            report(second_out)
+            return 1
+
+        # M2 (continued) — a declared path that does not exist degrades to the
+        # no-store behavior. This is the state CI and every clone land in.
+        missing = root / "missing"
+        missing.mkdir()
+        declare(missing, str(root / "not-here").replace("\\", "/"))
+        missing_result = run_keel(missing, "--doctor")
+        if "precedents: none" not in missing_result.stdout:
+            report("precedent-store: a missing store path did not degrade to none.")
+            report(missing_result.stdout)
+            return 1
+        if missing_result.returncode != run_keel(silent, "--doctor").returncode:
+            report("precedent-store: a missing store path changed the doctor exit code.")
+            return 1
+
+        # M3 — completeness is a presence check, not a judgement.
+        incomplete_store = root / "incomplete-store"
+        write_precedent(incomplete_store, "no-reason", rationale=None)
+        incomplete = root / "incomplete"
+        incomplete.mkdir()
+        declare(incomplete, str(incomplete_store).replace("\\", "/"))
+        out = run_keel(incomplete, "--doctor").stdout
+        if "incomplete: 1" not in out or "no-reason" not in out:
+            report("precedent-store: a precedent with no rationale was not named incomplete.")
+            report(out)
+            return 1
+
+        opaque_store = root / "opaque-store"
+        write_precedent(opaque_store, "unevaluable", rationale="qqq")
+        opaque = root / "opaque"
+        opaque.mkdir()
+        declare(opaque, str(opaque_store).replace("\\", "/"))
+        out = run_keel(opaque, "--doctor").stdout
+        if "incomplete: 0" not in out:
+            report(
+                "precedent-store: a rationale Keel cannot evaluate was reported "
+                "incomplete; the check must be presence, not judgement."
+            )
+            report(out)
+            return 1
+
+        # M4 — reading a store performs no network access.
+        #
+        # Proxy environment variables do NOT prove this: Node's fetch ignores
+        # HTTP_PROXY entirely, so a run under them passes whether or not the
+        # code reaches the network. Instead, preload a module that makes every
+        # network primitive throw. Then a passing run is evidence that none was
+        # called, and any added network call fails loudly.
+        guard = root / "no-network.cjs"
+        guard.write_text(
+            "const fail = (what) => {\n"
+            "  throw new Error('network attempted: ' + what);\n"
+            "};\n"
+            "require('net').Socket.prototype.connect = () => fail('net.connect');\n"
+            "const http = require('http');\n"
+            "http.request = () => fail('http.request');\n"
+            "http.get = () => fail('http.get');\n"
+            "const https = require('https');\n"
+            "https.request = () => fail('https.request');\n"
+            "https.get = () => fail('https.get');\n"
+            "const dns = require('dns');\n"
+            "dns.lookup = () => fail('dns.lookup');\n"
+            "dns.resolve = () => fail('dns.resolve');\n"
+            "globalThis.fetch = () => fail('fetch');\n",
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env["NODE_OPTIONS"] = f"--require {str(guard).replace(chr(92), '/')}"
+        offline = run_keel(declared, "--doctor", env=env)
+        if "precedents: 2" not in offline.stdout:
+            report(
+                "precedent-store: reading the store attempted network access, "
+                "or failed under the no-network guard."
+            )
+            report((offline.stderr or offline.stdout).strip())
+            return 1
+
+    report("precedent-store-declaration scenario passed.")
+    return 0
+
+
+def validate_precedent_rules_scenario() -> int:
+    """The three rules the owner accepted must be in the skill, not in a chat.
+
+    Each is asserted by the phrase that carries its distinguishing content, not
+    by a keyword: "precedent" appearing somewhere would satisfy a keyword check
+    while saying none of what was decided.
+    """
+
+    required = [
+        # Citation: the trigger, and its negative half.
+        "would otherwise have interrupted",
+        "not cited",
+        # Promotion: who does it, and what does not.
+        "propose the promotion",
+        "no usage count",
+        # No reclassification, and the reason it is a fixed point.
+        "never moves a decision out of",
+        "recurrence",
+        # Recording: the rationale is the load-bearing field.
+        "reasoning transfers",
+    ]
+    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+
+    for label, path in (("canonical", canonical), ("distributed", distributed)):
+        if not path.is_file():
+            report(f"precedent-rules: missing {label} skill: {path}")
+            return 1
+        # Collapse whitespace before matching. These are multi-word phrases and
+        # the file is hard-wrapped, so matching raw text would assert the line
+        # layout rather than the wording — and would fail on any later reflow
+        # that changed nothing.
+        content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        for phrase in required:
+            if phrase not in content:
+                report(f"precedent-rules: {label} skill omits: {phrase}")
+                return 1
+
+    if canonical.read_bytes() != distributed.read_bytes():
+        report("precedent-rules: the canonical and distributed skills diverged.")
+        return 1
+
+    report("precedent-rules scenario passed.")
+    return 0
+
+
+def validate_precedent_projection_pointer_scenario() -> int:
+    """SessionStart may say how big the store is. It may not say what is in it.
+
+    The store grows monotonically while the precedents relevant to any one
+    session are a small subset, and the hook pays its cost on every session
+    including post-compaction reinjection. So the projection carries counts and
+    freshness; bodies load when a decision is actually being made.
+    """
+
+    def projection(repo: Path) -> tuple[str, str]:
+        result = run_session_start_hook(
+            repo,
+            {"hook_event_name": "SessionStart", "source": "startup"},
+            keel_cli=f'node "{ROOT / "bin/keel.js"}"',
+        )
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        return (
+            payload["hookSpecificOutput"]["additionalContext"],
+            payload.get("systemMessage", ""),
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-precproj-") as raw_tmp:
+        root = Path(raw_tmp)
+        store = root / "store"
+        # Text that must never reach the projection. If any of it appears, a
+        # body leaked where only a pointer belongs.
+        write_precedent(
+            store,
+            "leak-canary",
+            status="authorized",
+            decision="NEVERAPPEARSINPROJECTION-decision",
+            rationale="NEVERAPPEARSINPROJECTION-rationale",
+        )
+        write_precedent(store, "second")
+
+        # The hook is silent outside a Keel repository, so both fixtures need
+        # an openspec tree before the projection exists at all.
+        declaring = root / "declaring"
+        declaring.mkdir()
+        write_text(declaring / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        (declaring / "keel").mkdir(parents=True)
+        (declaring / "keel" / "config.yaml").write_text(
+            f"precedents: {str(store).replace(chr(92), '/')}\n", encoding="utf-8"
+        )
+        # Two ways to declare nothing, and they reach different branches: no
+        # config file at all, and a config file that declares other things.
+        silent = root / "silent"
+        silent.mkdir()
+        write_text(silent / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        other_keys = root / "other-keys"
+        other_keys.mkdir()
+        write_text(
+            other_keys / "openspec/changes/demo/tasks.md", task_contract_fixture()
+        )
+        (other_keys / "keel").mkdir(parents=True)
+        (other_keys / "keel" / "config.yaml").write_text(
+            "fast_check: echo check\nauthorize:\n  - commit\n", encoding="utf-8"
+        )
+
+        # M1 — counts and freshness, never a body.
+        context, message = projection(declaring)
+        combined = f"{context}\n{message}"
+        if "precedents: 2" not in combined or "1 authorized" not in combined:
+            report(
+                "precedent-projection: the projection does not state the "
+                f"precedent counts: {combined!r}"
+            )
+            return 1
+        if "last synced" not in combined:
+            report("precedent-projection: the projection does not state store freshness.")
+            report(combined)
+            return 1
+        if "NEVERAPPEARSINPROJECTION" in combined:
+            report(
+                "precedent-projection: a precedent body reached the projection; "
+                "only a pointer belongs there."
+            )
+            report(combined)
+            return 1
+
+        # M2 — an undeclared store adds nothing at all, by either route.
+        for repo, label in ((silent, "no config file"), (other_keys, "other keys only")):
+            quiet_context, quiet_message = projection(repo)
+            if "precedent" in f"{quiet_context}\n{quiet_message}".lower():
+                report(
+                    f"precedent-projection: with {label}, an undeclared store "
+                    "still added text to the projection."
+                )
+                report(quiet_context)
+                return 1
+
+    report("precedent-projection-pointer scenario passed.")
+    return 0
+
+
+def validate_precedent_never_weakens_scenario() -> int:
+    """A precedent informs a decision. It must not stand in for a proof.
+
+    Same shape as the standing-authorization inertness scenario, and for the
+    same reason: every check passes when two repositories agree, so a store
+    that silently failed to load would make each comparison trivially true.
+    The positive control asserts the difference exists before asserting it is
+    inert.
+    """
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+    missing_evidence_task = complete_task.replace(
+        "    - M1: node test.js printed ok\n", "    - M1: pending\n"
+    )
+
+    def gate_result(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1", "--json"
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+        return {
+            "status": payload.get("status"),
+            "problems": sorted(
+                (problem.get("code", ""), problem.get("message", ""))
+                for problem in payload.get("problems") or []
+            ),
+        }
+
+    with tempfile.TemporaryDirectory(prefix="keel-precinert-") as raw_tmp:
+        root = Path(raw_tmp)
+        store = root / "store"
+        for name in ("first", "second", "third"):
+            write_precedent(store, name, status="authorized")
+
+        def pair(name: str, tasks: str) -> tuple[Path, Path]:
+            declaring = root / f"{name}-declaring"
+            declaring.mkdir()
+            write_gate_fixture(declaring, tasks)
+            (declaring / "keel").mkdir(parents=True, exist_ok=True)
+            (declaring / "keel" / "config.yaml").write_text(
+                f"precedents: {str(store).replace(chr(92), '/')}\n", encoding="utf-8"
+            )
+            silent = root / f"{name}-silent"
+            silent.mkdir()
+            write_gate_fixture(silent, tasks)
+            # Positive control: prove the two repositories actually differ
+            # before proving the difference changes nothing.
+            live = run_keel(declaring, "--doctor").stdout
+            inert = run_keel(silent, "--doctor").stdout
+            if "precedents: 3" not in live or "authorized: 3" not in live:
+                report(
+                    f"precedent-inert: the {name} declaring fixture never loaded "
+                    "its store; every comparison below would be vacuous."
+                )
+                raise AssertionError("declaring fixture is not declaring")
+            if "precedents: none" not in inert:
+                report(f"precedent-inert: the {name} silent fixture declared a store.")
+                raise AssertionError("silent fixture is not silent")
+            return declaring, silent
+
+        # M1 — every gate stage agrees across the pair.
+        declaring, silent = pair("complete", complete_task)
+        for stage in ("task-start", "task-complete"):
+            live = gate_result(declaring, stage)
+            inert = gate_result(silent, stage)
+            if live is None or inert is None:
+                report(f"precedent-inert: {stage} produced no JSON.")
+                return 1
+            if live != inert:
+                report(
+                    f"precedent-inert: a declared store changed the {stage} "
+                    f"result: {live} != {inert}"
+                )
+                return 1
+
+        # M2 — missing evidence still fails, with unchanged failure text.
+        declaring, silent = pair("missing", missing_evidence_task)
+        for repo in (declaring, silent):
+            if gate_result(repo, "task-start") is None:
+                report("precedent-inert: task-start produced no JSON.")
+                return 1
+        live = gate_result(declaring, "task-complete")
+        inert = gate_result(silent, "task-complete")
+        if live is None or inert is None:
+            report("precedent-inert: task-complete produced no JSON.")
+            return 1
+        if live.get("status") == "pass":
+            report(
+                "precedent-inert: a store of authorized precedents let a task "
+                "with missing evidence pass completion."
+            )
+            return 1
+        if live != inert:
+            report(
+                "precedent-inert: a declared store changed the failure text: "
+                f"{live} != {inert}"
+            )
+            return 1
+
+    report("precedent-never-weakens scenario passed.")
+    return 0
+
+
 def validate_standing_authorization_never_weakens_scenario() -> int:
     """A declaration removes a confirmation. It must not remove a proof.
 
@@ -14909,6 +15333,16 @@ SCENARIOS: tuple = (
     (
         "standing-authorization-never-weakens",
         validate_standing_authorization_never_weakens_scenario,
+    ),
+    (
+        "precedent-store-declaration",
+        validate_precedent_store_declaration_scenario,
+    ),
+    ("precedent-never-weakens", validate_precedent_never_weakens_scenario),
+    ("precedent-rules", validate_precedent_rules_scenario),
+    (
+        "precedent-projection-pointer",
+        validate_precedent_projection_pointer_scenario,
     ),
     ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
     ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),

@@ -1,0 +1,244 @@
+## 1. The store
+
+- [x] 1.1 Read a declared precedent store from `keel/config.yaml`, parse each precedent's required fields, and report the surface on `keel --doctor`
+  - Covers:
+    - keel-decision-precedent / A repository declares a precedent store it owns
+    - keel-decision-precedent / A precedent record carries its rationale, not only its conclusion
+    - D2 — the store path is declarable, where the lens path is fixed
+    - D3 — Keel reads a local directory and nothing else
+    - D4 — a record missing its rationale is reported incomplete
+  - Touch:
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a repo declaring a store path that exists reports on `keel --doctor` how many precedents it holds and how many are `authorized`; a repo declaring nothing reports no store and every other doctor surface is unchanged
+    - M2: two repos declaring the same out-of-tree store path both read the same precedents, proving the path is not repository-relative by construction
+    - M3: a precedent missing its rationale is reported incomplete and named, while one whose rationale Keel cannot evaluate is reported complete — the check is presence, not judgement
+    - M4: with a store declared and populated, no network call is made; the run succeeds with no reachable network
+  - Evidence:
+    - Contract: sha256:2350e60917b015e36953b05209c6532229f1ab8d343359d888467eb85378e708
+    - M1: `python scripts/validate_plugin.py --scenario precedent-store-declaration` passes; a repo declaring an existing store reports `precedents: 2` and `authorized: 1` under a `Precedent store:` heading on `keel --doctor`, and a repo declaring none reports `precedents: none` with its `fast_check` line byte-unchanged.
+    - M1.red: exit 1, `precedent-store: doctor has no precedent surface.` — no such surface existed.
+    - M1.green: failure advanced to M3's assertion, so M1's heading, counts, and the undeclared-repo behavior all hold.
+    - M2: two repositories declaring the same out-of-tree absolute path both report `precedents: 2` / `authorized: 1`, and a repository declaring a path that does not exist reports `precedents: none` with the same doctor exit code as a repository declaring nothing.
+    - M2.red: aimed twice, once per branch, because M2 asserts two independent things. Declarable path — resolving as `path.resolve(repo, path.basename(declared))` to force repository-relative lookup gave exit 1, `precedent-store: doctor does not report precedents: 2.` Missing degrades — replacing the `existsSync`/`isDirectory` guard with `if (false)` gave exit 1, `precedent-store: a missing store path did not degrade to none.` The second is the state CI and every clone of this repository land in, so it is the branch that most needed a real red.
+    - M2.green: both restored; the shared-path and missing-path assertions hold together.
+    - M3: a precedent with no `## Rationale` is reported `incomplete: 1` and named; a precedent whose rationale is the unevaluable string `qqq` is reported `incomplete: 0`.
+    - M3.red: exit 1, `precedent-store: a precedent with no rationale was not named incomplete.`
+    - M3.green: reached only after a second, genuine failure — `a rationale Keel cannot evaluate was reported incomplete; the check must be presence, not judgement`. Cause: the first implementation used `(?=^##\s|\Z)`, and `\Z` is a Python/PCRE anchor that JavaScript treats as a literal `Z`, so the match failed on every precedent rather than erroring. The completeness check now splits on `^##\s+` instead of anchoring. Both halves of M3 pass.
+    - M4: `keel --doctor` reads a populated store and reports `precedents: 2` while running under `NODE_OPTIONS=--require <guard>`, where the guard replaces `net.Socket.prototype.connect`, `http.request`/`get`, `https.request`/`get`, `dns.lookup`/`resolve`, and `globalThis.fetch` with functions that throw. A passing run is therefore evidence that none of them was called.
+    - M4.red: aimed by adding a real `fetch('https://example.com')` to the reader. **The first form of this check was vacuous and the red proved it**: under proxy environment variables (`HTTP_PROXY` and friends) the scenario passed *with the fetch present*, because Node's `fetch` does not honour proxy variables at all. The check was rewritten around the preload guard, and the same injected fetch then failed with `precedent-store: reading the store attempted network access`.
+    - M4.green: injected fetch removed; the run passes under the guard. `npm test` → `validation --all passed: baseline plus 94 scenarios.` (93 before this task).
+    - Review:
+      - Status: pass
+      - Acceptance check: every check drives `keel --doctor`, the public surface, and asserts reported state rather than the reader's return shape. Two checks were not honest when first written and were fixed rather than accepted: M2's two branches both passed without ever failing, so each was aimed separately at the mutation it guards against; and M4's original proxy-based form passed with a live network call present, which is the definition of a vacuous assertion — it now uses a preload guard that makes any network attempt throw.
+      - Scope check: `git status --porcelain` shows `bin/keel.js`, `scripts/validate_plugin.py`, and `src/core/config.js` modified — the three paths in Touch. The private store repository created earlier this session is outside this repository and is not a product of this task.
+      - Findings: none
+    - Blocker: none
+
+- [x] 1.2 Prove a declared store has no authority over any gate, evidence requirement, Review, or the write guard
+  - Covers:
+    - keel-decision-precedent / A precedent has no authority over proof
+    - D9 — a precedent informs a decision and never substitutes for a proof
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: evidence-first
+    - M1: for one fixture task, every gate stage returns an equal `{status, sorted problems}` in a repo declaring a store full of `authorized` precedents and in an identical repo declaring none, with a positive control first asserting the two repositories actually differ
+    - M2: a task with missing evidence still fails completion in the store-declaring repo, with failure text equal to the storeless repo's
+  - Evidence:
+    - Contract: sha256:f82a30b4d2e2ecf79600a1ea2dfa785ea8820768dbf4c82e0b6ea9e1defd42db
+    - M1: `python scripts/validate_plugin.py --scenario precedent-never-weakens` passes. For one fixture task, `task-start` and `task-complete` each return an equal `{status, sorted problems}` in a repo declaring a store of three `authorized` precedents and in an identical repo declaring none.
+    - M2: over a task whose `M1` evidence is `pending`, the store-declaring repo does not return `pass` from `task-complete`, and its status and problem set equal the storeless repo's — the declaration changed neither the outcome nor the failure text.
+    - Positive control: before either comparison, the pair builder asserts the declaring fixture reports `precedents: 3` / `authorized: 3` and the silent one reports `precedents: none`, raising if either fails. Without it a store that silently failed to load would make both comparisons trivially equal. The control's failure mode is not hypothetical — task 1.1's M2.red recorded exactly that state (`precedents: none` from a store that should have loaded).
+    - Review:
+      - Status: pass
+      - Acceptance check: the checks assert the negative requirement through the public gate interface — same verdict, same failure text — rather than inspecting whether the store was consulted. Because a passing comparison is also what a broken fixture produces, the positive control is what makes the result evidence rather than coincidence; it is the same discipline 5.5.0's inertness task established, applied to a second declaration surface.
+      - Scope check: `git status --porcelain` shows this task modified only `scripts/validate_plugin.py`; `bin/keel.js` and `src/core/config.js` are task 1.1's completed products, unchanged here. `npm test` → `validation --all passed: baseline plus 95 scenarios.` (94 before this task).
+      - Findings: none
+    - Blocker: none
+
+## 2. The projection
+
+- [x] 2.1 Carry a precedent-store pointer in the SessionStart projection and never a precedent body
+  - Covers:
+    - keel-native-runtime-projection / Native plugin SessionStart projects shared context / A declared precedent store projects as a pointer
+    - keel-native-runtime-projection / Native plugin SessionStart projects shared context / An undeclared store adds nothing to the projection
+    - D8 — SessionStart carries a pointer only
+  - Touch:
+    - plugins/keel/scripts/session-start.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: with a store declared, the projection states the precedent count, the authorized count, and the last-sync time, and contains none of the decision or rationale text present in the store's files
+    - M2: with no store declared, the projection is byte-identical to the one produced before this task, and the hook opens no path it was not told about
+  - Evidence:
+    - Contract: sha256:257f3f8fa294ac9af837ca4ad930cedad841eb3747a0da7bbd7005947d5520aa
+    - M1: `python scripts/validate_plugin.py --scenario precedent-projection-pointer` passes; with a store declared, the projection carries `precedents: 2 (1 authorized, last synced <date>); bodies load at the decision, not here.` The store's precedents contain the sentinel `NEVERAPPEARSINPROJECTION` in both their decision and rationale text, and the check fails if it appears anywhere in either channel.
+    - M1.red: exit 1, `the projection does not state the precedent counts:` followed by the full pre-change projection, which carried no precedent line at all.
+    - M1.green: the counts, the authorized split, and the sync date are present, and the sentinel is not. **The leak assertion was then aimed separately**, because it had never failed: appending each precedent's file content to the pointer produced `a precedent body reached the projection; only a pointer belongs there.` It is the most important assertion in this task and was not left unproven.
+    - M2: with no store declared, the projection contains no occurrence of "precedent" in either the model channel or the human channel, checked over both ways to declare nothing.
+    - M2.red: aimed by returning a string instead of `null` from the no-declaration branch. The first attempt **did not fail**, which exposed a gap in the check rather than in the code: the fixture had no `keel/config.yaml` at all, so it only exercised the missing-file branch and never the branch where a config exists and declares other keys. A second fixture declaring `fast_check` and `authorize:` was added, and the same mutation then failed with `with other keys only, an undeclared store still added text to the projection.`
+    - M2.green: mutation reverted; both undeclared fixtures are silent. `npm test` → `validation --all passed: baseline plus 96 scenarios.` (95 before this task).
+    - Review:
+      - Status: pass
+      - Acceptance check: both checks read the hook's real stdout through the same harness the existing session-start scenarios use, and assert on the emitted projection rather than on the reader. The pointer's cost discipline is enforced by the sentinel rather than by a length limit, so a body cannot leak by being short. The reader is inlined in the plugin script rather than required from `src/core/config.js`, because the script ships inside the plugin and must run where the CLI package is not resolvable — the duplication is deliberate and noted in the code.
+      - Scope check: `git status --porcelain` shows `plugins/keel/scripts/session-start.js` and `scripts/validate_plugin.py` modified by this task; `bin/keel.js` and `src/core/config.js` are tasks 1.1's completed products, unchanged here.
+      - Findings: none
+    - Blocker: none
+
+## 3. The three rules
+
+- [x] 3.1 Write the citation, promotion, and no-reclassification rules into the alignment skill and its distribution copy
+  - Covers:
+    - keel-decision-precedent / Applying a precedent in the owner's place is stated explicitly
+    - keel-decision-precedent / Promotion to auto-applicable is an owner act
+    - keel-decision-precedent / A precedent answers a recurrence and never reclassifies a decision
+    - keel-expectation-alignment / Repository facts are inspected before user questions / A matching precedent is consulted before escalating
+    - keel-expectation-alignment / Repository facts are inspected before user questions / A new decision is recorded as a precedent
+    - D5 — citation triggers on "would otherwise have interrupted the owner"
+    - D6 — promotion is owner-accepts-agent-proposal, never a usage threshold
+    - D7 — a precedent answers a recurrence and never reclassifies
+  - Touch:
+    - src/skills/keel-align-expectations/SKILL.md
+    - plugins/keel/skills/keel-align-expectations/SKILL.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the skill states the citation trigger as "would otherwise have interrupted", states that routine decisions are not cited, states that promotion requires the owner accepting an agent proposal, states that no usage count promotes anything, and states that a precedent never moves a decision out of the materiality list
+    - M2: the portable `src/skills/` source and the `plugins/keel/skills/` distribution copy are byte-identical, which the existing portability scenario enforces
+  - Evidence:
+    - Contract: sha256:ba3369350cd2b48a60e20be431a216a71cb43dc44d68c596402e32bf74a108f4
+    - M1: `python scripts/validate_plugin.py --scenario precedent-rules` passes. The skill's new `## Decision precedents` section carries all seven asserted phrases in both copies: `would otherwise have interrupted` and `not cited` (citation trigger and its negative half), `propose the promotion` and `no usage count` (who promotes and what does not), `never moves a decision out of` and `recurrence` (the fixed point), and `reasoning transfers` (why the rationale is the load-bearing field). Each phrase was chosen to carry distinguishing content — a keyword check for "precedent" would pass while the section said none of what was decided.
+    - M1.red: exit 1, `precedent-rules: canonical skill omits: would otherwise have interrupted` — the section did not exist.
+    - M1.green: all seven phrases present in both copies, reached after two intermediate failures that were mine, not the code's. First the skill said "you would have asked the user" instead of the accepted wording from design D5; the accepted wording is better and was adopted. Then `propose the promotion`, `no usage count`, and `never moves a decision out of` each straddled a hard-wrap line break. Rather than reflow prose to satisfy a matcher, the check now collapses whitespace before matching, so it asserts the wording and not the line layout — the previous form would have failed on any later reflow that changed nothing.
+    - M2: `src/skills/keel-align-expectations/SKILL.md` and `plugins/keel/skills/keel-align-expectations/SKILL.md` are byte-identical, asserted directly here and independently by the existing `skill-portability-policy` scenario.
+    - M2.red: aimed by appending a single newline to the distribution copy, since the two were already identical and the assertion had never failed. exit 1, `precedent-rules: the canonical and distributed skills diverged.`
+    - M2.green: copy restored from the canonical source; `npm test` → `validation --all passed: baseline plus 97 scenarios.` (96 before this task).
+    - Review:
+      - Status: pass
+      - Acceptance check: the three accepted rules are asserted by the phrases that distinguish them rather than by topic keywords, and both halves of the citation rule are checked — a skill stating when to cite but not when to stay silent would turn citation into commentary and destroy its signal. The whitespace normalisation widens what counts as satisfying the check while narrowing nothing: the wording must still be present verbatim modulo line breaks.
+      - Scope check: `git status --porcelain` shows `src/skills/keel-align-expectations/SKILL.md`, its `plugins/keel/skills/` copy, and `scripts/validate_plugin.py` modified by this task — the three paths in Touch. `bin/keel.js`, `src/core/config.js`, and `plugins/keel/scripts/session-start.js` are tasks 1.1 and 2.1's completed products, unchanged here.
+      - Findings: none
+    - Blocker: none
+
+## 4. Statements this change made stale
+
+- [x] 4.1 Correct the wording that enumerates what `keel/config.yaml` holds and what user-authored surfaces exist
+  - Covers:
+    - I1 — the config header's declaration count
+    - I2 — the README's enumeration of user-authored guidance
+    - I3 — the protocol's parenthetical naming lenses as the user-authored surface
+  - Touch:
+    - keel/config.yaml
+    - README.md
+    - AGENTS.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel/config.yaml`'s header no longer says two declarations live in it, and documents the precedent store beside `fast_check` and `authorize:` including what it does not do
+    - M2: `README.md` documents the precedent store, its required record fields, the three rules, and that nothing is bundled and nothing is on by default; the domain-lens section no longer reads as though lenses are the only user-authored surface
+    - M3: `AGENTS.md` names the precedent store beside `keel/lenses/*.md` where it enumerates user-authored inputs to alignment; `npm test` passes, proving no resident-topic scenario regressed
+  - Evidence:
+    - Contract: sha256:3ed1988097eaf66d364e0880df65dc0c624900d7dc6eb269a4857fedbd66b8d0
+    - M1: `grep -c "Two independent declarations" keel/config.yaml` → `0`; the header now reads "Three independent declarations live here" and names `precedents` beside `fast_check` and `authorize`. The file documents that Keel reads the directory and nothing else, that the path may sit outside the repository, that a declared-but-absent path behaves as no declaration, and that a precedent never substitutes for a proof and never moves a decision out of the must-ask categories.
+    - M2: `README.md` gains a `### Decision precedents` section documenting the declaration, the five required record fields, why the rationale is the load-bearing one, the three rules, and that nothing is bundled and nothing is on by default. I2 is closed at both places it was quoted from: the Domain lenses paragraph now says Keel ships "no domain knowledge and no decisions of its own" and names the precedent store as the other user-authored surface, and the Commands block's lens comment cross-references it.
+    - M3: `AGENTS.md`'s authoring bullet now names decision precedents beside `keel/lenses/*.md` as a user-authored input that can expose hidden-knowledge risk, and states that the store is consulted before escalating and recorded when the user decides something new. `npm test` → `validation --all passed: baseline plus 97 scenarios.`, so no resident-topic scenario regressed.
+    - Review:
+      - Status: pass
+      - Acceptance check: I1 was a sentence this session wrote an hour earlier in 5.5.0, and M1 verifies its absence by searching for the exact stale phrase rather than by reading the file I knew I had edited. I2 was quoted from two places and is closed at both, which the wording of the Invalidates entry required. The README section was placed beside standing authorization rather than beside domain lenses, because a reader asking "why does it keep asking me" is reading the workflow sections.
+      - Scope check: `git status --porcelain` shows `AGENTS.md`, `README.md`, and `keel/config.yaml` modified by this task — the three paths in Touch. The `precedents:` declaration line itself was written and then deliberately withdrawn from this task: it is task 4.2's product, and leaving it here would have made 4.2 a verification of work it did not do.
+      - Findings: none
+    - Blocker: none
+
+- [x] 4.2 Declare this repository's own precedent store, and prove a declared-but-absent store is silent
+  - Covers:
+    - keel-decision-precedent / A repository declares a precedent store it owns / No declaration is a valid state
+    - D11 — declaring a private store here is only honest if an absent store degrades to no-store
+  - Touch:
+    - keel/config.yaml
+  - Verify:
+    - Strategy: evidence-first
+    - M1: with the store present, `keel --doctor` in this repository reports it and counts its precedents
+    - M2: with the declared path renamed away — the state CI and every other clone of this repository land in — `keel --doctor` reports no store, exits as it did before the declaration, and prints no error; `npm test` passes in that state
+  - Evidence:
+    - Contract: sha256:c74ba3db058b899e4810833420a64fcb371346a1632430480b27a36b929dae16
+    - M1: with the store present, `node bin/keel.js --doctor .` reports `precedents: 3 - ../decision-precedents`, `authorized: 0 - 3 recorded, offered as a recommendation rather than applied`, and `incomplete: 0 - every precedent states why, which is the part that transfers`. All three are `recorded`, which is correct: none has been promoted, and D6 forbids promotion by any route other than the owner accepting a proposal.
+    - M1 (prerequisite, outside this repository): the store held only a README, so it counted zero precedents and M1 could not have passed against an empty directory. Three real precedents from this session were written to `TanglmChris/decision-precedents` and pushed — declarative authorization over blanket bypass, no dependency for a format we control, and an assertion that never failed proves nothing. That store is a separate repository, so writing to it is not a product write of this task and does not touch its Touch boundary; the owner authorised seeding it in this session. Seeding the rest remains E13's business.
+    - M2: with the store's directory renamed away — the exact state CI and every other clone of this repository land in, since the store is private — `keel --doctor` reports `precedents: none - declared at ../decision-precedents, which holds no precedents here; an absent store behaves exactly as an undeclared one`, exits `0`, and prints no error. `npm test` in that state → `validation --all passed: baseline plus 97 scenarios.` The directory was then restored and its four files confirmed present.
+    - Review:
+      - Status: pass
+      - Acceptance check: M2 is the check that makes declaring a private store in a public repository honest at all, and it was run by actually removing the store rather than by reasoning that the code handles it — the failure it guards against is a clone or a CI run erroring on a path only the owner has. M1 asserts the counts through `keel --doctor`, the public surface, and the `authorized: 0` reading is itself evidence that nothing self-promoted on being written.
+      - Scope check: `git status --porcelain` shows `keel/config.yaml` as this task's only modification in this repository; every other modified path is a completed product of tasks 1.1 through 4.1. The precedent files live in a different repository entirely.
+      - Findings: none
+    - Blocker: none
+
+## 5. Close
+
+- [x] 5.1 Promote this change's spec delta into the live specs
+  - Covers:
+    - I4 — the live projection spec's SessionStart requirement
+    - I5 — the live alignment spec's repository-facts requirement
+  - Touch:
+    - openspec/specs/keel-decision-precedent/spec.md
+    - openspec/specs/keel-native-runtime-projection/spec.md
+    - openspec/specs/keel-expectation-alignment/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate record-decisions-as-precedent` passes and every `### Requirement:` and `#### Scenario:` heading in each delta file appears in the corresponding live spec
+    - M2: `npm test` passes after promotion
+  - Evidence:
+    - Contract: sha256:a745d83a314de43d6e6de503e4158da0dd3099df5ec58c3033d9ee23642c655f
+    - M1: `node bin/keel.js openspec validate record-decisions-as-precedent` → `Change 'record-decisions-as-precedent' is valid`. Promotion completeness was checked by extracting every `### Requirement:` and `#### Scenario:` heading from each delta and asserting it appears in the corresponding live spec: 21 headings for `keel-decision-precedent`, 6 for `keel-native-runtime-projection`, 6 for `keel-expectation-alignment`, all present. I4 and I5 are closed — both live requirements now state the precedent behavior their old wording omitted.
+    - M2: `npm test` → `validation --all passed: baseline plus 97 scenarios.` after promotion.
+    - Review:
+      - Status: pass
+      - Acceptance check: promotion was verified by heading-set comparison rather than by re-reading the files, so a partially pasted or silently truncated requirement fails the check. The new capability spec was generated from the delta body with only a Purpose header prepended, so its requirement text is the delta's own rather than a re-typing of it.
+      - Scope check: `git status --porcelain` shows `openspec/specs/keel-native-runtime-projection/spec.md` and `openspec/specs/keel-expectation-alignment/spec.md` modified and `openspec/specs/keel-decision-precedent/` added — the three paths in Touch.
+      - Findings: none
+    - Blocker: none
+
+- [x] 5.2 Record the workflow change in the Keel changelog
+  - Covers:
+    - keel-decision-precedent / A repository declares a precedent store it owns
+  - Touch:
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: the changelog entry states what a repository can declare, the three rules and why each is shaped that way, that a precedent never substitutes for a proof, and that a repository declaring no store is unchanged; it records that the interface ships untested against a real store and names the owner of that gap
+  - Evidence:
+    - Contract: sha256:5c71cc2e129f4003a6ec17ab73332c562d1d0c3c5199cc48a04e04efbf505986
+    - M1: `keel/CHANGELOG.md` gains a `## 5.6.0 - the reasoning is the part that transfers` entry stating what a repository can declare and that the path is declarable rather than fixed; that the mechanism is the existing lens surface rather than a new invention, and the two differences that made a sibling right; that the rationale is required and why, with the check named as structural; each of the three rules together with the specific failure it was chosen against; that a precedent never substitutes for a proof, naming the comparison and the positive control that keep that claim honest; that the projection carries a pointer checked against a planted sentinel; and that a declared-but-absent store is the state every other clone lands in and is tested by removing the store. It records that nothing changes without a declaration and that no dependency was added.
+    - M1 (the gap, named): the entry states the interface ships exercised by this repository — 4.2 declares a real store — rather than only fixture-tested, which was the limitation the change was authored under and resolved before any task started.
+    - Review:
+      - Status: pass
+      - Acceptance check: the entry gives each of the three rules its motivating failure rather than stating the rule alone, because a reader who knows only the rule cannot tell which cases it was meant to catch. It matches the file's established voice — what was wrong before, what is true now, what the reader must do on upgrade — and states the untested-property risk honestly instead of implying the store has been in use longer than one session.
+      - Scope check: this task modified `keel/CHANGELOG.md` alone, the single path in Touch.
+      - Findings: none
+    - Blocker: none
+
+## Invalidates
+
+- I1: "Two independent declarations live here: fast_check, which names a command, and authorize, which names repository actions" — the header comment of `keel/config.yaml`, written in 5.5.0 and made wrong by this change adding a third. Updated by: 4.1
+- I2: "Keel's core is pure process; it ships no domain knowledge of its own. Domain guidance lives in **lenses**" and "Domain lenses — user-authored guidance in keel/lenses/" — the Domain lenses section and the Commands block of `README.md`, which read as though `keel/lenses/` is the only place a user authors guidance Keel loads on demand. Updated by: 4.1
+- I3: "domain lenses (user-authored `keel/lenses/*.md`)" — the parenthetical in the OpenSpec authoring bullet of `AGENTS.md`, which enumerates the user-authored inputs that can expose hidden-knowledge risk during alignment. Updated by: 4.1
+- I4: "The script MUST treat OpenSpec/Git and the current task capsule as authority and MUST return only disposable runtime context." — the SessionStart requirement in `openspec/specs/keel-native-runtime-projection/spec.md`, which does not mention the precedent pointer this change adds. Updated by: 5.1
+- I5: "Keel MUST inspect relevant code, tests, docs, OpenSpec artifacts, issues, and verified runtime behavior before asking the user" — the repository-facts requirement in `openspec/specs/keel-expectation-alignment/spec.md`, whose list of what is inspected before escalating omits the precedent store. Updated by: 5.1
+- I6: "Lenses are user-authored; scaffold the bundled starting points with `keel lenses add`" — the Domain lenses paragraph of `src/skills/keel-align-expectations/SKILL.md` and its distribution copy. Discard reason: the sentence is about lenses specifically and stays true; task 3.1 adds the precedent guidance as its own paragraph rather than editing this one, so nothing here becomes wrong.
+
+## Expectation Coverage
+
+- E1: A decision and its reasoning survive a context reset in a form Keel can find. Covered by: 1.1, 3.1
+- E2: The reasoning is recorded, not only the conclusion, because only the reasoning transfers to a decision not yet seen. Covered by: 1.1, 3.1
+- E3: A precedent surfaces at the decision moment, not at every session start. Covered by: 2.1, 3.1
+- E4: Applying a precedent in the owner's place is visible in one line; routine decisions stay uncited. Covered by: 3.1
+- E5: Nothing is authorized by accumulation; promotion is an owner act. Covered by: 3.1
+- E6: A precedent never moves a decision out of the nine materiality categories. Covered by: 3.1
+- E7: A precedent has no authority over gates, evidence, Review, or the write guard. Covered by: 1.2
+- E8: One store outside a repository can serve several projects. Covered by: 1.1
+- E9: A repository declaring no store behaves exactly as it does at 5.5.0. Covered by: 1.1, 2.1
+- E10: Keel bundles no precedent and creates no store. Covered by: 1.1
+- E11: The interface is exercised by the repository that ships it, not only by fixtures. Covered by: 4.2
+- E12: Declaring a store that a clone or CI will not have must degrade to the no-store behavior rather than to an error. Covered by: 4.2
+- E13: Seeding the store with the decisions already made — the three rules of issue #34 among them — so the mechanism has content to act on. Durable owner: https://github.com/TanglmChris/keel/issues/34

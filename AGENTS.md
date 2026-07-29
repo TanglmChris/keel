@@ -1,6 +1,6 @@
-# Keel v5.5.0 Agent Protocol
+# Keel v5.6.0 Agent Protocol
 
-<!-- keel:start version=5.5.0 -->
+<!-- keel:start version=5.6.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -13,7 +13,7 @@
 
 ## Full mode
 - Use official OpenSpec OPSX for Full-mode proposal, design, specs, tasks, sync, and archive state under `openspec/`.
-- During OpenSpec authoring, align expectations with `keel-align-expectations` before specs and executable tasks finalize: quick path for complete low-risk work; risk-triggered deep path — the only question-loop entry — when proposal, design, tasks, domain lenses (user-authored `keel/lenses/*.md`), or high-risk changes expose hidden-knowledge risk. Inspect repository facts before user questions and keep inferred candidates unauthorized until accepted. Missing authority returns to OpenSpec authoring before implementation continues. New or materially expanded dedicated skills require authoritative source research, provenance/license review, realistic positive and negative trigger cases, and real-task evidence; keep portable `SKILL.md` authority canonical, target metadata additive, and runtime discovery target-native.
+- During OpenSpec authoring, align expectations with `keel-align-expectations` before specs and executable tasks finalize: quick path for complete low-risk work; risk-triggered deep path — the only question-loop entry — when proposal, design, tasks, domain lenses (user-authored `keel/lenses/*.md`), decision precedents (a user-authored store declared by `precedents:` in `keel/config.yaml`, consulted before escalating and recorded when the user decides something new), or high-risk changes expose hidden-knowledge risk. Inspect repository facts before user questions and keep inferred candidates unauthorized until accepted. Missing authority returns to OpenSpec authoring before implementation continues. New or materially expanded dedicated skills require authoritative source research, provenance/license review, realistic positive and negative trigger cases, and real-task evidence; keep portable `SKILL.md` authority canonical, target metadata additive, and runtime discovery target-native.
 - Use `/opsx:apply` as the implementation entry. Select one OpenSpec task or a small contiguous task group, then execute it in the current agent conversation.
 - The current agent owns Keel execution decisions. Do not transfer Keel ownership or hand Keel-managed execution to another runtime, agent, operator, or unbounded subagent unless the selected task or user explicitly authorizes it.
 - Target-native subagents are allowed only as bounded helpers/evidence producers when the current agent decides they are useful; they must receive a scoped brief and return report/evidence for current-agent review.
@@ -81,7 +81,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.5.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.6.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions

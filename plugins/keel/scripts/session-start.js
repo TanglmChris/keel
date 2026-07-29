@@ -53,6 +53,61 @@ function emit(context, humanMessage) {
 // at session start is the one who must not mistake a projection for authority.
 const DISPOSABLE = "Disposable projection; OpenSpec and Git are the authority.";
 
+// A pointer, never a body. The store grows without bound while the precedents
+// relevant to any one session are a small subset, and this hook pays its cost
+// on every session including post-compaction reinjection. Counts and freshness
+// tell the agent the store exists and how stale it is; the precedents
+// themselves load when a decision is actually being made.
+//
+// The reader is inlined rather than required from src/core because this script
+// ships inside the plugin and must run without the CLI package resolvable.
+function precedentPointer(cwd) {
+  let declared = null;
+  try {
+    const configPath = path.join(cwd, "keel", "config.yaml");
+    if (!fs.existsSync(configPath)) return null;
+    for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+      const stripped = line.trim();
+      if (stripped.startsWith("#")) continue;
+      const match = stripped.match(/^precedents\s*:\s*(.+?)\s*$/);
+      if (match) {
+        declared = match[1];
+        break;
+      }
+    }
+    if (!declared) return null;
+    const resolved = path.isAbsolute(declared)
+      ? declared
+      : path.resolve(cwd, declared);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      return `precedent store declared at ${declared} but absent here; `
+        + "no precedent informs any decision.";
+    }
+    const files = fs
+      .readdirSync(resolved)
+      .filter((name) => name.endsWith(".md") && name !== "README.md");
+    let authorized = 0;
+    let newest = 0;
+    for (const name of files) {
+      const full = path.join(resolved, name);
+      if (/^-\s*Status:\s*authorized/mi.test(fs.readFileSync(full, "utf8"))) {
+        authorized += 1;
+      }
+      const mtime = fs.statSync(full).mtimeMs;
+      if (mtime > newest) newest = mtime;
+    }
+    const synced = newest
+      ? new Date(newest).toISOString().slice(0, 10)
+      : "never";
+    return `precedents: ${files.length} (${authorized} authorized, `
+      + `last synced ${synced}); bodies load at the decision, not here.`;
+  } catch {
+    // The projection never blocks a session. An unreadable store is the same
+    // as no store for this hook's purposes.
+    return null;
+  }
+}
+
 // The Keel mark. A keel is the carina, the ridge on a bird's sternum, so the
 // animal that literally has one is a bird. Every cell is drawn from
 // U+2580–U+259F — the same block-element family as the host's own startup
@@ -238,6 +293,8 @@ function main() {
         + "does not guess among candidates."
     );
   }
+  const pointer = precedentPointer(cwd);
+  if (pointer) lines.push(`- ${pointer}`);
   lines.push(`- report this state ${DISCLOSURE}; it authorizes nothing.`);
   emit(lines.join("\n"), panel(human));
   return 0;
