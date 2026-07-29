@@ -15,9 +15,11 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-// This text is injected into the agent and never rendered for the human, so
-// without an explicit instruction the projection reaches nobody who can catch
-// it being wrong. Every branch carries the same phrase, degraded ones included.
+// This text is injected into the agent; the human reads the `systemMessage`
+// line instead. Both channels ship on every branch, degraded ones included,
+// and neither makes the other redundant: the host's line says what the state
+// is, and this instruction is what surfaces the state the agent actually
+// worked from, which is the one a user can catch being wrong.
 const DISCLOSURE = "to the user in your first reply";
 
 const TIMEOUT_MS = Number(process.env.KEEL_HOOK_TIMEOUT_MS || 8000) || 8000;
@@ -32,15 +34,77 @@ function readStdin() {
   }
 }
 
-function emit(context) {
-  process.stdout.write(
-    `${JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "SessionStart",
-        additionalContext: context,
-      },
-    })}\n`
+// The human line rides the host's `systemMessage` field, which is rendered to
+// the person at session start without waiting for them to type. It is a second
+// channel, not a replacement: `additionalContext` still carries the full
+// projection to the agent, and a host that does not recognize the field simply
+// ignores it and leaves today's behavior intact.
+function emit(context, humanMessage) {
+  const payload = {};
+  if (humanMessage) payload.systemMessage = humanMessage;
+  payload.hookSpecificOutput = {
+    hookEventName: "SessionStart",
+    additionalContext: context,
+  };
+  process.stdout.write(`${JSON.stringify(payload)}\n`);
+}
+
+// Stated on the human line as well as the model payload: the person reading it
+// at session start is the one who must not mistake a projection for authority.
+const DISPOSABLE = "Disposable projection; OpenSpec and Git are the authority.";
+
+// The Keel mark. A keel is the carina, the ridge on a bird's sternum, so the
+// animal that literally has one is a bird. Every cell is drawn from
+// U+2580–U+259F — the same block-element family as the host's own startup
+// banner — because those code points are East-Asian-Ambiguous width: pinning
+// the charset is what keeps the rows aligned under a CJK locale, and matters
+// more than the shape. The rows are padded to equal width so that a future
+// edit which breaks the rectangle is caught rather than silently skewed.
+const MARK = [
+  "▙▖▛▀▜  ▛▀▜▗▟",
+  "  ▌█▐  ▌█▐  ",
+  "  ▙▄▟▚▞▙▄▟  ",
+].join("\n");
+
+// The frame is modelled on the host's own welcome panel and draws from
+// U+2500–U+257F, a different range than the mark. Its width is the longest
+// content row, so a long change name widens the panel instead of being cut:
+// the identifier is the most useful thing in the projection, and truncating
+// the payload to preserve the frame would invert what the frame is for.
+// Leads with a newline because the host prefixes the message with
+// `<hookEvent>:<source> says: `, which would otherwise push the top rule out
+// of line with the rows beneath it.
+// Opt-in. The single line is what answers the reported problem — nobody is
+// told anything at session start — and it ships on. The panel is presentation,
+// and presentation that appears unbidden in every session of every install
+// should be chosen rather than inherited. The allowlist is explicit so a typo
+// leaves the default in place instead of quietly switching it on.
+const PANEL_TITLE = "Keel";
+const PANEL_ENABLED = /^(1|true|on|yes)$/i.test(
+  String(process.env.KEEL_SESSION_PANEL || "").trim()
+);
+
+function panel(lines) {
+  if (!PANEL_ENABLED) return lines.join(" ");
+  const rows = [...MARK.split("\n"), "", ...lines];
+  const width = Math.max(
+    ...rows.map((row) => row.length),
+    PANEL_TITLE.length + 8
   );
+  const centred = rows.map((row) => {
+    if (!row) return "";
+    const isMark = /^[▀-▟ ]+$/.test(row);
+    if (!isMark) return row;
+    const pad = Math.floor((width - row.length) / 2);
+    return " ".repeat(pad) + row;
+  });
+  const head = `─── ${PANEL_TITLE} `;
+  return [
+    "",
+    `╭${head}${"─".repeat(width + 2 - head.length)}╮`,
+    ...centred.map((row) => `│ ${row.padEnd(width)} │`),
+    `╰${"─".repeat(width + 2)}╯`,
+  ].join("\n");
 }
 
 function runKeel(cwd, args) {
@@ -53,11 +117,18 @@ function runKeel(cwd, args) {
   });
 }
 
+// A degraded projection needs the human line most: a hook that fails silently
+// is indistinguishable from a hook that never ran, which is how this whole
+// failure mode was reported in the first place.
 function fallback(reason) {
   emit(
     `Keel hook fallback: ${reason} Run \`keel context\` manually; `
       + "OpenSpec and Git remain the durable authority. Report this failure "
-      + `and that command ${DISCLOSURE}.`
+      + `and that command ${DISCLOSURE}.`,
+    panel([
+      `Keel: projection unavailable — ${reason} Next: keel context.`,
+      DISPOSABLE,
+    ])
   );
 }
 
@@ -112,8 +183,14 @@ function main() {
       : "Keel session projection (disposable; OpenSpec and Git are the durable authority):";
 
   const lines = [header];
+  let human = [];
   if (context.status === "ready" && context.selection) {
     const task = context.selection.task ? `#${context.selection.task}` : "";
+    human = [
+      `Keel: ${context.selection.change}${task} — next: `
+        + `${context.nextAction ? context.nextAction.kind : "unknown"}.`,
+      DISPOSABLE,
+    ];
     lines.push(
       `- context ready: ${context.selection.change}${task} `
         + `(${context.selection.source}); next action: `
@@ -142,8 +219,18 @@ function main() {
       );
     }
   } else {
-    lines.push(`- context status: ${context.status || "unknown"}.`);
-    for (const reason of (context.reasons || []).slice(0, MAX_REASONS)) {
+    const status = context.status || "unknown";
+    const reasons = (context.reasons || []).slice(0, MAX_REASONS);
+    human = [
+      `Keel: ${status}`
+        + (reasons.length > 0
+          ? ` — ${String(reasons[0]).slice(0, MAX_REASON_LENGTH)}`
+          : "")
+        + " Next: keel context.",
+      DISPOSABLE,
+    ];
+    lines.push(`- context status: ${status}.`);
+    for (const reason of reasons) {
       lines.push(`- reason: ${String(reason).slice(0, MAX_REASON_LENGTH)}`);
     }
     lines.push(
@@ -152,7 +239,7 @@ function main() {
     );
   }
   lines.push(`- report this state ${DISCLOSURE}; it authorizes nothing.`);
-  emit(lines.join("\n"));
+  emit(lines.join("\n"), panel(human));
   return 0;
 }
 

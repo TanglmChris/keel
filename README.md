@@ -114,6 +114,17 @@ keel --init  →  keel context  →  /opsx:apply (pick one task)
    →  task-complete  →  /opsx:sync · /opsx:archive
 ```
 
+On the Claude target, the session-start hook also shows that state to **you**, not only to the
+agent — one line, before you type anything:
+
+```
+Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec and Git are the authority.
+```
+
+Set `KEEL_SESSION_PANEL=1` to draw it as a framed panel with the Keel mark instead. It is off by
+default, and turning it on changes nothing but the presentation — the same status and the same
+next command are in both forms.
+
 ### Full vs Lite
 
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,

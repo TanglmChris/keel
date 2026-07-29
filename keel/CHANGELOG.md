@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.4.0 - the projection reaches the human
+
+Closes **#32**, whose analysis of the available channels was correct when written and wrong for Claude Code 2.1.220.
+
+- **The SessionStart projection now reaches the person, not only the agent.** It was delivered entirely through `additionalContext`, which the host injects into the model and never renders, so the only path to the user was an instruction asking the agent to restate it — which requires the agent to comply and requires the user to send a first message. Someone who opened a session and waited was told nothing, which is exactly how the issue was reported. (keel-native-runtime-projection)
+- **The channel already existed and Keel was not using it.** The host's common hook-output schema declares `systemMessage` beside `continue`, `suppressOutput`, and `decision`, and consumes it in the same handler as `additionalContext` with no gating by event. Issue #32 concluded the only human-visible seam was `exit 2` plus stderr — true of earlier versions, and the reason it proposed a statusline instead. That proposal is **not** built; its author withdrew it in favour of this.
+- **Every branch carries it, degraded ones included.** Idle, ambiguous, blocked, missing CLI, malformed output, and timeout each emit their status, their explicit next command, and the authority note. A fallback that stays silent to the human is indistinguishable from a hook that never ran, which is the failure this change exists to close.
+- **Both channels ship, and neither is redundant.** The host's line says what the state is; the instruction to restate it is what surfaces the state the agent is actually working from. Only the second can expose the two disagreeing — as one did during development, when the projection selected a task that `tasks.md` already showed complete.
+- **An opt-in panel**, off by default: `KEEL_SESSION_PANEL=1` frames the message in a titled box with a Keel mark, sized to its content so a long change name widens the frame instead of being truncated. The default single line is unchanged and carries the same information, which is enforced rather than intended — the tests strip the frame and the mark away and require the status and next command to survive.
+- Three documents asserted that the projection reaches only the agent. All three now state both channels and why the agent still restates the projection; the requirement they justified survives for a different reason.
+- No behavior change for a host that does not recognise `systemMessage`: the field is optional in the host's own schema, and the `additionalContext` payload is byte-identical to 5.3.9's. Nothing to do on upgrade.
+- Validator at **90 scenarios**, with `native-plugin-session-start` grown to exercise all six branches in both panel modes.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.4.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.3.9 - the guard's scope is the repository
 
 Closes **#31**, found while verifying the last unverified item of #28 against 5.3.8.

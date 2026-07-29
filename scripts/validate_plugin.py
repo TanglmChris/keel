@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.3.9"
-PROTOCOL_VERSION = "5.3.9"
+PACKAGE_VERSION = "5.4.0"
+PROTOCOL_VERSION = "5.4.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8940,10 +8940,17 @@ def run_session_start_hook(
     *,
     keel_cli: str,
     timeout_ms: int | None = None,
+    panel: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["KEEL_CLI"] = keel_cli
     env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+    # The suite must decide the panel's state rather than inherit whatever the
+    # developer running it has exported, or the default-off assertion would
+    # pass or fail by accident of the shell.
+    env.pop("KEEL_SESSION_PANEL", None)
+    if panel is not None:
+        env["KEEL_SESSION_PANEL"] = panel
     if timeout_ms is not None:
         env["KEEL_HOOK_TIMEOUT_MS"] = str(timeout_ms)
     return subprocess.run(
@@ -8969,10 +8976,98 @@ def session_start_context(result: subprocess.CompletedProcess[str]) -> str | Non
     return output.get("additionalContext")
 
 
-# The projection is delivered through additionalContext, which the host injects
-# into the agent and never renders for the human. Every branch must therefore
-# carry the instruction to relay it, including — especially — the degraded ones,
-# because a projection nobody sees is a projection nobody checks.
+def session_start_message(result: subprocess.CompletedProcess[str]) -> str | None:
+    """The human-visible half of the projection, carried on `systemMessage`."""
+    if not result.stdout.strip():
+        return None
+    return json.loads(result.stdout).get("systemMessage")
+
+
+# Each branch pairs its human message with the tokens a person needs in order to
+# act: what the state is, and which command moves it. The degraded branches are
+# the load-bearing rows — a fallback nobody sees is the bug this pair of channels
+# exists to close.
+HUMAN_BRANCH_TOKENS = {
+    "ready": ("demo#1.1",),
+    "idle": ("idle", "keel context"),
+    "ambiguous": ("ambiguous", "keel context"),
+    "missing-CLI": ("missing or incompatible", "keel context"),
+    "malformed": ("malformed", "keel context"),
+    "timeout": ("failed or timed out", "keel context"),
+}
+HUMAN_AUTHORITY_TOKEN = "OpenSpec and Git"
+
+# The mark is drawn only from the block-element range the host's own banner uses.
+# That range is East-Asian-Ambiguous width, so a terminal under a CJK locale
+# renders every one of these cells the same way it already renders the banner —
+# which is the whole reason the charset is pinned rather than the shape.
+MARK_RANGE = (0x2580, 0x259F)
+MARK_ROWS = 3
+BORDER_RANGE = (0x2500, 0x257F)
+
+
+def panel_rows(message: str) -> list[str]:
+    """The rendered panel: everything after the leading newline."""
+    return message[1:].split("\n") if message.startswith("\n") else []
+
+
+def is_mark_row(content: str) -> bool:
+    """A mark row is non-empty and drawn only from blocks and inner spaces.
+
+    The inner spaces are load-bearing shape - they are the owl's eye gaps - so
+    the charset test admits them rather than stripping the row down to its
+    glyphs and demanding every remaining cell be a block.
+    """
+    return bool(content.strip()) and all(
+        c == " " or MARK_RANGE[0] <= ord(c) <= MARK_RANGE[1] for c in content
+    )
+
+
+def panel_problem(message: str) -> str | None:
+    """The panel must close.
+
+    A frame turns a one-cell width error from a cosmetic skew into visibly
+    broken output, so every row is checked for equal width rather than trusted.
+    The mark keeps its own charset check: the border draws from U+2500-U+257F
+    and the mark from U+2580-U+259F, and mixing them is what would misalign
+    under a locale that renders one range wide.
+    """
+    if not message.startswith("\n"):
+        return "human message does not open with a newline before the panel"
+    rows = panel_rows(message)
+    if len(rows) < MARK_ROWS + 3:
+        return f"panel has {len(rows)} rows, too few to frame the mark"
+    if not (rows[0].startswith("╭") and rows[0].endswith("╮")):
+        return f"panel top rule is not a rule: {rows[0]!r}"
+    if "Keel" not in rows[0]:
+        return "panel top rule carries no title"
+    if not (rows[-1].startswith("╰") and rows[-1].endswith("╯")):
+        return f"panel bottom rule is not a rule: {rows[-1]!r}"
+    for row in rows[1:-1]:
+        if not (row.startswith("│") and row.endswith("│")):
+            return f"panel body row is not enclosed: {row!r}"
+    widths = {len(row) for row in rows}
+    if len(widths) != 1:
+        return f"panel rows are ragged: widths {sorted(widths)}"
+    marks = [row[2:-2] for row in rows[1:-1] if is_mark_row(row[2:-2])]
+    if len(marks) != MARK_ROWS:
+        return f"panel carries {len(marks)} mark rows, expected {MARK_ROWS}"
+    return None
+
+
+def panel_content(message: str) -> str:
+    """The panel with its frame and mark taken away."""
+    rows = panel_rows(message)
+    kept = [row[2:-2] for row in rows[1:-1] if not is_mark_row(row[2:-2])]
+    return " ".join(part.strip() for part in kept if part.strip())
+
+
+# additionalContext is the agent's half of the projection; the human reads the
+# systemMessage line asserted above. Every branch must still carry the
+# instruction to relay it, including — especially — the degraded ones. The two
+# checks are not redundant: one proves the state was shown, this one proves the
+# agent was told to say which state it is working from, and only the second can
+# expose the two disagreeing.
 SESSION_START_DISCLOSURE = "to the user in your first reply"
 
 # A host loads its plugins once per session, so the projection can be absent for
@@ -9170,6 +9265,134 @@ def validate_native_plugin_session_start_scenario() -> int:
         ):
             report("native-plugin-session-start timeout fallback failed.")
             report(repr(hang_context))
+            return 1
+
+        # Every branch is exercised in both forms. The panel is opt-in, so the
+        # default run is the one that ships; the enabled run only proves the
+        # decoration still assembles when asked for. Both must carry the same
+        # information, which is what keeps the switch from costing anything.
+        branches = (
+            ("ready", ready_repo, real_cli, None),
+            ("idle", idle_repo, real_cli, None),
+            ("ambiguous", ambiguous_repo, real_cli, None),
+            ("missing-CLI", ready_repo, "keel-definitely-missing-cli-xyz", None),
+            ("malformed", ready_repo, f'node "{malformed_cli}"', None),
+            ("timeout", ready_repo, f'node "{hang_cli}"', 700),
+        )
+        for label, repo, cli, timeout_ms in branches:
+            for panel_env in (None, "1"):
+                result = run_session_start_hook(
+                    repo, codex_event, keel_cli=cli,
+                    timeout_ms=timeout_ms, panel=panel_env,
+                )
+                mode = "default" if panel_env is None else "panel"
+                message = session_start_message(result)
+                if not message:
+                    report(
+                        f"native-plugin-session-start {label}/{mode} branch "
+                        "emitted no human-visible message, so that state "
+                        "reaches only the agent and nobody can catch it being "
+                        "wrong."
+                    )
+                    return 1
+                if label == "ambiguous" and "alpha#1.1" in message:
+                    report(
+                        f"native-plugin-session-start {label}/{mode} human "
+                        "message named a guessed owner."
+                    )
+                    return 1
+                if panel_env is None:
+                    decoration = [
+                        c for c in message
+                        if MARK_RANGE[0] <= ord(c) <= MARK_RANGE[1]
+                        or BORDER_RANGE[0] <= ord(c) <= BORDER_RANGE[1]
+                    ]
+                    if decoration:
+                        report(
+                            f"native-plugin-session-start {label} draws the "
+                            f"panel without being asked: {decoration[:6]!r}"
+                        )
+                        return 1
+                    if "\n" in message:
+                        report(
+                            f"native-plugin-session-start {label} default "
+                            f"message is not a single line: {message!r}"
+                        )
+                        return 1
+                    carried = message
+                else:
+                    problem = panel_problem(message)
+                    if problem:
+                        report(
+                            f"native-plugin-session-start {label} {problem}"
+                        )
+                        return 1
+                    # Neither frame nor mark may be load-bearing: take both
+                    # away and the message still has to say what the state is
+                    # and which command moves it.
+                    carried = panel_content(message)
+                absent = [
+                    token
+                    for token in (
+                        *HUMAN_BRANCH_TOKENS[label], HUMAN_AUTHORITY_TOKEN
+                    )
+                    if token not in carried
+                ]
+                if absent:
+                    report(
+                        f"native-plugin-session-start {label}/{mode} message "
+                        f"omits {absent}: {carried!r}"
+                    )
+                    return 1
+
+        # A value outside the allowlist must leave the default in place, so a
+        # typo cannot silently switch the decoration on.
+        typo = session_start_message(
+            run_session_start_hook(
+                idle_repo, codex_event, keel_cli=real_cli, panel="yeah"
+            )
+        ) or ""
+        if "\n" in typo or "╭" in typo:
+            report(
+                "native-plugin-session-start enabled the panel for a value "
+                f"outside the allowlist: {typo!r}"
+            )
+            return 1
+
+        # The panel sizes to its content. A change name longer than every other
+        # row must widen the frame rather than be cut, because the identifier
+        # is the thing the reader came for.
+        long_name = "a-deliberately-long-change-name-that-exceeds-the-panel-default"
+        wide_repo = tmp / "wide"
+        write_text(
+            wide_repo / f"openspec/changes/{long_name}/tasks.md",
+            task_contract_fixture(),
+        )
+        wide_message = session_start_message(
+            run_session_start_hook(wide_repo, codex_event, keel_cli=real_cli, panel="1")
+        ) or ""
+        problem = panel_problem(wide_message)
+        if problem:
+            report(f"native-plugin-session-start wide panel {problem}")
+            return 1
+        if long_name not in panel_content(wide_message):
+            report(
+                "native-plugin-session-start truncated the change name to fit "
+                f"the panel: {panel_content(wide_message)!r}"
+            )
+            return 1
+        narrow_message = session_start_message(
+            run_session_start_hook(
+                idle_repo, codex_event, keel_cli=real_cli, panel="1"
+            )
+        ) or ""
+        wide = len(panel_rows(wide_message)[0])
+        narrow = len(panel_rows(narrow_message)[0])
+        if wide <= narrow:
+            report(
+                "native-plugin-session-start panel width is fixed, not derived "
+                f"from content: wide={wide} narrow={narrow}"
+            )
             return 1
 
     hooks_config = json.loads(
