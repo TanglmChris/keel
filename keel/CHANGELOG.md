@@ -1,5 +1,20 @@
 # Keel Changelog
 
+## 5.5.0 - authorize once, in a file
+
+First layer of **#34**, which asked why execution keeps stopping for confirmations the owner already decided.
+
+- **A repository can now declare standing authorization once**, in `keel/config.yaml`, over a closed vocabulary: `commit`, `push`, `release`, `archive`. Before this there was nowhere to put such a decision — the task capsule had the vocabulary (`Autonomy boundary:` / `Pre-authorized fallback:`) but no repository-level default to inherit, so a permission granted in conversation died at the next `/clear` and was asked for again. (keel-standing-authorization)
+- **A task inherits the declaration only where it authored nothing.** A task that declares its own `Autonomy boundary:` keeps it untouched; a repository-wide default that could overwrite a task's stated boundary would make the capsule unreadable on its own. The compiled capsule names `keel/config.yaml` as the source of any entry it supplied, so an inherited authorization is never mistaken for one the task decided. (keel-task-capsule)
+- **It authorizes the action and never the proof.** Every gate, evidence requirement, semantic Review, and the write guard run exactly as before: `keel gate task-complete` returns the same status, the same problem set, and the same failure text whether or not anything is declared. This is asserted, not asserted-to — the test compares an authorizing repository against an identical silent one and first proves the two actually differ, because a declaration that failed to reach the capsule would make every comparison trivially equal.
+- **It is not a trigger.** `keel context` returns the same selection and next action either way. Nothing schedules itself and no next task is chosen for you; the declaration removes a confirmation, not the step that reaches the action.
+- **An unrecognized action name is reported with the accepted set and authorizes nothing** — including the valid entries beside it. Silently dropping a typo would leave the author believing they had granted something they had not.
+- **The apply and archive overlays now route confirmations to the declaration** instead of asking again, and say in the same breath that an undeclared action still requires today's confirmation and that authorization never substitutes for a gate. A repository that declares nothing sees no change on any surface.
+- Four documents stated the hard-stop default and the unauthorized-action list unconditionally — the compact-task template and the schema, in both their source and installed copies, plus the resident protocol. All now state the condition. `keel/config.yaml`'s own header no longer introduces the file as if `fast_check` were its only key.
+- No behavior change without a declaration: an absent, blockless, or empty `authorize:` block leaves every action hard-stop, which is exactly 5.4.0's behavior. Nothing to do on upgrade.
+- No new dependency. The reader is line-oriented like `fast_check`'s, in a new `src/core/config.js` shared by the CLI and capsule compilation; the package still carries one runtime dependency and zero devDependencies.
+- Validator at **93 scenarios**, with three added for the declaration, its inheritance, and its inertness.
+
 ## 5.4.0 - the projection reaches the human
 
 Closes **#32**, whose analysis of the available channels was correct when written and wrong for Claude Code 2.1.220.

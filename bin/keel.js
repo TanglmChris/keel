@@ -44,6 +44,10 @@ const {
   renderGuard,
   startGuard,
 } = require("../src/core/guard");
+const {
+  STANDING_AUTHORIZATION_ACTIONS,
+  readStandingAuthorization,
+} = require("../src/core/config");
 
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const PACKAGE_JSON = require(path.join(PACKAGE_ROOT, "package.json"));
@@ -1033,6 +1037,8 @@ function keelOpenSpecOverlay(action) {
           "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
           "- A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.",
           "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+          "- Consult the repository's standing authorization in `keel/config.yaml` before asking the user to confirm a repository action: a standing-authorized action proceeds without a per-occurrence confirmation, and an undeclared action still requires the confirmation it requires today.",
+          "- A standing authorization covers the action and never substitutes for a gate, evidence, or Review; it removes the confirmation, not the record, and it is not a trigger to perform the action.",
         ]
       : [
           "- The current agent owns final sync/archive decisions and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
@@ -1043,6 +1049,8 @@ function keelOpenSpecOverlay(action) {
           "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
           "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
           "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
+          "- A repository that standing-authorizes `archive` in `keel/config.yaml` does not need the per-occurrence archive confirmation; a repository that declares nothing still needs it.",
+          "- The completion gate and follow-up ownership checks still run unchanged under a standing authorization; it removes the confirmation, not the proof.",
         ];
 
   const lines = [
@@ -1344,10 +1352,11 @@ function runDoctor(options) {
 
   printTargetSurface(repo, options.target);
   printLensSurface(repo, options.target);
+  const authorizationOk = printStandingAuthorizationSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
-  return checkStatus;
+  return authorizationOk ? checkStatus : 1;
 }
 
 // Only meaningful in Keel's own repository: a bare `keel` resolves to the
@@ -1388,6 +1397,37 @@ function gitConfigHooksPath(repo) {
   if (result.status !== 0) return null;
   const value = (result.stdout || "").trim();
   return value || null;
+}
+
+function printStandingAuthorizationSurface(repo) {
+  process.stdout.write("\nStanding authorization:\n");
+  const { declared, unknown } = readStandingAuthorization(repo);
+  if (unknown.length > 0) {
+    printDoctorLine(
+      "authorize",
+      "failed",
+      `keel/config.yaml declares unrecognized ${
+        unknown.length === 1 ? "action" : "actions"
+      }: ${unknown.join(", ")}; accepted names are `
+        + `${STANDING_AUTHORIZATION_ACTIONS.join(", ")}. The whole declaration `
+        + "authorizes nothing until it is corrected"
+    );
+    return false;
+  }
+  printDoctorLine(
+    "authorize",
+    declared.length > 0 ? "ok" : "none",
+    declared.length > 0
+      ? `declared in keel/config.yaml: ${declared.join(", ")}`
+      : "undeclared; every action stays hard-stop"
+  );
+  for (const action of STANDING_AUTHORIZATION_ACTIONS) {
+    printDoctorLine(
+      action,
+      declared.includes(action) ? "authorized" : "not authorized"
+    );
+  }
+  return true;
 }
 
 function printFastPrePushSurface(repo) {

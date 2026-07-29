@@ -1,5 +1,9 @@
 # Keel project configuration.
 #
+# Two independent declarations live here: fast_check, which names a command,
+# and authorize, which names repository actions this project has decided may
+# proceed without being asked each time.
+#
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
 # `keel --install --with-git-hooks`) and during iteration. The full or slow
@@ -7,3 +11,26 @@
 #
 # Example:
 #   fast_check: npm test -- --fast
+#
+# authorize (optional): standing authorization for repository actions. The
+# accepted names are the whole vocabulary — commit, push, release, archive —
+# and an unrecognized entry is reported with the accepted names rather than
+# silently granted or silently dropped, so the declaration authorizes nothing
+# until it is corrected. An absent or empty block authorizes nothing, which is
+# the default and leaves behavior exactly as it was before the block existed.
+#
+# A task that authors no `Autonomy boundary:` inherits what is declared here,
+# and the compiled capsule names this file as that entry's source. A task that
+# authors its own boundary keeps it; the declaration never overrides one.
+#
+# What this does NOT do: it removes the confirmation, never the proof. Every
+# gate, evidence requirement, semantic Review, and the write guard run exactly
+# as they do without it — `keel gate task-complete` returns the same verdict
+# and the same failure text either way. It is also not a trigger: it authorizes
+# an action the workflow already reached, and schedules nothing.
+
+authorize:
+  - commit
+  - push
+  - release
+  - archive

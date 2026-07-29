@@ -4,6 +4,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
+const {
+  CONFIG_RELATIVE_PATH,
+  readStandingAuthorization,
+} = require("./config");
+
 const SUPPORTED_MODES = new Set([
   "implementation",
   "diagnose-only",
@@ -843,6 +848,20 @@ function compileTaskContract(repo, change, task) {
   const autonomy = [...explicitAutonomy];
   if (!autonomy.some((item) => /^Default:/i.test(item))) {
     autonomy.unshift("Default: hard-stop");
+  }
+  // A repository declaration supplies the default a task did not author; it
+  // never edits one the task did, because a repository-wide default that could
+  // override a task's stated boundary would make the capsule unreadable on its
+  // own. The entry names its source so an inherited authorization is never
+  // mistaken for one this task decided.
+  if (explicitAutonomy.length === 0) {
+    const { declared } = readStandingAuthorization(repo);
+    if (declared.length > 0) {
+      autonomy.push(
+        `Standing authorization (${CONFIG_RELATIVE_PATH.split(path.sep).join("/")}): `
+          + declared.join(", ")
+      );
+    }
   }
   if (!autonomy.some((item) => /^Pre-authorized fallback:/i.test(item))) {
     autonomy.push("Pre-authorized fallback: none");

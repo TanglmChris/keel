@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.4.0"
-PROTOCOL_VERSION = "5.4.0"
+PACKAGE_VERSION = "5.5.0"
+PROTOCOL_VERSION = "5.5.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2087,6 +2087,12 @@ def assert_openspec_overlay(path: Path, action: str) -> str | None:
                 "source expectations",
                 "Rough future slices",
                 "cannot mark tasks complete",
+                # A confirmation the owner already declared is routed to the
+                # declaration; one they did not declare is still asked for, and
+                # neither case touches the proof.
+                "standing-authorized action proceeds without",
+                "undeclared action still requires",
+                "never substitutes for a gate",
             ]
         )
     else:
@@ -2098,6 +2104,8 @@ def assert_openspec_overlay(path: Path, action: str) -> str | None:
                 "durable follow-up owner",
                 "explicit discard reason",
                 "cannot archive, sync, change acceptance, or bypass completion gates",
+                "standing-authorizes `archive`",
+                "completion gate and follow-up ownership checks still run",
             ]
         )
     for snippet in required:
@@ -11111,6 +11119,405 @@ def validate_verification_layering_docs_scenario() -> int:
     return 0
 
 
+STANDING_AUTHORIZATION_ACTIONS = ("commit", "push", "release", "archive")
+
+
+def write_authorize_config(repo: Path, body: str) -> None:
+    (repo / "keel").mkdir(parents=True, exist_ok=True)
+    (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
+
+
+def validate_standing_authorization_declaration_scenario() -> int:
+    with tempfile.TemporaryDirectory(prefix="keel-authorize-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declared action is authorized; an undeclared one is not.
+        declared = root / "declared"
+        declared.mkdir()
+        write_authorize_config(
+            declared,
+            "fast_check: echo declared-check\n"
+            "authorize:\n"
+            "  - commit\n"
+            "  - push\n",
+        )
+        out = run_keel(declared, "--doctor").stdout
+        if "Standing authorization:" not in out:
+            report("standing-authorization: doctor has no standing authorization surface.")
+            report(out)
+            return 1
+        for needle in ("commit: authorized", "push: authorized"):
+            if needle not in out:
+                report(f"standing-authorization: declared action not reported: {needle}")
+                report(out)
+                return 1
+        for needle in ("release: not authorized", "archive: not authorized"):
+            if needle not in out:
+                report(f"standing-authorization: undeclared action not reported: {needle}")
+                report(out)
+                return 1
+
+        # M2 — absent, blockless, and empty declarations all authorize nothing,
+        # and none of them disturbs the fast_check surface that shares the file.
+        absent = root / "absent"
+        absent.mkdir()
+        blockless = root / "blockless"
+        blockless.mkdir()
+        write_authorize_config(blockless, "fast_check: echo blockless-check\n")
+        empty = root / "empty"
+        empty.mkdir()
+        write_authorize_config(
+            empty, "fast_check: echo empty-check\nauthorize:\n"
+        )
+        for repo, label, fast in (
+            (absent, "absent", None),
+            (blockless, "blockless", "echo blockless-check"),
+            (empty, "empty", "echo empty-check"),
+        ):
+            out = run_keel(repo, "--doctor").stdout
+            if "authorize: none" not in out:
+                report(
+                    f"standing-authorization: {label} repo does not report an "
+                    "undeclared authorization surface."
+                )
+                report(out)
+                return 1
+            if "authorized" in out.replace("not authorized", ""):
+                report(
+                    f"standing-authorization: {label} repo reports an authorized action."
+                )
+                report(out)
+                return 1
+            expected_fast = f"fast_check: ok - declared in keel/config.yaml: {fast}"
+            if fast is not None and expected_fast not in out:
+                report(
+                    f"standing-authorization: {label} repo lost its fast_check line."
+                )
+                report(out)
+                return 1
+            if fast is None and "fast_check: none" not in out:
+                report("standing-authorization: absent repo lost its fast_check line.")
+                report(out)
+                return 1
+
+        # M3 — an unrecognized name is reported with the accepted set, exits
+        # non-zero, and authorizes nothing that sits beside it.
+        unknown = root / "unknown"
+        unknown.mkdir()
+        write_authorize_config(
+            unknown,
+            "authorize:\n  - commit\n  - deploy\n",
+        )
+        result = run_keel(unknown, "--doctor")
+        combined = result.stdout + result.stderr
+        if result.returncode == 0:
+            report("standing-authorization: an unrecognized action name exited zero.")
+            report(combined)
+            return 1
+        if "deploy" not in combined:
+            report("standing-authorization: the error does not name the offending entry.")
+            report(combined)
+            return 1
+        for action in STANDING_AUTHORIZATION_ACTIONS:
+            if action not in combined:
+                report(
+                    "standing-authorization: the error does not name accepted "
+                    f"action {action}."
+                )
+                report(combined)
+                return 1
+        if "commit: authorized" in combined:
+            report(
+                "standing-authorization: a rejected declaration still authorized "
+                "the entry beside the bad one."
+            )
+            report(combined)
+            return 1
+
+    report("standing-authorization-declaration scenario passed.")
+    return 0
+
+
+def standing_authorization_task(boundary: str = "") -> str:
+    return (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        + boundary
+        + "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: pending\n"
+        "    - Review:\n"
+        "      - Status: pending\n"
+        "      - Acceptance check: pending\n"
+        "      - Scope check: pending\n"
+        "      - Findings: pending\n"
+        "    - Blocker: none\n"
+    )
+
+
+def standing_authorization_autonomy(repo: Path) -> list[str] | None:
+    result = run_keel(
+        repo,
+        "gate",
+        "task-start",
+        "--change",
+        "demo",
+        "--task",
+        "1.1",
+        "--json",
+        "--no-guard",
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    contract = payload.get("contract") or {}
+    capsule = contract.get("capsule") or {}
+    boundaries = capsule.get("boundaries") or {}
+    return boundaries.get("autonomy")
+
+
+def validate_standing_authorization_inheritance_scenario() -> int:
+    with tempfile.TemporaryDirectory(prefix="keel-authinherit-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a task that authored no boundary inherits the declaration, and
+        # the capsule says where the authorization came from.
+        inherits = root / "inherits"
+        inherits.mkdir()
+        write_gate_fixture(inherits, standing_authorization_task())
+        write_authorize_config(inherits, "authorize:\n  - commit\n")
+        autonomy = standing_authorization_autonomy(inherits)
+        if autonomy is None:
+            report("standing-authorization-inheritance: task-start returned no capsule autonomy.")
+            return 1
+        inherited = [entry for entry in autonomy if "commit" in entry]
+        if not inherited:
+            report(
+                "standing-authorization-inheritance: a declared action did not "
+                f"reach the capsule autonomy boundary: {autonomy}"
+            )
+            return 1
+        if not any("keel/config.yaml" in entry for entry in inherited):
+            report(
+                "standing-authorization-inheritance: the inherited entry does "
+                f"not name the repository declaration as its source: {autonomy}"
+            )
+            return 1
+
+        # M2 — an authored boundary is returned unchanged, with nothing
+        # inherited beside it.
+        authored = root / "authored"
+        authored.mkdir()
+        write_gate_fixture(
+            authored,
+            standing_authorization_task(
+                "  - Autonomy boundary:\n"
+                "    - Default: hard-stop\n"
+                "    - Pre-authorized fallback: revert the fixture file and record M1\n"
+            ),
+        )
+        write_authorize_config(authored, "authorize:\n  - commit\n  - push\n")
+        autonomy = standing_authorization_autonomy(authored)
+        if autonomy is None:
+            report("standing-authorization-inheritance: authored-boundary task did not compile.")
+            return 1
+        if "Pre-authorized fallback: revert the fixture file and record M1" not in autonomy:
+            report(
+                "standing-authorization-inheritance: the authored boundary was "
+                f"not preserved: {autonomy}"
+            )
+            return 1
+        if any("keel/config.yaml" in entry for entry in autonomy):
+            report(
+                "standing-authorization-inheritance: the declaration overrode an "
+                f"authored boundary: {autonomy}"
+            )
+            return 1
+
+        # M3 — an action the declaration does not name still hard-stops.
+        autonomy = standing_authorization_autonomy(inherits)
+        if autonomy is None:
+            report("standing-authorization-inheritance: re-compilation returned no autonomy.")
+            return 1
+        if any("push" in entry or "release" in entry for entry in autonomy):
+            report(
+                "standing-authorization-inheritance: an undeclared action was "
+                f"authorized: {autonomy}"
+            )
+            return 1
+        if not any(entry.startswith("Default: hard-stop") for entry in autonomy):
+            report(
+                "standing-authorization-inheritance: the hard-stop default "
+                f"disappeared for undeclared actions: {autonomy}"
+            )
+            return 1
+
+    report("standing-authorization-inheritance scenario passed.")
+    return 0
+
+
+def validate_standing_authorization_never_weakens_scenario() -> int:
+    """A declaration removes a confirmation. It must not remove a proof.
+
+    Every check here compares an authorizing repository against an identical
+    one that declares nothing. The declaration is proven inert on the gate
+    result, on the failure text, and on continuity selection — the three places
+    a reader might otherwise assume authorization had bought something.
+    """
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+    missing_evidence_task = complete_task.replace(
+        "    - M1: node test.js printed ok\n", "    - M1: pending\n"
+    )
+
+    def gate_result(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1", "--json"
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+        return {
+            "status": payload.get("status"),
+            "problems": sorted(
+                (problem.get("code", ""), problem.get("message", ""))
+                for problem in payload.get("problems") or []
+            ),
+        }
+
+    def pair(root: Path, name: str, tasks: str) -> tuple[Path, Path]:
+        authorizing = root / f"{name}-authorizing"
+        authorizing.mkdir()
+        write_gate_fixture(authorizing, tasks)
+        write_authorize_config(
+            authorizing,
+            "authorize:\n  - commit\n  - push\n  - release\n  - archive\n",
+        )
+        silent = root / f"{name}-silent"
+        silent.mkdir()
+        write_gate_fixture(silent, tasks)
+        # Positive control. Every check below compares these two repositories
+        # and passes when they agree, so a declaration that silently failed to
+        # reach the capsule would make each comparison trivially true and prove
+        # nothing. Assert the difference exists before asserting it is inert.
+        live = standing_authorization_autonomy(authorizing) or []
+        inert = standing_authorization_autonomy(silent) or []
+        if not any("keel/config.yaml" in entry for entry in live):
+            report(
+                f"standing-authorization-inert: the {name} authorizing fixture "
+                f"never actually authorized anything: {live}"
+            )
+            raise AssertionError("authorizing fixture is not authorizing")
+        if any("keel/config.yaml" in entry for entry in inert):
+            report(
+                f"standing-authorization-inert: the {name} silent fixture "
+                f"declared something: {inert}"
+            )
+            raise AssertionError("silent fixture is not silent")
+        return authorizing, silent
+
+    with tempfile.TemporaryDirectory(prefix="keel-authinert-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — completion returns the same status and problem set either way.
+        authorizing, silent = pair(root, "complete", complete_task)
+        for repo in (authorizing, silent):
+            if gate_result(repo, "task-start") is None:
+                report("standing-authorization-inert: task-start produced no JSON.")
+                return 1
+        authorized_result = gate_result(authorizing, "task-complete")
+        silent_result = gate_result(silent, "task-complete")
+        if authorized_result is None or silent_result is None:
+            report("standing-authorization-inert: task-complete produced no JSON.")
+            return 1
+        if authorized_result != silent_result:
+            report(
+                "standing-authorization-inert: a declaration changed the "
+                f"completion gate result: {authorized_result} != {silent_result}"
+            )
+            return 1
+
+        # M2 — a repo authorizing every action still fails for missing evidence,
+        # with unchanged failure text.
+        authorizing, silent = pair(root, "missing", missing_evidence_task)
+        for repo in (authorizing, silent):
+            if gate_result(repo, "task-start") is None:
+                report("standing-authorization-inert: task-start produced no JSON.")
+                return 1
+        authorized_result = gate_result(authorizing, "task-complete")
+        silent_result = gate_result(silent, "task-complete")
+        if authorized_result is None or silent_result is None:
+            report("standing-authorization-inert: task-complete produced no JSON.")
+            return 1
+        if authorized_result.get("status") == "pass":
+            report(
+                "standing-authorization-inert: authorizing every action let a "
+                "task with missing evidence pass completion."
+            )
+            return 1
+        if authorized_result != silent_result:
+            report(
+                "standing-authorization-inert: a declaration changed the failure "
+                f"text: {authorized_result} != {silent_result}"
+            )
+            return 1
+
+        # M3 — a declaration selects nothing and starts nothing.
+        def continuity(repo: Path) -> dict | None:
+            result = run_keel(repo, "context", "--json")
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return None
+            return {
+                "status": payload.get("status"),
+                "selection": payload.get("selection"),
+                "nextAction": payload.get("nextAction"),
+            }
+
+        authorizing, silent = pair(root, "context", complete_task)
+        authorized_context = continuity(authorizing)
+        silent_context = continuity(silent)
+        if authorized_context is None or silent_context is None:
+            report("standing-authorization-inert: keel context produced no JSON.")
+            return 1
+        if authorized_context != silent_context:
+            report(
+                "standing-authorization-inert: a declaration changed continuity "
+                f"selection: {authorized_context} != {silent_context}"
+            )
+            return 1
+
+    report("standing-authorization-never-weakens scenario passed.")
+    return 0
+
+
 def validate_fast_check_config_scaffold_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-fastcfg-") as raw_tmp:
         repo = Path(raw_tmp)
@@ -14491,6 +14898,18 @@ SCENARIOS: tuple = (
     ("update-pack-install", validate_update_pack_install_scenario),
     ("update-default-registry", validate_update_default_registry_scenario),
     ("verification-layering-docs", validate_verification_layering_docs_scenario),
+    (
+        "standing-authorization-declaration",
+        validate_standing_authorization_declaration_scenario,
+    ),
+    (
+        "standing-authorization-inheritance",
+        validate_standing_authorization_inheritance_scenario,
+    ),
+    (
+        "standing-authorization-never-weakens",
+        validate_standing_authorization_never_weakens_scenario,
+    ),
     ("fast-check-config-scaffold", validate_fast_check_config_scaffold_scenario),
     ("fast-pre-push-hooks", validate_fast_pre_push_hooks_scenario),
     ("fast-pre-push-doctor", validate_fast_pre_push_doctor_scenario),

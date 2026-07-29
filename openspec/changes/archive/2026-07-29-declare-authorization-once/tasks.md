@@ -1,0 +1,295 @@
+## 1. The declaration
+
+- [x] 1.1 Read an `authorize:` block from `keel/config.yaml` over a closed action vocabulary, report it on `keel --doctor`, and reject an unrecognized name by naming the accepted set
+  - Covers:
+    - keel-standing-authorization / A repository declares standing authorization in a closed vocabulary
+    - D1 — the declaration is a closed list of action names, not free-form
+    - D5 — the config reader stays hand-rolled; no dependency is added
+    - D6 — an unknown action name is a configuration error naming the accepted names
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a repo declaring `authorize:` with `commit` and `push` reports both as standing-authorized on `keel --doctor`, and reports `release` and `archive` as not authorized
+    - M2: a repo with no `keel/config.yaml`, no `authorize:` block, or an empty one reports no standing authorization, and `fast_check` reporting is unchanged
+    - M3: a repo declaring an unrecognized action name exits non-zero with a message naming the offending entry and the four accepted names, and authorizes nothing
+  - Evidence:
+    - Contract: sha256:ffe2dd04c9960bbf78832ce8c7aa636e16e151aa1a8a7be49b133537db6fc3fd
+    - M1: `python scripts/validate_plugin.py --scenario standing-authorization-declaration` passes; a repo declaring `commit` and `push` prints `commit: authorized`, `push: authorized`, `release: not authorized`, `archive: not authorized` under a `Standing authorization:` heading on `keel --doctor`.
+    - M1.red: exit 1, `standing-authorization: doctor has no standing authorization surface.` — `keel --doctor` printed no such surface before `printStandingAuthorizationSurface` existed.
+    - M1.green: exit 1 with the failure advanced to M2's assertion, proving M1's four action lines and heading now hold.
+    - M2: the absent, blockless, and empty-block repos each report `authorize: none - undeclared; every action stays hard-stop`, report no action as authorized, and keep the exact `fast_check` line they had before.
+    - M2.red: exit 1, `standing-authorization: absent repo does not report an undeclared authorization surface.` — the four action lines existed but no `authorize:` summary distinguished "declared nothing" from "declared these".
+    - M2.green: exit 1 with the failure advanced to M3's assertion; absent, blockless, and empty-block repos all report `authorize: none`, report no action as authorized, and keep their `fast_check` line unchanged.
+    - M3.red: exit 1, `standing-authorization: an unrecognized action name exited zero.` — `authorize: [commit, deploy]` was accepted silently and `commit` was still granted.
+    - M3.green: `standing-authorization-declaration scenario passed.`, exit 0. An unrecognized entry makes `keel --doctor` exit 1 with a message naming `deploy` and all four accepted names, and the reader fails closed so `commit` beside it is not authorized.
+    - M3: `npm test` → `validation --all passed: baseline plus 91 scenarios.` (90 before this task), so the new rejection path regressed no existing scenario.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check drives `keel --doctor`, the public CLI surface, and asserts the reported authorization state rather than the reader's return shape. The closed vocabulary is proven by an entry outside it being rejected by name, and the no-declaration default is proven unchanged across all three ways a repository can decline to declare.
+      - Scope check: `git status --porcelain` shows exactly `bin/keel.js` and `scripts/validate_plugin.py` modified, both declared in Touch. The untracked `.claude/settings.json` and this change directory predate the task and are not products of it.
+      - Findings: none
+    - Blocker: none
+
+## 2. Inheritance
+
+- [x] 2.1 Resolve the capsule autonomy default from the repository declaration when the task authored none, and name the declaration as that entry's source
+  - Covers:
+    - keel-standing-authorization / A task inherits standing authorization only where it authored none
+    - keel-task-capsule / Keel compiles compact tasks into a complete execution capsule / Repository-declared authorization replaces the hard-stop default
+    - D2 — an explicit task-level `Autonomy boundary:` always wins
+    - D4 — the capsule and gate output name the authorization source
+    - D5 — the config reader stays hand-rolled; no dependency is added
+  - Rationale: task 1.1 put the reader in `bin/keel.js` because the doctor surface was the only consumer. Capsule compilation is the second consumer and lives in `src/core/`, so the reader moves to `src/core/config.js` and the CLI imports it rather than the two keeping separate copies of one format.
+  - Touch:
+    - src/core/config.js
+    - src/core/task-contract.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `keel gate task-start --json` for a task declaring no `Autonomy boundary:` in a repo authorizing `commit` returns a capsule whose autonomy entry authorizes `commit` instead of `Default: hard-stop`, and identifies the repository declaration as its source
+    - M2: the same gate for a task that declares its own `Autonomy boundary:` returns that authored boundary unchanged, with no entry sourced from the declaration
+    - M3: in the same authorizing repo, an action the declaration does not name still resolves to hard-stop in the compiled capsule
+  - Evidence:
+    - Contract: sha256:7dadd6c115d7f7c30d2ccc1e3f0ac78c029a42c21b347c9d4c2f13ee192ad9cb
+    - M1: `python scripts/validate_plugin.py --scenario standing-authorization-inheritance` passes; a task declaring no `Autonomy boundary:` in a repo declaring `authorize: [commit]` compiles to autonomy `['Default: hard-stop', 'Standing authorization (keel/config.yaml): commit', 'Pre-authorized fallback: none']` via `keel gate task-start --json`.
+    - M1.red: exit 1, `a declared action did not reach the capsule autonomy boundary: ['Default: hard-stop', 'Pre-authorized fallback: none']` — the declaration existed but capsule compilation never read it.
+    - M1.green: `standing-authorization-inheritance scenario passed.` after `src/core/config.js` was created and `compileTaskContract` consumed it.
+    - M2: a task declaring `Pre-authorized fallback: revert the fixture file and record M1` keeps exactly that boundary in a repo declaring `commit` and `push`, and no entry naming `keel/config.yaml` appears beside it.
+    - M2.red: aimed by replacing the `explicitAutonomy.length === 0` guard with `if (true)`. exit 1, `the declaration overrode an authored boundary: ['Default: hard-stop', 'Pre-authorized fallback: revert the fixture file and record M1', 'Standing authorization (keel/config.yaml): commit, push']`. The check is not vacuous: it fails precisely when the guard is removed.
+    - M2.green: guard restored; the same fixture compiles with no `keel/config.yaml` entry.
+    - M3: in a repo declaring only `commit`, the compiled autonomy names no other action and still carries `Default: hard-stop`.
+    - M3.red: aimed by emitting a fixed `["commit", "push", "release"]` list instead of the declared one. exit 1, `an undeclared action was authorized: ['Default: hard-stop', 'Standing authorization (keel/config.yaml): commit, push, release', 'Pre-authorized fallback: none']`.
+    - M3.green: emission restored to `declared.join(", ")`; only `commit` appears. `npm test` → `validation --all passed: baseline plus 92 scenarios.` (91 before this task), so moving the reader out of `bin/keel.js` regressed neither the doctor surface nor any gate scenario.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check reads the capsule through `keel gate task-start --json`, the same public surface a consumer uses, and asserts the resolved autonomy entries rather than the reader's return shape. M2 and M3 both passed on first run after M1's implementation, so each was deliberately aimed by mutating the implementation in the exact way it guards against; both failed, proving neither assertion is vacuous.
+      - Scope check: `git status --porcelain` shows `bin/keel.js`, `scripts/validate_plugin.py`, `src/core/task-contract.js` modified and `src/core/config.js` added — all four declared in Touch. The Touch widening from the authored `src/core/task-contract.js` + validator happened before task-start recorded any fingerprint, and is recorded in this task's Rationale.
+      - Findings: none
+    - Blocker: none
+
+## 3. The negative guarantees
+
+- [x] 3.1 Prove a standing authorization never weakens a gate, suppresses a record, or initiates an action
+  - Covers:
+    - keel-standing-authorization / Standing authorization covers the action and never its proof
+    - D3 — authorization covers the action, never the proof of it
+    - A2 — declaring an action removes the confirmation, not the trigger
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: evidence-first
+    - M1: for one fixture task, `keel gate task-complete --json` returns the same status and problem set whether or not the repo declares `authorize:`; the two JSON results are compared and the declaration changes neither
+    - M2: a repo authorizing every action still receives `fail` from `keel gate task-complete` for a task with missing evidence, and the failure text is unchanged by the declaration
+    - M3: `keel context --json` in a repo authorizing every action returns the same selection and next action as the same repo with no declaration, proving the declaration selects and starts nothing
+  - Evidence:
+    - Contract: sha256:aa1daf30f72d2d5ba48cd0b2cb0236280732cf4612f7ce50daa33943b2d5f992
+    - M1: `python scripts/validate_plugin.py --scenario standing-authorization-never-weakens` passes. For one identical fixture task, `keel gate task-complete --json` returns an equal `{status, sorted problems}` in a repo declaring all four actions and in a repo declaring none.
+    - M2: the same comparison over a task whose `M1` evidence is `pending` — the authorizing repo does not return `pass`, and its status and problem set are equal to the silent repo's, so the declaration changed neither the outcome nor the failure text.
+    - M3: `keel context --json` returns an equal `{status, selection, nextAction}` in both repos, proving a declaration selects nothing and starts nothing.
+    - Positive control: each comparison first asserts the authorizing fixture's compiled capsule carries a `keel/config.yaml` autonomy entry and the silent one does not, and raises if either fails. Without it, a declaration that silently failed to reach the capsule would make all three comparisons trivially equal and prove nothing. The control's own failure mode is not hypothetical — it is exactly the state task 2.1 recorded as its M1.red (`['Default: hard-stop', 'Pre-authorized fallback: none']`).
+    - Review:
+      - Status: pass
+      - Acceptance check: the three checks assert the negative requirement directly and through the public CLI: same gate verdict, same failure text, same continuity selection. Because a passing comparison is also what a broken fixture produces, the positive control converts an assertion that could be vacuous into one that fails loudly when the difference under test stops existing. `npm test` → `validation --all passed: baseline plus 93 scenarios.` (92 before this task).
+      - Scope check: `git status --porcelain` shows this task modified only `scripts/validate_plugin.py`; `bin/keel.js`, `src/core/task-contract.js`, and `src/core/config.js` are tasks 1.1 and 2.1's completed products, unchanged here. Touch declared `scripts/validate_plugin.py` alone and nothing outside it was written.
+      - Findings: none
+    - Blocker: none
+
+## 4. Overlay
+
+- [x] 4.1 Add the confirmation-routing rule to the generated apply and archive overlays
+  - Covers:
+    - keel-openspec-surface-overlay / Apply surface enforces Keel task ownership / Apply overlay routes confirmation to the declaration
+    - keel-openspec-surface-overlay / Archive surface enforces Keel archive ownership / Archive overlay routes confirmation to the declaration
+    - D8 — the overlay rule is conditional on a declaration existing
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: every apply surface written by `keel --init` on both targets states that a standing-authorized action proceeds without a per-occurrence confirmation, that an undeclared action still requires today's confirmation, and that authorization never substitutes for a gate, evidence, or Review
+    - M2: every archive surface written by `keel --init` on both targets states that a repository authorizing `archive` does not need the per-occurrence archive confirmation and that the completion gate and follow-up ownership checks still run
+  - Evidence:
+    - Contract: sha256:f52e6ffb53fb0f6f41b2ff9187d67b6c877d2d837880f23beacfc5716f6b68fc
+    - M1: `python scripts/validate_plugin.py --scenario openspec-surface-overlay` passes; the assertion runs against surfaces `keel --init` actually writes into temp Claude and Codex repos, not against the generator source, and now requires `standing-authorized action proceeds without`, `undeclared action still requires`, and `never substitutes for a gate` on every apply surface.
+    - M1.red: exit 1, `...\.claude\skills\openspec-apply-change\SKILL.md overlay missing required text: standing-authorized action proceeds without`.
+    - M1.green: the same scenario passes once the two apply overlay lines are emitted by `keelOpenSpecOverlay`.
+    - M2: every archive surface written by `keel --init` on both targets requires `standing-authorizes \`archive\`` and `completion gate and follow-up ownership checks still run`.
+    - M2.red: aimed by deleting the two archive overlay lines while keeping the apply ones, since both went green in the same run and an assertion that never failed proves nothing. exit 1, `...\.claude\skills\openspec-archive-change\SKILL.md overlay missing required text: standing-authorizes \`archive\``.
+    - M2.green: lines restored; `npm test` → `validation --all passed: baseline plus 93 scenarios.`
+    - Review:
+      - Status: pass
+      - Acceptance check: both checks assert on the written surface for both targets rather than on the generator string, so they prove what an agent reading the installed overlay will actually see. Each overlay rule states the conditional form — a declared action skips the confirmation, an undeclared one does not — so the default for a repository that declares nothing is asserted in the same text.
+      - Scope check: `git status --porcelain` shows `bin/keel.js` and `scripts/validate_plugin.py` modified, both declared in Touch. `src/core/task-contract.js` and `src/core/config.js` are task 2.1's completed products and are unchanged by this task.
+      - Findings: none
+    - Blocker: none
+
+- [x] 4.2 Refresh this repository's own apply and archive overlay surfaces so the agent working here reads the rule it ships
+  - Covers:
+    - keel-openspec-surface-overlay / Keel refreshes existing overlays idempotently
+  - Touch:
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: each of the six refreshed surfaces contains the routing rule text and exactly one current overlay start marker and one end marker
+    - M2: `keel --doctor` in this repository reports the apply/archive overlay surface healthy
+  - Evidence:
+    - Contract: sha256:fcb0c8b3d6c9870def8f089f147bae9021a4b59ec9ef76e7ac87c9f32d655779
+    - M1: all six surfaces carry the routing rule with exactly one start and one end marker each — three apply files carrying `standing-authorized action proceeds without`, `undeclared action still requires`, `never substitutes for a gate`, and three archive files carrying `standing-authorizes \`archive\`` and `completion gate and follow-up ownership checks still run`. Overlay block sizes are uniform per action (apply 3052 bytes ×3, archive 2450 bytes ×3).
+    - M1 (regeneration proof): the refresh was applied with guard-checked edits rather than by re-running `keel --init`, which would have written far outside this task's Touch. To prove the hand-applied blocks are not a divergent copy, `keel --init --target claude` was run into a throwaway directory and its overlay blocks compared against this repository's: `IDENTICAL` for all four Claude surfaces. A future `keel --init` therefore produces no diff.
+    - M2: `node bin/keel.js --doctor .` reports `Keel apply/archive overlay: ok - 6/6 under apply/archive skills and commands`. The same run reports `authorize: none - undeclared; every action stays hard-stop`, which is correct until task 6.1 writes this repository's declaration.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 asserts the rule text and marker well-formedness on each of the six files individually, and the byte-comparison against fresh generator output closes the gap a hand-edit opens — that the files could satisfy the text check while drifting from what `keel --init` writes. M2 confirms Keel's own health check agrees.
+      - Scope check: `git status --porcelain` shows exactly the six declared overlay files modified by this task. `bin/keel.js`, `scripts/validate_plugin.py`, `src/core/task-contract.js`, and `src/core/config.js` are earlier tasks' completed products, unchanged here. The throwaway `keel --init` wrote only into a temp directory that was removed.
+      - Findings: none
+    - Blocker: none
+
+## 5. Statements this change made stale
+
+- [x] 5.1 Correct the task template and schema wording that states autonomy is unconditionally hard-stop and that commit, push, sync, and archive stay unauthorized
+  - Covers:
+    - I1 — the compact-task template comment
+    - I2 — the schema's autonomy paragraph
+  - Touch:
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/schema.yaml
+  - Verify:
+    - Strategy: evidence-first
+    - M1: neither template copy states the defaults unconditionally; both name the repository declaration as the condition, and the two copies remain byte-identical to each other
+    - M2: both schema copies state that the hard-stop default applies where no repository declaration authorizes the action, and remain byte-identical to each other
+    - M3: `npm test` passes, proving no packaged-schema or template scenario regressed
+  - Evidence:
+    - Contract: sha256:34ab3e5adb1fc09d4df3d1001195ac27616e475ad43166d8e3b05bc8322446a6
+    - M1: both template copies now state the hard-stop and unauthorized-action defaults as conditional, naming `keel/config.yaml` as the exception and stating that the authorization removes the confirmation and never the gate, evidence, or Review. `diff -q assets/openspec/schemas/keel-spec-driven/templates/tasks.md openspec/schemas/keel-spec-driven/templates/tasks.md` → identical.
+    - M2: both schema copies state the hard-stop default applies to every action the repository has not standing-authorized, that inheritance reaches only a task authoring no boundary, and that the capsule names the source. `diff -q` on the two `schema.yaml` copies → identical.
+    - M3: `grep -rn "autonomy defaults to hard-stop\|Autonomy boundary defaults to hard-stop\." assets/openspec openspec/schemas` returns nothing, so neither unconditional phrasing survives in either copy. `npm test` → `validation --all passed: baseline plus 93 scenarios.`, so the packaged-schema derivation and template scenarios still agree across the copies.
+    - Review:
+      - Status: pass
+      - Acceptance check: I1 and I2 were quoted from the wording a reader would search for, and M3 proves that exact wording no longer exists anywhere in either tree — the check is a search for the stale text, not an inspection of the files I remembered editing. The byte-identity assertions in M1 and M2 protect the invariant that made the duplication safe in the first place.
+      - Scope check: `git status --porcelain` shows the four declared files modified by this task; the six overlay files and the code files are tasks 4.2, 4.1, 2.1, and 1.1's completed products, unchanged here.
+      - Findings: none
+    - Blocker: none
+
+- [x] 5.2 Correct the protocol sentence and the README paragraph that present the hard-stop default and `keel/config.yaml` as unconditional
+  - Covers:
+    - I3 — the resident protocol's autonomy sentence
+    - I4 — the README paragraph presenting `keel/config.yaml` as a single-key file
+  - Touch:
+    - AGENTS.md
+    - README.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: the protocol sentence names the repository declaration as the exception to the hard-stop default, and the resident file's byte count stays within its documented ceiling
+    - M2: the README documents the `authorize:` block, its four accepted names, that it is absent by default, and that it never substitutes for a gate
+    - M3: `npm test` passes, proving no resident-topic or bootstrap scenario regressed
+  - Evidence:
+    - Contract: sha256:1cc0511819eb12db5cae2fe2b452f305bc8470a061da63f3117b3a4b36ae5fb7
+    - M1: the Execution boundary sentence in `AGENTS.md` now reads "defaults to hard-stop, except for an action the repository standing-authorizes in `keel/config.yaml`", and states that an authored boundary wins, that the capsule names the source, and that the authorization is neither a gate bypass nor a trigger. On the ceiling clause: root `AGENTS.md` (18,063 bytes) has no asserted byte ceiling — the 1023-byte ceiling belongs to `assets/bootstrap/AGENTS.md`, which this change never needed to touch because the stale sentence is not in it. That file measures 1014 bytes, unchanged.
+    - M2: `README.md` gains a `### Standing authorization` section documenting the `authorize:` block, its four accepted names, inheritance and the authored-boundary override, and three explicit negatives — not a gate bypass, not a trigger, not open-ended. It states the block is absent by default and that a repository declaring nothing is unchanged. The Verification layering paragraph no longer presents `keel/config.yaml` as a single-key file.
+    - M3: `npm test` → `validation --all passed: baseline plus 93 scenarios.`, so the resident-topic matching and bootstrap scenarios still pass with the lengthened protocol sentence.
+    - Review:
+      - Status: pass
+      - Acceptance check: I3 and I4 are both closed at the wording they were quoted from. The README section was placed beside the session-start paragraph rather than in Verification layering, because a reader looking for "why does it keep asking me" reads the workflow section, not the test-layering one. M1's honest correction is recorded above rather than a ceiling check invented to match the authored wording.
+      - Scope check: `git status --porcelain` shows `AGENTS.md` and `README.md` modified by this task; `assets/bootstrap/AGENTS.md` is untouched at its original 1014 bytes. All other modified paths are completed products of tasks 1.1 through 5.1.
+      - Findings: none
+    - Blocker: none
+
+## 6. This repository's own declaration
+
+- [x] 6.1 Declare this repository's standing authorization and rewrite the config header that presents `fast_check` as the only key
+  - Covers:
+    - I5 — the `keel/config.yaml` header comment
+    - keel-standing-authorization / A repository declares standing authorization in a closed vocabulary / A declared action is authorized for the whole repository
+  - Touch:
+    - keel/config.yaml
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel --doctor` in this repository reports the declared actions as standing-authorized
+    - M2: `keel gate task-start --json` for a task in this change that declares no `Autonomy boundary:` returns a capsule carrying the declared authorization with the repository declaration named as its source
+  - Evidence:
+    - Contract: sha256:f683f60bcba692017197347f9937e2a9dd4a5a35b1ce588b03021987991e08ba
+    - M1: `node bin/keel.js --doctor .` reports `authorize: ok - declared in keel/config.yaml: commit, push, release, archive` followed by `commit: authorized`, `push: authorized`, `release: authorized`, `archive: authorized`. All four were authorized by the repository owner in conversation on 2026-07-29, with `archive` added to the three originally named because the stated goal is an unattended loop.
+    - M2: `node bin/keel.js gate task-start . --change declare-authorization-once --task 7.1 --json` compiles task 7.1 — which authors no `Autonomy boundary:` — to `["Default: hard-stop", "Standing authorization (keel/config.yaml): commit, push, release, archive", "Pre-authorized fallback: none"]`. The declaration is inherited and names this file as its source, so the change's own remaining tasks are the first consumers of the feature it ships.
+    - M2 (regression): `npm test` → `validation --all passed: baseline plus 93 scenarios.` with the declaration live. The scenarios that compile this repository's real tasks still pass, so declaring here did not perturb any fixture that reads the working tree.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 asserts the declaration through `keel --doctor`, and M2 asserts it reaches a real capsule in this repository rather than a fixture — the dogfood claim is checked against this change's own next task, not a constructed one. The header rewrite closes I5 by naming both keys and stating what the block does not do, so a reader of the file cannot infer a gate bypass from it.
+      - Scope check: `git status --porcelain` shows `keel/config.yaml` as this task's only modification; every other modified path is a completed product of tasks 1.1 through 5.2.
+      - Findings: none
+    - Blocker: none
+
+## 7. Close
+
+- [x] 7.1 Promote this change's spec delta into the live specs
+  - Covers:
+    - I7 — the live capsule spec's unconditional hard-stop scenario
+  - Touch:
+    - openspec/specs/keel-standing-authorization/spec.md
+    - openspec/specs/keel-task-capsule/spec.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate declare-authorization-once` passes and the three live specs carry every requirement and scenario of the delta
+    - M2: `npm test` passes after promotion
+  - Evidence:
+    - Contract: sha256:110bffcd3f1c6060255895578fc843bd9d527bb7fa35ab44dbe5ea7591f860bb
+    - M1: `node bin/keel.js openspec validate declare-authorization-once` → `Change 'declare-authorization-once' is valid`. Promotion completeness was checked by extracting every `### Requirement:` and `#### Scenario:` heading from each delta file and asserting it appears in the corresponding live spec: 12 headings for `keel-standing-authorization`, 5 for `keel-task-capsule`, 6 for `keel-openspec-surface-overlay`, all present. I7 is closed — the live capsule spec now carries the `Repository-declared authorization replaces the hard-stop default` scenario beside the unconditional one, and the requirement text states the conditional.
+    - M2: `npm test` → `validation --all passed: baseline plus 93 scenarios.` after promotion.
+    - Review:
+      - Status: pass
+      - Acceptance check: the promotion was verified by heading-set comparison rather than by reading the files back, so a silently truncated or partially pasted requirement would fail the check. The new capability spec was generated from the delta body with a Purpose header prepended, so its requirement text is the delta's text and not a re-typing of it.
+      - Scope check: `git status --porcelain` shows `openspec/specs/keel-openspec-surface-overlay/spec.md` and `openspec/specs/keel-task-capsule/spec.md` modified and `openspec/specs/keel-standing-authorization/` added — the three paths declared in Touch.
+      - Findings: none
+    - Blocker: none
+
+- [x] 7.2 Record the workflow change in the Keel changelog
+  - Covers:
+    - keel-standing-authorization / A repository declares standing authorization in a closed vocabulary
+  - Touch:
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: the changelog entry states what a repository can now declare, that nothing changes without a declaration, and that authorization never substitutes for a gate
+  - Evidence:
+    - Contract: sha256:bac37f5dc3997cea5696df3e2e5fbe1a3af3bd0c40d1198af58e90be2a61bde9
+    - M1: `keel/CHANGELOG.md` gains a `## 5.5.0 - authorize once, in a file` entry stating what a repository can declare and its closed vocabulary; that inheritance reaches only a task authoring no boundary and that the capsule names the source; that the authorization covers the action and never the proof, with the gate-comparison evidence and its positive control named; that it is not a trigger; that an unrecognized name is reported and authorizes nothing including valid entries beside it; that a repository declaring nothing is unchanged and has nothing to do on upgrade; and that no dependency was added. It links the entry to issue #34 as the first of its layers.
+    - Review:
+      - Status: pass
+      - Acceptance check: the entry states all three things the task required — what can be declared, that nothing changes without a declaration, and that authorization never substitutes for a gate — and states the last as a tested property rather than an intention, naming the comparison and the positive control that keeps it honest. It matches the file's existing voice: what was wrong before, what is true now, and what the reader must do on upgrade.
+      - Scope check: this task modified `keel/CHANGELOG.md` alone, the single path in Touch.
+      - Findings: none
+    - Blocker: none
+
+## Invalidates
+
+- I1: "autonomy defaults to hard-stop" and "commit, push, sync, archive, and cross-task continuation stay unauthorized" — the compact-task template comment, in both `assets/openspec/schemas/keel-spec-driven/templates/tasks.md` and the installed copy at `openspec/schemas/keel-spec-driven/templates/tasks.md`. Updated by: 5.1
+- I2: "Autonomy boundary defaults to hard-stop. A pre-authorized fallback must" — the schema's autonomy paragraph, in both `assets/openspec/schemas/keel-spec-driven/schema.yaml` and the installed copy at `openspec/schemas/keel-spec-driven/schema.yaml`. Updated by: 5.1
+- I3: "A task without a pre-authorized Autonomy boundary defaults to hard-stop." — the Execution boundary section of `AGENTS.md`. Updated by: 5.2
+- I4: "Declare your fast check once in `keel/config.yaml`:" — the Verification layering section of `README.md`, whose example block presents the file as holding one key. Updated by: 5.2
+- I5: "fast_check (optional): your project's fast inner-loop check" — the header comment of `keel/config.yaml`, which introduces the file as if `fast_check` were its only key. Updated by: 6.1
+- I6: `!= ["Default: hard-stop", "Pre-authorized fallback: none"]` — the exact autonomy pair asserted at `scripts/validate_plugin.py:7001`; it stays correct only for a fixture repository that declares nothing, which the assertion does not currently say. Updated by: 2.1
+- I7: "hard-stop autonomy" in the "Normal implementation task inherits defaults" scenario — `openspec/specs/keel-task-capsule/spec.md`. Updated by: 7.1
+
+## Expectation Coverage
+
+- E1: A repository declares standing authorization once, in a tracked file, and later tasks inherit it without the owner being asked again. Covered by: 1.1, 2.1
+- E2: A task that authored its own `Autonomy boundary:` is never overridden by the repository declaration. Covered by: 2.1
+- E3: A reader can tell an inherited authorization from a task-authored one. Covered by: 2.1
+- E4: A standing authorization never weakens a gate, evidence requirement, Review, or write guard. Covered by: 3.1
+- E5: A standing authorization is not a scheduler; it removes a confirmation, not a trigger. Covered by: 3.1
+- E6: The apply and archive surfaces consult the declaration instead of repeating a confirmation the owner already granted. Covered by: 4.1, 4.2
+- E7: A repository that declares nothing behaves exactly as it does at 5.4.0. Covered by: 1.1, 3.1
+- E8: An unrecognized action name is reported with the accepted names rather than silently granted or silently dropped. Covered by: 1.1
+- E9: This repository declares its own authorization, so the feature is exercised by the project that ships it. Covered by: 6.1
+- E10: The precedent/sedimentation system that will extend this declaration format. Durable owner: https://github.com/TanglmChris/keel/issues/34
+- E11: The `sync` surface keeps its confirmation while apply and archive learn to consult the declaration. Discard reason: adding a fourth overlay target is a separate compatibility decision recorded in design.md's Risks section, and this change deliberately does not make it.

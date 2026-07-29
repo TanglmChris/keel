@@ -117,7 +117,7 @@ All artifacts complete. All tasks complete.
 - If sync is requested, use openspec-sync-specs approach (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 
-<!-- keel:openspec-surface-overlay version=5.4.0 -->
+<!-- keel:openspec-surface-overlay version=5.5.0 -->
 ## Keel Archive Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
@@ -137,4 +137,6 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 - Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.
 - When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.
 - After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.
+- A repository that standing-authorizes `archive` in `keel/config.yaml` does not need the per-occurrence archive confirmation; a repository that declares nothing still needs it.
+- The completion gate and follow-up ownership checks still run unchanged under a standing authorization; it removes the confirmation, not the proof.
 <!-- keel:openspec-surface-overlay:end -->

@@ -125,6 +125,36 @@ Set `KEEL_SESSION_PANEL=1` to draw it as a framed panel with the Keel mark inste
 default, and turning it on changes nothing but the presentation — the same status and the same
 next command are in both forms.
 
+### Standing authorization
+
+Keel asks before a repository action it has no authority for, and it asks again next session,
+because a permission granted in conversation does not survive a context reset. Declare it once in
+`keel/config.yaml` instead:
+
+```yaml
+authorize:          # accepted names: commit, push, release, archive
+  - commit
+  - push
+```
+
+A task that authors no `Autonomy boundary:` inherits the declaration, and the compiled capsule
+names `keel/config.yaml` as that entry's source so an inherited authorization is never mistaken
+for one the task decided. A task that authors its own boundary keeps it.
+
+Three things the declaration is not:
+
+- **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
+  returns exactly the same verdict, and the same failure text, whether or not you declared
+  anything.
+- **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
+  schedules itself, and no next task is selected for you.
+- **Not open-ended.** The four names above are the whole vocabulary. An unrecognized entry is
+  reported with the accepted names and the declaration authorizes nothing until you fix it — a
+  typo never becomes a silent grant.
+
+The block is absent by default, and a repository that declares nothing behaves exactly as it did
+before this feature existed. `keel --doctor` reports what is declared.
+
 ### Full vs Lite
 
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
@@ -160,7 +190,8 @@ Keel splits verification into two layers so a slow suite never blocks your push:
   run at CI or at `keel gate change-close`.
 
 A task's `Verify` checks stay fast; the slow or exhaustive layer belongs to the full gate, not the
-local pre-push. Declare your fast check once in `keel/config.yaml`:
+local pre-push. Declare your fast check in `keel/config.yaml`, the same file that holds your
+standing authorization:
 
 ```yaml
 fast_check: npm test -- --fast   # your project's seconds-scale check

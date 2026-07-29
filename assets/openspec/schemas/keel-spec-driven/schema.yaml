@@ -126,8 +126,12 @@ artifacts:
       Keel agent. Keel-managed work executes in the current agent conversation;
       do not hand execution to another agent, subagent, or operator unless the
       selected task or user explicitly authorizes it.
-      Autonomy boundary defaults to hard-stop. A pre-authorized fallback must
-      state an exact reversible bound and the evidence required after use.
+      Autonomy boundary defaults to hard-stop for every action the repository
+      has not standing-authorized in `keel/config.yaml`; a declared action is
+      inherited only by a task that authored no boundary of its own, and the
+      capsule names the declaration as that entry's source. A pre-authorized
+      fallback must state an exact reversible bound and the evidence required
+      after use.
 
       Use `Coupling: none` by default. When `Coupling: required`, define one
       complete candidate, its allowed provisional failures, completion gate,
