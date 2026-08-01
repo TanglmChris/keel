@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.8.0"
-PROTOCOL_VERSION = "5.8.0"
+PACKAGE_VERSION = "5.9.0"
+PROTOCOL_VERSION = "5.9.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9515,11 +9515,15 @@ def fake_keel_cli(path: Path, version: str, *, change: str = "demo") -> str:
 def plant_spawn_recorder(path: Path) -> str:
     """A preload that records every subprocess the hook starts.
 
-    Patching `child_process` inside the hook's own process is what makes the
-    recording total: it sees a spawn however it is reached, where a PATH shim
-    only sees the commands it was told to expect. The two `keel` invocations the
-    hook already makes are its own positive control - a recorder that stopped
-    working would produce an empty log, which the count assertion fails on.
+    Patching `child_process` inside the hook's own process sees a spawn however
+    it is reached, where a PATH shim only sees the commands it was told to
+    expect. The boundary is that process: a spawn made by something the hook
+    spawned is not recorded, which is the right scope, because what is being
+    asserted is what the hook does and not what the CLI does afterwards.
+
+    The two `keel` invocations the hook already makes are its own positive
+    control - a recorder that stopped working leaves an empty log, and that is
+    reported as the recorder failing rather than as the hook behaving.
     """
     write_text(
         path,
@@ -9709,16 +9713,36 @@ def validate_runtime_version_drift_scenario() -> int:
                 "mismatch branch, so its spawn log proves nothing."
             )
             return 1
-        spawns = [
-            line
-            for line in spawn_log.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        if len(spawns) != 2 or not all("stale-cli.js" in line for line in spawns):
+        recorded_lines = (
+            spawn_log.read_text(encoding="utf-8").splitlines()
+            if spawn_log.exists()
+            else []
+        )
+        spawns = [line for line in recorded_lines if line.strip()]
+        # Three distinct causes, three distinct messages. An empty log is the
+        # recorder having failed, not the hook having behaved: reporting it as
+        # a rogue subprocess sends the reader looking for a process that was
+        # never there.
+        if not spawns:
             report(
-                "runtime-version-drift hook spawned something other than the "
-                f"two keel invocations it already made: {spawns!r} "
-                "(an empty list means the recorder itself failed)"
+                "runtime-version-drift recorded no subprocess at all, so the "
+                "recorder never loaded and every no-extra-spawn claim below it "
+                "would pass vacuously. The hook makes two `keel` invocations of "
+                "its own and both should appear."
+            )
+            return 1
+        beyond = [line for line in spawns if "stale-cli.js" not in line]
+        if beyond:
+            report(
+                "runtime-version-drift hook spawned something beyond the keel "
+                f"invocations it already made: {beyond!r}"
+            )
+            return 1
+        if len(spawns) != 2:
+            report(
+                f"runtime-version-drift hook made {len(spawns)} keel "
+                "invocations, not the two it already made before this change: "
+                f"{spawns!r}"
             )
             return 1
 

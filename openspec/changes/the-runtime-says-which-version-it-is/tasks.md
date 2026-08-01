@@ -30,10 +30,10 @@
     - M1: pass. New scenario `runtime-version-drift` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario runtime-version-drift`. It reproduces F5 exactly — plugin 5.2.1, CLI 5.2.1, protocol 5.7.1 — and asserts on both `systemMessage` and `additionalContext` that each discovered version is named, that they are stated to disagree, and that the restart requirement is stated.
     - M1.red: fail. With no comparison in the hook, `additionalContext does not state that the versions disagree`, printing the whole four-line projection it did emit.
     - M1.green: pass, after `versionReport()` and the two readers were added and their line pushed onto both channels.
-    - M2: pass. Same scenario. An aligned run (plugin, CLI, and the repository's block all 5.7.1) carries neither the drift statement nor the version string on either channel; lifting the single drift line off the mismatched payload leaves both channels byte-identical to the aligned run, which is the comparison disabled on the same run.
+    - M2: pass. Same scenario. An aligned run (plugin, CLI, and the repository's block all 5.7.1) carries neither the drift statement nor the version string on either channel. The authored phrase "the comparison disabled" is realized as a subtraction rather than a switch: the single drift line is lifted off the mismatched payload and the remainder compared to the aligned run, byte for byte, on both channels. That substitution is at least as strong as the literal reading, which would compare two payloads that both produce nothing — `null == null`. Subtracting the delta proves the capability's entire effect is that one line; comparing two silent runs proves only that both were silent. No kill switch was added, because a mechanism built solely to be disabled in a test is a mechanism shipped to users.
     - M2.red: fail. `additionalContext spoke about versions that agree`, quoting `runtime versions disagree: plugin 5.7.1, CLI 5.7.1, protocol 5.7.1` — the first implementation reported unconditionally, which is what M2 exists to catch.
     - M2.green: pass, after the equality guard returned null for a matching set.
-    - M3: pass. Same scenario. The report names `claude plugin update` and carries no Keel-side remedy (`keel update`, `npm install`). A `--require` preload patches `child_process` inside the hook's own process and logs every spawn; the log holds exactly the two `keel` invocations the hook already made, which is also the recorder's positive control — a recorder that had stopped working would leave an empty log and fail the same count.
+    - M3: pass. Same scenario. The report names `claude plugin update` and carries no Keel-side remedy (`keel update`, `npm install`). A `--require` preload patches `child_process` inside the hook's own process and logs every spawn; the log holds exactly the two `keel` invocations the hook already made. Three separate conditions read that log, each naming its own cause — an empty log is the recorder having failed, a non-`keel` entry is the hook having spawned something extra, and a wrong count is the hook having invoked `keel` more times than before. All three were aimed and fired: dropping `NODE_OPTIONS` produced `recorded no subprocess at all`; a fixture CLI spawning `true` produced `spawned something beyond … ['spawnSync true', 'spawnSync true']`; and adding a third `runKeel(cwd, ["--version"])` to the hook produced `hook made 3 keel invocations`. The recorder's scope is the hook's own process — a spawn made by something the hook spawned is not seen, which is the right boundary, since the claim is about what the hook does.
     - M3.red: fail. `report does not name the host's own update command, leaving the reader with no move`, quoting the sentence as it then stood.
     - M3.green: pass, after `pluginManifest()` began returning the remedy belonging to whichever target's manifest was read.
     - M4: pass. Same scenario. A repository whose `AGENTS.md` carries no managed block, with plugin and CLI equal, produces no version line on either channel.
@@ -47,12 +47,12 @@
       - Status: pass
       - Acceptance check: The Acceptance is behavioral and every check drives the real hook as a subprocess through its two published channels, asserting the emitted text rather than the shape of any function. M1 and M5 prove what is said, M2 and M4 prove what is not said, M3 proves the report is a report — the spawn log answers "does it act?" with the process table rather than with the wording. Nothing here asserts that the file parses or that a helper returns a given type.
       - Scope check: Both Touch files changed and nothing else. `git status --short` against the `fcc3bc8` base shows `plugins/keel/scripts/session-start.js`, `scripts/validate_plugin.py`, this `tasks.md`, and `keel/guard.json` — the last two are the record-write layer and the disposable guard, neither of which is product state. The shared `run_session_start_hook` helper gained two optional parameters that default to today's behavior, so no existing call site changed.
-      - Findings: This task and the task that followed it were authored as a split that could not be executed. Implementing the first alone left `protocol null` in the projection of every repository without a managed block, which broke the shipping `native-plugin-session-start` scenario, and once it was implemented correctly two of the second task's three checks were already green, leaving a `vertical-tdd` task with no honest red. The guard hard-stopped the contract edit, the two were merged, and `keel gate task-start --record` reauthorized at `sha256:3ba2bd7b…`. Discard reason: the defect itself is closed — the merged task is the correction, and D2 and D3 are now covered by one contract. The remaining question is why authoring did not flag the split; that half is deferred, and its durable owner is https://github.com/TanglmChris/keel/issues/41, which carries the evidence, the rationale, and a candidate identical-Touch check.
+      - Findings: This task and the task that followed it were authored as a split that could not be executed. Implementing the first alone left `protocol null` in the projection of every repository without a managed block, which broke the shipping `native-plugin-session-start` scenario, and once it was implemented correctly two of the second task's three checks were already green, leaving a `vertical-tdd` task with no honest red. The guard hard-stopped the contract edit, the two were merged, and `keel gate task-start --record` reauthorized at `sha256:3ba2bd7b…`. Discard reason: the defect itself is closed — the merged task is the correction, and D2 and D3 are now covered by one contract. The remaining question is why authoring did not flag the split; that half is deferred, and its durable owner is https://github.com/TanglmChris/keel/issues/41, which carries the evidence, the rationale, and a candidate identical-Touch check. Second finding, raised by `keel-review-checklist` after this task first passed and fixed here: the spawn-log assertion was one condition guarding three distinct failures, reporting `hook spawned something other than…` even when the log was empty and the hook had spawned nothing — the reader would look for a rogue process that was never there. This is the defect class 5.7.1 added the checklist item for, found for the second consecutive change. The condition is now split and each branch was aimed and fired. Discard reason: closed in this task; the general pattern already has its check, and the check found it.
     - Blocker: none
 
 ## 2. Close
 
-- [ ] 2.1 Promote the delta and record the release
+- [x] 2.1 Promote the delta and record the release
   - Covers:
     - keel-native-runtime-projection / Keel reports runtime versions and does not manage them
     - I1, I2
@@ -67,6 +67,15 @@
     - AGENTS.md
     - CLAUDE.md
     - assets/bootstrap/AGENTS.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
   - Verify:
     - Strategy: evidence-first
     - M1: `keel openspec validate the-runtime-says-which-version-it-is` passes and every `### Requirement:` and `#### Scenario:` heading in the delta appears in the live spec
@@ -74,22 +83,22 @@
     - M3: `version-alignment` passes with every marker at the new version, including the changelog-head comparison added in 5.8.0
     - M4: `npm test` passes, with the two environment failures owned by issue #36 as the only exceptions
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:32f23ba0647dba625b63d95112cd44903f88da981335c17013fb5e99bdee9a29
+    - M1: pass. `keel openspec validate the-runtime-says-which-version-it-is` → `Change 'the-runtime-says-which-version-it-is' is valid`. All 10 delta headings — 3 `### Requirement:` and 7 `#### Scenario:` — were checked against `openspec/specs/keel-native-runtime-projection/spec.md` by substring and none is missing.
+    - M2: pass. The 5.9.0 entry leads with reports-not-manages and names the spawn log as the proof, states the silence-when-aligned decision together with the divergence from issue #38's wording and the cost accepted for it, and states that missing is not mismatched including the `undiscovered, not compared` phrasing and the fewer-than-two rule.
+    - M3: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` → `version-alignment scenario passed`, with `PACKAGE_VERSION`/`PROTOCOL_VERSION`, `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay markers all at 5.9.0. The changelog-head comparison added in 5.8.0 is what proves this is alignment rather than presence: the newest `## X.Y.Z` heading is now 5.9.0.
+    - M4: pass. `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` → 110 of 112 registered scenarios pass. The two failures are `spec-template-validates` and `native-helper-read-only`, both local-environment and both owned by https://github.com/TanglmChris/keel/issues/36; they fail identically on the unmodified base commit and are green in CI.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the Acceptance is a release rather than a behavior, so evidence-first is the honest strategy and the checks are the release's own conditions: the specs say what shipped (M1), the changelog says why in terms a reader can act on (M2), every marker names the same version (M3), and the behavior the release carries is still proven by the suite (M4). The behavioral proof for the capability itself lives in task 1.1, whose `runtime-version-drift` scenario runs inside M4's suite.
+      - Scope check: `git status --short` shows the promoted spec, the changelog, both `package*.json`, both plugin manifests, `scripts/validate_plugin.py`, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay files — the Touch list exactly — plus this change's own `tasks.md`, which is the record-write layer. The disposable guard manifest does not appear because `keel/.gitignore` excludes it. `scripts/validate_plugin.py` changed only in its two version constants; task 1.1 committed its scenario separately at `b17cab4`.
+      - Findings: the authored Touch omitted the nine `.claude/`/`.codex/` overlay files that every version bump reaches, and `## Invalidates` I2 named a subset of the version markers rather than the searchable string. Both were corrected before implementation and `keel gate task-start --record` reauthorized at `sha256:32f23ba0…`; the gate refused the first rewrite of I2 for naming where to look without what to look for, which is the check doing its job. Discard reason: closed in this task — I2 now quotes `version=5.8.0` and Touch names all sixteen product paths. The general question of authoring not seeing which files a release reaches is the same shape as https://github.com/TanglmChris/keel/issues/41 and needs no second owner. Second finding, from `keel-review-checklist`: D5 says the added work is "one file read and one regex", while the shipped hook reads up to four files — two plugin manifests, then `AGENTS.md` and `CLAUDE.md` — and runs two regexes. D5's actual basis, that no second subprocess is paid on every session under `KEEL_HOOK_TIMEOUT_MS`, holds exactly and is proven by task 1.1's M3 spawn log. No task Covers D5, so nothing claimed to implement its wording. Discard reason: the decision is honored and only its arithmetic is understated; `design.md` is outside both Touch lists and archives as a historical record, so amending it after both tasks closed would cost a reauthorization to fix a sentence no check depends on.
     - Blocker: none
 
 ## Invalidates
 
 - I1: "Keel MUST derive native runtime projection from OpenSpec and MUST NOT treat native goal, task UI, transcript, memory, checkpoint, or subagent state as input authority" — the opening requirement of `openspec/specs/keel-native-runtime-projection/spec.md`. The sentence stays true and is not edited: a plugin manifest and a `--version` string are facts about the runtime rather than state it accumulated, so reading them is not treating native state as authority. Discard reason: recorded because a reader arriving at the new requirement will reasonably ask whether it contradicts this one, and the answer belongs beside the question.
-- I2: "keel: OpenSpec apply/archive overlay refreshed" and the version markers `5.8.0` across `package.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and `scripts/validate_plugin.py` — every one names the shipping version and goes stale the moment this change releases. Updated by: 2.1
+- I2: "version=5.8.0" — grep it and you find the `keel:start` managed block plus the nine `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is also written as `"version": "5.8.0"` in `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md` (its title, its `keel:start` marker, and the preflight line naming the protocol), `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py` — every one names the shipping version and goes stale the moment this change releases. The overlay markers are the ones a reader forgets, because `keel --install` regenerates them and nothing about editing a hook suggests they moved; `git show --stat 4f36e91` is the record of which files a bump actually reaches. Updated by: 2.1
 
 ## Expectation Coverage
 
