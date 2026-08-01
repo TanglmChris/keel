@@ -5395,9 +5395,13 @@ def validate_completion_requires_a_recorded_anchor_scenario() -> int:
                 )
                 report(named[0])
                 return 1
-        # Doing what the diagnostic asks must clear it. The fingerprint is the
-        # one this task actually compiles to, so the anchor comparison that
-        # follows is a real comparison rather than a shape check.
+        # Doing what the diagnostic asks must clear it — and the anchor has to be
+        # the one this change compiles to. Until 5.10.0 this fixture recorded
+        # against `unrecorded` and anchored `recorded`, two different change
+        # directories, and passed anyway: a compiled capsule names its own source
+        # paths, so those values were never equal. That it passed is direct
+        # evidence the comparison it claims to exercise did not exist (issue
+        # #37). Both halves are asserted below.
         started = gate("unrecorded", "task-start")
         fingerprint = started.get("contract", {}).get("fingerprint", {}).get("value")
         if not fingerprint:
@@ -5415,9 +5419,41 @@ def validate_completion_requires_a_recorded_anchor_scenario() -> int:
                 "missing anchor, but it runs before one can exist."
             )
             return 1
+        write_text(repo / "openspec/changes/recorded/tasks.md", header + task("pending"))
+        own = (
+            gate("recorded", "task-start")
+            .get("contract", {})
+            .get("fingerprint", {})
+            .get("value")
+        )
+        if not own:
+            report(
+                "completion-requires-a-recorded-anchor: task-start returned no "
+                "fingerprint for the change being completed."
+            )
+            return 1
+        if own == fingerprint:
+            report(
+                "completion-requires-a-recorded-anchor: two changes with "
+                "identical task text compiled to the same fingerprint, so the "
+                "foreign-anchor half of this scenario cannot bite."
+            )
+            return 1
         write_text(
             repo / "openspec/changes/recorded/tasks.md",
             header + task(f"keel-task-capsule/v1 sha256:{fingerprint}"),
+        )
+        foreign = gate("recorded", "task-complete")
+        if foreign.get("status") == "pass":
+            report(
+                "completion-requires-a-recorded-anchor: a well-formed digest "
+                "compiled from a different change passed task-complete, so the "
+                "anchor is being checked for shape rather than compared."
+            )
+            return 1
+        write_text(
+            repo / "openspec/changes/recorded/tasks.md",
+            header + task(f"keel-task-capsule/v1 sha256:{own}"),
         )
         recorded = gate("recorded", "task-complete")
         if recorded.get("status") != "pass":
@@ -5435,6 +5471,294 @@ def validate_completion_requires_a_recorded_anchor_scenario() -> int:
         )
         return 1
     report("completion-requires-a-recorded-anchor scenario passed.")
+    return 0
+
+
+def _anchor_fixture(
+    *,
+    contract: str,
+    touch: str = "src/feature.js",
+    checked: bool = False,
+) -> str:
+    """One change document that both completion and the close can be run against.
+
+    It carries a delta-spec-shaped `## Expectation Coverage` and a single task so
+    that `change-close --action sync` reaches the anchor checks instead of
+    stopping on an unrelated structural problem.
+    """
+    box = "x" if checked else " "
+    return (
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+        f"- [{box}] 1.1 Exercise task contract\n"
+        "  - Covers:\n"
+        "    - E1: Public behavior passes.\n"
+        "  - Touch:\n"
+        f"    - {touch}\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js asserts the recorded feed status\n"
+        "  - Evidence:\n"
+        f"    - Contract: {contract}\n"
+        "    - M1: the suite passed\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: behavior asserted at the interface\n"
+        "      - Scope check: only Touch files changed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+        "\n## Expectation Coverage\n\n"
+        "- E1: Public behavior passes. Covered by: 1.1\n"
+    )
+
+
+def validate_contract_anchor_is_compared_scenario() -> int:
+    """Issue #37: completion checked that an anchor existed, never that it matched.
+
+    `hasRecordedAnchor` parsed the digest, validated its shape, and discarded the
+    value. A task could be implemented against one contract, have its Touch
+    rewritten mid-flight, and still complete clean while the gate's own payload
+    printed the recompiled fingerprint beside the recorded one. `change-close`
+    was blind in the same way, which left the whole window between the last
+    checkbox and the archive unguarded.
+
+    Two shipped requirements already asserted the comparison — the write-guard
+    spec's contract-drift scenario and the core-gates anchor scenario — so this
+    makes existing text true rather than adding a promise.
+    """
+    label = "contract-anchor-is-compared"
+    zeros = "0" * 64
+    with tempfile.TemporaryDirectory(prefix="keel-anchor-compared-") as raw:
+        repo = Path(raw)
+
+        def change(name: str, doc: str) -> Path:
+            path = repo / "openspec/changes" / name / "tasks.md"
+            write_text(path, doc)
+            write_text(
+                repo / "openspec/changes" / name / "specs/demo/spec.md",
+                "## ADDED Requirements\n\n"
+                "### Requirement: Demo\nKeel MUST demo.\n\n"
+                "#### Scenario: demo\n- **WHEN** a\n- **THEN** b\n",
+            )
+            return path
+
+        def gate(name: str, stage: str, *extra: str) -> dict:
+            return json.loads(
+                run_keel(repo, "gate", stage, "--change", name, *extra, "--json").stdout
+            )
+
+        def record(name: str) -> str:
+            payload = gate(
+                name, "task-start", "--task", "1.1", "--record", "--no-guard"
+            )
+            return payload.get("contract", {}).get("fingerprint", {}).get("value", "")
+
+        def codes(payload: dict) -> list[str]:
+            return [problem.get("code", "") for problem in payload.get("problems", [])]
+
+        def messages(payload: dict, code: str) -> list[str]:
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == code
+            ]
+
+        def dump(check: str, payload: dict) -> None:
+            report(f"  {check}: status={payload.get('status')}")
+            for problem in payload.get("problems", []):
+                report(f"    {problem.get('code')}: {problem.get('message')}")
+
+        # M1 — a contract edited after recording is refused, and the refusal
+        # carries everything the reader needs to act.
+        drift_path = change("drift", _anchor_fixture(contract="pending"))
+        recorded = record("drift")
+        if not re.fullmatch(r"[0-9a-f]{64}", recorded):
+            report(f"{label} M1 could not record an anchor to drift from.")
+            return 1
+        write_text(
+            drift_path,
+            drift_path.read_text(encoding="utf-8").replace(
+                "src/feature.js", "src/DRIFTED.js"
+            ),
+        )
+        payload = gate("drift", "task-complete", "--task", "1.1")
+        recompiled = (
+            payload.get("contract", {}).get("fingerprint", {}).get("value", "")
+        )
+        if recompiled == recorded:
+            report(
+                f"{label} M1 rewrote the task's Touch and the capsule compiled to "
+                "the same fingerprint, so the fixture never produced the drift it "
+                "is meant to catch."
+            )
+            return 1
+        if "contract-drift" not in codes(payload):
+            report(
+                f"{label} M1 a task whose Touch was rewritten after recording "
+                "reported no contract-drift problem, so the recorded anchor is "
+                "still being counted rather than compared."
+            )
+            dump("M1", payload)
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M1 reported contract drift but did not fail the gate; "
+                f"status was {payload.get('status')!r}. Drift returns the task to "
+                "authoring, so it cannot be a warning or a needs-review."
+            )
+            dump("M1", payload)
+            return 1
+        drift_message = messages(payload, "contract-drift")[0]
+        for needle, why in (
+            (recorded, "the recorded fingerprint"),
+            (recompiled, "the fingerprint the task now compiles to"),
+            ("task-start", "the command that reauthorizes the task"),
+            ("stale", "that evidence recorded under the previous contract is stale"),
+        ):
+            if needle not in drift_message:
+                report(f"{label} M1 the drift message does not name {why}.")
+                report(f"  {drift_message}")
+                return 1
+
+        # M2 — a well-formed digest the task does not compile to is refused on
+        # its value. This is the issue's own reproduction.
+        change("forged", _anchor_fixture(contract=f"keel-task-capsule/v1 sha256:{zeros}"))
+        payload = gate("forged", "task-complete", "--task", "1.1")
+        if "contract-drift" not in codes(payload):
+            report(
+                f"{label} M2 an anchor of sixty-four zeros produced no "
+                "contract-drift problem, so a well-formed digest this task never "
+                "compiled to is still accepted on its shape."
+            )
+            dump("M2", payload)
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M2 reported contract drift on a forged anchor without "
+                f"failing the gate; status was {payload.get('status')!r}."
+            )
+            dump("M2", payload)
+            return 1
+
+        # M3 — correct work is not newly blocked, in either accepted anchor form.
+        change("aligned", _anchor_fixture(contract="pending"))
+        if not record("aligned"):
+            report(f"{label} M3 could not record an anchor on the aligned change.")
+            return 1
+        payload = gate("aligned", "task-complete", "--task", "1.1")
+        if payload.get("status") != "pass":
+            report(
+                f"{label} M3 a task whose anchor matches its recompiled "
+                "fingerprint no longer completes, so the comparison refuses "
+                "correct work."
+            )
+            dump("M3", payload)
+            return 1
+        bare_path = change("bare", _anchor_fixture(contract="pending"))
+        bare = record("bare")
+        write_text(
+            bare_path,
+            bare_path.read_text(encoding="utf-8").replace(
+                f"keel-task-capsule/v1 sha256:{bare}", f"sha256:{bare}"
+            ),
+        )
+        if "keel-task-capsule/v1" in bare_path.read_text(encoding="utf-8"):
+            report(
+                f"{label} M3 the fixture failed to strip the capsule schema "
+                "prefix, so the bare-anchor case was never exercised."
+            )
+            return 1
+        payload = gate("bare", "task-complete", "--task", "1.1")
+        if payload.get("status") != "pass":
+            report(
+                f"{label} M3 a matching anchor written without the "
+                "`keel-task-capsule/v1` prefix was refused. The prefix is "
+                "diagnostic detail; a digest that matches could only have come "
+                "from the schema that produced it."
+            )
+            dump("M3", payload)
+            return 1
+
+        # M4 — the close is not blind either: drift introduced after the last
+        # checkbox, and a checked task carrying no anchor at all.
+        close_path = change("close-drift", _anchor_fixture(contract="pending"))
+        closed = record("close-drift")
+        write_text(
+            close_path,
+            close_path.read_text(encoding="utf-8")
+            .replace("- [ ] 1.1", "- [x] 1.1")
+            .replace("src/feature.js", "src/DRIFTED.js"),
+        )
+        payload = gate("close-drift", "change-close", "--action", "sync")
+        if "contract-drift" not in codes(payload):
+            report(
+                f"{label} M4 change-close reported no contract drift for a "
+                "checked task whose contract was edited after its anchor was "
+                f"recorded as sha256:{closed}, so the window between completion "
+                "and the archive is unguarded."
+            )
+            dump("M4 drift", payload)
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M4 change-close reported contract drift without "
+                f"failing; status was {payload.get('status')!r}."
+            )
+            dump("M4 drift", payload)
+            return 1
+        if "1.1" not in messages(payload, "contract-drift")[0]:
+            report(f"{label} M4 the close diagnostic does not name the drifted task.")
+            report(f"  {messages(payload, 'contract-drift')[0]}")
+            return 1
+        change(
+            "close-unrecorded", _anchor_fixture(contract="pending", checked=True)
+        )
+        payload = gate("close-unrecorded", "change-close", "--action", "sync")
+        if "missing-contract-anchor" not in codes(payload):
+            report(
+                f"{label} M4 change-close named no missing anchor for a checked "
+                "task that records no compiled fingerprint, so completion cannot "
+                "be verified at the gate that closes it."
+            )
+            dump("M4 unrecorded", payload)
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M4 change-close named the missing anchor without "
+                f"failing; status was {payload.get('status')!r}."
+            )
+            dump("M4 unrecorded", payload)
+            return 1
+        close_missing = messages(payload, "missing-contract-anchor")[0]
+        if "then complete it" in close_missing:
+            report(
+                f"{label} M4 the close diagnostic tells the reader to complete a "
+                "task that is already checked, sending them to a place with no "
+                "problem in it."
+            )
+            report(f"  {close_missing}")
+            return 1
+
+        # M5 — a change whose anchors all match still closes.
+        clean_path = change("close-clean", _anchor_fixture(contract="pending"))
+        if not record("close-clean"):
+            report(f"{label} M5 could not record an anchor on the clean change.")
+            return 1
+        write_text(
+            clean_path,
+            clean_path.read_text(encoding="utf-8").replace("- [ ] 1.1", "- [x] 1.1"),
+        )
+        payload = gate("close-clean", "change-close", "--action", "sync")
+        if payload.get("status") != "pass":
+            report(
+                f"{label} M5 a change whose every anchor matches no longer "
+                "closes, so the comparison blocks correct work at the close."
+            )
+            dump("M5", payload)
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
     return 0
 
 
@@ -6447,6 +6771,10 @@ def validate_tracker_durable_owner_scenario() -> int:
 
         def close(closure: str):
             write_text(tasks, tracker_owner_tasks("none", closure))
+            # The close compares each checked task's anchor, so the fixture
+            # records the one its own contract compiles to rather than leaving
+            # the task in a state completion would have refused.
+            record_contract_anchor(repo, "demo")
             return run_keel(
                 repo, "gate", "change-close",
                 "--change", "demo", "--action", "sync", "--json",
@@ -7297,6 +7625,9 @@ def validate_task_capsule_scenario() -> int:
             repo / "openspec/changes/demo/specs/demo/spec.md",
             "## ADDED Requirements\n",
         )
+        # `--record` as well as compile: the close compares each checked task's
+        # anchor, so a fixture that only read the fingerprint would be closing a
+        # change whose task never recorded the contract it completed under.
         close_start = run_keel(
             repo,
             "gate",
@@ -7305,6 +7636,8 @@ def validate_task_capsule_scenario() -> int:
             "demo",
             "--task",
             "1.1",
+            "--record",
+            "--no-guard",
             "--json",
         )
         close_fingerprint = (
@@ -7846,6 +8179,13 @@ def validate_core_gates_scenario() -> int:
                 "    - src/feature.js\n    - src/nested/**\n",
             ),
         )
+        # Adding a path to Touch is a contract change, so the anchor is
+        # reauthorized here exactly as an author would reauthorize it. Without
+        # that step this glob check fails on contract drift and never reaches
+        # the question it is asking.
+        if not record_contract_anchor(completion_repo, "demo"):
+            report("core-gates scenario could not reauthorize the glob contract.")
+            return 1
         write_text(completion_repo / "src/nested/deep/file.js", "nested changed\n")
         nested_glob = run_keel(
             completion_repo,
@@ -8231,6 +8571,7 @@ def validate_core_gates_scenario() -> int:
                 "  - Stop Rules:\n"
                 "    - Stop on failure.\n"
                 "  - Evidence:\n"
+                "    - Contract: pending\n"
                 "    - M1: passed\n"
                 "    - Review:\n"
                 f"      - Status: {review_status}\n"
@@ -8243,6 +8584,16 @@ def validate_core_gates_scenario() -> int:
                 "  - Report:\n"
                 "    - Summary\n"
             )
+
+        # A change reaching its close has tasks that completed, and completion
+        # requires a recorded anchor. The close compares it, so every checked
+        # fixture below carries the fingerprint its own contract compiles to.
+        def write_close(doc: str) -> bool:
+            write_text(close_tasks, doc)
+            if not record_contract_anchor(close_repo, "demo"):
+                report("core-gates scenario could not record the close anchor.")
+                return False
+            return True
 
         write_text(close_tasks, close_task(False))
         write_text(
@@ -8275,7 +8626,8 @@ def validate_core_gates_scenario() -> int:
             report((incomplete_close.stderr or incomplete_close.stdout).strip())
             return 1
 
-        write_text(close_tasks, close_task(True, "pending"))
+        if not write_close(close_task(True, "pending")):
+            return 1
         close_needs_review = run_keel(
             close_repo,
             "gate",
@@ -8294,10 +8646,10 @@ def validate_core_gates_scenario() -> int:
             report((close_needs_review.stderr or close_needs_review.stdout).strip())
             return 1
 
-        write_text(
-            close_tasks,
-            close_task(True).replace("  - Covered by: 1.1", "  - pending"),
-        )
+        if not write_close(
+            close_task(True).replace("  - Covered by: 1.1", "  - pending")
+        ):
+            return 1
         missing_closure = run_keel(
             close_repo,
             "gate",
@@ -8319,7 +8671,8 @@ def validate_core_gates_scenario() -> int:
             report((missing_closure.stderr or missing_closure.stdout).strip())
             return 1
 
-        write_text(close_tasks, close_task(True))
+        if not write_close(close_task(True)):
+            return 1
         before_close = snapshot_files(close_repo)
         sync_close = run_keel(
             close_repo,
@@ -17172,6 +17525,10 @@ SCENARIOS: tuple = (
     (
         "completion-requires-a-recorded-anchor",
         validate_completion_requires_a_recorded_anchor_scenario,
+    ),
+    (
+        "contract-anchor-is-compared",
+        validate_contract_anchor_is_compared_scenario,
     ),
     (
         "guard-scope-is-the-repository",
