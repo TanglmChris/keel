@@ -158,7 +158,7 @@
 
 ## 4. The single-task goal path
 
-- [ ] 4.1 Restate the sole-writer invariant as sole write authority across the canonical sources and their distribution copies
+- [x] 4.1 Restate the sole-writer invariant as sole write authority across the canonical sources and their distribution copies
   - Covers:
     - keel-single-task-goal-execution / Current agent owns implementation and completion
     - D8 — the invariant is restated, not removed
@@ -177,19 +177,19 @@
     - M2: the canonical `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` distribution copy stay byte-identical
     - M3 (regression): the adapters still state that a native evaluator declaring success never marks or reports the task complete
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:3c3c7c8cf81c73d9f211de27769784adc6f6772f0d3da6cf56d8dcf08636c87b
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-sole-authority` passes. The canonical skill and `src/core/goal.js` — the projection the adapters actually read — both state that the current agent is the sole holder of *write authority* and that it re-runs each `M<n>` check itself before recording Evidence. Both adapters carry the restatement, and neither still advertises read-only helpers as the whole of what a subagent may do. The stop list now refuses an *undeclared* delegation and no longer refuses every delegation outright, which is the behavior change; the assertion checks both halves, because a rule deleted and a rule narrowed look identical if you only test that the old sentence is gone.
+    - M1.red: exit 1, `delegation-sole-authority: SKILL.md does not restate the invariant.`
+    - M1.green: exit 0, `delegation-sole-authority scenario passed.`
+    - M2: the canonical `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` distribution copy are byte-identical, asserted on bytes rather than on collapsed text so a whitespace-only divergence still fails.
+    - M2.red: aimed by appending a newline to the distribution copy, since both went green in the same run; exit 1, `delegation-sole-authority: the canonical and packaged skills diverged.` Restored from a byte copy.
+    - M2.green: exit 0, `delegation-sole-authority scenario passed.`
+    - M3: the skill and both adapters still state that a native evaluator declaring success never marks or reports the task complete. `single-task-goal-skill`, `native-goal-continuity`, and `single-task-goal-real-tasks` all still pass, which is the evidence the restatement did not disturb the flow around it.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the invariant's purpose was never that one process performs the writes — it was that one party is answerable for them, and that party is unchanged. The restatement is asserted in the two places that are authority rather than in prose about them: the canonical skill, and the goal projection string the adapters consume. Asserting the narrowed stop rule in both directions is what makes this a behavior check rather than a spelling check.
+      - Scope check: `git status --porcelain` shows the five Touch paths modified — both SKILL.md copies, both agent adapters, and `src/core/goal.js` — plus `scripts/validate_plugin.py` and this change's record layer. The M2 aim edited the packaged copy, already in Touch, and was restored from a byte copy.
+      - Findings: none
     - Blocker: none
 
 - [ ] 4.2 Refuse goal activation when the delegation fields do not fit the 4,000-character budget

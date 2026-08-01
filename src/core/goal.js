@@ -47,7 +47,7 @@ function renderCondition(goal) {
     `Write boundary (Touch): ${goal.touch.join(", ")}.`,
     "Stop/Autonomy boundary:",
     ...goal.stopBoundary.map((item) => `- ${item}`),
-    "Ownership: the current agent is the sole writer and owns Review, gate invocation, the task checkbox, and completion.",
+    "Ownership: the current agent is the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. A declared delegate writes only inside Touch and the current agent re-runs each check before recording Evidence.",
     "Done only when: task-complete passes and the current agent has durably checked the task; then stop and require a new explicit authorization before any next task.",
   ];
   return lines.join("\n");

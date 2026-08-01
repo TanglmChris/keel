@@ -11796,6 +11796,75 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_sole_authority_scenario() -> int:
+    """The invariant is restated, not removed.
+
+    Its purpose was never that one process performs the writes — it was that
+    one party is answerable for them. A delegate writes inside a boundary that
+    authority already defined, and acquires none of the owned decisions.
+    """
+
+    canonical = ROOT / "src/skills/keel-run-single-task-goal/SKILL.md"
+    packaged = ROOT / "plugins/keel/skills/keel-run-single-task-goal/SKILL.md"
+    claude = ROOT / "plugins/keel/agents/keel-single-task-goal-claude.md"
+    codex = ROOT / "plugins/keel/agents/keel-single-task-goal-codex.md"
+    goal = ROOT / "src/core/goal.js"
+    for path in (canonical, packaged, claude, codex, goal):
+        if not path.exists():
+            report(f"delegation-sole-authority: missing {path.relative_to(ROOT)}")
+            return 1
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    # M1 — the restatement, in the canonical skill and in the goal projection
+    # the adapters actually read.
+    for path in (canonical, goal):
+        text = flat(path)
+        if re.sub(r"\s+", " ", "sole holder of write authority") not in text:
+            report(f"delegation-sole-authority: {path.name} does not restate the invariant.")
+            return 1
+        if re.sub(r"\s+", " ", "re-runs each") not in text:
+            report(f"delegation-sole-authority: {path.name} does not say the current agent re-runs the checks.")
+            return 1
+
+    # M1 — the stop list refuses an undeclared delegation and no longer
+    # refuses a declared one outright.
+    skill_text = flat(canonical)
+    if re.sub(r"\s+", " ", "undeclared delegation") not in skill_text:
+        report("delegation-sole-authority: the stop list does not refuse an undeclared delegation.")
+        return 1
+    if re.sub(r"\s+", " ", "any request to delegate implementation to another agent") in skill_text:
+        report("delegation-sole-authority: the stop list still refuses every delegation outright.")
+        return 1
+
+    # M1 — both adapters carry it, and neither still advertises read-only
+    # helpers as the whole of what a subagent may do.
+    for path in (claude, codex):
+        text = flat(path)
+        if re.sub(r"\s+", " ", "write authority") not in text:
+            report(f"delegation-sole-authority: {path.name} does not carry the restatement.")
+            return 1
+        if re.sub(r"\s+", " ", "read-only subagent helpers only") in text:
+            report(f"delegation-sole-authority: {path.name} still says read-only helpers only.")
+            return 1
+
+    # M2 — the canonical source and its distribution copy stay byte-identical.
+    if canonical.read_bytes() != packaged.read_bytes():
+        report("delegation-sole-authority: the canonical and packaged skills diverged.")
+        return 1
+
+    # M3 — a native evaluator declaring success still completes nothing.
+    for path in (canonical, claude, codex):
+        text = flat(path)
+        if "never" not in text or "complete" not in text:
+            report(f"delegation-sole-authority: {path.name} lost its evaluator-success rule.")
+            return 1
+
+    report("delegation-sole-authority scenario passed.")
+    return 0
+
+
 def validate_delegation_projection_scenario() -> int:
     """The projection Keel already publishes carries the delegation, and
     refuses where the preconditions for one do not hold.
@@ -16145,6 +16214,7 @@ SCENARIOS: tuple = (
     ("delegation-inheritance", validate_delegation_inheritance_scenario),
     ("native-capability-scope", validate_native_capability_scope_scenario),
     ("delegation-projection", validate_delegation_projection_scenario),
+    ("delegation-sole-authority", validate_delegation_sole_authority_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
