@@ -6,6 +6,7 @@ const path = require("path");
 
 const {
   CONFIG_RELATIVE_PATH,
+  readDelegationPolicy,
   readStandingAuthorization,
 } = require("./config");
 
@@ -866,6 +867,24 @@ function compileTaskContract(repo, change, task) {
   if (!autonomy.some((item) => /^Pre-authorized fallback:/i.test(item))) {
     autonomy.push("Pre-authorized fallback: none");
   }
+  // Who runs this task, resolved exactly as the autonomy boundary above is: the
+  // task keeps whatever it authored, the repository declaration supplies only
+  // what the task left silent, and the entry names its source. A declaration
+  // that could overwrite an authored tier would make the capsule unreadable on
+  // its own — you could not tell what this task decided from what the file did.
+  const authoredTier = normalizeText(field(task, "Delegation")).toLowerCase();
+  let delegation = { tier: null, source: null };
+  if (authoredTier) {
+    delegation = { tier: authoredTier, source: "task" };
+  } else {
+    const { tier } = readDelegationPolicy(repo);
+    if (tier) {
+      delegation = {
+        tier,
+        source: CONFIG_RELATIVE_PATH.split(path.sep).join("/"),
+      };
+    }
+  }
   // A question is unresolved authority when it is the subject of its Covers
   // entry. Scanning the whole field also matched a resolved question named as
   // supporting detail beside the fact that closed it, and the only fix
@@ -940,7 +959,18 @@ function compileTaskContract(repo, change, task) {
         couplingMode === "required" ? candidateBoundary : [],
       designContract: coupledContract,
     },
+    // A helper and a delegate are different roles. A helper is never a second
+    // writer and this stays true whatever the repository declares; delegation
+    // is a separate entry beside it, never a helper with the guard removed.
     helperAuthority: "read-only-evidence-only",
+    // Present only when a tier actually resolved. An unconditional field would
+    // change the compiled capsule for every task everywhere, moving every
+    // recorded anchor and drifting every live change in every consumer repo on
+    // upgrade — for repositories that declared nothing and asked for nothing.
+    // Omission keeps this release's invariant: no behavior change without a
+    // declaration. A repository that does declare gets a different capsule,
+    // which is honest, because its execution genuinely differs.
+    ...(delegation.tier ? { delegation } : {}),
     prohibitions: [
       "must not change Acceptance",
       // repo-action is the one mode whose authorized effect is the repository

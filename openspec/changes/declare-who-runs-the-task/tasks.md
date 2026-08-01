@@ -16,7 +16,7 @@
     - M2: a tier outside the closed set is reported with the accepted tier names and authorizes nothing, and no accepted entry beside it is granted
     - M3: `authorize:` listing `delegate` is reported against the `authorize:` closed set and leaves delegation unauthorized
   - Evidence:
-    - Contract: sha256:4a44890b962bb1e2969c31bfe306c6e70e50035fa127251435d234ea452c45c6
+    - Contract: keel-task-capsule/v1 sha256:4a44890b962bb1e2969c31bfe306c6e70e50035fa127251435d234ea452c45c6
     - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-declaration` passes. `delegation:\n  tier: standard\n` resolves to `tier: "standard"` with `declared: true`; all three shapes of absence — no block, an empty `delegation:` opener, and a config carrying only other keys — resolve to `tier: null` with `declared: false`. The three shapes are asserted separately because a reader that treated an empty block as a declaration would pass a single-shape check.
     - M1.red: exit 1, `delegation: the declared repo produced no readable policy.` — `readDelegationPolicy` did not exist, so the probe could not load it.
     - M1.green: exit 0, `delegation-declaration scenario passed.`
@@ -34,7 +34,7 @@
       - Findings: the full suite does not pass in this local environment, for reasons that predate this task — proven by stashing both Touch files and observing an identical failure set. Ten of twelve failures are a Python older than 3.10; the remaining two (`spec-template-validates`, `native-helper-read-only`) are green in CI on this same commit. Durable owner: https://github.com/TanglmChris/keel/issues/36
     - Blocker: none
 
-- [ ] 1.2 Resolve the delegation entry into the compiled capsule, inheriting only where the task authored none
+- [x] 1.2 Resolve the delegation entry into the compiled capsule, inheriting only where the task authored none
   - Covers:
     - keel-authorized-delegation / A task inherits the delegation declaration only where it authored none
     - keel-task-capsule / Keel compiles compact tasks into a complete execution capsule
@@ -49,19 +49,19 @@
     - M2: a task authoring its own delegation entry keeps it unchanged and names itself as the source, while the repository declares a different tier
     - M3 (regression): `helperAuthority` stays `read-only-evidence-only` in every capsule, because a helper and a delegate are distinct roles
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:631c373849c0fc93d398b8d3aa742c73c18b420b481cbd55c3a24efc16279e85
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-inheritance` passes. A task authoring no `Delegation:` in a repository declaring `tier: deep` compiles a capsule carrying `tier: "deep"` with `source: "keel/config.yaml"`, so the inherited entry names the file that supplied it rather than appearing to be this task's decision.
+    - M1.red: exit 1, `delegation-inheritance: the capsule carries no delegation: dict_keys(['schema', 'defaultsVersion', 'task', 'owner', 'mode', 'authority', 'read', 'touch', 'acceptance', 'verification', 'boundaries', 'coupling', 'helperAuthority', 'prohibitions'])` — the field did not exist, and the message names the keys that did so the reader sees what the capsule actually held.
+    - M1.green: exit 0, `delegation-inheritance scenario passed.`
+    - M2: a task authoring `Delegation: routine` against a repository declaring `tier: deep` keeps `routine` and does not name `keel/config.yaml` as its source. A third repository declaring nothing compiles `tier: null`, which is the control proving the first two comparisons are not both trivially satisfied by a reader that never loaded the declaration.
+    - M2.red: aimed by disabling the authored-value branch so the declaration would win; exit 1, `delegation-inheritance: the authored tier was overridden: {'tier': 'deep', 'source': 'keel/config.yaml'}`. That is the failure the requirement exists to prevent, shown as the capsule a reader would then have to trust. Reverted from a byte copy taken before the aim.
+    - M2.green: exit 0, `delegation-inheritance scenario passed.`
+    - M3: `helperAuthority` is `read-only-evidence-only` in all three repositories — inheriting, authoring, and silent. Asserted across all three rather than once, because a change that coupled the two roles would most likely do so only on the path where a tier resolved.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the inheritance is proven through the compiled capsule that `task-start` actually returns, which is the artifact every consumer reads, rather than through the resolver in isolation. The three-repository shape is what makes it behavior rather than shape: the same task text compiles to different capsules purely because the declaration differs, and to no delegation at all when nothing is declared. Source attribution is asserted by substring rather than exact match so a later path-formatting change does not silently pass an unattributed entry.
+      - Scope check: `git status --porcelain` shows `src/core/task-contract.js` and `scripts/validate_plugin.py` modified — the two paths in Touch — plus this change's own record layer. The M2 aim edited `src/core/task-contract.js`, already in Touch, and was restored from a copy taken before the edit.
+      - Findings: two, both surfaced by this task rather than searched for. First, the field was added to the capsule unconditionally, which moved every compiled fingerprint — including task 1.1's already-recorded anchor and every live change in every consumer repository, for repositories that declared nothing. `task-body-ends-at-heading` caught it with exactly that reasoning. Fixed here by emitting the field only when a tier resolves, which restores this release's invariant that nothing changes without a declaration; 1.1's anchor recompiles to `4a44890b` again. Second, and not fixed here because it is outside this task's Touch: `keel gate task-complete` never compares the recorded anchor to the recompiled one — a `Contract` line of 64 zeros passes — so the drift the first finding created was reported by a test scenario rather than by the gate that claims to detect it. Durable owner: https://github.com/TanglmChris/keel/issues/37
     - Blocker: none
 
 ## 2. The scope rule

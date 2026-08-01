@@ -11796,6 +11796,107 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_inheritance_scenario() -> int:
+    """A task keeps what it authored and inherits only where it authored none.
+
+    The capsule names the source of an inherited entry, so a tier the
+    repository supplied is never mistaken for one this task decided.
+    """
+
+    def capsule(repo: Path) -> dict | None:
+        result = run_keel(
+            repo, "gate", "task-start",
+            "--change", "demo", "--task", "1.1", "--json", "--no-guard",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-inheritance: task-start returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+        capsule_value = (payload.get("contract") or {}).get("capsule")
+        if capsule_value is None:
+            report(f"delegation-inheritance: task-start returned no capsule: {payload}")
+            return None
+        return capsule_value
+
+    with tempfile.TemporaryDirectory(prefix="keel-delinherit-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a task authoring no entry inherits the declared tier, and the
+        # capsule says the repository supplied it.
+        inherits = root / "inherits"
+        inherits.mkdir()
+        write_gate_fixture(inherits, standing_authorization_task())
+        write_authorize_config(
+            inherits, "fast_check: echo c\ndelegation:\n  tier: deep\n"
+        )
+        got = capsule(inherits)
+        if got is None:
+            return 1
+        delegation = got.get("delegation")
+        if delegation is None:
+            report(f"delegation-inheritance: the capsule carries no delegation: {got.keys()}")
+            return 1
+        if delegation.get("tier") != "deep":
+            report(f"delegation-inheritance: the declared tier did not reach the capsule: {delegation}")
+            return 1
+        if "config.yaml" not in (delegation.get("source") or ""):
+            report(f"delegation-inheritance: the inherited entry does not name its source: {delegation}")
+            return 1
+
+        # M2 — a task authoring its own entry keeps it, and names itself, while
+        # the repository declares something different.
+        authored = root / "authored"
+        authored.mkdir()
+        write_gate_fixture(
+            authored, standing_authorization_task("  - Delegation: routine\n")
+        )
+        write_authorize_config(
+            authored, "fast_check: echo c\ndelegation:\n  tier: deep\n"
+        )
+        own = capsule(authored)
+        if own is None:
+            return 1
+        mine = own.get("delegation") or {}
+        if mine.get("tier") != "routine":
+            report(f"delegation-inheritance: the authored tier was overridden: {mine}")
+            return 1
+        if "config.yaml" in (mine.get("source") or ""):
+            report(f"delegation-inheritance: an authored entry was attributed to the declaration: {mine}")
+            return 1
+
+        # M2 control — a silent repository leaves the task undelegated, so the
+        # two comparisons above are not both trivially true.
+        silent = root / "silent"
+        silent.mkdir()
+        write_gate_fixture(silent, standing_authorization_task())
+        write_authorize_config(silent, "fast_check: echo c\n")
+        none_of_it = capsule(silent)
+        if none_of_it is None:
+            return 1
+        absent = none_of_it.get("delegation") or {}
+        if absent.get("tier") is not None:
+            report(f"delegation-inheritance: a silent repository delegated: {absent}")
+            return 1
+
+        # M3 — a helper is still read-only. A delegate is a different role, not
+        # a helper with the restriction removed.
+        for label, repo in (("inherits", inherits), ("authored", authored), ("silent", silent)):
+            again = capsule(repo)
+            if again is None:
+                return 1
+            if again.get("helperAuthority") != "read-only-evidence-only":
+                report(
+                    f"delegation-inheritance: {label} changed helper authority: "
+                    f"{again.get('helperAuthority')}"
+                )
+                return 1
+
+    report("delegation-inheritance scenario passed.")
+    return 0
+
+
 def validate_review_checks_content_scenario() -> int:
     """Both checks concern content a gate can only shape-check.
 
@@ -15821,6 +15922,7 @@ SCENARIOS: tuple = (
     ("precedent-rules", validate_precedent_rules_scenario),
     ("triage-declaration", validate_triage_declaration_scenario),
     ("delegation-declaration", validate_delegation_declaration_scenario),
+    ("delegation-inheritance", validate_delegation_inheritance_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
