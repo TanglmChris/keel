@@ -11796,6 +11796,137 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_guard_binds_scenario() -> int:
+    """The guard binds a delegated writer identically, and always did.
+
+    This change added no enforcement. It was verified by probe on 2026-08-01 —
+    a spawned subagent's write outside Touch was denied with the same message
+    the current agent receives, while its write inside Touch succeeded — and
+    that probe is fixed here so the property cannot regress unnoticed.
+
+    The manifest scopes a repository and a task, never the identity of the
+    process performing the write, which is why nothing had to be built.
+    """
+
+    def event(repo: Path, target: str) -> dict:
+        return {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(repo / target)},
+            # A delegate is the same hook input with an agent identity on it.
+            # If enforcement ever keyed on this, the assertions below diverge.
+            "agent_id": "probe-delegate",
+            "agent_type": "general-purpose",
+        }
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-delguard-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+        write_text(repo / "README.md", "fixture\n")
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("delegation-guard-binds: task-start did not arm the guard.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        # M1 — outside Touch is denied, and with the same reason the current
+        # agent receives. The two decisions are compared rather than each
+        # checked for the word "deny", so a delegate-specific message would
+        # fail here even though it also denied.
+        delegate = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "README.md")))
+        current = run_pretooluse_guard_hook(repo, {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(repo / "README.md")},
+        })
+        agent = pretooluse_decision(current)
+        if delegate is None:
+            report("delegation-guard-binds: a delegate's out-of-Touch write was not decided.")
+            return 1
+        if delegate.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: a delegate wrote outside Touch: {delegate}")
+            return 1
+        if delegate != agent:
+            report(
+                "delegation-guard-binds: a delegate received a different decision "
+                f"than the current agent: {delegate} != {agent}"
+            )
+            return 1
+
+        # M1 control — inside Touch succeeds. Without this, a hook that denied
+        # everything would satisfy the assertion above, and the original probe
+        # would have proven only that subagents cannot write at all.
+        allowed = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if allowed is not None and allowed.get("permissionDecision") == "deny":
+            report(f"delegation-guard-binds: a delegate's in-Touch write was denied: {allowed}")
+            return 1
+
+        # M2 — every manifest state applies to a delegate.
+        manifest = repo / "keel/guard.json"
+        saved = manifest.read_text(encoding="utf-8")
+
+        manifest.write_text("{ not json", encoding="utf-8")
+        corrupt = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if corrupt is None or corrupt.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: an invalid manifest did not fail closed: {corrupt}")
+            return 1
+        # And the repository boundary still precedes every manifest decision.
+        outside = pretooluse_decision(run_pretooluse_guard_hook(repo, {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(Path(raw_tmp) / "outside.txt")},
+            "agent_id": "probe-delegate",
+            "agent_type": "general-purpose",
+        }))
+        if outside is not None and outside.get("permissionDecision") == "deny":
+            report(f"delegation-guard-binds: an out-of-repository path was denied: {outside}")
+            return 1
+        manifest.write_text(saved, encoding="utf-8")
+
+        # Drift is asserted on a non-record authority entry. The manifest's own
+        # `openspec/changes/<change>/tasks.md` is deliberately exempt — that is
+        # the record layer, where a checkbox and Evidence are written during the
+        # task — so drifting it must NOT deny, and asserting otherwise would
+        # assert the opposite of the spec.
+        record_only = json.loads(saved)
+        record_only["authority"][0]["sha256"] = "0" * 64
+        manifest.write_text(json.dumps(record_only, indent=2) + "\n", encoding="utf-8")
+        record_drift = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if record_drift is not None and record_drift.get("permissionDecision") == "deny":
+            report(
+                "delegation-guard-binds: a changed record-layer file was treated "
+                f"as authority drift: {record_drift}"
+            )
+            return 1
+
+        drifted = json.loads(saved)
+        drifted["authority"].append({
+            "path": "src/feature.js",
+            "sha256": "0" * 64,
+        })
+        manifest.write_text(json.dumps(drifted, indent=2) + "\n", encoding="utf-8")
+        drift = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if drift is None or drift.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: drifted authority did not fail closed: {drift}")
+            return 1
+        manifest.write_text(saved, encoding="utf-8")
+
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture(checked=True))
+        checked = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if checked is None or checked.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: a checked task still admitted a delegate write: {checked}")
+            return 1
+
+    report("delegation-guard-binds scenario passed.")
+    return 0
+
+
 def validate_delegation_goal_budget_scenario() -> int:
     """The delegation fields live inside the activation budget, not beside it.
 
@@ -16315,6 +16446,7 @@ SCENARIOS: tuple = (
     ("delegation-projection", validate_delegation_projection_scenario),
     ("delegation-sole-authority", validate_delegation_sole_authority_scenario),
     ("delegation-goal-budget", validate_delegation_goal_budget_scenario),
+    ("delegation-guard-binds", validate_delegation_guard_binds_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,

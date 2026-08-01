@@ -217,7 +217,7 @@
 
 ## 5. Containment and inertness
 
-- [ ] 5.1 Make the guard probe a permanent scenario, without modifying the guard
+- [x] 5.1 Make the guard probe a permanent scenario, without modifying the guard
   - Covers:
     - keel-touch-write-guard / The guard binds a delegated writer identically
     - F1 — the probe, with its positive control
@@ -227,16 +227,18 @@
   - Verify:
     - Strategy: regression-first
     - M1: driving the guard hook with a delegate-shaped event denies an in-repository path outside `Touch` with the same reason text the current agent receives, and allows an in-`Touch` path — the allow is asserted as the control, so a hook that denied everything would fail this check
-    - M2: the same event under an invalid manifest, drifted authority, and a checked task fails closed, while an out-of-repository path still passes through
+    - M2 (regression): the same event under an invalid manifest, drifted authority, and a checked task fails closed, while an out-of-repository path still passes through
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:52b0c416a7dc44b24c77eed69d1cf67f1fa78fe18f78ec0a2208f4fcc82e42a9
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-guard-binds` passes. A delegate-shaped event — the same hook input carrying `agent_id` and `agent_type` — writing outside `Touch` is denied, and the decision is compared for *equality* against the current agent's decision for the same path rather than each being checked for the word deny, so a delegate-specific message would fail here even though it also denied. The in-`Touch` write succeeds, which is the control: without it a hook that denied everything would satisfy the assertion, and the original probe would have proven only that subagents cannot write at all. No file under `plugins/keel/scripts/` was modified by this task; the property was already true, and D9 forbids editing the hook.
+    - M1.green: exit 0, `delegation-guard-binds scenario passed.` — recorded after the hook was restored, so the green is the unmodified hook's.
+    - M1.red: aimed by disabling the Touch check in the hook (`if (pathAllowed(...)) return 0;` becomes `if (true) return 0;`); exit 1, `delegation-guard-binds: a delegate's out-of-Touch write was not decided.` Restored from a byte copy, confirmed by an empty `git diff --stat` on the hook. Worth recording: the first aim silently failed to match its target string and the scenario still passed, which reads exactly like a check that cannot fail. A red that does not fire is itself the signal, and the aim was corrected against the file rather than against memory of it.
+    - M2: every manifest state applies to a delegate — an invalid manifest, drifted authority, and a checked task each fail closed, while an out-of-repository path still passes through, which is the 5.3.9 ordering holding under a delegate event. Drift is asserted on a *non-record* authority entry, because the manifest's own `openspec/changes/<change>/tasks.md` is deliberately exempt as the record layer; the scenario also asserts that changing that file does **not** deny, so the exemption is pinned rather than assumed.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the requirement is that the guard binds a delegated writer *identically*, and identity is what the check asserts — the two decisions are compared as values. The manifest scopes a repository and a task, never the identity of the process performing the write, which is why this change added no enforcement and why the probe of 2026-08-01 was evidence rather than a demonstration of something new. Fixing it as a scenario is what stops the property regressing unnoticed, since nothing in the hook mentions delegation and a future reader has no local signal that it matters.
+      - Scope check: `git status --porcelain` shows only `scripts/validate_plugin.py` modified — the single path in Touch — plus this change's record layer. The red was aimed inside `plugins/keel/scripts/pretooluse-guard.js`, which is **not** in Touch; it was restored from a byte copy taken first and verified byte-identical by `git diff --stat` before this Review was written. Aiming a red inside a file the task may not keep changes to is the reason that verification is recorded rather than assumed.
+      - Findings: none
     - Blocker: none
 
 - [ ] 5.2 Assert that declaring delegation changes nothing a gate returns
