@@ -1,0 +1,121 @@
+## 1. The comparison
+
+- [ ] 1.1 Report a version disagreement on both channels, and stay silent when there is none
+  - Covers:
+    - keel-native-runtime-projection / The session projection reports runtime version alignment
+    - D1 — Keel reports and does not manage
+    - D2 — silence when aligned
+    - D4 — exact string equality, not semantic ordering
+    - D6 — both channels, because the remedy is the person's action
+    - D7 — the report names the restart requirement
+    - F1 — the hook already fetches and discards the CLI version
+    - F5 — the observed drift this change exists to have caught
+  - Touch:
+    - plugins/keel/scripts/session-start.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: with the plugin manifest, the CLI, and the repository's stamped protocol version not all equal, both `systemMessage` and `additionalContext` name each discovered version, state that they disagree, and state that hooks are fixed at session start so an update applies after restart
+    - M2: with all three equal, neither channel gains a version line, and the rest of both payloads is byte-identical to the same run with the capability's comparison disabled
+    - M3: the report performs no installation or update and names only the host's own command as the reader's option, asserted by driving the hook with a mismatch and confirming it spawns nothing beyond the `keel` invocations it already made
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - M3.red: pending
+    - M3.green: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 1.2 Keep an undiscoverable version out of the drift signal
+  - Covers:
+    - keel-native-runtime-projection / An undiscoverable version is not reported as drift
+    - D3 — missing is not mismatched
+    - A1 — the plugin version is read relative to the hook's own location
+    - F3 — the hook never speaks in a non-Keel repository
+  - Touch:
+    - plugins/keel/scripts/session-start.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a repository whose `AGENTS.md` carries no managed block, with plugin and CLI equal, produces no version line on either channel
+    - M2: when one version is undiscoverable and the two that are readable disagree, the report names that disagreement and names the third as undiscovered rather than folding it into the comparison
+    - M3: with the plugin manifest missing or unreadable, and with `CLAUDE_PLUGIN_ROOT` unset, the projection still delivers its status, selection, and next action, and no comparison failure degrades or blocks the continuity report
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - M3.red: pending
+    - M3.green: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 2. Close
+
+- [ ] 2.1 Promote the delta and record the release
+  - Covers:
+    - keel-native-runtime-projection / Keel reports runtime versions and does not manage them
+    - I1, I2
+  - Touch:
+    - openspec/specs/keel-native-runtime-projection/spec.md
+    - keel/CHANGELOG.md
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate the-runtime-says-which-version-it-is` passes and every `### Requirement:` and `#### Scenario:` heading in the delta appears in the live spec
+    - M2: the changelog entry states that the check reports rather than manages, that it is silent when aligned and why that diverges from issue #38's wording, and that an undiscoverable version is not drift
+    - M3: `version-alignment` passes with every marker at the new version, including the changelog-head comparison added in 5.8.0
+    - M4: `npm test` passes, with the two environment failures owned by issue #36 as the only exceptions
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- I1: "Keel MUST derive native runtime projection from OpenSpec and MUST NOT treat native goal, task UI, transcript, memory, checkpoint, or subagent state as input authority" — the opening requirement of `openspec/specs/keel-native-runtime-projection/spec.md`. The sentence stays true and is not edited: a plugin manifest and a `--version` string are facts about the runtime rather than state it accumulated, so reading them is not treating native state as authority. Discard reason: recorded because a reader arriving at the new requirement will reasonably ask whether it contradicts this one, and the answer belongs beside the question.
+- I2: "keel: OpenSpec apply/archive overlay refreshed" and the version markers `5.8.0` across `package.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and `scripts/validate_plugin.py` — every one names the shipping version and goes stale the moment this change releases. Updated by: 2.1
+
+## Expectation Coverage
+
+- E1: A human and an agent both learn at session start when the runtime enforcing the protocol is not the protocol. Covered by: 1.1
+- E2: The signal stays credible — nothing is said when everything agrees. Covered by: 1.1
+- E3: An undiscoverable version is never reported as drift, and never produces a line on its own. Covered by: 1.2
+- E4: A partial comparison still happens; one unreadable version does not suppress the others. Covered by: 1.2
+- E5: The projection keeps working when the comparison cannot. Covered by: 1.2
+- E6: Keel reports and never installs, updates, or resolves a version. Covered by: 1.1, 2.1
+- E7: The check is local, offline, and deterministic, consistent with every other Keel answer. Covered by: 1.1
+- E8: A reader who updates the plugin and sees no change is told why. Covered by: 1.1
