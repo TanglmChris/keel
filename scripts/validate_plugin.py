@@ -11821,15 +11821,22 @@ def validate_delegation_resident_text_scenario() -> int:
             report(f"delegation-resident-text: AGENTS.md omits: {needle}")
             return 1
 
-    # M1 — the consumer bootstrap says it too, in its own shorter words. It is
-    # nine lines and is what a consuming repository actually installs.
+    # M1 — the consumer bootstrap deliberately does NOT carry the delegation
+    # clause. Its block has a sub-1KB budget with 11 bytes of headroom, and
+    # delegation is inert until declared, so an installing repository that
+    # declares nothing is fully served by the sentence already there. What the
+    # check enforces is that the sentence stays true by default, and that the
+    # budget is not quietly spent later.
     bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
     boot = flat(bootstrap)
-    if re.sub(r"\s+", " ", "helpers return read-only report/evidence only") in boot:
-        report("delegation-resident-text: the bootstrap still says helpers are the only subagent role.")
+    if re.sub(r"\s+", " ", "One current agent owns writes") not in boot:
+        report("delegation-resident-text: the bootstrap lost its single-writer default.")
         return 1
-    if re.sub(r"\s+", " ", "declared delegate") not in boot:
-        report("delegation-resident-text: the bootstrap does not mention a declared delegate.")
+    block = bootstrap.read_text(encoding="utf-8")
+    body = block.split("<!-- keel:start", 1)[1].split("<!-- keel:end -->", 1)[0]
+    size = len(("<!-- keel:start" + body + "<!-- keel:end -->").encode())
+    if size >= 1024:
+        report(f"delegation-resident-text: the bootstrap block is {size} bytes, over its 1KB budget.")
         return 1
 
     # M1 — the config header counts its declarations correctly.
@@ -11907,9 +11914,17 @@ def validate_delegation_overlay_scenario() -> int:
                 return 1
         # The old unconditional sentence must be gone, or a reader finds both
         # and has to guess which one governs.
-        if re.sub(r"\s+", " ", "Target-native subagents return report/evidence only; the current agent reviews the output before acting.") in text:
-            report(f"delegation-overlay: {path.relative_to(ROOT)} still carries the unconditional sentence.")
-            return 1
+        # Both stale sentences, not just the one in the shared gate. The apply
+        # action body carried its own copy, and a surface stating the rule
+        # unconditionally beside the conditional one leaves a delegate free to
+        # cite whichever it prefers.
+        for stale in (
+            "Target-native subagents return report/evidence only; the current agent reviews the output before acting.",
+            "Target-native subagents return report/evidence only; they cannot mark tasks complete",
+        ):
+            if re.sub(r"\s+", " ", stale) in text:
+                report(f"delegation-overlay: {path.relative_to(ROOT)} still carries an unconditional sentence: {stale[:60]}")
+                return 1
 
     # M2 — every copy of a given action carries a byte-identical overlay
     # block. bin/keel.js exports nothing, so the generator cannot be called

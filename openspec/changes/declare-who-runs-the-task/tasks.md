@@ -337,7 +337,7 @@
 
 ## 7. Close
 
-- [ ] 7.1 Promote the spec deltas and record the workflow change
+- [x] 7.1 Promote the spec deltas and record the workflow change
   - Covers:
     - I1, I5, I9
     - keel-authorized-delegation / A repository declares delegation in its own block
@@ -347,29 +347,41 @@
     - openspec/specs/keel-touch-write-guard/spec.md
     - openspec/specs/keel-native-runtime-projection/spec.md
     - openspec/specs/keel-single-task-goal-execution/spec.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+    - assets/bootstrap/AGENTS.md
+    - bin/keel.js
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
     - keel/CHANGELOG.md
   - Verify:
     - Strategy: evidence-first
     - M1: `keel openspec validate declare-who-runs-the-task` passes and every `### Requirement:` and `#### Scenario:` heading in each delta appears in the corresponding live spec
     - M2: the changelog entry states that the containment was verified rather than built, that the tier is declared and never inferred, that Keel names no model and cannot observe one, and that declaring nothing changes nothing
-    - M3: `npm test` passes after promotion
+    - M3: `npm test` passes after promotion, with the two environment failures owned by issue #36 as the only exceptions
+    - M4: the overlay states the helper rule in the wording `keel-openspec-surface-overlay` requires, the bootstrap block stays under 1KB, and both are asserted by the pre-existing `openspec-surface-overlay` and `thin-native-install` scenarios rather than by new ones
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:678a09cd76ef2e5f0634c297593ec3bb217d46db0fda10dfaf98a61cc0b4f92c
+    - M1: `keel openspec validate declare-who-runs-the-task` returns valid, and all 56 `### Requirement:` / `#### Scenario:` headings across the six deltas appear in their live specs, compared by heading set rather than by re-reading. `keel-authorized-delegation` was created (27 headings); `keel-native-runtime-projection`, `keel-single-task-goal-execution`, `keel-surface-evolution-policy`, `keel-task-capsule`, and `keel-touch-write-guard` were promoted in place, with MODIFIED requirements replacing their existing bodies rather than being appended beside them.
+    - M2: `keel/CHANGELOG.md` gains a `## 5.8.0 - declare who runs the task` entry stating that the containment was verified rather than written and how the probe's positive control makes that claim honest; that a natively provided capability is not Keel's to build, with this change's own unbuilt module as the worked example; that the tier is declared and never inferred, and why `authorize:` was not extended; that a delegate's result is a claim the current agent re-runs, and why that is structural rather than cautious; that Keel cannot observe which model ran, established from the runtime binary; and that declaring nothing changes nothing. Both filed defects (#37, #38) are named as found-and-filed rather than folded in.
+    - M3: `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` reports **109 scenarios passed**, with `spec-template-validates` and `native-helper-read-only` the only failures — both pre-existing, both green in CI on this commit, and both owned by https://github.com/TanglmChris/keel/issues/36.
+    - M4: the pre-existing `openspec-surface-overlay` and `thin-native-install` scenarios both pass. Each caught a real regression from this change rather than being adjusted to accommodate one: the overlay had lost the exact helper wording `keel-openspec-surface-overlay` requires, and the bootstrap block had grown past its sub-1KB budget.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: promotion is verified by comparing heading sets against the live specs rather than by re-reading them, so a delta that was edited after authoring cannot pass on the strength of its own text. The changelog is written to be readable by someone who was not here — it states what was *not* built and why, since that is this change's most transferable result. M4 exists because the close revealed two regressions that no new check would have caught: both were found by scenarios that predate this change, which is the argument for running the whole suite at close rather than only the checks a change adds.
+      - Scope check: `git status --porcelain` shows the six live specs, `keel/CHANGELOG.md`, `bin/keel.js`, the six generated overlay surfaces, `assets/bootstrap/AGENTS.md`, and `scripts/validate_plugin.py` — every one declared in Touch after this task's contract was reauthorized — plus this change's record layer. The Touch extension and the added M4 were a contract change; the anchor was re-recorded via `--record` rather than left stale, and `task-start` was re-run to confirm the compiled capsule still passes.
+      - Findings: none
+    - Checklist return-to-work, fixed within Touch: `keel-review-checklist` caught two things this task's own checks did not. The apply overlay's *action body* still carried `Target-native subagents return report/evidence only; they cannot mark tasks complete…` beside the new conditional rule, so a delegate reading that surface found both and could cite whichever it preferred — the exact failure the delegation-overlay scenario asserts against, which had only been aimed at the other stale sentence. Both are now asserted absent, proven by stashing the fix and watching the check fire. And `## Expectation Coverage` still pointed E3 at task 2.2, which the mid-change narrowing deleted; every coverage reference is now checked against the real task-id set, and E3 owns 3.2. Re-wording the action body then broke `openspec-surface-overlay`, which requires the literal phrase `cannot mark tasks complete` — the sentence was rewritten to keep it rather than the scenario relaxed.
     - Blocker: none
 
 ## Invalidates
 
-- I1: "read-only helper authority" — the compiled-defaults scenario in `openspec/specs/keel-task-capsule/spec.md`. Updated by: 7.1
+- I1: "hard-stop autonomy, no coupling, read-only helper authority, standard prohibitions" — the compiled-defaults scenario in `openspec/specs/keel-task-capsule/spec.md`. Like I2, the helper clause itself stays true and is deliberately kept — the promoted scenario now reads "no coupling, read-only helper authority, no delegation, standard prohibitions", and a further AND THEN states that helper authority is unchanged because a delegate and a helper are distinct roles. What went stale is the list omitting a default, not the clause. Updated by: 7.1
 - I2: "Coupling defaults to none, and helpers stay read-only/evidence-only." — the compact v4 header comment, in both `assets/openspec/schemas/keel-spec-driven/templates/tasks.md` and its installed copy `openspec/schemas/keel-spec-driven/templates/tasks.md`. The helper half stays true and is kept; what went stale is the sentence ending there, since delegation is now a default the list omits. Updated by: 6.2
-- I3: "Target-native subagents are allowed only as bounded helpers/evidence producers" — the resident protocol in `AGENTS.md` and the bootstrap it is regenerated from, `assets/bootstrap/AGENTS.md`. Updated by: 6.2
+- I3: "Target-native subagents are allowed only as bounded helpers/evidence producers" — the resident protocol in `AGENTS.md`. Updated by: 6.2. The consumer bootstrap is a separate nine-line document rather than the source `AGENTS.md` is generated from, and it deliberately keeps its existing single-writer sentence: its block has a sub-1KB budget with 11 bytes of headroom, and delegation is inert until declared, so a repository installing it and declaring nothing is fully served by what is already there. Discard reason: the bootstrap statement is true by default and the budget is better spent on what can go wrong without a declaration.
 - I4: "Use a target-native subagent only when the current agent decides it is useful for a bounded helper step." — generated by `bin/keel.js` into `.claude/commands/opsx/apply.md`, `.claude/commands/opsx/archive.md`, and the four apply/archive skill copies under `.claude/` and `.codex/`. Updated by: 6.1
 - I5: "Target-native subagents return report/evidence only" — the same generator and its six generated copies, and the overlay scenario in `openspec/specs/keel-openspec-surface-overlay/spec.md`. Updated by: 6.1, 7.1
 - I6: "the current agent remains the sole writer" and "keeps the current agent the sole writer" — `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` copy; also "the current agent is the sole writer" in `src/core/goal.js`. Updated by: 4.1
@@ -383,7 +395,7 @@
 
 - E1: Delegation is declared and never inferred from the work. Covered by: 1.1, 1.2
 - E2: The write guard contains a delegated writer exactly as it contains the current agent. Covered by: 5.1
-- E3: Delegation is refused when no guard manifest is active, decided before the delegate starts. Covered by: 2.2
+- E3: Delegation is refused when no guard manifest is active, decided before the delegate starts. Covered by: 3.2
 - E4: A delegate's reported results are a claim; the current agent re-runs each check and records its own evidence. Covered by: 4.1, 6.1, 7.1
 - E5: Keel names no concrete model, selects none, and does not claim to observe which one ran. Covered by: 1.1, 6.2
 - E6: A repository declaring nothing behaves exactly as it does today, on every surface. Covered by: 5.2
