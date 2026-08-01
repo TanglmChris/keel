@@ -11796,6 +11796,80 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_overlay_scenario() -> int:
+    """The overlay tells a delegate what it may do and what it settles.
+
+    A subagent reading only this text must not conclude it can complete a
+    task, and must not conclude it may implement without a declaration.
+    """
+
+    generated = [
+        ROOT / ".claude/commands/opsx/apply.md",
+        ROOT / ".claude/commands/opsx/archive.md",
+        ROOT / ".claude/skills/openspec-apply-change/SKILL.md",
+        ROOT / ".claude/skills/openspec-archive-change/SKILL.md",
+        ROOT / ".codex/skills/openspec-apply-change/SKILL.md",
+        ROOT / ".codex/skills/openspec-archive-change/SKILL.md",
+    ]
+    for path in generated:
+        if not path.exists():
+            report(f"delegation-overlay: missing generated surface {path.relative_to(ROOT)}")
+            return 1
+
+    # M1 — the gate states the delegate's condition, its boundary, and what
+    # its results are worth. Asserted on every generated copy, because the
+    # overlay is what a subagent on that surface actually reads.
+    needles = (
+        "where `delegation:` is declared",
+        "a guard manifest is active",
+        "only inside `Touch`",
+        "re-runs each `M<n>` check itself before recording Evidence",
+        "Delegation is refused with no active guard manifest",
+        "may mark tasks complete",
+    )
+    for path in generated:
+        text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        for needle in needles:
+            if re.sub(r"\s+", " ", needle) not in text:
+                report(f"delegation-overlay: {path.relative_to(ROOT)} omits: {needle}")
+                return 1
+        # The old unconditional sentence must be gone, or a reader finds both
+        # and has to guess which one governs.
+        if re.sub(r"\s+", " ", "Target-native subagents return report/evidence only; the current agent reviews the output before acting.") in text:
+            report(f"delegation-overlay: {path.relative_to(ROOT)} still carries the unconditional sentence.")
+            return 1
+
+    # M2 — every copy of a given action carries a byte-identical overlay
+    # block. bin/keel.js exports nothing, so the generator cannot be called
+    # directly; comparing the copies to each other catches the failure that
+    # matters — one surface hand-edited or left stale while the others move.
+    blocks: dict[str, dict[str, str]] = {"apply": {}, "archive": {}}
+    for path in generated:
+        text = path.read_text(encoding="utf-8")
+        try:
+            body = text.split("<!-- keel:openspec-surface-overlay", 1)[1]
+            body = body.split("<!-- keel:openspec-surface-overlay:end -->", 1)[0]
+        except IndexError:
+            report(f"delegation-overlay: {path.relative_to(ROOT)} carries no overlay block.")
+            return 1
+        action = "archive" if "archive" in str(path).lower() else "apply"
+        blocks[action][str(path.relative_to(ROOT))] = body
+    for action, copies in blocks.items():
+        if len(copies) < 2:
+            continue
+        first_name, first_body = next(iter(copies.items()))
+        for name, body in copies.items():
+            if body != first_body:
+                report(
+                    f"delegation-overlay: the {action} overlay diverged between "
+                    f"{first_name} and {name}."
+                )
+                return 1
+
+    report("delegation-overlay scenario passed.")
+    return 0
+
+
 def validate_delegation_never_weakens_scenario() -> int:
     """Declaring who runs a task changes nothing about proving it was done.
 
@@ -16569,6 +16643,7 @@ SCENARIOS: tuple = (
     ("delegation-goal-budget", validate_delegation_goal_budget_scenario),
     ("delegation-guard-binds", validate_delegation_guard_binds_scenario),
     ("delegation-never-weakens", validate_delegation_never_weakens_scenario),
+    ("delegation-overlay", validate_delegation_overlay_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,

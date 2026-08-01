@@ -168,9 +168,11 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 ### Target-native subagent gate
 
 - The current agent remains responsible for Keel ownership, task/archive decisions, scope control, and final reporting.
-- Use a target-native subagent only when the current agent decides it is useful for a bounded helper step.
-- Target-native subagents return report/evidence only; the current agent reviews the output before acting.
-- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions.
+- Use a target-native subagent when the current agent decides it is useful for a bounded helper step, or as a delegate implementing the selected task where `delegation:` is declared in `keel/config.yaml` and a guard manifest is active.
+- A helper returns report/evidence only. A delegate may write, and only inside `Touch`; its reported command results are a claim, and the current agent re-runs each `M<n>` check itself before recording Evidence.
+- Delegation is refused with no active guard manifest, because an absent manifest passes every write through silently and looks identical to a checked one.
+- Neither may mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance; the current agent reviews all output before acting.
+- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions. Compile it with `keel project --event subagent-start --authorize subagent`; Keel adds no separate carrier because the host already has one.
 - Prohibited actions include scope expansion, Acceptance changes, completion marking, sync/archive decisions, commits, handoff changes, and cross-runtime delegation unless the selected task or user explicitly authorizes them.
 - The current agent owns final sync/archive decisions and must verify task evidence, follow-up ownership, and completion gates before proceeding.
 - Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.

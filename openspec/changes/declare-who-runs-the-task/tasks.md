@@ -268,7 +268,7 @@
 
 ## 6. Surfaces and resident text
 
-- [ ] 6.1 Update the overlay's subagent gate and regenerate the target surfaces
+- [x] 6.1 Update the overlay's subagent gate and regenerate the target surfaces
   - Covers:
     - keel-openspec-surface-overlay / Target-native subagent gate is documented
     - D7 — a delegate's reported results are re-run by the current agent
@@ -287,18 +287,18 @@
     - M1: the generated overlay states that a subagent may implement only where delegation is declared and a guard manifest is active, that its reported command results are re-run by the current agent rather than recorded, and that it still cannot mark tasks complete, sync, archive, commit, or change Acceptance
     - M2: every generated target surface matches the generator output, so no hand-edited copy drifts from `bin/keel.js`
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
+    - Contract: keel-task-capsule/v1 sha256:665c50bdb9d608507daa75e755618c27a64fb31cad7547acd64fff917250a64f
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-overlay` passes. All six generated surfaces state the delegate's condition — the phrases `is declared` and `a guard manifest is active` — its boundary, the phrase `only inside`, what its results are worth, the phrase `check itself before recording Evidence`, the refusal with no manifest, and that neither a helper nor a delegate may mark tasks complete. The old unconditional sentence is asserted *absent*, because a reader finding both has to guess which one governs.
+    - M1.red: aimed by weakening one copy's boundary to `anywhere it likes`; exit 1, reporting that apply.md omits the boundary phrase. Restored from a byte copy.
+    - M1.green: exit 0, `delegation-overlay scenario passed.`
+    - M2: every copy of a given action carries a byte-identical overlay block, so no surface can be hand-edited or left stale while the others move. Regenerated with `keel --install --target claude` and `--target codex`, which reported `refreshed=4 current=2` and `refreshed=2 current=1 missing=3` and touched exactly the six declared paths.
+    - M2.red: the classification bug that produced it is the honest record — an early version keyed the action off `path.name`, so `.claude/skills/openspec-archive-change/SKILL.md` was compared as an *apply* surface and reported `the apply overlay diverged between .claude/commands/opsx/apply.md and .claude/skills/openspec-archive-change/SKILL.md`. A real divergence and a misclassified comparison produce the same message, which is why the fix was to classify on the full path rather than to loosen the check.
+    - M2.green: exit 0, `delegation-overlay scenario passed.`
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the overlay is what a subagent on these surfaces actually reads, so the assertions are made against every generated copy rather than against the generator's source. Asserting the old sentence's absence is the half that makes this a replacement rather than an addition: leaving both would let a delegate cite the permissive line. The brief line now names `keel project --event subagent-start` and says Keel adds no separate carrier, which is the scope rule from task 2.1 stated where someone about to build one would read it.
+      - Scope check: `git status --porcelain` shows `bin/keel.js` and the six generated surfaces modified — the seven paths in Touch — plus `scripts/validate_plugin.py` and this change's record layer. The M1 aim edited `.claude/commands/opsx/apply.md`, already in Touch, and was restored from a byte copy.
+      - Findings: none
     - Blocker: none
 
 - [ ] 6.2 Update the resident protocol, the config header, and both task templates
