@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.7.1"
-PROTOCOL_VERSION = "5.7.1"
+PACKAGE_VERSION = "5.8.0"
+PROTOCOL_VERSION = "5.8.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1959,6 +1959,23 @@ def validate_version_alignment_scenario() -> int:
         if PROTOCOL_VERSION not in path.read_text(encoding="utf-8"):
             report(f"version-alignment scenario missing {PROTOCOL_VERSION}: {path}")
             return 1
+
+    # Presence is not alignment. A changelog announcing a release nothing else
+    # claims satisfies every check above, because the *previous* version is
+    # still somewhere in the file — which is exactly how 5.8.0 was written with
+    # every manifest left at 5.7.1. The newest entry is the claim that matters.
+    changelog = (ROOT / "keel/CHANGELOG.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^## (\d+\.\d+\.\d+)\b", changelog, re.M)
+    if not headings:
+        report("version-alignment scenario found no versioned changelog entry.")
+        return 1
+    if headings[0] != PACKAGE_VERSION:
+        report(
+            f"version-alignment scenario changelog announces {headings[0]} while "
+            f"the package declares {PACKAGE_VERSION}; the newest entry is a "
+            "release claim and must name the version everything else ships."
+        )
+        return 1
 
     with tempfile.TemporaryDirectory(prefix="keel-version-") as raw_tmp:
         repo = Path(raw_tmp) / "repo"
