@@ -120,7 +120,7 @@
       - Findings: `SubagentStart` and `SubagentStop` hook events exist in Claude Code 2.1.220 and Keel registers neither — its plugin declares only SessionStart and PreToolUse. That is not this change's business, since delegation needs no lifecycle hook to be contained, but it is the surface a later runtime-health or delegation-observability change would start from. Durable owner: https://github.com/TanglmChris/keel/issues/38
     - Blocker: none
 
-- [ ] 3.2 Carry the write boundary and declared tier in the subagent-start projection, and refuse where the preconditions fail
+- [x] 3.2 Carry the write boundary and declared tier in the subagent-start projection, and refuse where the preconditions fail
   - Covers:
     - keel-native-runtime-projection / Subagent projection preserves Keel ownership
     - keel-authorized-delegation / The delegation brief is write-capable and separate from the helper brief
@@ -141,19 +141,19 @@
     - M2: with `keel/guard.json` absent the projection refuses, names the missing manifest, and directs the caller to `keel gate task-start`; a declared tier the target does not provide refuses and reports the declared tier beside the available ones without substituting one
     - M3 (regression): a `subagent-stop` projection still returns `report-and-evidence-only`, an unauthorized `subagent-start` is still blocked for missing subagent authorization, and the read-only helper brief still refuses every mutation verb with its byte-identity verification intact
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:8489f5c11ae8454ad28b8a8679a22a490e22cb794d31850f6de4cc623eafe930
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-projection` passes. A `subagent-start` projection in a repository declaring `tier: deep` with an active manifest carries `delegation.tier`, its source, the `Touch` write boundary, and a note stating that Keel neither selects nor observes a model. No new module or contract was added: the field extends the projection Keel already publishes, which is what D15 required.
+    - M1.red: exit 1, `delegation-projection: the brief carries no delegation: ['acceptance', 'evidenceContract', 'fingerprint', 'helperAuthority', 'nextAction', 'objective', 'owner', 'prohibitions', 'read', 'stopBoundary', 'touch', 'verification']` — the message names the keys the brief did carry, so the reader sees the actual shape rather than only what was missing.
+    - M1.green: exit 0, `delegation-projection scenario passed.`
+    - M2: with `keel/guard.json` removed the projection is `blocked`, and the reason names the guard and directs the caller to `keel gate task-start`. A declared tier outside the vocabulary is also `blocked`, naming the offending tier and all three accepted ones, so no work runs at a capability nobody declared.
+    - M2.red: the unrecognized-tier half failed first for a design reason worth recording — exit 1, `delegation-projection: an unrecognized tier still projected.` The config layer fails closed, so a typo'd tier reaches the capsule as *no delegation*, which is byte-identical to a repository that declared nothing. The refusal therefore cannot be driven from the capsule; it reads the policy directly, where the unresolved declaration still exists. The manifest half was then aimed separately by disabling its existence check: exit 1, `delegation-projection: delegation projected with no active manifest.` Restored from a byte copy.
+    - M2.green: exit 0, `delegation-projection scenario passed.`
+    - M3: a repository declaring nothing still projects `ready` and carries no delegation key at all; `subagent-stop` still returns `report-and-evidence-only`; and a `subagent-start` without `--authorize subagent` is still blocked. The read-only helper brief scenario (`native-helper-brief`) still passes untouched, which is the assertion that `helper.js` kept its byte-identity guarantee.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the delegation is proven through `keel project`'s actual JSON — the artifact a host would be handed — rather than through the capsule in isolation, and both refusals are asserted as `blocked` with their reasons rather than as absent fields, because a silent non-projection and a reported refusal are the same shape to a caller that only checks for the key. The silent-repository case is the control that keeps the other two from passing trivially.
+      - Scope check: `git status --porcelain` shows `src/core/projection.js` and `scripts/validate_plugin.py` modified — the two paths in Touch — plus this change's own record layer. Both aims edited `src/core/projection.js`, already in Touch, and were restored from a copy taken before each.
+      - Findings: none
     - Blocker: none
 
 ## 4. The single-task goal path

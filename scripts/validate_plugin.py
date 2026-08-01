@@ -11796,6 +11796,166 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_projection_scenario() -> int:
+    """The projection Keel already publishes carries the delegation, and
+    refuses where the preconditions for one do not hold.
+
+    No second carrier is built: the host spawns the subagent, and this is the
+    one-way view of OpenSpec it is handed.
+    """
+
+    def project(repo: Path, *extra: str) -> dict | None:
+        result = run_keel(
+            repo, "project", "--target", "claude",
+            "--event", "subagent-start", "--authorize", "subagent",
+            "--change", "demo", "--task", "1.1", "--json", *extra,
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: project returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+
+    def guard_manifest(repo: Path) -> None:
+        contract = run_keel(
+            repo, "gate", "task-start", "--change", "demo",
+            "--task", "1.1", "--json", "--no-guard",
+        )
+        fingerprint = json.loads(contract.stdout)["contract"]["fingerprint"]["value"]
+        authority = repo / "openspec/changes/demo/tasks.md"
+        write_text(
+            repo / "keel/guard.json",
+            json.dumps({
+                "schema": "keel-write-guard/v1",
+                "change": "demo",
+                "task": "1.1",
+                "fingerprint": {"algorithm": "sha256", "value": fingerprint},
+                "touch": ["src/feature.js"],
+                "authority": [{
+                    "path": "openspec/changes/demo/tasks.md",
+                    "sha256": hashlib.sha256(authority.read_bytes()).hexdigest(),
+                }],
+            }, indent=2) + "\n",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-delproj-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declaring repository with an active manifest projects the
+        # write boundary and the declared tier.
+        ready = root / "ready"
+        ready.mkdir()
+        write_gate_fixture(ready, standing_authorization_task())
+        write_authorize_config(ready, "fast_check: echo c\ndelegation:\n  tier: deep\n")
+        guard_manifest(ready)
+        got = project(ready)
+        if got is None:
+            return 1
+        if got.get("status") != "ready":
+            report(f"delegation-projection: a ready delegation did not project: {got.get('reasons')}")
+            return 1
+        projection = got.get("projection") or {}
+        delegation = projection.get("delegation")
+        if delegation is None:
+            report(f"delegation-projection: the brief carries no delegation: {sorted(projection)}")
+            return 1
+        if delegation.get("tier") != "deep":
+            report(f"delegation-projection: the declared tier is not carried: {delegation}")
+            return 1
+        if not projection.get("touch"):
+            report("delegation-projection: the brief carries no write boundary.")
+            return 1
+        note = json.dumps(delegation)
+        if "select" not in note or "observe" not in note:
+            report(
+                "delegation-projection: the brief does not say Keel neither "
+                f"selects nor observes a model: {delegation}"
+            )
+            return 1
+
+        # M2 — no manifest refuses, and the refusal names what is missing.
+        (ready / "keel" / "guard.json").unlink()
+        unguarded = project(ready)
+        if unguarded is None:
+            return 1
+        if unguarded.get("status") == "ready":
+            report("delegation-projection: delegation projected with no active manifest.")
+            return 1
+        reasons = " ".join(unguarded.get("reasons") or [])
+        if "guard" not in reasons or "task-start" not in reasons:
+            report(f"delegation-projection: the refusal does not name the manifest: {reasons}")
+            return 1
+
+        # M2 — an unprovidable tier refuses and reports the alternatives
+        # rather than quietly running at a tier nobody declared.
+        typo = root / "typo"
+        typo.mkdir()
+        write_gate_fixture(typo, standing_authorization_task())
+        write_authorize_config(typo, "fast_check: echo c\ndelegation:\n  tier: turbo\n")
+        guard_manifest(typo)
+        bad = project(typo)
+        if bad is None:
+            return 1
+        if bad.get("status") == "ready":
+            report("delegation-projection: an unrecognized tier still projected.")
+            return 1
+        bad_reasons = " ".join(bad.get("reasons") or [])
+        if "turbo" not in bad_reasons:
+            report(f"delegation-projection: the refusal does not name the tier: {bad_reasons}")
+            return 1
+        for name in ("routine", "standard", "deep"):
+            if name not in bad_reasons:
+                report(f"delegation-projection: the refusal omits accepted tier {name}: {bad_reasons}")
+                return 1
+
+        # M3 — a silent repository still projects, without a delegation, and
+        # the stop side still returns evidence-only.
+        silent = root / "silent"
+        silent.mkdir()
+        write_gate_fixture(silent, standing_authorization_task())
+        write_authorize_config(silent, "fast_check: echo c\n")
+        guard_manifest(silent)
+        plain = project(silent)
+        if plain is None:
+            return 1
+        if plain.get("status") != "ready":
+            report(f"delegation-projection: a silent repository stopped projecting: {plain.get('reasons')}")
+            return 1
+        if (plain.get("projection") or {}).get("delegation") is not None:
+            report("delegation-projection: a silent repository projected a delegation.")
+            return 1
+        stop = run_keel(
+            silent, "project", "--target", "claude",
+            "--event", "subagent-stop", "--authorize", "subagent",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        try:
+            stopped = json.loads(stop.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: subagent-stop returned no JSON: {stop.stdout!r}")
+            return 1
+        if (stopped.get("projection") or {}).get("returnAuthority") != "report-and-evidence-only":
+            report(f"delegation-projection: the stop side lost its return authority: {stopped.get('projection')}")
+            return 1
+        unauthorized = run_keel(
+            silent, "project", "--target", "claude",
+            "--event", "subagent-start", "--change", "demo",
+            "--task", "1.1", "--json",
+        )
+        try:
+            refused = json.loads(unauthorized.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: unauthorized start returned no JSON: {unauthorized.stdout!r}")
+            return 1
+        if refused.get("status") == "ready":
+            report("delegation-projection: subagent-start projected without authorization.")
+            return 1
+
+    report("delegation-projection scenario passed.")
+    return 0
+
+
 def validate_native_capability_scope_scenario() -> int:
     """A capability the target provides natively is not Keel's to build.
 
@@ -15984,6 +16144,7 @@ SCENARIOS: tuple = (
     ("delegation-declaration", validate_delegation_declaration_scenario),
     ("delegation-inheritance", validate_delegation_inheritance_scenario),
     ("native-capability-scope", validate_native_capability_scope_scenario),
+    ("delegation-projection", validate_delegation_projection_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
