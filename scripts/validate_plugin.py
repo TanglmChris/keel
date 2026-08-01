@@ -11796,6 +11796,105 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_goal_budget_scenario() -> int:
+    """The delegation fields live inside the activation budget, not beside it.
+
+    A field that never reaches the condition cannot overflow it, so asserting
+    the refusal means first asserting the fields are actually carried.
+    """
+
+    def goal(repo: Path) -> dict | None:
+        result = run_keel(
+            repo, "project", "goal", "--target", "claude",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-goal-budget: goal returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+        # Two shapes share this command. A compiled goal is nested under
+        # `goal`; a refusal carries `goal: null` with the reason on the
+        # envelope. Reading only one of them would report a refusal as a
+        # missing field, which is a different problem in a different place.
+        nested = payload.get("goal") or {}
+        return {
+            **nested,
+            "status": payload.get("status"),
+            "reasons": payload.get("reasons") or [],
+        }
+
+    def task(padding: str = "") -> str:
+        return (
+            "- [ ] 1.1 Behavior\n"
+            "  - Covers:\n"
+            "    - E1: public behavior\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            + padding
+            + "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js proves the public behavior\n"
+            "  - Evidence:\n"
+            "    - Contract: pending\n"
+            "    - M1: pending\n"
+            "    - Review:\n"
+            "      - Status: pending\n"
+            "      - Acceptance check: pending\n"
+            "      - Scope check: pending\n"
+            "      - Findings: pending\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-delbudget-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — the declared tier reaches the compiled condition.
+        fits = root / "fits"
+        fits.mkdir()
+        write_gate_fixture(fits, task())
+        write_authorize_config(fits, "fast_check: echo c\ndelegation:\n  tier: routine\n")
+        compiled = goal(fits)
+        if compiled is None:
+            return 1
+        if compiled.get("status") != "ready":
+            report(f"delegation-goal-budget: a fitting goal did not compile: {compiled.get('reasons')}")
+            return 1
+        condition = compiled.get("condition") or ""
+        if "routine" not in condition:
+            report("delegation-goal-budget: the declared tier is not in the goal condition.")
+            return 1
+
+        # M1 — pushed past the budget, activation refuses and names it. The
+        # padding is Touch paths, so the overflow comes from real capsule
+        # content rather than from a string invented for the test.
+        over = root / "over"
+        over.mkdir()
+        padding = "".join(f"    - src/generated/module_{i:03d}_long_enough_to_count.js\n" for i in range(90))
+        write_gate_fixture(over, task(padding))
+        write_authorize_config(over, "fast_check: echo c\ndelegation:\n  tier: routine\n")
+        refused = goal(over)
+        if refused is None:
+            return 1
+        if refused.get("status") != "blocked":
+            length = len(refused.get("condition") or "")
+            report(f"delegation-goal-budget: an over-budget goal was not refused (condition {length} chars).")
+            return 1
+        reason = " ".join(refused.get("reasons") or [])
+        if "4000" not in reason:
+            report(f"delegation-goal-budget: the refusal does not name the budget: {reason}")
+            return 1
+        # Nothing is dropped to make it fit: the refusal is the whole response,
+        # and no truncated condition is offered in its place.
+        if refused.get("condition"):
+            report("delegation-goal-budget: a condition was still offered alongside the refusal.")
+            return 1
+
+    report("delegation-goal-budget scenario passed.")
+    return 0
+
+
 def validate_delegation_sole_authority_scenario() -> int:
     """The invariant is restated, not removed.
 
@@ -16215,6 +16314,7 @@ SCENARIOS: tuple = (
     ("native-capability-scope", validate_native_capability_scope_scenario),
     ("delegation-projection", validate_delegation_projection_scenario),
     ("delegation-sole-authority", validate_delegation_sole_authority_scenario),
+    ("delegation-goal-budget", validate_delegation_goal_budget_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,

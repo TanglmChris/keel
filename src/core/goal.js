@@ -48,6 +48,13 @@ function renderCondition(goal) {
     "Stop/Autonomy boundary:",
     ...goal.stopBoundary.map((item) => `- ${item}`),
     "Ownership: the current agent is the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. A declared delegate writes only inside Touch and the current agent re-runs each check before recording Evidence.",
+    ...(goal.delegation
+      ? [
+        `Delegation: tier ${goal.delegation.tier}, declared by `
+          + `${goal.delegation.source}. Keel carries the tier and does not `
+          + "select or observe a model.",
+      ]
+      : []),
     "Done only when: task-complete passes and the current agent has durably checked the task; then stop and require a new explicit authorization before any next task.",
   ];
   return lines.join("\n");
@@ -166,6 +173,11 @@ function compileGoalProjection(repo, options) {
     owner: capsule.owner,
     ownership: "current-agent-sole-writer",
     helperPolicy: capsule.helperAuthority,
+    // Carried inside the condition rather than beside it, so a declared
+    // delegation is subject to the same budget as everything else the
+    // activation must state. A field that never reaches the condition
+    // cannot overflow it, and would then be a boundary the goal omits.
+    delegation: capsule.delegation || null,
     terminalStates: TERMINAL_STATES,
     evidencePresentation: EVIDENCE_PRESENTATION,
     authorizationEvidence: {

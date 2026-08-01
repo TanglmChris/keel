@@ -192,7 +192,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 4.2 Refuse goal activation when the delegation fields do not fit the 4,000-character budget
+- [x] 4.2 Refuse goal activation when the delegation fields do not fit the 4,000-character budget
   - Covers:
     - keel-single-task-goal-execution / Current agent owns implementation and completion
     - F13 — activation refuses rather than omitting Acceptance, fingerprint, or stop authority; the scenario this slice proves is "Delegation fields must fit the activation budget"
@@ -203,15 +203,16 @@
     - Strategy: vertical-tdd
     - M1: a capsule whose delegation fields push the compiled goal condition past 4,000 characters refuses activation and names the budget as the reason, and no field is silently dropped to make it fit
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
+    - Contract: keel-task-capsule/v1 sha256:40d063361a7dbb3ce109d759cfbb5b68d4c01779279414667f48b6362ed761cb
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-goal-budget` passes. The declared tier is carried *inside* the compiled goal condition — a field beside it could not overflow a budget, and would be a boundary the activation omits. Padded past the limit with real capsule content (90 Touch paths, not a string invented for the test), activation returns `blocked` with a reason naming the 4,000-character limit, and offers no condition alongside the refusal, so nothing was trimmed to make it fit.
+    - M1.red: exit 1, `delegation-goal-budget: the declared tier is not in the goal condition.`
+    - Test defect found and fixed within Touch: the scenario's first version read `condition` from the command's envelope, where it does not live. A compiled goal is nested under `goal`; a refusal carries `goal: null` with the reason on the envelope. Reading one shape would have reported a refusal as a missing field — a different problem in a different place, which is the failure mode `keel-review-checklist` names. Both shapes are now handled explicitly, and the over-budget half of this scenario is what exercises the second.
+    - M1.green: exit 0, `delegation-goal-budget scenario passed.` A second red was aimed at the refusal itself by raising the limit to 99999: exit 1, `delegation-goal-budget: an over-budget goal was not refused (condition 5497 chars).` The message reports the length it saw, so a future failure says how far over the budget it got rather than only that it did not refuse. Restored from a byte copy.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the budget refusal already existed and was generic; what this task had to prove is that the delegation fields are subject to it, which required carrying them inside the condition first. The over-budget case is built from Touch paths rather than filler, so the assertion is about a capsule a repository could actually author. Asserting that no condition accompanies the refusal is the half that distinguishes refusing from truncating — both would show `blocked` to a caller checking only status.
+      - Scope check: `git status --porcelain` shows `src/core/goal.js` and `scripts/validate_plugin.py` modified — the two paths in Touch — plus this change's record layer. The aim edited `src/core/goal.js`, already in Touch, and was restored from a byte copy.
+      - Findings: none
     - Blocker: none
 
 ## 5. Containment and inertness
