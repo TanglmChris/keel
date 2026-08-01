@@ -108,6 +108,88 @@ function precedentPointer(cwd) {
   }
 }
 
+// The remedy is the host's, so it is named rather than run. Only Claude's
+// command is stated outright, because that is the manifest whose host command
+// Keel has verified; an unprobed target gets a description instead of an
+// invented command line.
+const HOST_UPDATE = "your host's own plugin update command";
+
+// The plugin's own manifest sits beside this script, so its version is read
+// from `__dirname` rather than from CLAUDE_PLUGIN_ROOT: the path this file was
+// loaded from is a fact, while an environment variable is a claim the host may
+// not have made. Whichever target's manifest is present is the one that ran.
+function pluginManifest() {
+  const targets = [
+    [".claude-plugin", "`claude plugin update`"],
+    [".codex-plugin", HOST_UPDATE],
+  ];
+  for (const [dir, remedy] of targets) {
+    try {
+      const manifest = path.join(__dirname, "..", dir, "plugin.json");
+      const value = JSON.parse(fs.readFileSync(manifest, "utf8")).version;
+      if (typeof value === "string" && value.trim()) {
+        return { version: value.trim(), remedy };
+      }
+    } catch {
+      // A missing or unreadable manifest is undiscoverable, not drift.
+    }
+  }
+  return { version: null, remedy: HOST_UPDATE };
+}
+
+// The repository states which protocol it runs in the managed block the
+// installer wrote. AGENTS.md is the canonical carrier; CLAUDE.md is read second
+// because a repository may carry only the target-native file.
+function protocolVersion(cwd) {
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    try {
+      const text = fs.readFileSync(path.join(cwd, name), "utf8");
+      const match = text.match(
+        /<!--\s*keel:start\s+version=(\d+\.\d+\.\d+)\s*-->/
+      );
+      if (match) return match[1];
+    } catch {
+      // Same as above: absent is not mismatched.
+    }
+  }
+  return null;
+}
+
+// Three versions are comparable in any repository: the plugin executing this
+// hook, the CLI it just invoked, and the protocol version the repository
+// stamped into its managed block. Keel reports the disagreement and stops
+// there — installing and updating are the host's, which already has commands
+// for both.
+function versionReport(cwd, cli) {
+  const plugin = pluginManifest();
+  const found = [
+    ["plugin", plugin.version],
+    ["CLI", cli],
+    ["protocol", protocolVersion(cwd)],
+  ];
+  // Missing is not mismatched. A version nobody can discover never produces a
+  // line on its own, or a repository with no managed block would be warned at
+  // every session until its reader stopped looking — and fewer than two
+  // readable versions is not agreement either, it is nothing to compare.
+  const known = found.filter(([, value]) => value);
+  if (known.length < 2) return null;
+  // Silence when they agree. This line exists to be noticed, and one printed
+  // every session stops being read long before the session it mattered in.
+  if (new Set(known.map(([, value]) => value)).size === 1) return null;
+  const named = known.map(([name, value]) => `${name} ${value}`).join(", ");
+  // Naming what was never read is what keeps a partial comparison from being
+  // read as a complete one.
+  const unread = found
+    .filter(([, value]) => !value)
+    .map(([name]) => name)
+    .join(" and ");
+  const missing = unread ? ` (${unread} undiscovered, not compared)` : "";
+  return `runtime versions disagree: ${named}${missing}. A session's hooks are `
+    + "fixed at session start, so an updated plugin applies only after "
+    + `restarting. Updating is ${plugin.remedy}, which Keel names and does `
+    + "not run.";
+}
+
 // The Keel mark. A keel is the carina, the ridge on a bird's sternum, so the
 // animal that literally has one is a bird. Every cell is drawn from
 // U+2580–U+259F — the same block-element family as the host's own startup
@@ -292,6 +374,11 @@ function main() {
       "- next: run `keel context` and select an owner explicitly; this hook "
         + "does not guess among candidates."
     );
+  }
+  const drift = versionReport(cwd, versionMatch[0]);
+  if (drift) {
+    lines.push(`- ${drift}`);
+    human.splice(human.length - 1, 0, drift[0].toUpperCase() + drift.slice(1));
   }
   const pointer = precedentPointer(cwd);
   if (pointer) lines.push(`- ${pointer}`);

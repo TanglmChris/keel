@@ -8966,10 +8966,16 @@ def run_session_start_hook(
     keel_cli: str,
     timeout_ms: int | None = None,
     panel: str | None = None,
+    plugin_root: Path | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    # The shipping plugin unless a fixture plants its own copy. A planted copy
+    # is how the version the plugin reports about itself becomes something the
+    # suite decides rather than something it inherits from this working tree.
+    root = Path(plugin_root) if plugin_root is not None else ROOT / PLUGIN_ROOT
     env = dict(os.environ)
     env["KEEL_CLI"] = keel_cli
-    env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+    env["CLAUDE_PLUGIN_ROOT"] = str(root)
     # The suite must decide the panel's state rather than inherit whatever the
     # developer running it has exported, or the default-off assertion would
     # pass or fail by accident of the shell.
@@ -8978,8 +8984,10 @@ def run_session_start_hook(
         env["KEEL_SESSION_PANEL"] = panel
     if timeout_ms is not None:
         env["KEEL_HOOK_TIMEOUT_MS"] = str(timeout_ms)
+    if extra_env is not None:
+        env.update(extra_env)
     return subprocess.run(
-        ["node", str(ROOT / PLUGIN_ROOT / "scripts/session-start.js")],
+        ["node", str(root / "scripts/session-start.js")],
         cwd=repo,
         env=env,
         input=json.dumps(event),
@@ -9451,6 +9459,353 @@ def validate_native_plugin_session_start_scenario() -> int:
             return 1
 
     report("native-plugin-session-start scenario passed.")
+    return 0
+
+
+# Three versions are comparable in any repository, and the fixture drives each
+# one independently: the plugin's by planting a manifest beside a copy of the
+# shipping hook, the CLI's by what the fake CLI prints, and the repository's by
+# the managed block in its AGENTS.md.
+VERSION_DRIFT_STATEMENT = "runtime versions disagree"
+VERSION_DRIFT_RESTART_TOKENS = ("fixed at session start", "restart")
+
+
+def plant_session_start_plugin(
+    dest: Path, version: str | None, *, manifest: str = ".claude-plugin"
+) -> Path:
+    """A copy of the shipping hook with a manifest the suite controls."""
+    write_text(
+        dest / "scripts/session-start.js",
+        (ROOT / PLUGIN_ROOT / "scripts/session-start.js").read_text(
+            encoding="utf-8"
+        ),
+    )
+    if version is not None:
+        write_text(
+            dest / manifest / "plugin.json",
+            json.dumps({"name": "keel", "version": version}, indent=2) + "\n",
+        )
+    return dest
+
+
+def fake_keel_cli(path: Path, version: str, *, change: str = "demo") -> str:
+    """A CLI that reports the version the suite chose and answers `context`."""
+    context = json.dumps(
+        {
+            "schemaVersion": 1,
+            "status": "ready",
+            "selection": {"source": "inferred", "change": change, "task": "1.1"},
+            "nextAction": {"kind": "task-start"},
+            "read": [f"openspec/changes/{change}/tasks.md"],
+            "reasons": [],
+            "warnings": [],
+        }
+    )
+    write_text(
+        path,
+        "if (process.argv.includes('--version')) {\n"
+        f"  console.log('keel {version}');\n"
+        "} else {\n"
+        f"  console.log({json.dumps(context)});\n"
+        "}\n",
+    )
+    return f'node "{path}"'
+
+
+def plant_spawn_recorder(path: Path) -> str:
+    """A preload that records every subprocess the hook starts.
+
+    Patching `child_process` inside the hook's own process is what makes the
+    recording total: it sees a spawn however it is reached, where a PATH shim
+    only sees the commands it was told to expect. The two `keel` invocations the
+    hook already makes are its own positive control - a recorder that stopped
+    working would produce an empty log, which the count assertion fails on.
+    """
+    write_text(
+        path,
+        "const cp = require('child_process');\n"
+        "const fs = require('fs');\n"
+        "const log = process.env.KEEL_FIXTURE_SPAWN_LOG;\n"
+        "for (const name of ['spawn', 'spawnSync', 'exec', 'execSync',\n"
+        "  'execFile', 'execFileSync', 'fork']) {\n"
+        "  const original = cp[name];\n"
+        "  cp[name] = function (...args) {\n"
+        "    fs.appendFileSync(log, name + ' ' + String(args[0]) + '\\n');\n"
+        "    return original.apply(this, args);\n"
+        "  };\n"
+        "}\n",
+    )
+    return f"--require {path}"
+
+
+def validate_runtime_version_drift_scenario() -> int:
+    codex_event = {"hook_event_name": "SessionStart", "source": "startup"}
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-version-drift-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        tmp = Path(raw_tmp)
+
+        # The drift this change exists to have caught, reproduced exactly: the
+        # plugin and CLI five minor versions behind the protocol the repository
+        # declares, with every gate and projection still reporting normally.
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.7.1 Agent Protocol\n\n"
+            "<!-- keel:start version=5.7.1 -->\n## Session Start\n"
+            "<!-- keel:end -->\n",
+        )
+        stale_plugin = plant_session_start_plugin(tmp / "stale-plugin", "5.2.1")
+        stale_cli = fake_keel_cli(tmp / "stale-cli.js", "5.2.1")
+
+        drifted = run_session_start_hook(
+            repo, codex_event, keel_cli=stale_cli, plugin_root=stale_plugin
+        )
+        if drifted.returncode != 0:
+            report("runtime-version-drift hook did not exit 0 on a mismatch.")
+            report((drifted.stderr or drifted.stdout).strip())
+            return 1
+        channels = {
+            "additionalContext": session_start_context(drifted) or "",
+            "systemMessage": session_start_message(drifted) or "",
+        }
+        for channel, text in channels.items():
+            lowered = text.lower()
+            if VERSION_DRIFT_STATEMENT not in lowered:
+                report(
+                    f"runtime-version-drift {channel} does not state that the "
+                    f"versions disagree: {text!r}"
+                )
+                return 1
+            absent = [
+                version
+                for version in ("5.2.1", "5.7.1")
+                if version not in text
+            ]
+            if absent:
+                report(
+                    f"runtime-version-drift {channel} omits the discovered "
+                    f"versions {absent}: {text!r}"
+                )
+                return 1
+            missing = [
+                token
+                for token in VERSION_DRIFT_RESTART_TOKENS
+                if token not in lowered
+            ]
+            if missing:
+                report(
+                    f"runtime-version-drift {channel} omits the restart "
+                    f"requirement {missing}, so a reader who updates the plugin "
+                    f"and sees no change concludes the check is broken: {text!r}"
+                )
+                return 1
+
+        # Silence when aligned, and silence that costs nothing else. The drift
+        # sentence is lifted off the mismatched payload and the remainder must
+        # be byte-identical to the aligned one: that is the comparison disabled
+        # on the same run, and it proves the capability's whole effect is the
+        # one line rather than a reshaped projection.
+        aligned_plugin = plant_session_start_plugin(tmp / "aligned-plugin", "5.7.1")
+        aligned_cli = fake_keel_cli(tmp / "aligned-cli.js", "5.7.1")
+        aligned = run_session_start_hook(
+            repo, codex_event, keel_cli=aligned_cli, plugin_root=aligned_plugin
+        )
+        aligned_context = session_start_context(aligned) or ""
+        aligned_message = session_start_message(aligned) or ""
+        for channel, text in (
+            ("additionalContext", aligned_context),
+            ("systemMessage", aligned_message),
+        ):
+            if VERSION_DRIFT_STATEMENT in text.lower() or "5.7.1" in text:
+                report(
+                    f"runtime-version-drift {channel} spoke about versions that "
+                    f"agree, and a line printed every session is a line nobody "
+                    f"reads when it matters: {text!r}"
+                )
+                return 1
+
+        drift_lines = [
+            line
+            for line in channels["additionalContext"].split("\n")
+            if VERSION_DRIFT_STATEMENT in line.lower()
+        ]
+        if len(drift_lines) != 1:
+            report(
+                "runtime-version-drift mismatched additionalContext carries "
+                f"{len(drift_lines)} version lines, expected exactly one."
+            )
+            return 1
+        sentence = drift_lines[0].removeprefix("- ")
+        human_sentence = sentence[0].upper() + sentence[1:]
+        if human_sentence + " " not in channels["systemMessage"]:
+            report(
+                "runtime-version-drift channels disagree: the human message "
+                "does not carry the sentence the model was given: "
+                f"{channels['systemMessage']!r}"
+            )
+            return 1
+        stripped = {
+            "additionalContext": "\n".join(
+                line
+                for line in channels["additionalContext"].split("\n")
+                if line != drift_lines[0]
+            ),
+            "systemMessage": channels["systemMessage"].replace(
+                human_sentence + " ", "", 1
+            ),
+        }
+        for channel, baseline in (
+            ("additionalContext", aligned_context),
+            ("systemMessage", aligned_message),
+        ):
+            if stripped[channel] != baseline:
+                report(
+                    f"runtime-version-drift {channel} changed beyond the version "
+                    f"line:\n  with drift removed: {stripped[channel]!r}\n"
+                    f"  aligned:             {baseline!r}"
+                )
+                return 1
+
+        # Keel reports and does not manage. The obvious next sentence after
+        # "your plugin is stale" is "so let me update it", and the host already
+        # owns that command; naming it is the whole remedy Keel offers.
+        if "claude plugin update" not in sentence:
+            report(
+                "runtime-version-drift report does not name the host's own "
+                f"update command, leaving the reader with no move: {sentence!r}"
+            )
+            return 1
+        for forbidden in ("keel update", "npm install", "npm i "):
+            if forbidden in sentence.lower():
+                report(
+                    "runtime-version-drift report offers a Keel-side remedy "
+                    f"for a host-owned action ({forbidden!r}): {sentence!r}"
+                )
+                return 1
+
+        # Naming is not running. Every subprocess the hook starts is recorded
+        # from inside its own process, so the two `keel` invocations it already
+        # made are the recorder's positive control: a recorder that stopped
+        # working leaves an empty log, which this count rejects.
+        spawn_log = tmp / "spawns.log"
+        recorded = run_session_start_hook(
+            repo,
+            codex_event,
+            keel_cli=stale_cli,
+            plugin_root=stale_plugin,
+            extra_env={
+                "NODE_OPTIONS": plant_spawn_recorder(tmp / "recorder.js"),
+                "KEEL_FIXTURE_SPAWN_LOG": str(spawn_log),
+            },
+        )
+        if VERSION_DRIFT_STATEMENT not in (
+            session_start_context(recorded) or ""
+        ).lower():
+            report(
+                "runtime-version-drift the recorded run did not reach the "
+                "mismatch branch, so its spawn log proves nothing."
+            )
+            return 1
+        spawns = [
+            line
+            for line in spawn_log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if len(spawns) != 2 or not all("stale-cli.js" in line for line in spawns):
+            report(
+                "runtime-version-drift hook spawned something other than the "
+                f"two keel invocations it already made: {spawns!r} "
+                "(an empty list means the recorder itself failed)"
+            )
+            return 1
+
+        # Missing is not mismatched. A repository with no managed block is a
+        # normal state, and warning about it every session would train its
+        # reader past the one session that mattered — the same credibility
+        # argument as silence when aligned, running the other way.
+        bare = tmp / "bare"
+        write_text(bare / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        undiscovered = run_session_start_hook(
+            bare, codex_event, keel_cli=aligned_cli, plugin_root=aligned_plugin
+        )
+        for channel, text in (
+            ("additionalContext", session_start_context(undiscovered) or ""),
+            ("systemMessage", session_start_message(undiscovered) or ""),
+        ):
+            if VERSION_DRIFT_STATEMENT in text.lower():
+                report(
+                    f"runtime-version-drift {channel} called an undiscoverable "
+                    f"protocol version a disagreement: {text!r}"
+                )
+                return 1
+
+        # One version out of reach does not suppress the others. The reader is
+        # told which two disagree and, so the report cannot be misread as a
+        # complete comparison, which one was never read at all.
+        partial = run_session_start_hook(
+            bare, codex_event, keel_cli=stale_cli, plugin_root=aligned_plugin
+        )
+        partial_context = session_start_context(partial) or ""
+        partial_message = session_start_message(partial) or ""
+        for channel, text in (
+            ("additionalContext", partial_context),
+            ("systemMessage", partial_message),
+        ):
+            lowered = text.lower()
+            if VERSION_DRIFT_STATEMENT not in lowered:
+                report(
+                    f"runtime-version-drift {channel} stayed silent about two "
+                    f"readable versions that disagree because a third could not "
+                    f"be read: {text!r}"
+                )
+                return 1
+            if "protocol" not in lowered or "undiscovered" not in lowered:
+                report(
+                    f"runtime-version-drift {channel} reported a partial "
+                    "comparison as a complete one, without naming the version "
+                    f"it never read: {text!r}"
+                )
+                return 1
+            if "null" in lowered or "undefined" in lowered:
+                report(
+                    f"runtime-version-drift {channel} printed an absent version "
+                    f"as a value: {text!r}"
+                )
+                return 1
+
+        # The comparison is an addition to the projection, never a precondition
+        # for it. With no manifest to read and no CLAUDE_PLUGIN_ROOT to fall
+        # back on, the continuity report a session actually depends on has to
+        # arrive intact.
+        rootless = plant_session_start_plugin(tmp / "rootless-plugin", None)
+        degraded = run_session_start_hook(
+            repo,
+            codex_event,
+            keel_cli=stale_cli,
+            plugin_root=rootless,
+            extra_env={"CLAUDE_PLUGIN_ROOT": ""},
+        )
+        degraded_context = session_start_context(degraded) or ""
+        if degraded.returncode != 0:
+            report(
+                "runtime-version-drift an unreadable plugin manifest stopped "
+                "the hook from exiting 0."
+            )
+            report((degraded.stderr or degraded.stdout).strip())
+            return 1
+        for needle in ("demo#1.1", "task-start", SESSION_START_DISCLOSURE):
+            if needle not in degraded_context:
+                report(
+                    "runtime-version-drift an unreadable plugin manifest "
+                    f"degraded the continuity report, which lost {needle!r}: "
+                    f"{degraded_context!r}"
+                )
+                return 1
+
+    report("runtime-version-drift scenario passed.")
     return 0
 
 
@@ -16830,6 +17185,7 @@ SCENARIOS: tuple = (
     ("authoring-alignment-overlay", validate_authoring_alignment_overlay_scenario),
     ("native-plugin-manifests", validate_native_plugin_manifests_scenario),
     ("native-plugin-session-start", validate_native_plugin_session_start_scenario),
+    ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),
