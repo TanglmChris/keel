@@ -5315,6 +5315,221 @@ def validate_guard_scope_is_the_repository_scenario() -> int:
     return 0
 
 
+CJK_PATH = "src/摄影光影规划工具.js"
+SPACE_PATH = "src/has space.js"
+QUOTE_PATH = 'src/has"quote.js'
+BACKSLASH_PATH = "src/back\\slash.js"
+
+
+def validate_git_paths_carry_no_escaping_scenario() -> int:
+    """Issue #40: a Chinese filename in Touch was reported as outside Touch.
+
+    Git escapes any path holding a non-ASCII byte to octal and wraps it in
+    quotes. `gitPaths` then ran `line.slice(3).trim().replace(/\\\\/g, "/")`,
+    which left the quotes in place and turned `\\346` into `/346`, so the path
+    the task declared on the first line of its Touch could never match. The
+    rewrite was defending against a Windows separator Git does not emit on any
+    platform.
+
+    Measured 2026-08-02: `core.quotepath=false` removes the octal but still
+    quotes a path holding a space, a quote, or a backslash, and `status
+    --short` and `diff --name-only` do not even agree on which cases they
+    quote. `-z` emits raw bytes in every one of those cases, which deletes the
+    problem instead of decoding it.
+    """
+    label = "git-paths-carry-no-escaping"
+    interesting = (CJK_PATH, SPACE_PATH, QUOTE_PATH, BACKSLASH_PATH)
+
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def tasks_doc(touch: tuple[str, ...]) -> str:
+        touch_lines = "".join(f"    - {item}\n" for item in touch)
+        return (
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise task contract\n"
+            "  - Covers:\n    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            f"{touch_lines}"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: the suite passed\n"
+            "    - Review:\n      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-git-paths-") as raw:
+        root = Path(raw).resolve()
+        repo = root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        # Left at the Git default on purpose. The point is that Keel reads a
+        # form that carries no escaping, not that it asks the repository to
+        # stop escaping — a per-repository setting is exactly the environment
+        # coupling this change exists to remove.
+        for item in interesting:
+            write_text(repo / item, "// product\n")
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(tasks, tasks_doc(interesting))
+        git(repo, "add", "-A")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+        def gate(*extra: str) -> dict:
+            return json.loads(
+                run_keel(
+                    repo, "gate", "task-complete", "--change", "demo",
+                    "--task", "1.1", *extra, "--json",
+                ).stdout
+            )
+
+        def record() -> bool:
+            return (
+                run_keel(
+                    repo, "gate", "task-start", "--change", "demo", "--task",
+                    "1.1", "--record", "--no-guard", "--json",
+                ).returncode
+                == 0
+            )
+
+        def outside(payload: dict) -> list[str]:
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == "outside-touch"
+            ]
+
+        if not record():
+            report(f"{label} could not record an anchor on the fixture.")
+            return 1
+
+        # M1 — the reported defect, on its own, through both readers.
+        write_text(repo / CJK_PATH, "// changed\n")
+        for reader, extra in (("dirty worktree", ()), ("explicit base", ("--base", "HEAD"))):
+            payload = gate(*extra)
+            problems = outside(payload)
+            if problems:
+                report(
+                    f"{label} M1 the {reader} reader called a path outside "
+                    "Touch that Touch declares on its own line, so the "
+                    "non-ASCII path never survived the read."
+                )
+                for message in problems:
+                    report(f"  {message}")
+                return 1
+            if payload.get("status") != "pass":
+                report(
+                    f"{label} M1 the {reader} reader did not attribute the "
+                    "non-ASCII path outside Touch, but the gate still did not "
+                    f"pass; status was {payload.get('status')!r}."
+                )
+                for problem in payload.get("problems", []):
+                    report(f"  {problem.get('code')}: {problem.get('message')}")
+                return 1
+
+        # M2 — the characters Git quotes even with `core.quotepath=false`, and
+        # the ones the two subcommands disagree about.
+        for item in (SPACE_PATH, QUOTE_PATH, BACKSLASH_PATH):
+            write_text(repo / item, "// changed\n")
+        for reader, extra in (("dirty worktree", ()), ("explicit base", ("--base", "HEAD"))):
+            problems = outside(gate(*extra))
+            if problems:
+                report(
+                    f"{label} M2 the {reader} reader called a declared path "
+                    "outside Touch once spaces, quotes, or backslashes were "
+                    "involved."
+                )
+                for message in problems:
+                    report(f"  {message}")
+                return 1
+
+        # Still M2: a separator rewrite makes two different files look like one.
+        # `src/back/slash.js` is a real nested file the task never declared, and
+        # it must not be admitted by a Touch entry naming `src/back\slash.js`.
+        write_text(repo / "src/back/slash.js", "// undeclared\n")
+        problems = outside(gate("--base", "HEAD"))
+        if len(problems) != 1 or "src/back/slash.js" not in problems[0]:
+            report(
+                f"{label} M2 a nested file the task never declared was not the "
+                "one outside-Touch problem, so a Touch entry naming a file with "
+                "a literal backslash is still admitting a different file; got "
+                f"{problems!r}."
+            )
+            return 1
+        (repo / "src/back/slash.js").unlink()
+        (repo / "src/back").rmdir()
+
+        # M3 — a rename is one record plus a bare second field in `-z` form and
+        # a single ` -> ` line otherwise. Only the unattributed-dirty warning
+        # shows what that parser produced: with an explicit base the diff
+        # reports both endpoints itself, so a dropped endpoint would be
+        # invisible there.
+        git(repo, "checkout", "-q", "--", ".")
+        renamed = "src/重命名 后.js"
+        git(repo, "mv", CJK_PATH, renamed)
+        payload = gate()
+        dirty = [
+            warning
+            for warning in payload.get("warnings", [])
+            if "not attributed without an explicit base" in warning
+        ]
+        if len(dirty) != 1:
+            report(
+                f"{label} M3 the gate did not emit exactly one "
+                "unattributed-dirty warning to read the rename out of; got "
+                f"{payload.get('warnings')!r}."
+            )
+            return 1
+        for endpoint, which in ((CJK_PATH, "old"), (renamed, "new")):
+            if endpoint not in dirty[0]:
+                report(
+                    f"{label} M3 the {which} endpoint of the rename is missing "
+                    "from the dirty-path warning, so one endpoint was dropped "
+                    "or damaged by the read."
+                )
+                report(f"  {dirty[0]}")
+                return 1
+        if "\\3" in dirty[0] or "/346" in dirty[0]:
+            report(
+                f"{label} M3 the warning names an escaped form of a rename "
+                "endpoint."
+            )
+            report(f"  {dirty[0]}")
+            return 1
+        git(repo, "reset", "-q", "--hard", "HEAD")
+
+        # M4 — the same reader inside `keel context`.
+        git(repo, "reset", "-q", "--hard", "HEAD")
+        write_text(repo / CJK_PATH, "// changed again\n")
+        context = json.loads(run_keel(repo, "context", "--json").stdout)
+        warnings = " ".join(context.get("warnings", []))
+        if CJK_PATH not in warnings:
+            report(
+                f"{label} M4 `keel context` did not report the uncommitted "
+                "non-ASCII path as the filesystem spells it."
+            )
+            report(f"  warnings: {context.get('warnings')!r}")
+            return 1
+        if "\\3" in warnings or "/3" in warnings:
+            report(
+                f"{label} M4 `keel context` reported an escaped form of the "
+                "path alongside or instead of the real one."
+            )
+            report(f"  warnings: {context.get('warnings')!r}")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_guard_containment_is_resolved_scenario() -> int:
     """The guard decided containment by comparing two strings for one file.
 
@@ -17683,6 +17898,10 @@ SCENARIOS: tuple = (
     (
         "guard-containment-is-resolved",
         validate_guard_containment_is_resolved_scenario,
+    ),
+    (
+        "git-paths-carry-no-escaping",
+        validate_git_paths_carry_no_escaping_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (

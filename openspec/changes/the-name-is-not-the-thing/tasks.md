@@ -41,7 +41,7 @@
       - Findings: the containment rule now exists twice, in the hook and in `src/core/helper.js`, and the two copies can drift apart. That duplication is deliberate and recorded as D1 — the hook is a standalone script the host executes from the installed plugin, and importing `src/core` would make the guard fail wherever the package layout differs from this repository's — but the risk it creates is real and is not covered by any check: nothing fails if one copy is corrected and the other is not. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 1.1's M4, which exercises the helper's copy through the same fixture that exercises the hook's, so a divergence in either direction fails this scenario. Second finding: the fix changes what the guard denies, and a session already running against a symlinked repository will start seeing denials for writes that passed a moment ago. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 2.1, whose M2 requires the changelog to state the measured bypass and which writes are now denied.
     - Blocker: none
 
-- [ ] 1.2 Read Git paths in a form that carries no escaping
+- [x] 1.2 Read Git paths in a form that carries no escaping
   - Covers:
     - keel-core-gates / Git path output is read in a form that carries no escaping
     - D4 — `-z`, not `core.quotepath=false`
@@ -56,21 +56,29 @@
     - Strategy: vertical-tdd
     - M1: a task whose Touch declares a path containing Chinese characters completes when that file is the only change, and no problem message contains an escaped or partially decoded form of the path
     - M2: paths containing a space, a double quote, and a backslash are each attributed against Touch as the filesystem spells them, through both the dirty-worktree reader and the explicit-base diff reader
-    - M3: a rename whose endpoints contain characters Git would otherwise escape attributes both endpoints, and neither is dropped
+    - M3: a rename whose endpoints contain characters Git would otherwise escape is reported with both endpoints, spelled as the filesystem spells them, in the dirty-path warning the gate emits when no base has attributed them
     - M4: `keel context` reports an uncommitted non-ASCII path as the filesystem spells it
     - M5 (regression): `core-gates` and `completed-sibling-attribution` stay green, so ASCII attribution, globs, and the guard-manifest exemption are unchanged
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
-    - M5: pending
+    - Contract: keel-task-capsule/v1 sha256:1f75deb936b8e52f3c7f92af6a24df82999371abb4364f2238095bf4b2d6fe69
+    - M1: pass. New scenario `git-paths-carry-no-escaping` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario git-paths-carry-no-escaping`. The fixture leaves Git at its default configuration on purpose: the claim is that Keel reads a form carrying no escaping, not that it asks each repository to stop escaping, and a per-repository setting is the environment coupling this change exists to remove. A task whose Touch declares `src/摄影光影规划工具.js` completes with that file as the only change, through the dirty reader and the explicit-base reader.
+    - M1.red: fail. `M1 the explicit base reader called a path outside Touch that Touch declares on its own line`, quoting `Changed path is outside Touch: "src/\346\221\204…"` — the reported defect exactly, with the surrounding quote still attached.
+    - M1.green: pass, after both readers moved to `--porcelain=v1 -z` and `--name-only -z` and the NUL split replaced the line split.
+    - M2: pass. Paths holding a space, a double quote, and a backslash are each attributed as the filesystem spells them, through both readers. A second probe is what gives this check teeth: `src/back/slash.js` is created as a real nested file the task never declared, and it must be the one outside-Touch problem — a separator rewrite makes it indistinguishable from the declared `src/back\slash.js`.
+    - M2.red: fail. `M2 the explicit base reader called a declared path outside Touch once spaces, quotes, or backslashes were involved`, quoting `Changed path is outside Touch: src/back\slash.js`, aimed by restoring the Touch-side separator rewrite alone.
+    - M2.green: pass. Three separator rewrites were removed, not one. `gitPaths` corrupted every escape it read; `pathAllowed` rewrote the Touch entry; `scopeEvidence` rewrote the candidate. The last two cancelled each other for a literal-backslash filename, which is why the first aimed red at this check did not fire and why the defect had never surfaced — two wrongs producing the right answer, while a Touch entry naming `src/back/slash.js` silently admitted a changed `src/back\slash.js` the task never declared.
+    - M3: pass. A rename whose endpoints hold Chinese characters and a space is reported with both endpoints, undamaged, in the dirty-path warning.
+    - M3.red: fail. `M3 the old endpoint of the rename is missing from the dirty-path warning`, printing the warning with only `src/重命名 后.js` in it, aimed by dropping the second field of the `-z` rename record.
+    - M3.green: pass. M3's authored wording was corrected before this check could mean anything: it said "attributes both endpoints", and with an explicit base the diff reader reports both endpoints itself, so a dropped endpoint was invisible there. The unattributed-dirty warning is the only place the rename parser's own output reaches. `keel guard status` hard-stopped the contract edit and `task-start --record` reauthorized from `sha256:846372ba…` to `sha256:1f75deb9…`; no evidence had been recorded under the previous contract.
+    - M4: pass. `keel context` reports the uncommitted non-ASCII path as the filesystem spells it, and the assertion also refuses an escaped form appearing anywhere in the warning.
+    - M4.red: fail. `M4 keel context did not report the uncommitted non-ASCII path as the filesystem spells it`, printing `Working tree has uncommitted paths (selection-neutral): "src/\346\221\204…"`, aimed by leaving `src/core/context.js` on `--short`.
+    - M4.green: pass. `context.js` reads `-z` too, and gained the rename branch it never had — its `record.slice(3)` would otherwise have chopped three characters off the bare second field.
+    - M5: pass. `core-gates` and `completed-sibling-attribution` both pass unchanged, so ASCII attribution, `**` globs, the guard-manifest exemption, the authoring-artifact exemption, and completed-sibling attribution are untouched.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: every check runs the real `keel` binary against a real Git repository holding the four filename shapes Git treats differently, and reads the gate's published JSON. The two directions are both covered: M1 and M2 prove a declared path is attributed inside Touch, and M2's nested-file probe proves an undeclared one is still reported — without that second half, deleting the comparison entirely would pass.
+      - Scope check: `git status --short` shows `src/core/gates.js`, `src/core/context.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: `pathAllowed` and `scopeEvidence` each carried their own separator rewrite beyond the reader D5 names, and both are removed here. This is inside M2's authored wording — "as the filesystem spells them" — but wider than D5's, which speaks only of the git path readers. Recorded because a reader comparing the design to the diff will find three deletions where one was described. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 2.1, whose changelog check states what the release changed. Second finding: `src/core/gates.js` and `src/core/context.js` now hold the same eleven-line `-z` record loop, the second copy added here. It is small and both are covered by this scenario, which reads one through the gate and the other through `keel context`, so a divergence fails. Closed in this task; no follow-up is owed.
     - Blocker: none
 
 - [ ] 1.3 Check the interpreter and the OpenSpec binary instead of assuming them

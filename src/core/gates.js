@@ -373,26 +373,41 @@ function findingOwnerIsDurable(repo, findings) {
     );
 }
 
+// Read in `-z` form, because every other form escapes. Git octal-escapes any
+// path holding a non-ASCII byte and quotes it; `core.quotepath=false` removes
+// the octal and still quotes a space, a quote, or a backslash; and `status`
+// and `diff` do not agree on which cases they quote. `-z` emits raw bytes in
+// all of them, which deletes the decoding problem rather than adding a
+// decoder — and it is a flag rather than a repository setting, so the answer
+// does not depend on how the repository happens to be configured.
+//
+// Nothing rewrites backslashes here any more. Git emits forward slashes on
+// every platform, so the rewrite normalized a separator that never arrives
+// while turning `\346` into `/346`, which is how a path declared on the first
+// line of Touch was reported as outside Touch (issue #40).
 function gitPaths(repo) {
   const status = spawnSync(
     "git",
-    ["status", "--short", "--untracked-files=all"],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     { cwd: repo, encoding: "utf8" }
   );
   if (status.error || status.status !== 0) return [];
-  return status.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .flatMap((line) => {
-      // A staged rename/copy is one porcelain line, `R  old -> new`; attribute
-      // both endpoints so a rename whose old and new paths are in Touch is not
-      // a false outside-Touch failure. Every other line carries one path.
-      const entry = line.slice(3).trim().replace(/\\/g, "/");
-      const arrow = entry.indexOf(" -> ");
-      return arrow === -1
-        ? [entry]
-        : [entry.slice(0, arrow), entry.slice(arrow + 4)];
-    });
+  // Each record is `XY <path>`, NUL-terminated. A rename or copy is followed
+  // by a second bare field holding its other endpoint — the new path first in
+  // `-z`, the reverse of the ` -> ` line format. The order is immaterial:
+  // both endpoints are attributed, so a rename whose paths are both in Touch
+  // is not a false outside-Touch failure.
+  const fields = status.stdout.split("\0").filter(Boolean);
+  const paths = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index];
+    paths.push(record.slice(3));
+    if (record[0] === "R" || record[0] === "C") {
+      index += 1;
+      if (index < fields.length) paths.push(fields[index]);
+    }
+  }
+  return paths;
 }
 
 function touchEntries(task, contract = null) {
@@ -413,9 +428,15 @@ function globPattern(value) {
   );
 }
 
+// No separator rewriting on either side. Git emits forward slashes on every
+// platform, so rewriting backslashes normalized a separator that never
+// arrives — and it did so on the Touch entry and on the candidate, two wrongs
+// that cancelled for a filename holding a literal backslash while making
+// `src/back/slash.js` in Touch match a changed `src/back\slash.js`, a file the
+// task never declared.
 function pathAllowed(candidate, touch) {
   return touch.some((entry) => {
-    const normalized = entry.replace(/\\/g, "/").replace(/^\.\//, "");
+    const normalized = entry.replace(/^\.\//, "");
     if (normalized.endsWith("/")) return candidate.startsWith(normalized);
     if (normalized.includes("*")) return globPattern(normalized).test(candidate);
     return candidate === normalized;
@@ -468,16 +489,18 @@ function scopeEvidence(
   if (verified.error || verified.status !== 0) {
     throw new GateInputError(`invalid trustworthy Git base: ${base}`);
   }
+  // `-z` for the same reason as `gitPaths`: `--name-only` escapes a non-ASCII
+  // path to octal, and it does not quote the same cases `status` quotes.
   const diff = spawnSync(
     "git",
-    ["diff", "--name-only", base, "--"],
+    ["diff", "--name-only", "-z", base, "--"],
     { cwd: repo, encoding: "utf8" }
   );
   if (diff.error || diff.status !== 0) {
     throw new GateInputError(`could not compare Git base: ${base}`);
   }
   const changed = new Set([
-    ...diff.stdout.split(/\r?\n/).filter(Boolean),
+    ...diff.stdout.split("\0").filter(Boolean),
     ...dirtyPaths,
   ]);
   const touch = touchEntries(task, contract);
@@ -491,7 +514,6 @@ function scopeEvidence(
   const warnings = [];
   const outside = [];
   const candidates = [...changed]
-    .map((item) => item.replace(/\\/g, "/"))
     .filter((item) => item !== "keel/guard.json")
     .filter((item) => !(authoringPrefix && item.startsWith(authoringPrefix)))
     .filter((item) => !pathAllowed(item, touch))
