@@ -149,7 +149,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Promote the delta and record the release
+- [x] 2.1 Promote the delta and record the release
   - Covers:
     - keel-touch-write-guard / Repository containment is decided on resolved paths
     - keel-core-gates / Git path output is read in a form that carries no escaping
@@ -184,16 +184,16 @@
     - M3: `version-alignment` passes with every marker at the new version, including the changelog-head comparison
     - M4: `npm test` passes with no exceptions, because the two failures previously owned by issue #36 are what this change fixes
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:96cdf01969d7d897261a30896764ccc68796bd703c2d5850fc0bc883512cd613
+    - M1: pass. `keel openspec validate the-name-is-not-the-thing` → `Change 'the-name-is-not-the-thing' is valid`. All 12 delta headings across the three delta files — 3 `### Requirement:` and 9 `#### Scenario:` — were checked against their live specs by substring and none is missing.
+    - M2: pass. The 5.11.0 entry leads with the guard bypass, gives both probe results in the same sentence (`<real>/src/denied.js` denied, `<symlink>/src/denied.js` allowed), names the symlink and the unresolved `path.resolve` as the cause, names macOS `/tmp` and symlinked checkouts as where it bites, and states in bold that a write which passed yesterday through a symlinked path is denied today and can land mid-session.
+    - M3: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` → `version-alignment scenario passed`, with `PACKAGE_VERSION`/`PROTOCOL_VERSION`, `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay markers all at 5.11.0, and the newest changelog heading now 5.11.0.
+    - M4: pass, and with no exceptions. `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` → `validation --all passed: baseline plus 116 scenarios`. The two failures issue #36 owned are what tasks 1.1 and 1.4 fixed: `native-helper-read-only` passes because the containment defect it reported was real, and `spec-template-validates` passes because the fixture stopped malforming the template.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the Acceptance is a release, so evidence-first is the honest strategy and each check is one of the release's own conditions: the specs say what shipped (M1), the changelog says what changed and what now breaks (M2), every marker names one version (M3), and the behavior is still proven by the suite (M4). The behavioral proof lives in tasks 1.1 through 1.4, whose three new scenarios run inside M4's suite.
+      - Scope check: `git status --short` shows 22 paths: the three promoted specs, the changelog, both `package*.json`, both plugin manifests, `scripts/validate_plugin.py`, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay files — the Touch list exactly — plus this change's own `tasks.md` and `design.md`, which are the record-write layer. `scripts/validate_plugin.py` changed only in its two version constants; tasks 1.1 through 1.4 committed their scenarios separately at `815d244`, `72a39c4`, and `85a7832`.
+      - Findings: `node_modules/` was installed during task 1.3 with `npm ci`, which is what made the locked OpenSpec 1.6.0 the one `keel openspec` resolves. It is gitignored and local, so it is not part of this release, but a reader reproducing `npm test` green needs it — the changelog and `keel doctor` both name the fact rather than leaving it as folklore. Discard reason: closed by task 1.3's M4, which fails naming both versions whenever the resolved OpenSpec is not the locked one, so the requirement announces itself instead of being remembered. Second finding: `keel --doctor` reports `keel state: failed` on this change's own `tasks.md`, because Evidence prose containing words like "dirty" and "uncommitted" trips a resident-state check meant to catch work state recorded in tasks.md. It is a false positive on a file full of quoted failure messages, and it is unrelated to this change's Touch. Durable owner: https://github.com/TanglmChris/keel/issues/34, the execution-automation ledger, where a diagnostic that cries wolf on its own evidence belongs.
     - Blocker: none
 
 ## Invalidates
