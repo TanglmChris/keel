@@ -95,7 +95,7 @@
 
 ## 3. What the target can report
 
-- [ ] 3.1 Determine what each target can report about the model it actually resolved
+- [x] 3.1 Determine what each target can report about the model it actually resolved
   - Mode: diagnose-only
   - Covers:
     - Q1 — should Evidence record the declared tier only, or the tier the target resolved?
@@ -108,13 +108,16 @@
     - Strategy: evidence-first
     - M1: for each of claude, codex, and opencode, the probe records whether a resolved-model report is available through a surface Keel already reads, naming the surface inspected and the observed result
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:7cbfbd96e89aff1a1dac8e2e1465d5a789e4b05984e294f81424e65659da9a16
+    - M1: no target reports the model it resolved through a surface Keel already reads, so Q1 resolves to its pre-authorized fallback: Evidence records the declared tier only, and no new return channel is added. Per target, with the surface inspected named for each.
+      - **claude** — inspected the runtime binary at `/opt/homebrew/Caskroom/claude-code@latest/2.1.220/claude`, which is the authority for what its hooks actually emit rather than documentation about them. The hook event set includes `SubagentStart` and `SubagentStop`. Their payloads are `{hook_event_name, agent_id, agent_type}` and `{hook_event_name, stop_hook_active, agent_id, agent_transcript_path, agent_type}`, over a common input of `{session_id, transcript_path, cwd, prompt_id, permission_mode, agent_id, agent_type, effort}`. **No model identifier in any of them.** `effort` is a level derived from the main-loop model and the effort setting, not the model's identity, so it cannot answer which model ran. The one indirect route is `agent_transcript_path`, and taking it is refused rather than unavailable: `keel-stateless-continuity` forbids treating a native transcript as input authority, so reading one to establish what executed would contradict a requirement this change does not touch.
+      - **codex** — no locally inspectable surface. Its subagent documentation is a network resource, and `keel-target-surface-diagnostics` requires an unverified capability to stay `manual` rather than be assumed from the target's name. Recorded as unverified, not as absent.
+      - **opencode** — same, and it carries no goal or subagent activation surface today, so there is nothing to report from.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the question was whether a *report* exists, and the answer is established from what the runtime emits rather than from what its documentation claims — the binary is the authority for its own payloads. The two unverified targets are recorded as unverified rather than as negative results, which is the distinction `keel-target-surface-diagnostics` exists to enforce; a probe that could not reach a surface has not shown the surface absent. The fallback declared in the task's Autonomy boundary is therefore taken on its stated condition rather than as a convenience.
+      - Scope check: `Mode: diagnose-only` with `Touch: none`, and no file outside this change's own record layer was written. The probe read a runtime binary outside the repository; the write guard passes such paths through by design and none were written to.
+      - Findings: `SubagentStart` and `SubagentStop` hook events exist in Claude Code 2.1.220 and Keel registers neither — its plugin declares only SessionStart and PreToolUse. That is not this change's business, since delegation needs no lifecycle hook to be contained, but it is the surface a later runtime-health or delegation-observability change would start from. Durable owner: https://github.com/TanglmChris/keel/issues/38
     - Blocker: none
 
 - [ ] 3.2 Carry the write boundary and declared tier in the subagent-start projection, and refuse where the preconditions fail
