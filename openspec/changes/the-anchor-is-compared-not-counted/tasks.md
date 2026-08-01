@@ -55,7 +55,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Promote the delta and record the release
+- [x] 2.1 Promote the delta and record the release
   - Covers:
     - keel-core-gates / A recorded anchor is compared against the recompiled fingerprint
     - keel-core-gates / change-close compares the anchor of every checked task
@@ -89,17 +89,17 @@
     - M4: `version-alignment` passes with every marker at the new version, including the changelog-head comparison
     - M5: `npm test` passes, with the two environment failures owned by issue #36 as the only exceptions
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
-    - M5: pending
+    - Contract: keel-task-capsule/v1 sha256:09fd84b65a073482513c53d38e757ceaaf3df064546e5de85bbd65524b8ab24f
+    - M1: pass. `keel openspec validate the-anchor-is-compared-not-counted` → `Change 'the-anchor-is-compared-not-counted' is valid`. All 13 delta headings — 3 `### Requirement:` and 10 `#### Scenario:` — were checked against `openspec/specs/keel-core-gates/spec.md` by substring and none is missing. That set includes the modified scenario: `A recorded anchor completes as before` is gone from the live spec and `A recorded anchor is compared, not counted` stands in its place, with an outcome line that names the failure rather than the word "before".
+    - M2: pass. `AGENTS.md` now reads "resume, projection, completion, and the change close recompile and compare it", and adds the sentence a reader of the old text could not have derived: "A well-formed digest is not an anchor: what is compared is the value, and `change-close` also refuses a checked task that recorded none."
+    - M3: pass. The 5.10.0 entry leads with the measured before/after — the `2ca3e03d…` beside `241984…` payload and the sixty-four-zero anchor — states `keel gate task-start --record` as the recovery in bold, and carries a dedicated bullet stating that archived changes are unaffected together with why (change discovery excludes the archive tree, and an archived capsule names renamed source paths). The close's missing-anchor refusal is called out as the stricter half most likely to be met on upgrade.
+    - M4: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` → `version-alignment scenario passed`, with `PACKAGE_VERSION`/`PROTOCOL_VERSION`, `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay markers all at 5.10.0. The changelog-head comparison is what makes this alignment rather than presence: the newest `## X.Y.Z` heading is now 5.10.0.
+    - M5: pass. `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` → 111 of 113 registered scenarios pass. The two failures are `spec-template-validates` and `native-helper-read-only`, both local-environment and both owned by https://github.com/TanglmChris/keel/issues/36; they fail identically on the unmodified base commit and are green in CI.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the Acceptance is a release rather than a behavior, so evidence-first is the honest strategy and each check is one of the release's own conditions: the specs say what shipped (M1), the resident protocol says it in the one place every session reads (M2), the changelog says what breaks and what to run (M3), every marker names the same version (M4), and the behavior the release carries is still proven by the suite (M5). The behavioral proof for the comparison itself lives in task 1.1, whose `contract-anchor-is-compared` scenario runs inside M5's suite.
+      - Scope check: `git status --short` shows the promoted spec, the changelog, both `package*.json`, both plugin manifests, `scripts/validate_plugin.py`, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay files — the Touch list exactly — plus this change's own `tasks.md`, which is the record-write layer. The disposable guard manifest does not appear because `keel/.gitignore` excludes it. `scripts/validate_plugin.py` changed only in its two version constants; task 1.1 committed its scenario separately at `75e9452`.
+      - Findings: I1 and I2 are both closed by edits in this task rather than by the passage of time — the core-gates scenario was retitled and its outcome line rewritten, and the AGENTS.md sentence gained `change-close` plus the value-not-shape clause. I5 stays discarded as authored: `keel-touch-write-guard`'s contract-drift scenario said `task-complete` "refuses the recorded anchor, because both compile the capsule and compare it", and it is left untouched because the code moved to meet it. One thing this release cannot do is announce itself to a session already running: the installed plugin and CLI are pinned at session start, so a repository upgrading to 5.10.0 keeps the old gates until a restart — which is exactly what 5.9.0's version report exists to say, and it will say it. Discard reason: no work item; the mechanism that covers it shipped one release ago.
     - Blocker: none
 
 ## Invalidates
