@@ -109,6 +109,41 @@ function taskIsChecked(repo, manifest) {
   return Boolean(match && match[1].toLowerCase() === "x");
 }
 
+// A path is not the file it names. `path.resolve` never follows a symbolic
+// link, while the `cwd` the operating system reports usually already has, so
+// one file could be spelled two ways and get two containment answers: measured
+// as a write denied by its resolved path and allowed through a link to the
+// same directory, which walked straight past the manifest. The guarded target
+// is usually a file about to be created, so what can be resolved is its
+// nearest existing ancestor; when nothing resolves, the unresolved path is
+// what remains, which is exactly the comparison that shipped.
+//
+// `src/core/helper.js` answers the same question and must keep answering it
+// the same way. It is deliberately not shared as an import: this hook is a
+// standalone script the host executes, and depending on `src/core` would make
+// the guard fail wherever the package layout differs from this repository's.
+function realPathOrNearest(target) {
+  let current = path.resolve(target);
+  const trailing = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...trailing);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      trailing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function repoRelative(repo, target) {
+  return path.relative(
+    realPathOrNearest(repo),
+    realPathOrNearest(path.resolve(repo, target))
+  );
+}
+
 function main() {
   let event = {};
   try {
@@ -130,8 +165,13 @@ function main() {
   // guard never protected; that ordering has already failed twice.
   const target = event.tool_input ? event.tool_input[pathField] : null;
   if (typeof target !== "string" || !target) return 0;
-  const relative = path.relative(repo, path.resolve(repo, target));
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+  const relative = repoRelative(repo, target);
+  if (
+    !relative
+    || relative === ".."
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative)
+  ) {
     return 0;
   }
   const candidate = relative.replace(/\\/g, "/");

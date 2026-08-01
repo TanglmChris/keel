@@ -5315,6 +5315,152 @@ def validate_guard_scope_is_the_repository_scenario() -> int:
     return 0
 
 
+def validate_guard_containment_is_resolved_scenario() -> int:
+    """The guard decided containment by comparing two strings for one file.
+
+    `path.relative(repo, path.resolve(repo, target))` never follows a symbolic
+    link, while the `cwd` the host reports usually has already been resolved by
+    the operating system. A file reached through a link to the repository then
+    looked like a path outside it, and the guard returned before reading the
+    manifest at all. Measured 2026-08-02: the same out-of-Touch file was denied
+    by its resolved path and allowed through a link to the same directory.
+
+    `src/core/helper.js` had the mirror image, calling a path inside the
+    worktree external, which is why `native-helper-read-only` was red on macOS
+    — where `/tmp` is a link — and green on Linux CI.
+    """
+    label = "guard-containment-is-resolved"
+    with tempfile.TemporaryDirectory(prefix="keel-containment-") as raw:
+        # Resolved deliberately: the fixture's own link is what varies here, so
+        # the temp root must not smuggle in a second one. macOS hands out
+        # `/var/folders/...`, which is itself a link to `/private/var/...`.
+        root = Path(raw).resolve()
+        repo = root / "real" / "repo"
+        write_text(repo / "src/allowed.js", "// product\n")
+        write_text(repo / "src/denied.js", "// product\n")
+        write_text(
+            repo / "openspec/specs/demo-cap/spec.md",
+            "# demo-cap\n\n## Purpose\n\nFixture.\n\n"
+            "### Requirement: The system emits a feed status\n"
+            "The system SHALL emit the recorded feed status.\n\n"
+            "#### Scenario: A status is emitted\n"
+            "- **WHEN** the feed runs\n- **THEN** the status is recorded\n",
+        )
+        write_text(
+            repo / "openspec/changes/demo/tasks.md",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise the guard\n"
+            "  - Covers:\n    - demo-cap / The system emits a feed status\n"
+            "  - Touch:\n    - src/allowed.js\n    - docs/**\n"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: pending\n",
+        )
+        link = root / "link"
+        link.symlink_to(repo, target_is_directory=True)
+
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--record", "--json",
+        )
+        if started.returncode != 0 or not (repo / "keel/guard.json").is_file():
+            report(f"{label} could not start a guard to probe.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        def probe(cwd: Path, target: Path) -> str:
+            event = edit_event(cwd, target, tool="Write")
+            decision = pretooluse_decision(run_pretooluse_guard_hook(repo, event))
+            if decision is None:
+                return "allow"
+            if "error" in decision:
+                return f"error({decision['error']})"
+            return decision.get("permissionDecision", "unknown")
+
+        def expect(check: str, cwd: Path, target: Path, want: str) -> bool:
+            got = probe(cwd, target)
+            if got == want:
+                return True
+            spelling = "through the symlink" if str(link) in str(target) else "by its resolved path"
+            report(
+                f"{label} {check}: a write to {target.name} {spelling} was "
+                f"{got!r}, not {want!r}. One file must get one containment "
+                "answer however its path is spelled."
+            )
+            report(f"  cwd={cwd}")
+            report(f"  target={target}")
+            return False
+
+        # M1 — the host reports the resolved cwd, which is the common case and
+        # the one the bypass was measured against.
+        if not all([
+            expect("M1", repo, repo / "src/denied.js", "deny"),
+            expect("M1", repo, link / "src/denied.js", "deny"),
+            expect("M1", repo, repo / "src/allowed.js", "allow"),
+            expect("M1", repo, link / "src/allowed.js", "allow"),
+        ]):
+            return 1
+
+        # M2 — and the reverse, because the hook does not choose which form of
+        # `cwd` the host hands it.
+        if not all([
+            expect("M2", link, repo / "src/denied.js", "deny"),
+            expect("M2", link, link / "src/denied.js", "deny"),
+            expect("M2", link, repo / "src/allowed.js", "allow"),
+            expect("M2", link, link / "src/allowed.js", "allow"),
+        ]):
+            return 1
+
+        # M3 — a guarded write is usually a file that does not exist yet, so
+        # containment has to come from an ancestor. Both directions, because
+        # resolving too eagerly denies legitimate new files.
+        if not all([
+            expect("M3", repo, repo / "src/not-yet.js", "deny"),
+            expect("M3", repo, link / "src/not-yet.js", "deny"),
+            expect("M3", repo, repo / "docs/not-yet.md", "allow"),
+            expect("M3", repo, link / "docs/not-yet.md", "allow"),
+        ]):
+            return 1
+
+        # M4 — the same question, asked by the helper about its baseline.
+        def capture(target: Path) -> subprocess.CompletedProcess[str]:
+            return run_keel(
+                repo, "project", "helper", "--target", "codex",
+                "--capture-baseline", "--baseline", str(target), "--json",
+            )
+
+        inside_via_link = capture(link / "baseline.json")
+        if inside_via_link.returncode == 0:
+            report(
+                f"{label} M4 captured a helper baseline at a path that resolves "
+                "inside the worktree, because it was named through a symlink. "
+                "The baseline must live outside the repository it snapshots."
+            )
+            return 1
+        if (repo / "baseline.json").exists():
+            report(
+                f"{label} M4 refused the capture but the baseline file was "
+                "written into the repository anyway."
+            )
+            return 1
+        outside = capture(root / "outside.json")
+        if outside.returncode != 0:
+            report(
+                f"{label} M4 refused a baseline that genuinely resolves outside "
+                "the worktree, so the containment fix blocks correct use."
+            )
+            report((outside.stderr or outside.stdout).strip())
+            return 1
+        if not (root / "outside.json").is_file():
+            report(f"{label} M4 reported a capture that wrote no baseline.")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_completion_requires_a_recorded_anchor_scenario() -> int:
     """Issue #30: an unrecorded anchor made the drift guarantee conditional.
 
@@ -17533,6 +17679,10 @@ SCENARIOS: tuple = (
     (
         "guard-scope-is-the-repository",
         validate_guard_scope_is_the_repository_scenario,
+    ),
+    (
+        "guard-containment-is-resolved",
+        validate_guard_containment_is_resolved_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
