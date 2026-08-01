@@ -74,5 +74,8 @@ precedents: ../decision-precedents
 # may open a pull request and may not merge one, and no key here changes that.
 # Admission comes from this declaration and never from a precedent.
 #
-# This repository declares none. Doing so would start unattended work on its own
-# issues, which is a decision for its owner rather than a default worth shipping.
+# Declared 2026-07-29 by the owner. `auto` is applied to an issue by hand, one
+# issue at a time; nothing else admits work here.
+
+triage:
+  - auto

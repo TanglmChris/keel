@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.7.1 - a valid reference is not a full one
+
+Closes **#33** and the second instance recorded on it. Two failures in this repository share one shape: a check whose **form** is valid while its **content** is empty or wrong.
+
+- **A durable owner declared as a URL must already carry its content at the moment it is cited.** A valid link to an empty issue owns nothing. Caught empirically in 5.4.0, where expectation E5 cited issue #32 as the place a rejected proposal's reasoning was recorded while `gh issue view 32` returned zero comments — the claim was false when both deterministic gates returned `pass`, and it was noticed only because someone happened to look.
+- **A failure message must name the actual cause.** The trigger to watch for is one condition guarding two distinct failures: `if result is None or result["status"] != expected` reports the first failure's message when the second one happened, sending a reader somewhere with no problem in it. Reproduced in 5.7.0's own new triage scenario — in a repository that fixed this class in 5.2.3, by the agent that had just read the rule. A fix that corrects instances without leaving a recurrence guard has a half-life, and this is the guard.
+- **Both stay semantic-review checks, and the spec now says why they must not become gate checks.** A gate that fetched a reference would stop being local and offline, failing differently on a plane than in CI; judging whether a sentence misleads needs a model. `keel-expectation-slice-evidence-gates` already stated that a gate "cannot confirm that a URL resolves" and then assigned the resulting check to nobody — this names the owner rather than adding a mechanism.
+- Neither check judges quality. Both concern whether content is present and whether a stated cause is the real one, never whether reasoning is sound or wording is elegant.
+- **This change was admitted to an unattended run** by the `auto` label on issue #33, evaluated by `keel triage`. Admission started the work and decided nothing in it: the change went through authoring, both gates, and semantic review exactly as any other, and it ends at a pull request rather than a merge.
+- No behavior change to any gate, command, or config surface. Validator at **101 scenarios**.
+
 ## 5.7.0 - declare what may run unattended
 
 Third layer of **#34**. 5.5.0 declared which *actions* may proceed; 5.6.0 recorded *why decisions went the way they did*. Neither said which **work** may start, so an unattended run had nothing to consult at the moment it mattered most — an issue arrives and something must decide whether it becomes a change at all.
