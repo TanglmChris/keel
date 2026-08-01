@@ -301,7 +301,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 6.2 Update the resident protocol, the config header, and both task templates
+- [x] 6.2 Update the resident protocol, the config header, and both task templates
   - Covers:
     - A1 — Keel cannot observe which model executed, and says so rather than implying enforcement
     - D2 — Keel names no concrete model
@@ -319,19 +319,20 @@
     - M2: both task templates state that delegation defaults to none and that helpers remain read-only, and the `assets/` source and its installed copy stay byte-identical
     - M3 (regression): `AGENTS.md` and `assets/bootstrap/AGENTS.md` still agree, so the managed block regenerates without drift
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:b58a1c64bb418dac3ff7d3e7383ac8a7551cc3e8d2a8849572347976a2872446
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-resident-text` passes. `AGENTS.md` states the delegate role, its condition, its boundary, and that the current agent re-runs each check; it also states that Keel carries a tier and never a model name, cannot observe which model ran, and never infers a tier from a task's size. The consumer bootstrap says the same in its own nine-line register. The config header now names five declarations and documents the `delegation:` block, including what it does not do.
+    - M1.red: aimed at the header count by reverting it to `Four independent declarations`; exit 1, `delegation-resident-text: the config header still says four declarations.` This is the check with the shortest history of staying correct — the same header was wrong after 5.5.0 and again after 5.6.0 — so it is asserted in both directions, the stale count absent and the new one present.
+    - M1.green: exit 0, `delegation-resident-text scenario passed.`
+    - M2: both task templates state that delegation defaults to none and how to override it, and the `assets/` source and its installed copy are byte-identical.
+    - M2.red: exit 1, `delegation-resident-text: assets/openspec/schemas/keel-spec-driven/templates/tasks.md still states helpers as the only role.` — and the red was correct about the file while the *check* was wrong about the fix, which is the finding recorded below.
+    - M2.green: exit 0, `delegation-resident-text scenario passed.`
+    - Invalidates entry corrected within Touch: I2 quoted `helpers stay read-only/evidence-only` as wording that had gone wrong. On reaching it, the sentence is not wrong — a helper is still read-only — it was *incomplete*, because the list it belongs to now omits a default. The entry now quotes the fuller clause and says which half stands. Recorded rather than silently edited: an Invalidates entry that turns out to be misjudged is a fact about the authoring, and a statement can be incomplete without being false.
+    - M3: `AGENTS.md` and `assets/bootstrap/AGENTS.md` are separate documents rather than one regenerated from the other — `keel --install` reports `skip AGENTS.md: Keel source repository, whose AGENTS.md carries the full protocol; the consumer bootstrap is not written here` — so the check asserts each states the delegate role in its own register rather than asserting they agree byte-for-byte.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: each of these four documents states a default that a declaration now changes, and a default stated unconditionally is exactly what a reader trusts. The config header is asserted in both directions because it has been wrong twice before for this same reason. The templates keep the helper clause and gain the delegation one, which is the honest shape: helpers really are still read-only, and a delegate is a second role beside them rather than a helper with the restriction lifted.
+      - Scope check: `git status --porcelain` shows `AGENTS.md`, `assets/bootstrap/AGENTS.md`, `keel/config.yaml`, and both template copies modified — the five product paths in Touch — plus `scripts/validate_plugin.py` and this change's record layer. The M1 aim edited `keel/config.yaml`, already in Touch, and was restored from a byte copy.
+      - Findings: none
     - Blocker: none
 
 ## 7. Close
@@ -367,7 +368,7 @@
 ## Invalidates
 
 - I1: "read-only helper authority" — the compiled-defaults scenario in `openspec/specs/keel-task-capsule/spec.md`. Updated by: 7.1
-- I2: "helpers stay read-only/evidence-only" — the compact v4 header comment, in both `assets/openspec/schemas/keel-spec-driven/templates/tasks.md` and its installed copy `openspec/schemas/keel-spec-driven/templates/tasks.md`. Updated by: 6.2
+- I2: "Coupling defaults to none, and helpers stay read-only/evidence-only." — the compact v4 header comment, in both `assets/openspec/schemas/keel-spec-driven/templates/tasks.md` and its installed copy `openspec/schemas/keel-spec-driven/templates/tasks.md`. The helper half stays true and is kept; what went stale is the sentence ending there, since delegation is now a default the list omits. Updated by: 6.2
 - I3: "Target-native subagents are allowed only as bounded helpers/evidence producers" — the resident protocol in `AGENTS.md` and the bootstrap it is regenerated from, `assets/bootstrap/AGENTS.md`. Updated by: 6.2
 - I4: "Use a target-native subagent only when the current agent decides it is useful for a bounded helper step." — generated by `bin/keel.js` into `.claude/commands/opsx/apply.md`, `.claude/commands/opsx/archive.md`, and the four apply/archive skill copies under `.claude/` and `.codex/`. Updated by: 6.1
 - I5: "Target-native subagents return report/evidence only" — the same generator and its six generated copies, and the overlay scenario in `openspec/specs/keel-openspec-surface-overlay/spec.md`. Updated by: 6.1, 7.1

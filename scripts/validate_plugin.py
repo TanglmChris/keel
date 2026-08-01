@@ -11796,6 +11796,78 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_resident_text_scenario() -> int:
+    """The resident protocol, the config header, and both templates agree.
+
+    Every one of these states a default that a declaration now changes, and a
+    default stated unconditionally is the thing a reader trusts.
+    """
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    # M1 — the resident protocol carries the condition and the model limit.
+    agents = ROOT / "AGENTS.md"
+    text = flat(agents)
+    for needle in (
+        "as delegates implementing the selected task inside",
+        "a guard manifest is active",
+        "re-runs each",
+        "check itself before recording Evidence",
+        "never a model name",
+        "declared rather than inferred from a task's size",
+    ):
+        if re.sub(r"\s+", " ", needle) not in text:
+            report(f"delegation-resident-text: AGENTS.md omits: {needle}")
+            return 1
+
+    # M1 — the consumer bootstrap says it too, in its own shorter words. It is
+    # nine lines and is what a consuming repository actually installs.
+    bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
+    boot = flat(bootstrap)
+    if re.sub(r"\s+", " ", "helpers return read-only report/evidence only") in boot:
+        report("delegation-resident-text: the bootstrap still says helpers are the only subagent role.")
+        return 1
+    if re.sub(r"\s+", " ", "declared delegate") not in boot:
+        report("delegation-resident-text: the bootstrap does not mention a declared delegate.")
+        return 1
+
+    # M1 — the config header counts its declarations correctly.
+    config = ROOT / "keel/config.yaml"
+    cfg = flat(config)
+    if re.sub(r"\s+", " ", "Four independent declarations") in cfg:
+        report("delegation-resident-text: the config header still says four declarations.")
+        return 1
+    if re.sub(r"\s+", " ", "Five independent declarations") not in cfg:
+        report("delegation-resident-text: the config header does not name five declarations.")
+        return 1
+    if "delegation" not in cfg:
+        report("delegation-resident-text: the config header does not document delegation.")
+        return 1
+
+    # M2 — both task templates state the new default, and the source and its
+    # installed copy stay byte-identical.
+    source = ROOT / "assets/openspec/schemas/keel-spec-driven/templates/tasks.md"
+    installed = ROOT / "openspec/schemas/keel-spec-driven/templates/tasks.md"
+    for path in (source, installed):
+        body = flat(path)
+        # The helper clause stays true and is deliberately not removed — a
+        # helper is still read-only. What was wrong was the sentence stopping
+        # there, so the assertion is that it now continues.
+        if re.sub(r"\s+", " ", "helpers stay read-only/evidence-only") not in body:
+            report(f"delegation-resident-text: {path.relative_to(ROOT)} dropped the helper default.")
+            return 1
+        if re.sub(r"\s+", " ", "delegation defaults to none") not in body:
+            report(f"delegation-resident-text: {path.relative_to(ROOT)} does not state the delegation default.")
+            return 1
+    if source.read_bytes() != installed.read_bytes():
+        report("delegation-resident-text: the template source and its installed copy diverged.")
+        return 1
+
+    report("delegation-resident-text scenario passed.")
+    return 0
+
+
 def validate_delegation_overlay_scenario() -> int:
     """The overlay tells a delegate what it may do and what it settles.
 
@@ -16644,6 +16716,7 @@ SCENARIOS: tuple = (
     ("delegation-guard-binds", validate_delegation_guard_binds_scenario),
     ("delegation-never-weakens", validate_delegation_never_weakens_scenario),
     ("delegation-overlay", validate_delegation_overlay_scenario),
+    ("delegation-resident-text", validate_delegation_resident_text_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
