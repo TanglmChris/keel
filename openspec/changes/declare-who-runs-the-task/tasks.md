@@ -241,7 +241,7 @@
       - Findings: none
     - Blocker: none
 
-- [ ] 5.2 Assert that declaring delegation changes nothing a gate returns
+- [x] 5.2 Assert that declaring delegation changes nothing a gate returns
   - Covers:
     - keel-authorized-delegation / Delegation authorizes only delegation
     - D13 — delegation composes with triage and widens nothing
@@ -252,14 +252,18 @@
     - M1: a repository declaring `delegation:` and an otherwise identical silent one return the same status, problem set, and failure text from `task-start` and `task-complete`, and the comparison first proves the two repositories actually differ so a declaration that failed to load could not pass trivially
     - M2: `keel context` returns the same selection and next action with and without the declaration, and `keel triage` admits exactly the same issues
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:ca86a4f9edc3b5b88c6073ef186846c0c839a73efe5ab92b69b25d22b698a985
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-never-weakens` passes. A repository declaring `delegation: tier: standard` and an otherwise identical silent one return the same `status` and the same problem-code set from both `task-start` and `task-complete`. Asserted on a passing fixture *and* on one whose `M1` Evidence is still `pending`, and the failing fixture is checked to actually fail — otherwise "identical" would be a statement about two passes and would say nothing about refusals. The fingerprint is deliberately excluded from the comparison: a declared delegation is part of the compiled capsule, so it legitimately differs, and demanding equality there would assert the opposite of task 1.2.
+    - M1.red: aimed at the positive control, which is the load-bearing part — pointing the control repository at the silent config gives exit 1, `delegation-never-weakens: the declaration never reached the capsule, so inertness would be trivially true: None`. That is the exact failure this scenario shape exists to catch: two repositories that agree because neither loaded anything.
+    - M1.green: exit 0, `delegation-never-weakens scenario passed.`
+    - M2: `keel context` returns the same `nextAction` and `keel triage --labels auto` returns the same `status` with and without the declaration, so the declaration is not a trigger and does not widen admission.
+    - M2.red: aimed by declaring `triage: other` in the silent repository; exit 1, `delegation-never-weakens: triage differed: admit != refuse`. The comparison detects a real divergence rather than passing because both sides are empty.
+    - M2.green: exit 0, `delegation-never-weakens scenario passed.`
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: this is the same shape the standing-authorization and precedent inertness scenarios use, deliberately — every check in it passes when the two repositories agree, so the only thing standing between it and vacuity is the positive control, and that is what M1's red is aimed at. Comparing problem *codes* rather than message text keeps the assertion about the verdict rather than about wording. Covering a failing fixture alongside a passing one is what makes the claim "the gates behave identically" rather than "both happened to pass".
+      - Scope check: `git status --porcelain` shows only `scripts/validate_plugin.py` modified — the single path in Touch — plus this change's record layer. Both reds were aimed inside that same file and restored there; no product file was edited by this task at all, which is correct for a task whose whole output is an assertion.
+      - Findings: none
     - Blocker: none
 
 ## 6. Surfaces and resident text

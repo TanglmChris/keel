@@ -11796,6 +11796,127 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_never_weakens_scenario() -> int:
+    """Declaring who runs a task changes nothing about proving it was done.
+
+    Same shape as the standing-authorization and precedent inertness
+    scenarios, and for the same reason: every check passes when two
+    repositories agree, so a declaration that silently failed to load would
+    make each comparison trivially true. The positive control asserts the
+    difference exists before asserting it is inert.
+    """
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+    missing_evidence_task = complete_task.replace(
+        "    - M1: node test.js printed ok\n", "    - M1: pending\n"
+    )
+
+    def gate(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-never-weakens: {stage} returned no JSON: {result.stdout!r}")
+            return None
+        # The fingerprint legitimately differs between the two repositories,
+        # because a declared delegation is part of the compiled capsule. What
+        # must not differ is the verdict or the problems.
+        return {
+            "status": payload.get("status"),
+            "problems": [p.get("code") for p in (payload.get("problems") or [])],
+        }
+
+    def build(root: Path, name: str, config: str, task: str) -> Path:
+        repo = root / name
+        repo.mkdir()
+        write_gate_fixture(repo, task)
+        write_authorize_config(repo, config)
+        return repo
+
+    declaring = "fast_check: echo c\ndelegation:\n  tier: standard\n"
+    silent = "fast_check: echo c\n"
+
+    with tempfile.TemporaryDirectory(prefix="keel-delinert-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # Positive control — the declaration reaches the capsule at all. If it
+        # did not, every comparison below would pass for the wrong reason.
+        control = build(root, "control", declaring, complete_task)
+        probe = run_keel(
+            control, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        capsule = json.loads(probe.stdout)["contract"]["capsule"]
+        if (capsule.get("delegation") or {}).get("tier") != "standard":
+            report(
+                "delegation-never-weakens: the declaration never reached the "
+                f"capsule, so inertness would be trivially true: {capsule.get('delegation')}"
+            )
+            return 1
+
+        # M1 — identical verdicts and problem sets, passing and failing alike.
+        for label, task in (("passing", complete_task), ("failing", missing_evidence_task)):
+            loud = build(root, f"loud-{label}", declaring, task)
+            quiet = build(root, f"quiet-{label}", silent, task)
+            for stage in ("task-start", "task-complete"):
+                a = gate(loud, stage)
+                b = gate(quiet, stage)
+                if a is None or b is None:
+                    return 1
+                if a != b:
+                    report(
+                        f"delegation-never-weakens: {stage} differed on the {label} "
+                        f"task: declaring={a} silent={b}"
+                    )
+                    return 1
+            # And the failing case must actually fail, or "identical" is a
+            # statement about two passes and proves nothing about refusals.
+            failed = gate(loud, "task-complete")
+            if label == "failing" and failed and failed["status"] == "pass":
+                report("delegation-never-weakens: the failing fixture passed, so the comparison is empty.")
+                return 1
+
+        # M2 — context selection and triage are unchanged.
+        for stage_args, key in ((("context",), "nextAction"), (("triage", "--labels", "auto"), "status")):
+            loud = build(root, f"loud-{key}", declaring + "triage:\n  - auto\n", complete_task)
+            quiet = build(root, f"quiet-{key}", silent + "triage:\n  - auto\n", complete_task)
+            outs = []
+            for repo in (loud, quiet):
+                result = run_keel(repo, *stage_args, "--json")
+                try:
+                    outs.append(json.loads(result.stdout).get(key))
+                except json.JSONDecodeError:
+                    report(f"delegation-never-weakens: {stage_args[0]} returned no JSON: {result.stdout!r}")
+                    return 1
+            if outs[0] != outs[1]:
+                report(f"delegation-never-weakens: {stage_args[0]} differed: {outs[0]} != {outs[1]}")
+                return 1
+
+    report("delegation-never-weakens scenario passed.")
+    return 0
+
+
 def validate_delegation_guard_binds_scenario() -> int:
     """The guard binds a delegated writer identically, and always did.
 
@@ -16447,6 +16568,7 @@ SCENARIOS: tuple = (
     ("delegation-sole-authority", validate_delegation_sole_authority_scenario),
     ("delegation-goal-budget", validate_delegation_goal_budget_scenario),
     ("delegation-guard-binds", validate_delegation_guard_binds_scenario),
+    ("delegation-never-weakens", validate_delegation_never_weakens_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
