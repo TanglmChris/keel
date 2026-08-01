@@ -1,0 +1,383 @@
+## 1. The declaration
+
+- [x] 1.1 Read the `delegation:` block from `keel/config.yaml`, naming abstract tiers and never a model
+  - Covers:
+    - keel-authorized-delegation / A repository declares delegation in its own block
+    - keel-authorized-delegation / Capability tiers are abstract and target-resolved
+    - D3 — delegation gets its own block and `authorize:` is not extended
+    - D2 — the tier vocabulary is abstract and target-resolved
+    - D11 — tiers describe required capability, not estimated size
+  - Touch:
+    - src/core/config.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a repository declaring `delegation:` with a tier resolves as delegation-permitted at that tier; an absent, empty, or blockless declaration resolves as unauthorized
+    - M2: a tier outside the closed set is reported with the accepted tier names and authorizes nothing, and no accepted entry beside it is granted
+    - M3: `authorize:` listing `delegate` is reported against the `authorize:` closed set and leaves delegation unauthorized
+  - Evidence:
+    - Contract: sha256:4a44890b962bb1e2969c31bfe306c6e70e50035fa127251435d234ea452c45c6
+    - M1: `python3.11 scripts/validate_plugin.py --scenario delegation-declaration` passes. `delegation:\n  tier: standard\n` resolves to `tier: "standard"` with `declared: true`; all three shapes of absence — no block, an empty `delegation:` opener, and a config carrying only other keys — resolve to `tier: null` with `declared: false`. The three shapes are asserted separately because a reader that treated an empty block as a declaration would pass a single-shape check.
+    - M1.red: exit 1, `delegation: the declared repo produced no readable policy.` — `readDelegationPolicy` did not exist, so the probe could not load it.
+    - M1.green: exit 0, `delegation-declaration scenario passed.`
+    - M2: an unrecognized tier is named in `unknown`, resolves `tier: null`, and carries the accepted set so a caller can report the alternatives without importing the vocabulary. The accepted set is asserted to be exactly the closed three, so a later addition cannot widen it unnoticed.
+    - M2.red: exit 1, `delegation: the accepted tier routine is not reported: {'declared': True, 'tier': None, 'unknown': ['turbo']}` — the fail-closed path worked but carried no accepted set, which is the half the check exists for.
+    - M2.green: exit 0, `delegation-declaration scenario passed.`
+    - M3: with `authorize:` listing `commit` and `delegate`, `readStandingAuthorization` names `delegate` in `unknown` and declares nothing (fail-closed), `delegate` is absent from `STANDING_AUTHORIZATION_ACTIONS`, and `readDelegationPolicy` still reports `declared: false` with no tier. The two declarations are read in one process so the assertion is about their interaction rather than each in isolation.
+    - M3.red: aimed deliberately, because M3 went green on task M1's implementation and a check that never failed proves nothing. `delegate` was appended to `STANDING_AUTHORIZATION_ACTIONS`; exit 1, `delegation: `delegate` was not reported by authorize: {'declared': ['commit', 'delegate'], 'unknown': []}`. That output is the failure D3 exists to prevent, shown concretely: with `delegate` inside the closed set, `authorize: [commit, delegate]` grants both. Reverted immediately; the constant is byte-identical to its pre-aim state.
+    - M3.green: exit 0, `delegation-declaration scenario passed.`
+    - Checklist return-to-work, fixed within Touch: `keel-review-checklist` caught the scenario's own `resolve()` helper collapsing two distinct failures — the reader throwing, and the reader returning non-JSON — into one `None`, so the caller reported a single vague message and discarded stderr. That is the exact defect 5.7.1 added the check for, found in the first task written after it shipped. Each path now reports its own cause. Proven rather than asserted: removing the `readDelegationPolicy` export makes the probe throw, and the scenario now reports `delegation: reading the declared repo threw.` followed by the interpreter's own stderr, where before the fix it would have reported the non-JSON message with no diagnostics. Export restored; `git diff --stat src/core/config.js` shows only this task's 58 added lines.
+    - Review:
+      - Status: pass
+      - Acceptance check: the three checks prove the declaration is read, that every absence shape leaves delegation unauthorized, and that `authorize:` is not a second channel into it. `readDelegationPolicy` is exercised as the config module's public export via `node -e` rather than through a CLI, because this task's Touch is the module and `bin/keel.js` belongs to a later task; the surface asserted is the one the capsule compiler and CLI will both consume. Declaring a tier is what permits delegation — there is no separate on/off entry, because a tier without permission and a permission without a tier are both incomplete states one field cannot enter.
+      - Scope check: `git status --porcelain` shows `src/core/config.js` and `scripts/validate_plugin.py` modified — exactly the two paths in Touch — plus the untracked `openspec/changes/declare-who-runs-the-task/` directory, which is this change's own record layer rather than a product write. No other file was touched; the M3 aim edited `src/core/config.js`, already in Touch, and was reverted.
+      - Findings: the full suite does not pass in this local environment, for reasons that predate this task — proven by stashing both Touch files and observing an identical failure set. Ten of twelve failures are a Python older than 3.10; the remaining two (`spec-template-validates`, `native-helper-read-only`) are green in CI on this same commit. Durable owner: https://github.com/TanglmChris/keel/issues/36
+    - Blocker: none
+
+- [ ] 1.2 Resolve the delegation entry into the compiled capsule, inheriting only where the task authored none
+  - Covers:
+    - keel-authorized-delegation / A task inherits the delegation declaration only where it authored none
+    - keel-task-capsule / Keel compiles compact tasks into a complete execution capsule
+    - F7 — the capsule states read-only helper authority unconditionally
+    - D1 — delegation is a declaration, not a mechanism
+  - Touch:
+    - src/core/task-contract.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a task authoring no delegation entry inherits the declared tier and the capsule names `keel/config.yaml` as that entry's source
+    - M2: a task authoring its own delegation entry keeps it unchanged and names itself as the source, while the repository declares a different tier
+    - M3 (regression): `helperAuthority` stays `read-only-evidence-only` in every capsule, because a helper and a delegate are distinct roles
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 2. The scope rule
+
+- [ ] 2.1 State the rule that a native target capability is not Keel's to build
+  - Covers:
+    - keel-surface-evolution-policy / Native target capability is not a Keel design goal
+    - D14 — anything duplicating or conflicting with a native capability is not a design goal
+    - D15 — no second brief carrier; the existing projection is extended instead
+  - Touch:
+    - openspec/specs/keel-surface-evolution-policy/spec.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the live `keel-surface-evolution-policy` states that a natively provided capability is not Keel's to build, that Keel's scope over it is the policy it declares about its use, and that a duplicate carrier is refused in favour of extending the projection Keel already publishes
+    - M2: the scenario names this change's own application of the rule — the delegation brief module that was proposed and then not built — so the requirement ships with a worked example rather than as an abstraction
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 3. What the target can report
+
+- [ ] 3.1 Determine what each target can report about the model it actually resolved
+  - Mode: diagnose-only
+  - Covers:
+    - Q1 — should Evidence record the declared tier only, or the tier the target resolved?
+    - A1 — Keel cannot observe which model executed a delegated task
+  - Touch:
+    - none
+  - Autonomy boundary:
+    - Pre-authorized fallback: if no target can report its resolved model through a surface Keel already probes, record the declared tier only and add no new return channel. Reversible bound: this task writes no file, so the fallback is a finding rather than a change. Required evidence: the probe result per target, naming the surface inspected for each.
+  - Verify:
+    - Strategy: evidence-first
+    - M1: for each of claude, codex, and opencode, the probe records whether a resolved-model report is available through a surface Keel already reads, naming the surface inspected and the observed result
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 3.2 Carry the write boundary and declared tier in the subagent-start projection, and refuse where the preconditions fail
+  - Covers:
+    - keel-native-runtime-projection / Subagent projection preserves Keel ownership
+    - keel-authorized-delegation / The delegation brief is write-capable and separate from the helper brief
+    - keel-authorized-delegation / Delegation requires an active write-guard manifest
+    - keel-authorized-delegation / An unavailable tier refuses delegation rather than substituting one
+    - D15 — the existing projection is extended rather than a second carrier built
+    - D5 — delegation requires an active manifest, decided before the delegate starts
+    - D12 — an unprovidable tier refuses rather than substitutes
+    - F2 — an absent manifest passes every write through silently
+    - F5 — the helper contract's only guarantee is repository byte identity
+    - F3 — the subagent-start projection already carries the rest of the brief; what a target can report about the model it resolved is settled by task 3.1's finding (Q1) before this task runs
+  - Touch:
+    - src/core/projection.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a `subagent-start` projection under a declaration permitting implementation states the `Touch` write boundary, the capsule fingerprint, and the declared tier, and states that Keel neither selects nor observes a model
+    - M2: with `keel/guard.json` absent the projection refuses, names the missing manifest, and directs the caller to `keel gate task-start`; a declared tier the target does not provide refuses and reports the declared tier beside the available ones without substituting one
+    - M3 (regression): a `subagent-stop` projection still returns `report-and-evidence-only`, an unauthorized `subagent-start` is still blocked for missing subagent authorization, and the read-only helper brief still refuses every mutation verb with its byte-identity verification intact
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 4. The single-task goal path
+
+- [ ] 4.1 Restate the sole-writer invariant as sole write authority across the canonical sources and their distribution copies
+  - Covers:
+    - keel-single-task-goal-execution / Current agent owns implementation and completion
+    - D8 — the invariant is restated, not removed
+    - D7 — a delegate's reported results are a claim the current agent re-runs
+    - I6, I7, I11
+  - Touch:
+    - src/skills/keel-run-single-task-goal/SKILL.md
+    - plugins/keel/skills/keel-run-single-task-goal/SKILL.md
+    - plugins/keel/agents/keel-single-task-goal-claude.md
+    - plugins/keel/agents/keel-single-task-goal-codex.md
+    - src/core/goal.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the skill and both agent adapters state that the current agent holds sole write authority, that a declared delegate may write only inside `Touch`, and that the current agent re-runs each `M<n>` check before recording Evidence; the stop-condition list no longer refuses a declared delegation while still refusing an undeclared one
+    - M2: the canonical `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` distribution copy stay byte-identical
+    - M3 (regression): the adapters still state that a native evaluator declaring success never marks or reports the task complete
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 4.2 Refuse goal activation when the delegation fields do not fit the 4,000-character budget
+  - Covers:
+    - keel-single-task-goal-execution / Current agent owns implementation and completion
+    - F13 — activation refuses rather than omitting Acceptance, fingerprint, or stop authority; the scenario this slice proves is "Delegation fields must fit the activation budget"
+  - Touch:
+    - src/core/goal.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a capsule whose delegation fields push the compiled goal condition past 4,000 characters refuses activation and names the budget as the reason, and no field is silently dropped to make it fit
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 5. Containment and inertness
+
+- [ ] 5.1 Make the guard probe a permanent scenario, without modifying the guard
+  - Covers:
+    - keel-touch-write-guard / The guard binds a delegated writer identically
+    - F1 — the probe, with its positive control
+    - D9 — the guard hook is not modified by this change
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: driving the guard hook with a delegate-shaped event denies an in-repository path outside `Touch` with the same reason text the current agent receives, and allows an in-`Touch` path — the allow is asserted as the control, so a hook that denied everything would fail this check
+    - M2: the same event under an invalid manifest, drifted authority, and a checked task fails closed, while an out-of-repository path still passes through
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 5.2 Assert that declaring delegation changes nothing a gate returns
+  - Covers:
+    - keel-authorized-delegation / Delegation authorizes only delegation
+    - D13 — delegation composes with triage and widens nothing
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: a repository declaring `delegation:` and an otherwise identical silent one return the same status, problem set, and failure text from `task-start` and `task-complete`, and the comparison first proves the two repositories actually differ so a declaration that failed to load could not pass trivially
+    - M2: `keel context` returns the same selection and next action with and without the declaration, and `keel triage` admits exactly the same issues
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 6. Surfaces and resident text
+
+- [ ] 6.1 Update the overlay's subagent gate and regenerate the target surfaces
+  - Covers:
+    - keel-openspec-surface-overlay / Target-native subagent gate is documented
+    - D7 — a delegate's reported results are re-run by the current agent
+    - I4, I5
+  - Touch:
+    - bin/keel.js
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the generated overlay states that a subagent may implement only where delegation is declared and a guard manifest is active, that its reported command results are re-run by the current agent rather than recorded, and that it still cannot mark tasks complete, sync, archive, commit, or change Acceptance
+    - M2: every generated target surface matches the generator output, so no hand-edited copy drifts from `bin/keel.js`
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 6.2 Update the resident protocol, the config header, and both task templates
+  - Covers:
+    - A1 — Keel cannot observe which model executed, and says so rather than implying enforcement
+    - D2 — Keel names no concrete model
+    - I2, I3, I8
+  - Touch:
+    - AGENTS.md
+    - assets/bootstrap/AGENTS.md
+    - keel/config.yaml
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the resident protocol states that a subagent may implement only under a declaration with an active guard, that the current agent re-runs the checks, and that Keel carries a tier and never selects or observes a model; the config header names five declarations rather than four
+    - M2: both task templates state that delegation defaults to none and that helpers remain read-only, and the `assets/` source and its installed copy stay byte-identical
+    - M3 (regression): `AGENTS.md` and `assets/bootstrap/AGENTS.md` still agree, so the managed block regenerates without drift
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M2.red: pending
+    - M2.green: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 7. Close
+
+- [ ] 7.1 Promote the spec deltas and record the workflow change
+  - Covers:
+    - I1, I5, I9
+    - keel-authorized-delegation / A repository declares delegation in its own block
+  - Touch:
+    - openspec/specs/keel-authorized-delegation/spec.md
+    - openspec/specs/keel-task-capsule/spec.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-native-runtime-projection/spec.md
+    - openspec/specs/keel-single-task-goal-execution/spec.md
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate declare-who-runs-the-task` passes and every `### Requirement:` and `#### Scenario:` heading in each delta appears in the corresponding live spec
+    - M2: the changelog entry states that the containment was verified rather than built, that the tier is declared and never inferred, that Keel names no model and cannot observe one, and that declaring nothing changes nothing
+    - M3: `npm test` passes after promotion
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- I1: "read-only helper authority" — the compiled-defaults scenario in `openspec/specs/keel-task-capsule/spec.md`. Updated by: 7.1
+- I2: "helpers stay read-only/evidence-only" — the compact v4 header comment, in both `assets/openspec/schemas/keel-spec-driven/templates/tasks.md` and its installed copy `openspec/schemas/keel-spec-driven/templates/tasks.md`. Updated by: 6.2
+- I3: "Target-native subagents are allowed only as bounded helpers/evidence producers" — the resident protocol in `AGENTS.md` and the bootstrap it is regenerated from, `assets/bootstrap/AGENTS.md`. Updated by: 6.2
+- I4: "Use a target-native subagent only when the current agent decides it is useful for a bounded helper step." — generated by `bin/keel.js` into `.claude/commands/opsx/apply.md`, `.claude/commands/opsx/archive.md`, and the four apply/archive skill copies under `.claude/` and `.codex/`. Updated by: 6.1
+- I5: "Target-native subagents return report/evidence only" — the same generator and its six generated copies, and the overlay scenario in `openspec/specs/keel-openspec-surface-overlay/spec.md`. Updated by: 6.1, 7.1
+- I6: "the current agent remains the sole writer" and "keeps the current agent the sole writer" — `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` copy; also "the current agent is the sole writer" in `src/core/goal.js`. Updated by: 4.1
+- I7: "read-only subagent helpers only" — the `description:` frontmatter of `plugins/keel/agents/keel-single-task-goal-claude.md` and `plugins/keel/agents/keel-single-task-goal-codex.md`. Updated by: 4.1
+- I8: "Four independent declarations live here" — the header of `keel/config.yaml`. Updated by: 6.2
+- I9: "The current agent MUST remain the sole writer" — the requirement text in `openspec/specs/keel-single-task-goal-execution/spec.md`. Updated by: 7.1
+- I10: "the current agent stays the sole writer, owner of Acceptance, Review, gates, and" — the header comment of `src/core/helper.js`. Discard reason: it describes the helper contract, which this change deliberately leaves intact; a helper is still never a second writer, and F5/D6 depend on that sentence staying true.
+- I11: "Unrequested helpers or any request to delegate implementation to another agent." — the stop-condition list in `src/skills/keel-run-single-task-goal/SKILL.md` and its `plugins/keel/skills/` copy. Updated by: 4.1
+
+## Expectation Coverage
+
+- E1: Delegation is declared and never inferred from the work. Covered by: 1.1, 1.2
+- E2: The write guard contains a delegated writer exactly as it contains the current agent. Covered by: 5.1
+- E3: Delegation is refused when no guard manifest is active, decided before the delegate starts. Covered by: 2.2
+- E4: A delegate's reported results are a claim; the current agent re-runs each check and records its own evidence. Covered by: 4.1, 6.1, 7.1
+- E5: Keel names no concrete model, selects none, and does not claim to observe which one ran. Covered by: 1.1, 6.2
+- E6: A repository declaring nothing behaves exactly as it does today, on every surface. Covered by: 5.2
+- E7: The single-task goal path's ownership invariant is restated rather than removed, and fits the existing activation budget. Covered by: 4.1, 4.2
+- E8: The read-only helper contract keeps its byte-identity guarantee, unweakened. Covered by: 3.2
+- E9: What each target can report about the model it resolved. Covered by: 3.1
+- E10: A capability the target runtime provides natively is not Keel's to build; Keel's scope over it is the policy it declares about its use. Covered by: 2.1
+- E11: This change's own plan is held to E10 — the delegation brief module it originally proposed is not built, and the projection Keel already publishes is extended instead. Covered by: 2.1, 3.2

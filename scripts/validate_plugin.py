@@ -11644,6 +11644,158 @@ def validate_triage_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_declaration_scenario() -> int:
+    """Who runs a task is a declaration, never an inference from its size.
+
+    The tier names a capability the work requires. It is never derived from
+    Touch size, diff size, or apparent difficulty, because that is the agent's
+    guess about difficulty — the judgement 5.7.0 already refused for triage.
+    """
+
+    def declare(repo: Path, body: str | None) -> None:
+        (repo / "keel").mkdir(parents=True, exist_ok=True)
+        text = "fast_check: echo check\n"
+        if body is not None:
+            text += body
+        (repo / "keel" / "config.yaml").write_text(text, encoding="utf-8")
+
+    # Two distinct failures live here — the reader threw, or it returned
+    # something that is not JSON — and they send a reader to different places.
+    # Collapsing both into one `None` would report whichever message the caller
+    # happened to write, which is the defect the review checklist names.
+    def resolve(repo: Path, label: str) -> dict | None:
+        probe = subprocess.run(
+            [
+                "node", "-e",
+                "const {readDelegationPolicy}=require(process.argv[1]);"
+                "process.stdout.write("
+                "JSON.stringify(readDelegationPolicy(process.argv[2])));",
+                str(ROOT / "src/core/config.js"),
+                str(repo),
+            ],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        if probe.returncode != 0:
+            report(f"delegation: reading the {label} repo threw.")
+            report((probe.stderr or probe.stdout).strip())
+            return None
+        try:
+            return json.loads(probe.stdout)
+        except json.JSONDecodeError:
+            report(
+                f"delegation: the {label} repo returned non-JSON: "
+                f"{probe.stdout!r}"
+            )
+            return None
+
+    with tempfile.TemporaryDirectory(prefix="keel-delegation-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declared tier resolves; absence in any of its three shapes
+        # leaves delegation unauthorized.
+        declared = root / "declared"
+        declared.mkdir()
+        declare(declared, "delegation:\n  tier: standard\n")
+        resolved = resolve(declared, "declared")
+        if resolved is None:
+            return 1
+        if resolved.get("tier") != "standard":
+            report(f"delegation: a declared tier did not resolve: {resolved}")
+            return 1
+        if resolved.get("declared") is not True:
+            report(f"delegation: a declared block did not report declared: {resolved}")
+            return 1
+
+        for label, body in (
+            ("absent", None),
+            ("empty", "delegation:\n"),
+            ("other-keys-only", "triage:\n  - auto\n"),
+        ):
+            silent = root / f"silent-{label}"
+            silent.mkdir()
+            declare(silent, body)
+            quiet = resolve(silent, label)
+            if quiet is None:
+                return 1
+            if quiet.get("tier") is not None:
+                report(f"delegation: the {label} repo resolved a tier: {quiet}")
+                return 1
+            if quiet.get("declared") is not False:
+                report(f"delegation: the {label} repo reported a declaration: {quiet}")
+                return 1
+
+        # M2 — an unrecognized tier is reported by name, carries the accepted
+        # set so a caller can name it too, and authorizes nothing.
+        typo = root / "typo"
+        typo.mkdir()
+        declare(typo, "delegation:\n  tier: turbo\n")
+        rejected = resolve(typo, "unrecognized-tier")
+        if rejected is None:
+            return 1
+        if rejected.get("tier") is not None:
+            report(f"delegation: an unrecognized tier still resolved: {rejected}")
+            return 1
+        if "turbo" not in (rejected.get("unknown") or []):
+            report(f"delegation: the offending entry is not named: {rejected}")
+            return 1
+        accepted = rejected.get("accepted") or []
+        for name in ("routine", "standard", "deep"):
+            if name not in accepted:
+                report(f"delegation: the accepted tier {name} is not reported: {rejected}")
+                return 1
+        # The vocabulary is closed, so a name outside it must not appear.
+        if len(accepted) != 3:
+            report(f"delegation: the accepted set is not the closed three: {rejected}")
+            return 1
+
+        # M3 — `authorize:` is not a delegation channel. Listing `delegate`
+        # there is reported against that block's own closed set, and delegation
+        # stays unauthorized because it is a different declaration entirely.
+        misplaced = root / "misplaced"
+        misplaced.mkdir()
+        declare(misplaced, "authorize:\n  - commit\n  - delegate\n")
+        standing = subprocess.run(
+            [
+                "node", "-e",
+                "const c=require(process.argv[1]);"
+                "process.stdout.write(JSON.stringify({"
+                "standing:c.readStandingAuthorization(process.argv[2]),"
+                "delegation:c.readDelegationPolicy(process.argv[2]),"
+                "actions:c.STANDING_AUTHORIZATION_ACTIONS}));",
+                str(ROOT / "src/core/config.js"),
+                str(misplaced),
+            ],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        if standing.returncode != 0:
+            report("delegation: the misplaced-entry repo could not be read.")
+            report((standing.stderr or standing.stdout).strip())
+            return 1
+        try:
+            both = json.loads(standing.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation: the misplaced-entry probe returned no JSON: {standing.stdout!r}")
+            return 1
+        if "delegate" not in (both["standing"].get("unknown") or []):
+            report(f"delegation: `delegate` was not reported by authorize: {both['standing']}")
+            return 1
+        if both["standing"].get("declared"):
+            report(f"delegation: a rejected authorize block still granted actions: {both['standing']}")
+            return 1
+        if "delegate" in both["actions"]:
+            report("delegation: `delegate` leaked into the authorize vocabulary.")
+            return 1
+        if both["delegation"].get("declared") is not False:
+            report(f"delegation: authorize granted a delegation: {both['delegation']}")
+            return 1
+        if both["delegation"].get("tier") is not None:
+            report(f"delegation: authorize resolved a tier: {both['delegation']}")
+            return 1
+
+    report("delegation-declaration scenario passed.")
+    return 0
+
+
 def validate_review_checks_content_scenario() -> int:
     """Both checks concern content a gate can only shape-check.
 
@@ -15668,6 +15820,7 @@ SCENARIOS: tuple = (
     ("precedent-never-weakens", validate_precedent_never_weakens_scenario),
     ("precedent-rules", validate_precedent_rules_scenario),
     ("triage-declaration", validate_triage_declaration_scenario),
+    ("delegation-declaration", validate_delegation_declaration_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,
