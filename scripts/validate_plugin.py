@@ -11796,6 +11796,66 @@ def validate_delegation_declaration_scenario() -> int:
     return 0
 
 
+def validate_native_capability_scope_scenario() -> int:
+    """A capability the target provides natively is not Keel's to build.
+
+    The policy file already carried procedures serving this rule — do not cede
+    a surface without a coverage report, do not integrate a host surface
+    without recorded design authority — but never the rule itself. A procedure
+    without its rule is followed where it was written and nowhere else.
+    """
+
+    spec = ROOT / "openspec/specs/keel-surface-evolution-policy/spec.md"
+    if not spec.exists():
+        report("native-capability-scope: the surface evolution policy is missing.")
+        return 1
+    text = re.sub(r"\s+", " ", spec.read_text(encoding="utf-8"))
+
+    # M1 — the rule, its scope limit, and the duplicate-carrier refusal.
+    for needle in (
+        "MUST NOT implement, wrap, or re-specify a capability the target runtime already provides natively",
+        "Keel's scope is limited to declaring policy about its use",
+        "extends the projection it already publishes instead of introducing a second carrier",
+    ):
+        if re.sub(r"\s+", " ", needle) not in text:
+            report(f"native-capability-scope: the policy omits: {needle}")
+            return 1
+
+    # M1 — a conflicting surface is refused outright, not resolved by wording.
+    if re.sub(r"\s+", " ", "returns to authoring instead of being resolved by precedence wording") not in text:
+        report("native-capability-scope: the policy does not refuse a conflicting surface.")
+        return 1
+
+    # M2 — the thinnest surviving layer is named rather than left implicit, so
+    # the rule ships with the handle a later reader needs to apply it.
+    if re.sub(r"\s+", " ", "the first candidate for removal when the argument stops holding") not in text:
+        report("native-capability-scope: the policy does not name the thinnest layer.")
+        return 1
+
+    # M2 — and this change's own application is recorded in its design, so the
+    # requirement ships with a worked example rather than as an abstraction.
+    design = ROOT / "openspec/changes/declare-who-runs-the-task/design.md"
+    archived = sorted(
+        ROOT.glob("openspec/changes/archive/*declare-who-runs-the-task/design.md")
+    )
+    if not design.exists() and archived:
+        design = archived[-1]
+    if not design.exists():
+        report("native-capability-scope: this change's design is missing.")
+        return 1
+    design_text = re.sub(r"\s+", " ", design.read_text(encoding="utf-8"))
+    for needle in (
+        "is not a Keel design goal",
+        "No separate write-capable brief contract module is built",
+    ):
+        if re.sub(r"\s+", " ", needle) not in design_text:
+            report(f"native-capability-scope: the design omits its own application: {needle}")
+            return 1
+
+    report("native-capability-scope scenario passed.")
+    return 0
+
+
 def validate_delegation_inheritance_scenario() -> int:
     """A task keeps what it authored and inherits only where it authored none.
 
@@ -15923,6 +15983,7 @@ SCENARIOS: tuple = (
     ("triage-declaration", validate_triage_declaration_scenario),
     ("delegation-declaration", validate_delegation_declaration_scenario),
     ("delegation-inheritance", validate_delegation_inheritance_scenario),
+    ("native-capability-scope", validate_native_capability_scope_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,

@@ -66,7 +66,7 @@
 
 ## 2. The scope rule
 
-- [ ] 2.1 State the rule that a native target capability is not Keel's to build
+- [x] 2.1 State the rule that a native target capability is not Keel's to build
   - Covers:
     - keel-surface-evolution-policy / Native target capability is not a Keel design goal
     - D14 — anything duplicating or conflicting with a native capability is not a design goal
@@ -79,18 +79,18 @@
     - M1: the live `keel-surface-evolution-policy` states that a natively provided capability is not Keel's to build, that Keel's scope over it is the policy it declares about its use, and that a duplicate carrier is refused in favour of extending the projection Keel already publishes
     - M2: the scenario names this change's own application of the rule — the delegation brief module that was proposed and then not built — so the requirement ships with a worked example rather than as an abstraction
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
+    - Contract: keel-task-capsule/v1 sha256:086debadba9da26c80a1c5f8f4f5887b4632f039c9d049c4c5aa2bfcb2e91431
+    - M1: `python3.11 scripts/validate_plugin.py --scenario native-capability-scope` passes. The live `keel-surface-evolution-policy` now states that Keel MUST NOT implement, wrap, or re-specify a natively provided capability, that its scope over one is limited to declaring policy about its use, that a duplicate carrier is refused in favour of extending the projection Keel already publishes, and that a *conflicting* surface returns to authoring rather than being resolved by precedence wording. All five delta headings appear in the live spec, compared by heading set rather than by re-reading.
+    - M1.red: exit 1, `native-capability-scope: the policy omits: MUST NOT implement, wrap, or re-specify a capability the target runtime already provides natively` — the file carried procedures serving this rule and never the rule itself.
+    - M1.green: exit 0, `native-capability-scope scenario passed.`
+    - M2: the requirement names the thinnest surviving layer as the first candidate for removal, and this change's own application is asserted in its design.md — the delegation brief module that was proposed and then not built. The requirement therefore ships with a worked example instead of as an abstraction.
+    - M2.red: aimed by weakening the live wording to `removable later`; exit 1, `native-capability-scope: the policy does not name the thinnest layer.` The check is about the handle a later reader needs, so a paraphrase that drops it must fail. Restored from a byte copy.
+    - M2.green: exit 0, `native-capability-scope scenario passed.`
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the rule is asserted where it will actually be read — the live spec — rather than only in this change's delta, and by the phrases carrying the distinguishing content rather than by heading presence, which would pass for a requirement saying something else under the same title. The conflict clause is asserted separately from the duplication clause because they fail differently: duplication wastes effort, while a surface contradicting the runtime leaves the agent no correct action.
+      - Scope check: `git status --porcelain` shows `openspec/specs/keel-surface-evolution-policy/spec.md` and `scripts/validate_plugin.py` modified — the two paths in Touch — plus this change's own record layer. The M2 aim edited the spec, already in Touch, and was restored from a copy taken before the edit.
+      - Findings: none
     - Blocker: none
 
 ## 3. What the target can report
