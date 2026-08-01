@@ -36,7 +36,8 @@ Keel MUST compile a versioned disposable goal projection from the selected task 
 - **AND THEN** it does not silently omit Acceptance, fingerprint, or stop conditions
 
 ### Requirement: Current agent owns implementation and completion
-The current agent MUST remain the sole writer and MUST own fallback, command evidence, semantic Review, gate invocation, task checkbox, and completion reporting decisions throughout the goal run.
+
+The current agent MUST remain the sole holder of write authority and MUST own fallback, command evidence, semantic Review, gate invocation, task checkbox, and completion reporting decisions throughout the goal run. Where delegation is declared, an authorized delegate MAY perform writes, and only inside the `Touch` boundary that authority already defined; the delegate acquires none of the owned decisions, and the current agent MUST re-run each `M<n>` check itself before recording Evidence.
 
 #### Scenario: Native evaluator reports success
 - **WHEN** a native goal evaluator reports that its condition is met
@@ -52,6 +53,16 @@ The current agent MUST remain the sole writer and MUST own fallback, command evi
 - **WHEN** a native evaluator clears or achieves the goal before durable completion
 - **THEN** Keel treats the event as a premature stop
 - **AND THEN** it does not automatically rearm a replacement goal
+
+#### Scenario: A declared delegate implements within the goal run
+- **WHEN** delegation is declared for the selected task and a guard manifest is active
+- **THEN** the delegate may write inside `Touch` while the current agent keeps fallback, Review, gate invocation, the checkbox, and completion reporting
+- **AND THEN** the current agent re-runs each `M<n>` check and records its own results as Evidence
+
+#### Scenario: Delegation fields must fit the activation budget
+- **WHEN** adding the delegation fields would push the compiled goal condition past the 4,000-character budget
+- **THEN** Keel refuses activation rather than omitting Acceptance, fingerprint, stop authority, or the write boundary
+- **AND THEN** the refusal names the budget as the reason
 
 ### Requirement: Execution follows the task verification strategy
 The current agent MUST execute the task's approved test-first or evidence-first strategy in vertical behavior slices and MUST NOT let the native loop weaken Commands or Acceptance.
@@ -122,4 +133,3 @@ Keel MUST remain usable when a native goal capability is absent, disabled, untru
 - **WHEN** capability probing cannot safely activate the target goal surface
 - **THEN** Keel reports `advisory` with an exact user command or `manual` with the current-agent loop
 - **AND THEN** it does not install a scheduler, global Stop hook, or hidden background process
-

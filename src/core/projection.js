@@ -2,6 +2,10 @@
 
 // Keel 4.1.0 one-way native projection contract.
 
+const fs = require("fs");
+const path = require("path");
+
+const { readDelegationPolicy } = require("./config");
 const { resolveContext } = require("./context");
 const { loadTaskContract } = require("./task-contract");
 const { probeCapabilities } = require("./capabilities");
@@ -32,6 +36,39 @@ function blocked(target, event, reason, warnings = []) {
     reasons: [reason],
     warnings,
   };
+}
+
+// Both refusals are decided before a delegate starts, never inferred from what
+// it did. An absent manifest passes every write through silently, so a delegate
+// that wrote successfully under one proves nothing about having been checked —
+// there is no observable difference afterwards, which is why the condition has
+// to be answered here.
+function delegationRefusal(repo, delegation) {
+  // The policy is read directly rather than through the capsule, because the
+  // capsule cannot express the difference this refusal turns on. A tier outside
+  // the vocabulary fails closed at the config layer and reaches the capsule as
+  // no delegation at all — identical to a repository that declared nothing. One
+  // of those should proceed silently and the other must be reported, so the
+  // unresolved declaration has to be seen where it still exists.
+  const { unknown, accepted } = readDelegationPolicy(repo);
+  if (unknown.length > 0) {
+    return (
+      `Delegation declares tier "${unknown.join(", ")}", which this target `
+      + `does not provide. Accepted: ${accepted.join(", ")}. Keel refuses `
+      + "rather than substituting a tier, because work would otherwise run at "
+      + "a capability nobody declared while reporting success."
+    );
+  }
+  if (!delegation) return null;
+  if (!fs.existsSync(path.join(repo, "keel", "guard.json"))) {
+    return (
+      "Delegation requires an active write guard, and keel/guard.json is "
+      + "absent. Without it every write passes through unchecked and looks "
+      + "identical to a write the guard allowed. Run `keel gate task-start` "
+      + "for the selected task, then delegate."
+    );
+  }
+  return null;
 }
 
 function capabilityKey(event) {
@@ -156,6 +193,24 @@ function projectRuntime(repo, options) {
   };
   if (event === "subagent-stop") {
     projection.returnAuthority = "report-and-evidence-only";
+  }
+  // Delegation extends the brief Keel already publishes rather than adding a
+  // carrier beside the host's own agent interface. The host spawns; this is the
+  // one-way view of OpenSpec it is handed.
+  if (event === "subagent-start") {
+    const refusal = delegationRefusal(repo, capsule.delegation);
+    if (refusal) return blocked(options.target, event, refusal, warnings);
+  }
+  if (event === "subagent-start" && capsule.delegation) {
+    projection.delegation = {
+      tier: capsule.delegation.tier,
+      source: capsule.delegation.source,
+      writeBoundary: capsule.touch,
+      note:
+        "Keel carries the declared tier and does not select a model; the "
+        + "target resolves it. Keel cannot observe which model executed, so "
+        + "the tier is what is recorded and never a claim about what ran.",
+    };
   }
 
   return {

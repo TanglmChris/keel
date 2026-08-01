@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.7.1"
-PROTOCOL_VERSION = "5.7.1"
+PACKAGE_VERSION = "5.8.0"
+PROTOCOL_VERSION = "5.8.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1959,6 +1959,23 @@ def validate_version_alignment_scenario() -> int:
         if PROTOCOL_VERSION not in path.read_text(encoding="utf-8"):
             report(f"version-alignment scenario missing {PROTOCOL_VERSION}: {path}")
             return 1
+
+    # Presence is not alignment. A changelog announcing a release nothing else
+    # claims satisfies every check above, because the *previous* version is
+    # still somewhere in the file — which is exactly how 5.8.0 was written with
+    # every manifest left at 5.7.1. The newest entry is the claim that matters.
+    changelog = (ROOT / "keel/CHANGELOG.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^## (\d+\.\d+\.\d+)\b", changelog, re.M)
+    if not headings:
+        report("version-alignment scenario found no versioned changelog entry.")
+        return 1
+    if headings[0] != PACKAGE_VERSION:
+        report(
+            f"version-alignment scenario changelog announces {headings[0]} while "
+            f"the package declares {PACKAGE_VERSION}; the newest entry is a "
+            "release claim and must name the version everything else ships."
+        )
+        return 1
 
     with tempfile.TemporaryDirectory(prefix="keel-version-") as raw_tmp:
         repo = Path(raw_tmp) / "repo"
@@ -11644,6 +11661,1060 @@ def validate_triage_declaration_scenario() -> int:
     return 0
 
 
+def validate_delegation_declaration_scenario() -> int:
+    """Who runs a task is a declaration, never an inference from its size.
+
+    The tier names a capability the work requires. It is never derived from
+    Touch size, diff size, or apparent difficulty, because that is the agent's
+    guess about difficulty — the judgement 5.7.0 already refused for triage.
+    """
+
+    def declare(repo: Path, body: str | None) -> None:
+        (repo / "keel").mkdir(parents=True, exist_ok=True)
+        text = "fast_check: echo check\n"
+        if body is not None:
+            text += body
+        (repo / "keel" / "config.yaml").write_text(text, encoding="utf-8")
+
+    # Two distinct failures live here — the reader threw, or it returned
+    # something that is not JSON — and they send a reader to different places.
+    # Collapsing both into one `None` would report whichever message the caller
+    # happened to write, which is the defect the review checklist names.
+    def resolve(repo: Path, label: str) -> dict | None:
+        probe = subprocess.run(
+            [
+                "node", "-e",
+                "const {readDelegationPolicy}=require(process.argv[1]);"
+                "process.stdout.write("
+                "JSON.stringify(readDelegationPolicy(process.argv[2])));",
+                str(ROOT / "src/core/config.js"),
+                str(repo),
+            ],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        if probe.returncode != 0:
+            report(f"delegation: reading the {label} repo threw.")
+            report((probe.stderr or probe.stdout).strip())
+            return None
+        try:
+            return json.loads(probe.stdout)
+        except json.JSONDecodeError:
+            report(
+                f"delegation: the {label} repo returned non-JSON: "
+                f"{probe.stdout!r}"
+            )
+            return None
+
+    with tempfile.TemporaryDirectory(prefix="keel-delegation-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declared tier resolves; absence in any of its three shapes
+        # leaves delegation unauthorized.
+        declared = root / "declared"
+        declared.mkdir()
+        declare(declared, "delegation:\n  tier: standard\n")
+        resolved = resolve(declared, "declared")
+        if resolved is None:
+            return 1
+        if resolved.get("tier") != "standard":
+            report(f"delegation: a declared tier did not resolve: {resolved}")
+            return 1
+        if resolved.get("declared") is not True:
+            report(f"delegation: a declared block did not report declared: {resolved}")
+            return 1
+
+        for label, body in (
+            ("absent", None),
+            ("empty", "delegation:\n"),
+            ("other-keys-only", "triage:\n  - auto\n"),
+        ):
+            silent = root / f"silent-{label}"
+            silent.mkdir()
+            declare(silent, body)
+            quiet = resolve(silent, label)
+            if quiet is None:
+                return 1
+            if quiet.get("tier") is not None:
+                report(f"delegation: the {label} repo resolved a tier: {quiet}")
+                return 1
+            if quiet.get("declared") is not False:
+                report(f"delegation: the {label} repo reported a declaration: {quiet}")
+                return 1
+
+        # M2 — an unrecognized tier is reported by name, carries the accepted
+        # set so a caller can name it too, and authorizes nothing.
+        typo = root / "typo"
+        typo.mkdir()
+        declare(typo, "delegation:\n  tier: turbo\n")
+        rejected = resolve(typo, "unrecognized-tier")
+        if rejected is None:
+            return 1
+        if rejected.get("tier") is not None:
+            report(f"delegation: an unrecognized tier still resolved: {rejected}")
+            return 1
+        if "turbo" not in (rejected.get("unknown") or []):
+            report(f"delegation: the offending entry is not named: {rejected}")
+            return 1
+        accepted = rejected.get("accepted") or []
+        for name in ("routine", "standard", "deep"):
+            if name not in accepted:
+                report(f"delegation: the accepted tier {name} is not reported: {rejected}")
+                return 1
+        # The vocabulary is closed, so a name outside it must not appear.
+        if len(accepted) != 3:
+            report(f"delegation: the accepted set is not the closed three: {rejected}")
+            return 1
+
+        # M3 — `authorize:` is not a delegation channel. Listing `delegate`
+        # there is reported against that block's own closed set, and delegation
+        # stays unauthorized because it is a different declaration entirely.
+        misplaced = root / "misplaced"
+        misplaced.mkdir()
+        declare(misplaced, "authorize:\n  - commit\n  - delegate\n")
+        standing = subprocess.run(
+            [
+                "node", "-e",
+                "const c=require(process.argv[1]);"
+                "process.stdout.write(JSON.stringify({"
+                "standing:c.readStandingAuthorization(process.argv[2]),"
+                "delegation:c.readDelegationPolicy(process.argv[2]),"
+                "actions:c.STANDING_AUTHORIZATION_ACTIONS}));",
+                str(ROOT / "src/core/config.js"),
+                str(misplaced),
+            ],
+            text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        if standing.returncode != 0:
+            report("delegation: the misplaced-entry repo could not be read.")
+            report((standing.stderr or standing.stdout).strip())
+            return 1
+        try:
+            both = json.loads(standing.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation: the misplaced-entry probe returned no JSON: {standing.stdout!r}")
+            return 1
+        if "delegate" not in (both["standing"].get("unknown") or []):
+            report(f"delegation: `delegate` was not reported by authorize: {both['standing']}")
+            return 1
+        if both["standing"].get("declared"):
+            report(f"delegation: a rejected authorize block still granted actions: {both['standing']}")
+            return 1
+        if "delegate" in both["actions"]:
+            report("delegation: `delegate` leaked into the authorize vocabulary.")
+            return 1
+        if both["delegation"].get("declared") is not False:
+            report(f"delegation: authorize granted a delegation: {both['delegation']}")
+            return 1
+        if both["delegation"].get("tier") is not None:
+            report(f"delegation: authorize resolved a tier: {both['delegation']}")
+            return 1
+
+    report("delegation-declaration scenario passed.")
+    return 0
+
+
+def validate_delegation_resident_text_scenario() -> int:
+    """The resident protocol, the config header, and both templates agree.
+
+    Every one of these states a default that a declaration now changes, and a
+    default stated unconditionally is the thing a reader trusts.
+    """
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    # M1 — the resident protocol carries the condition and the model limit.
+    agents = ROOT / "AGENTS.md"
+    text = flat(agents)
+    for needle in (
+        "as delegates implementing the selected task inside",
+        "a guard manifest is active",
+        "re-runs each",
+        "check itself before recording Evidence",
+        "never a model name",
+        "declared rather than inferred from a task's size",
+    ):
+        if re.sub(r"\s+", " ", needle) not in text:
+            report(f"delegation-resident-text: AGENTS.md omits: {needle}")
+            return 1
+
+    # M1 — the consumer bootstrap deliberately does NOT carry the delegation
+    # clause. Its block has a sub-1KB budget with 11 bytes of headroom, and
+    # delegation is inert until declared, so an installing repository that
+    # declares nothing is fully served by the sentence already there. What the
+    # check enforces is that the sentence stays true by default, and that the
+    # budget is not quietly spent later.
+    bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
+    boot = flat(bootstrap)
+    if re.sub(r"\s+", " ", "One current agent owns writes") not in boot:
+        report("delegation-resident-text: the bootstrap lost its single-writer default.")
+        return 1
+    block = bootstrap.read_text(encoding="utf-8")
+    body = block.split("<!-- keel:start", 1)[1].split("<!-- keel:end -->", 1)[0]
+    size = len(("<!-- keel:start" + body + "<!-- keel:end -->").encode())
+    if size >= 1024:
+        report(f"delegation-resident-text: the bootstrap block is {size} bytes, over its 1KB budget.")
+        return 1
+
+    # M1 — the config header counts its declarations correctly.
+    config = ROOT / "keel/config.yaml"
+    cfg = flat(config)
+    if re.sub(r"\s+", " ", "Four independent declarations") in cfg:
+        report("delegation-resident-text: the config header still says four declarations.")
+        return 1
+    if re.sub(r"\s+", " ", "Five independent declarations") not in cfg:
+        report("delegation-resident-text: the config header does not name five declarations.")
+        return 1
+    if "delegation" not in cfg:
+        report("delegation-resident-text: the config header does not document delegation.")
+        return 1
+
+    # M2 — both task templates state the new default, and the source and its
+    # installed copy stay byte-identical.
+    source = ROOT / "assets/openspec/schemas/keel-spec-driven/templates/tasks.md"
+    installed = ROOT / "openspec/schemas/keel-spec-driven/templates/tasks.md"
+    for path in (source, installed):
+        body = flat(path)
+        # The helper clause stays true and is deliberately not removed — a
+        # helper is still read-only. What was wrong was the sentence stopping
+        # there, so the assertion is that it now continues.
+        if re.sub(r"\s+", " ", "helpers stay read-only/evidence-only") not in body:
+            report(f"delegation-resident-text: {path.relative_to(ROOT)} dropped the helper default.")
+            return 1
+        if re.sub(r"\s+", " ", "delegation defaults to none") not in body:
+            report(f"delegation-resident-text: {path.relative_to(ROOT)} does not state the delegation default.")
+            return 1
+    if source.read_bytes() != installed.read_bytes():
+        report("delegation-resident-text: the template source and its installed copy diverged.")
+        return 1
+
+    report("delegation-resident-text scenario passed.")
+    return 0
+
+
+def validate_delegation_overlay_scenario() -> int:
+    """The overlay tells a delegate what it may do and what it settles.
+
+    A subagent reading only this text must not conclude it can complete a
+    task, and must not conclude it may implement without a declaration.
+    """
+
+    generated = [
+        ROOT / ".claude/commands/opsx/apply.md",
+        ROOT / ".claude/commands/opsx/archive.md",
+        ROOT / ".claude/skills/openspec-apply-change/SKILL.md",
+        ROOT / ".claude/skills/openspec-archive-change/SKILL.md",
+        ROOT / ".codex/skills/openspec-apply-change/SKILL.md",
+        ROOT / ".codex/skills/openspec-archive-change/SKILL.md",
+    ]
+    for path in generated:
+        if not path.exists():
+            report(f"delegation-overlay: missing generated surface {path.relative_to(ROOT)}")
+            return 1
+
+    # M1 — the gate states the delegate's condition, its boundary, and what
+    # its results are worth. Asserted on every generated copy, because the
+    # overlay is what a subagent on that surface actually reads.
+    needles = (
+        "where `delegation:` is declared",
+        "a guard manifest is active",
+        "only inside `Touch`",
+        "re-runs each `M<n>` check itself before recording Evidence",
+        "Delegation is refused with no active guard manifest",
+        "may mark tasks complete",
+    )
+    for path in generated:
+        text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        for needle in needles:
+            if re.sub(r"\s+", " ", needle) not in text:
+                report(f"delegation-overlay: {path.relative_to(ROOT)} omits: {needle}")
+                return 1
+        # The old unconditional sentence must be gone, or a reader finds both
+        # and has to guess which one governs.
+        # Both stale sentences, not just the one in the shared gate. The apply
+        # action body carried its own copy, and a surface stating the rule
+        # unconditionally beside the conditional one leaves a delegate free to
+        # cite whichever it prefers.
+        for stale in (
+            "Target-native subagents return report/evidence only; the current agent reviews the output before acting.",
+            "Target-native subagents return report/evidence only; they cannot mark tasks complete",
+        ):
+            if re.sub(r"\s+", " ", stale) in text:
+                report(f"delegation-overlay: {path.relative_to(ROOT)} still carries an unconditional sentence: {stale[:60]}")
+                return 1
+
+    # M2 — every copy of a given action carries a byte-identical overlay
+    # block. bin/keel.js exports nothing, so the generator cannot be called
+    # directly; comparing the copies to each other catches the failure that
+    # matters — one surface hand-edited or left stale while the others move.
+    blocks: dict[str, dict[str, str]] = {"apply": {}, "archive": {}}
+    for path in generated:
+        text = path.read_text(encoding="utf-8")
+        try:
+            body = text.split("<!-- keel:openspec-surface-overlay", 1)[1]
+            body = body.split("<!-- keel:openspec-surface-overlay:end -->", 1)[0]
+        except IndexError:
+            report(f"delegation-overlay: {path.relative_to(ROOT)} carries no overlay block.")
+            return 1
+        action = "archive" if "archive" in str(path).lower() else "apply"
+        blocks[action][str(path.relative_to(ROOT))] = body
+    for action, copies in blocks.items():
+        if len(copies) < 2:
+            continue
+        first_name, first_body = next(iter(copies.items()))
+        for name, body in copies.items():
+            if body != first_body:
+                report(
+                    f"delegation-overlay: the {action} overlay diverged between "
+                    f"{first_name} and {name}."
+                )
+                return 1
+
+    report("delegation-overlay scenario passed.")
+    return 0
+
+
+def validate_delegation_never_weakens_scenario() -> int:
+    """Declaring who runs a task changes nothing about proving it was done.
+
+    Same shape as the standing-authorization and precedent inertness
+    scenarios, and for the same reason: every check passes when two
+    repositories agree, so a declaration that silently failed to load would
+    make each comparison trivially true. The positive control asserts the
+    difference exists before asserting it is inert.
+    """
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+    missing_evidence_task = complete_task.replace(
+        "    - M1: node test.js printed ok\n", "    - M1: pending\n"
+    )
+
+    def gate(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-never-weakens: {stage} returned no JSON: {result.stdout!r}")
+            return None
+        # The fingerprint legitimately differs between the two repositories,
+        # because a declared delegation is part of the compiled capsule. What
+        # must not differ is the verdict or the problems.
+        return {
+            "status": payload.get("status"),
+            "problems": [p.get("code") for p in (payload.get("problems") or [])],
+        }
+
+    def build(root: Path, name: str, config: str, task: str) -> Path:
+        repo = root / name
+        repo.mkdir()
+        write_gate_fixture(repo, task)
+        write_authorize_config(repo, config)
+        return repo
+
+    declaring = "fast_check: echo c\ndelegation:\n  tier: standard\n"
+    silent = "fast_check: echo c\n"
+
+    with tempfile.TemporaryDirectory(prefix="keel-delinert-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # Positive control — the declaration reaches the capsule at all. If it
+        # did not, every comparison below would pass for the wrong reason.
+        control = build(root, "control", declaring, complete_task)
+        probe = run_keel(
+            control, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        capsule = json.loads(probe.stdout)["contract"]["capsule"]
+        if (capsule.get("delegation") or {}).get("tier") != "standard":
+            report(
+                "delegation-never-weakens: the declaration never reached the "
+                f"capsule, so inertness would be trivially true: {capsule.get('delegation')}"
+            )
+            return 1
+
+        # M1 — identical verdicts and problem sets, passing and failing alike.
+        for label, task in (("passing", complete_task), ("failing", missing_evidence_task)):
+            loud = build(root, f"loud-{label}", declaring, task)
+            quiet = build(root, f"quiet-{label}", silent, task)
+            for stage in ("task-start", "task-complete"):
+                a = gate(loud, stage)
+                b = gate(quiet, stage)
+                if a is None or b is None:
+                    return 1
+                if a != b:
+                    report(
+                        f"delegation-never-weakens: {stage} differed on the {label} "
+                        f"task: declaring={a} silent={b}"
+                    )
+                    return 1
+            # And the failing case must actually fail, or "identical" is a
+            # statement about two passes and proves nothing about refusals.
+            failed = gate(loud, "task-complete")
+            if label == "failing" and failed and failed["status"] == "pass":
+                report("delegation-never-weakens: the failing fixture passed, so the comparison is empty.")
+                return 1
+
+        # M2 — context selection and triage are unchanged.
+        for stage_args, key in ((("context",), "nextAction"), (("triage", "--labels", "auto"), "status")):
+            loud = build(root, f"loud-{key}", declaring + "triage:\n  - auto\n", complete_task)
+            quiet = build(root, f"quiet-{key}", silent + "triage:\n  - auto\n", complete_task)
+            outs = []
+            for repo in (loud, quiet):
+                result = run_keel(repo, *stage_args, "--json")
+                try:
+                    outs.append(json.loads(result.stdout).get(key))
+                except json.JSONDecodeError:
+                    report(f"delegation-never-weakens: {stage_args[0]} returned no JSON: {result.stdout!r}")
+                    return 1
+            if outs[0] != outs[1]:
+                report(f"delegation-never-weakens: {stage_args[0]} differed: {outs[0]} != {outs[1]}")
+                return 1
+
+    report("delegation-never-weakens scenario passed.")
+    return 0
+
+
+def validate_delegation_guard_binds_scenario() -> int:
+    """The guard binds a delegated writer identically, and always did.
+
+    This change added no enforcement. It was verified by probe on 2026-08-01 —
+    a spawned subagent's write outside Touch was denied with the same message
+    the current agent receives, while its write inside Touch succeeded — and
+    that probe is fixed here so the property cannot regress unnoticed.
+
+    The manifest scopes a repository and a task, never the identity of the
+    process performing the write, which is why nothing had to be built.
+    """
+
+    def event(repo: Path, target: str) -> dict:
+        return {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(repo / target)},
+            # A delegate is the same hook input with an agent identity on it.
+            # If enforcement ever keyed on this, the assertions below diverge.
+            "agent_id": "probe-delegate",
+            "agent_type": "general-purpose",
+        }
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-delguard-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+        write_text(repo / "README.md", "fixture\n")
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("delegation-guard-binds: task-start did not arm the guard.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        # M1 — outside Touch is denied, and with the same reason the current
+        # agent receives. The two decisions are compared rather than each
+        # checked for the word "deny", so a delegate-specific message would
+        # fail here even though it also denied.
+        delegate = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "README.md")))
+        current = run_pretooluse_guard_hook(repo, {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(repo / "README.md")},
+        })
+        agent = pretooluse_decision(current)
+        if delegate is None:
+            report("delegation-guard-binds: a delegate's out-of-Touch write was not decided.")
+            return 1
+        if delegate.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: a delegate wrote outside Touch: {delegate}")
+            return 1
+        if delegate != agent:
+            report(
+                "delegation-guard-binds: a delegate received a different decision "
+                f"than the current agent: {delegate} != {agent}"
+            )
+            return 1
+
+        # M1 control — inside Touch succeeds. Without this, a hook that denied
+        # everything would satisfy the assertion above, and the original probe
+        # would have proven only that subagents cannot write at all.
+        allowed = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if allowed is not None and allowed.get("permissionDecision") == "deny":
+            report(f"delegation-guard-binds: a delegate's in-Touch write was denied: {allowed}")
+            return 1
+
+        # M2 — every manifest state applies to a delegate.
+        manifest = repo / "keel/guard.json"
+        saved = manifest.read_text(encoding="utf-8")
+
+        manifest.write_text("{ not json", encoding="utf-8")
+        corrupt = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if corrupt is None or corrupt.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: an invalid manifest did not fail closed: {corrupt}")
+            return 1
+        # And the repository boundary still precedes every manifest decision.
+        outside = pretooluse_decision(run_pretooluse_guard_hook(repo, {
+            "cwd": str(repo),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(Path(raw_tmp) / "outside.txt")},
+            "agent_id": "probe-delegate",
+            "agent_type": "general-purpose",
+        }))
+        if outside is not None and outside.get("permissionDecision") == "deny":
+            report(f"delegation-guard-binds: an out-of-repository path was denied: {outside}")
+            return 1
+        manifest.write_text(saved, encoding="utf-8")
+
+        # Drift is asserted on a non-record authority entry. The manifest's own
+        # `openspec/changes/<change>/tasks.md` is deliberately exempt — that is
+        # the record layer, where a checkbox and Evidence are written during the
+        # task — so drifting it must NOT deny, and asserting otherwise would
+        # assert the opposite of the spec.
+        record_only = json.loads(saved)
+        record_only["authority"][0]["sha256"] = "0" * 64
+        manifest.write_text(json.dumps(record_only, indent=2) + "\n", encoding="utf-8")
+        record_drift = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if record_drift is not None and record_drift.get("permissionDecision") == "deny":
+            report(
+                "delegation-guard-binds: a changed record-layer file was treated "
+                f"as authority drift: {record_drift}"
+            )
+            return 1
+
+        drifted = json.loads(saved)
+        drifted["authority"].append({
+            "path": "src/feature.js",
+            "sha256": "0" * 64,
+        })
+        manifest.write_text(json.dumps(drifted, indent=2) + "\n", encoding="utf-8")
+        drift = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if drift is None or drift.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: drifted authority did not fail closed: {drift}")
+            return 1
+        manifest.write_text(saved, encoding="utf-8")
+
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture(checked=True))
+        checked = pretooluse_decision(run_pretooluse_guard_hook(repo, event(repo, "src/feature.js")))
+        if checked is None or checked.get("permissionDecision") != "deny":
+            report(f"delegation-guard-binds: a checked task still admitted a delegate write: {checked}")
+            return 1
+
+    report("delegation-guard-binds scenario passed.")
+    return 0
+
+
+def validate_delegation_goal_budget_scenario() -> int:
+    """The delegation fields live inside the activation budget, not beside it.
+
+    A field that never reaches the condition cannot overflow it, so asserting
+    the refusal means first asserting the fields are actually carried.
+    """
+
+    def goal(repo: Path) -> dict | None:
+        result = run_keel(
+            repo, "project", "goal", "--target", "claude",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-goal-budget: goal returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+        # Two shapes share this command. A compiled goal is nested under
+        # `goal`; a refusal carries `goal: null` with the reason on the
+        # envelope. Reading only one of them would report a refusal as a
+        # missing field, which is a different problem in a different place.
+        nested = payload.get("goal") or {}
+        return {
+            **nested,
+            "status": payload.get("status"),
+            "reasons": payload.get("reasons") or [],
+        }
+
+    def task(padding: str = "") -> str:
+        return (
+            "- [ ] 1.1 Behavior\n"
+            "  - Covers:\n"
+            "    - E1: public behavior\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            + padding
+            + "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js proves the public behavior\n"
+            "  - Evidence:\n"
+            "    - Contract: pending\n"
+            "    - M1: pending\n"
+            "    - Review:\n"
+            "      - Status: pending\n"
+            "      - Acceptance check: pending\n"
+            "      - Scope check: pending\n"
+            "      - Findings: pending\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-delbudget-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — the declared tier reaches the compiled condition.
+        fits = root / "fits"
+        fits.mkdir()
+        write_gate_fixture(fits, task())
+        write_authorize_config(fits, "fast_check: echo c\ndelegation:\n  tier: routine\n")
+        compiled = goal(fits)
+        if compiled is None:
+            return 1
+        if compiled.get("status") != "ready":
+            report(f"delegation-goal-budget: a fitting goal did not compile: {compiled.get('reasons')}")
+            return 1
+        condition = compiled.get("condition") or ""
+        if "routine" not in condition:
+            report("delegation-goal-budget: the declared tier is not in the goal condition.")
+            return 1
+
+        # M1 — pushed past the budget, activation refuses and names it. The
+        # padding is Touch paths, so the overflow comes from real capsule
+        # content rather than from a string invented for the test.
+        over = root / "over"
+        over.mkdir()
+        padding = "".join(f"    - src/generated/module_{i:03d}_long_enough_to_count.js\n" for i in range(90))
+        write_gate_fixture(over, task(padding))
+        write_authorize_config(over, "fast_check: echo c\ndelegation:\n  tier: routine\n")
+        refused = goal(over)
+        if refused is None:
+            return 1
+        if refused.get("status") != "blocked":
+            length = len(refused.get("condition") or "")
+            report(f"delegation-goal-budget: an over-budget goal was not refused (condition {length} chars).")
+            return 1
+        reason = " ".join(refused.get("reasons") or [])
+        if "4000" not in reason:
+            report(f"delegation-goal-budget: the refusal does not name the budget: {reason}")
+            return 1
+        # Nothing is dropped to make it fit: the refusal is the whole response,
+        # and no truncated condition is offered in its place.
+        if refused.get("condition"):
+            report("delegation-goal-budget: a condition was still offered alongside the refusal.")
+            return 1
+
+    report("delegation-goal-budget scenario passed.")
+    return 0
+
+
+def validate_delegation_sole_authority_scenario() -> int:
+    """The invariant is restated, not removed.
+
+    Its purpose was never that one process performs the writes — it was that
+    one party is answerable for them. A delegate writes inside a boundary that
+    authority already defined, and acquires none of the owned decisions.
+    """
+
+    canonical = ROOT / "src/skills/keel-run-single-task-goal/SKILL.md"
+    packaged = ROOT / "plugins/keel/skills/keel-run-single-task-goal/SKILL.md"
+    claude = ROOT / "plugins/keel/agents/keel-single-task-goal-claude.md"
+    codex = ROOT / "plugins/keel/agents/keel-single-task-goal-codex.md"
+    goal = ROOT / "src/core/goal.js"
+    for path in (canonical, packaged, claude, codex, goal):
+        if not path.exists():
+            report(f"delegation-sole-authority: missing {path.relative_to(ROOT)}")
+            return 1
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    # M1 — the restatement, in the canonical skill and in the goal projection
+    # the adapters actually read.
+    for path in (canonical, goal):
+        text = flat(path)
+        if re.sub(r"\s+", " ", "sole holder of write authority") not in text:
+            report(f"delegation-sole-authority: {path.name} does not restate the invariant.")
+            return 1
+        if re.sub(r"\s+", " ", "re-runs each") not in text:
+            report(f"delegation-sole-authority: {path.name} does not say the current agent re-runs the checks.")
+            return 1
+
+    # M1 — the stop list refuses an undeclared delegation and no longer
+    # refuses a declared one outright.
+    skill_text = flat(canonical)
+    if re.sub(r"\s+", " ", "undeclared delegation") not in skill_text:
+        report("delegation-sole-authority: the stop list does not refuse an undeclared delegation.")
+        return 1
+    if re.sub(r"\s+", " ", "any request to delegate implementation to another agent") in skill_text:
+        report("delegation-sole-authority: the stop list still refuses every delegation outright.")
+        return 1
+
+    # M1 — both adapters carry it, and neither still advertises read-only
+    # helpers as the whole of what a subagent may do.
+    for path in (claude, codex):
+        text = flat(path)
+        if re.sub(r"\s+", " ", "write authority") not in text:
+            report(f"delegation-sole-authority: {path.name} does not carry the restatement.")
+            return 1
+        if re.sub(r"\s+", " ", "read-only subagent helpers only") in text:
+            report(f"delegation-sole-authority: {path.name} still says read-only helpers only.")
+            return 1
+
+    # M2 — the canonical source and its distribution copy stay byte-identical.
+    if canonical.read_bytes() != packaged.read_bytes():
+        report("delegation-sole-authority: the canonical and packaged skills diverged.")
+        return 1
+
+    # M3 — a native evaluator declaring success still completes nothing.
+    for path in (canonical, claude, codex):
+        text = flat(path)
+        if "never" not in text or "complete" not in text:
+            report(f"delegation-sole-authority: {path.name} lost its evaluator-success rule.")
+            return 1
+
+    report("delegation-sole-authority scenario passed.")
+    return 0
+
+
+def validate_delegation_projection_scenario() -> int:
+    """The projection Keel already publishes carries the delegation, and
+    refuses where the preconditions for one do not hold.
+
+    No second carrier is built: the host spawns the subagent, and this is the
+    one-way view of OpenSpec it is handed.
+    """
+
+    def project(repo: Path, *extra: str) -> dict | None:
+        result = run_keel(
+            repo, "project", "--target", "claude",
+            "--event", "subagent-start", "--authorize", "subagent",
+            "--change", "demo", "--task", "1.1", "--json", *extra,
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: project returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+
+    def guard_manifest(repo: Path) -> None:
+        contract = run_keel(
+            repo, "gate", "task-start", "--change", "demo",
+            "--task", "1.1", "--json", "--no-guard",
+        )
+        fingerprint = json.loads(contract.stdout)["contract"]["fingerprint"]["value"]
+        authority = repo / "openspec/changes/demo/tasks.md"
+        write_text(
+            repo / "keel/guard.json",
+            json.dumps({
+                "schema": "keel-write-guard/v1",
+                "change": "demo",
+                "task": "1.1",
+                "fingerprint": {"algorithm": "sha256", "value": fingerprint},
+                "touch": ["src/feature.js"],
+                "authority": [{
+                    "path": "openspec/changes/demo/tasks.md",
+                    "sha256": hashlib.sha256(authority.read_bytes()).hexdigest(),
+                }],
+            }, indent=2) + "\n",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-delproj-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a declaring repository with an active manifest projects the
+        # write boundary and the declared tier.
+        ready = root / "ready"
+        ready.mkdir()
+        write_gate_fixture(ready, standing_authorization_task())
+        write_authorize_config(ready, "fast_check: echo c\ndelegation:\n  tier: deep\n")
+        guard_manifest(ready)
+        got = project(ready)
+        if got is None:
+            return 1
+        if got.get("status") != "ready":
+            report(f"delegation-projection: a ready delegation did not project: {got.get('reasons')}")
+            return 1
+        projection = got.get("projection") or {}
+        delegation = projection.get("delegation")
+        if delegation is None:
+            report(f"delegation-projection: the brief carries no delegation: {sorted(projection)}")
+            return 1
+        if delegation.get("tier") != "deep":
+            report(f"delegation-projection: the declared tier is not carried: {delegation}")
+            return 1
+        if not projection.get("touch"):
+            report("delegation-projection: the brief carries no write boundary.")
+            return 1
+        note = json.dumps(delegation)
+        if "select" not in note or "observe" not in note:
+            report(
+                "delegation-projection: the brief does not say Keel neither "
+                f"selects nor observes a model: {delegation}"
+            )
+            return 1
+
+        # M2 — no manifest refuses, and the refusal names what is missing.
+        (ready / "keel" / "guard.json").unlink()
+        unguarded = project(ready)
+        if unguarded is None:
+            return 1
+        if unguarded.get("status") == "ready":
+            report("delegation-projection: delegation projected with no active manifest.")
+            return 1
+        reasons = " ".join(unguarded.get("reasons") or [])
+        if "guard" not in reasons or "task-start" not in reasons:
+            report(f"delegation-projection: the refusal does not name the manifest: {reasons}")
+            return 1
+
+        # M2 — an unprovidable tier refuses and reports the alternatives
+        # rather than quietly running at a tier nobody declared.
+        typo = root / "typo"
+        typo.mkdir()
+        write_gate_fixture(typo, standing_authorization_task())
+        write_authorize_config(typo, "fast_check: echo c\ndelegation:\n  tier: turbo\n")
+        guard_manifest(typo)
+        bad = project(typo)
+        if bad is None:
+            return 1
+        if bad.get("status") == "ready":
+            report("delegation-projection: an unrecognized tier still projected.")
+            return 1
+        bad_reasons = " ".join(bad.get("reasons") or [])
+        if "turbo" not in bad_reasons:
+            report(f"delegation-projection: the refusal does not name the tier: {bad_reasons}")
+            return 1
+        for name in ("routine", "standard", "deep"):
+            if name not in bad_reasons:
+                report(f"delegation-projection: the refusal omits accepted tier {name}: {bad_reasons}")
+                return 1
+
+        # M3 — a silent repository still projects, without a delegation, and
+        # the stop side still returns evidence-only.
+        silent = root / "silent"
+        silent.mkdir()
+        write_gate_fixture(silent, standing_authorization_task())
+        write_authorize_config(silent, "fast_check: echo c\n")
+        guard_manifest(silent)
+        plain = project(silent)
+        if plain is None:
+            return 1
+        if plain.get("status") != "ready":
+            report(f"delegation-projection: a silent repository stopped projecting: {plain.get('reasons')}")
+            return 1
+        if (plain.get("projection") or {}).get("delegation") is not None:
+            report("delegation-projection: a silent repository projected a delegation.")
+            return 1
+        stop = run_keel(
+            silent, "project", "--target", "claude",
+            "--event", "subagent-stop", "--authorize", "subagent",
+            "--change", "demo", "--task", "1.1", "--json",
+        )
+        try:
+            stopped = json.loads(stop.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: subagent-stop returned no JSON: {stop.stdout!r}")
+            return 1
+        if (stopped.get("projection") or {}).get("returnAuthority") != "report-and-evidence-only":
+            report(f"delegation-projection: the stop side lost its return authority: {stopped.get('projection')}")
+            return 1
+        unauthorized = run_keel(
+            silent, "project", "--target", "claude",
+            "--event", "subagent-start", "--change", "demo",
+            "--task", "1.1", "--json",
+        )
+        try:
+            refused = json.loads(unauthorized.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-projection: unauthorized start returned no JSON: {unauthorized.stdout!r}")
+            return 1
+        if refused.get("status") == "ready":
+            report("delegation-projection: subagent-start projected without authorization.")
+            return 1
+
+    report("delegation-projection scenario passed.")
+    return 0
+
+
+def validate_native_capability_scope_scenario() -> int:
+    """A capability the target provides natively is not Keel's to build.
+
+    The policy file already carried procedures serving this rule — do not cede
+    a surface without a coverage report, do not integrate a host surface
+    without recorded design authority — but never the rule itself. A procedure
+    without its rule is followed where it was written and nowhere else.
+    """
+
+    spec = ROOT / "openspec/specs/keel-surface-evolution-policy/spec.md"
+    if not spec.exists():
+        report("native-capability-scope: the surface evolution policy is missing.")
+        return 1
+    text = re.sub(r"\s+", " ", spec.read_text(encoding="utf-8"))
+
+    # M1 — the rule, its scope limit, and the duplicate-carrier refusal.
+    for needle in (
+        "MUST NOT implement, wrap, or re-specify a capability the target runtime already provides natively",
+        "Keel's scope is limited to declaring policy about its use",
+        "extends the projection it already publishes instead of introducing a second carrier",
+    ):
+        if re.sub(r"\s+", " ", needle) not in text:
+            report(f"native-capability-scope: the policy omits: {needle}")
+            return 1
+
+    # M1 — a conflicting surface is refused outright, not resolved by wording.
+    if re.sub(r"\s+", " ", "returns to authoring instead of being resolved by precedence wording") not in text:
+        report("native-capability-scope: the policy does not refuse a conflicting surface.")
+        return 1
+
+    # M2 — the thinnest surviving layer is named rather than left implicit, so
+    # the rule ships with the handle a later reader needs to apply it.
+    if re.sub(r"\s+", " ", "the first candidate for removal when the argument stops holding") not in text:
+        report("native-capability-scope: the policy does not name the thinnest layer.")
+        return 1
+
+    # M2 — and this change's own application is recorded in its design, so the
+    # requirement ships with a worked example rather than as an abstraction.
+    design = ROOT / "openspec/changes/declare-who-runs-the-task/design.md"
+    archived = sorted(
+        ROOT.glob("openspec/changes/archive/*declare-who-runs-the-task/design.md")
+    )
+    if not design.exists() and archived:
+        design = archived[-1]
+    if not design.exists():
+        report("native-capability-scope: this change's design is missing.")
+        return 1
+    design_text = re.sub(r"\s+", " ", design.read_text(encoding="utf-8"))
+    for needle in (
+        "is not a Keel design goal",
+        "No separate write-capable brief contract module is built",
+    ):
+        if re.sub(r"\s+", " ", needle) not in design_text:
+            report(f"native-capability-scope: the design omits its own application: {needle}")
+            return 1
+
+    report("native-capability-scope scenario passed.")
+    return 0
+
+
+def validate_delegation_inheritance_scenario() -> int:
+    """A task keeps what it authored and inherits only where it authored none.
+
+    The capsule names the source of an inherited entry, so a tier the
+    repository supplied is never mistaken for one this task decided.
+    """
+
+    def capsule(repo: Path) -> dict | None:
+        result = run_keel(
+            repo, "gate", "task-start",
+            "--change", "demo", "--task", "1.1", "--json", "--no-guard",
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"delegation-inheritance: task-start returned no JSON: {result.stdout!r}")
+            report((result.stderr or "").strip())
+            return None
+        capsule_value = (payload.get("contract") or {}).get("capsule")
+        if capsule_value is None:
+            report(f"delegation-inheritance: task-start returned no capsule: {payload}")
+            return None
+        return capsule_value
+
+    with tempfile.TemporaryDirectory(prefix="keel-delinherit-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a task authoring no entry inherits the declared tier, and the
+        # capsule says the repository supplied it.
+        inherits = root / "inherits"
+        inherits.mkdir()
+        write_gate_fixture(inherits, standing_authorization_task())
+        write_authorize_config(
+            inherits, "fast_check: echo c\ndelegation:\n  tier: deep\n"
+        )
+        got = capsule(inherits)
+        if got is None:
+            return 1
+        delegation = got.get("delegation")
+        if delegation is None:
+            report(f"delegation-inheritance: the capsule carries no delegation: {got.keys()}")
+            return 1
+        if delegation.get("tier") != "deep":
+            report(f"delegation-inheritance: the declared tier did not reach the capsule: {delegation}")
+            return 1
+        if "config.yaml" not in (delegation.get("source") or ""):
+            report(f"delegation-inheritance: the inherited entry does not name its source: {delegation}")
+            return 1
+
+        # M2 — a task authoring its own entry keeps it, and names itself, while
+        # the repository declares something different.
+        authored = root / "authored"
+        authored.mkdir()
+        write_gate_fixture(
+            authored, standing_authorization_task("  - Delegation: routine\n")
+        )
+        write_authorize_config(
+            authored, "fast_check: echo c\ndelegation:\n  tier: deep\n"
+        )
+        own = capsule(authored)
+        if own is None:
+            return 1
+        mine = own.get("delegation") or {}
+        if mine.get("tier") != "routine":
+            report(f"delegation-inheritance: the authored tier was overridden: {mine}")
+            return 1
+        if "config.yaml" in (mine.get("source") or ""):
+            report(f"delegation-inheritance: an authored entry was attributed to the declaration: {mine}")
+            return 1
+
+        # M2 control — a silent repository leaves the task undelegated, so the
+        # two comparisons above are not both trivially true.
+        silent = root / "silent"
+        silent.mkdir()
+        write_gate_fixture(silent, standing_authorization_task())
+        write_authorize_config(silent, "fast_check: echo c\n")
+        none_of_it = capsule(silent)
+        if none_of_it is None:
+            return 1
+        absent = none_of_it.get("delegation") or {}
+        if absent.get("tier") is not None:
+            report(f"delegation-inheritance: a silent repository delegated: {absent}")
+            return 1
+
+        # M3 — a helper is still read-only. A delegate is a different role, not
+        # a helper with the restriction removed.
+        for label, repo in (("inherits", inherits), ("authored", authored), ("silent", silent)):
+            again = capsule(repo)
+            if again is None:
+                return 1
+            if again.get("helperAuthority") != "read-only-evidence-only":
+                report(
+                    f"delegation-inheritance: {label} changed helper authority: "
+                    f"{again.get('helperAuthority')}"
+                )
+                return 1
+
+    report("delegation-inheritance scenario passed.")
+    return 0
+
+
 def validate_review_checks_content_scenario() -> int:
     """Both checks concern content a gate can only shape-check.
 
@@ -15668,6 +16739,16 @@ SCENARIOS: tuple = (
     ("precedent-never-weakens", validate_precedent_never_weakens_scenario),
     ("precedent-rules", validate_precedent_rules_scenario),
     ("triage-declaration", validate_triage_declaration_scenario),
+    ("delegation-declaration", validate_delegation_declaration_scenario),
+    ("delegation-inheritance", validate_delegation_inheritance_scenario),
+    ("native-capability-scope", validate_native_capability_scope_scenario),
+    ("delegation-projection", validate_delegation_projection_scenario),
+    ("delegation-sole-authority", validate_delegation_sole_authority_scenario),
+    ("delegation-goal-budget", validate_delegation_goal_budget_scenario),
+    ("delegation-guard-binds", validate_delegation_guard_binds_scenario),
+    ("delegation-never-weakens", validate_delegation_never_weakens_scenario),
+    ("delegation-overlay", validate_delegation_overlay_scenario),
+    ("delegation-resident-text", validate_delegation_resident_text_scenario),
     (
         "triage-admits-only-a-start",
         validate_triage_admits_only_a_start_scenario,

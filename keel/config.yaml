@@ -1,10 +1,11 @@
 # Keel project configuration.
 #
-# Four independent declarations live here: fast_check, which names a command;
+# Five independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
-# directory of decisions already made and the reasoning behind them; and
-# triage, which names which work may start without being asked about at all.
+# directory of decisions already made and the reasoning behind them; triage,
+# which names which work may start without being asked about at all; and
+# delegation, which names who runs a task.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -79,3 +80,36 @@ precedents: ../decision-precedents
 
 triage:
   - auto
+
+# delegation (optional): the capability tier a subagent runs a task at, and by
+# declaring it, that a task may be implemented by one at all. There is no
+# separate on/off entry — a tier with no permission and a permission with no
+# tier are both incomplete, and one field cannot disagree with itself.
+#
+#   delegation:
+#     tier: standard
+#
+# The accepted tiers are the whole vocabulary — routine, standard, deep — and
+# an unrecognized one authorizes nothing until corrected, reported with the
+# accepted names rather than silently dropped. A task that authors no
+# `Delegation:` inherits what is declared here and the compiled capsule names
+# this file as the source; a task that authors its own keeps it.
+#
+# The tiers are abstract on purpose. A model name is target-specific — one
+# named for Claude means nothing to Codex — and expires at the next release,
+# in a file whose whole point is to still be correct after both. A tier also
+# names the capability the work requires rather than a guess at its size,
+# because a tier named for size authorizes exactly the judgement 5.7.0 refused
+# for triage.
+#
+# What this does NOT do: Keel carries the tier to the target and selects no
+# model. It cannot observe which model actually ran and does not pretend to,
+# in the same way it cannot verify a human applied a triage label. Delegation
+# is also refused whenever no write-guard manifest is active, because an absent
+# manifest passes every write through silently and looks identical on screen to
+# one the guard checked. And it settles nothing after the writing: the guard
+# binds Touch, `task-complete` demands the same evidence, and the current agent
+# re-runs every check itself before recording it, because a delegate's report
+# is a claim.
+#
+# This repository declares none.

@@ -1,6 +1,6 @@
 ---
 name: keel-run-single-task-goal
-description: Use when the user explicitly authorizes automatic execution or resume of exactly one OpenSpec task on Codex or Claude. Drives the single-task native goal lifecycle through Keel gates, keeps the current agent the sole writer, and stops at the task boundary. Never activate for ordinary apply, proposal work, ambiguous or multiple tasks, or OpenCode.
+description: Use when the user explicitly authorizes automatic execution or resume of exactly one OpenSpec task on Codex or Claude. Drives the single-task native goal lifecycle through Keel gates, keeps the current agent the sole holder of write authority, and stops at the task boundary. Never activate for ordinary apply, proposal work, ambiguous or multiple tasks, or OpenCode.
 license: UNLICENSED
 metadata:
   keel-role: single-task-goal-activation
@@ -11,7 +11,7 @@ metadata:
 
 ## Purpose
 
-Activate a native goal or subagent runtime to execute exactly one authorized OpenSpec task end to end, while OpenSpec, Git, the task-capsule fingerprint, and deterministic Keel gates stay the only durable authority. The current agent remains the sole writer and owns Review, gate invocation, the task checkbox, and completion. A native evaluator declaring success never marks or reports the task complete.
+Activate a native goal or subagent runtime to execute exactly one authorized OpenSpec task end to end, while OpenSpec, Git, the task-capsule fingerprint, and deterministic Keel gates stay the only durable authority. The current agent remains the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. Where delegation is declared, an authorized delegate may write inside the `Touch` boundary that authority already defined and acquires none of those decisions; the current agent re-runs each `M<n>` check itself before recording Evidence, because a delegate's reported result is a claim and the byte-identity check that validates a read-only helper cannot apply to a writer. A native evaluator declaring success never marks or reports the task complete.
 
 ## Authoritative sources and provenance
 
@@ -37,7 +37,7 @@ Activate only on an explicit, unambiguous request to automatically execute or re
 - Proposal, design, or spec authoring before tasks are final.
 - Ambiguous selection, multiple tasks, or a whole task group or change backlog.
 - An unrelated native `/goal` use that is not a Keel OpenSpec task.
-- Unrequested helpers or any request to delegate implementation to another agent.
+- Unrequested helpers, or an undeclared delegation of implementation to another agent.
 - OpenCode, which stays manual compatibility only with no v4 native activation.
 
 If any of these hold, stop and use the normal manual Keel loop.

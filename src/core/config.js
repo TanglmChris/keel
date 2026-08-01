@@ -9,6 +9,14 @@ const path = require("path");
 // author believing they authorized something they did not.
 const STANDING_AUTHORIZATION_ACTIONS = ["commit", "push", "release", "archive"];
 
+// The closed vocabulary of capability tiers a repository may declare for a
+// delegated task. The names describe the capability the work requires, never
+// the size of the work: a tier named for size would authorize the agent's guess
+// about difficulty, which is the judgement 5.7.0 refused for triage. Keel names
+// no concrete model — one is target-specific and expires at the next release,
+// and the declaration must still be correct after both.
+const DELEGATION_TIERS = ["routine", "standard", "deep"];
+
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
 
 // The declarations share keel/config.yaml with fast_check, so the reader stays
@@ -59,6 +67,54 @@ function readStandingAuthorization(repo) {
   // author believes they granted the typo too.
   if (unknown.length > 0) return { declared: [], unknown };
   return { declared, unknown };
+}
+
+// A nested block of `name: value` entries under one top-level key. Delegation
+// needs a key with a value rather than a bare list, so it cannot reuse
+// configList; the reader stays line-oriented for the same reason the others do.
+function configMap(repo, key) {
+  const configPath = path.join(repo, "keel", "config.yaml");
+  const entries = {};
+  if (!fs.existsSync(configPath)) return entries;
+  const opener = new RegExp(`^${key}\\s*:\\s*$`);
+  let inBlock = false;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    if (/^\s*#/.test(line)) continue;
+    if (opener.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    if (line.trim() === "") continue;
+    const entry = line.match(/^\s+(\w+)\s*:\s*(\S+)\s*$/);
+    // Anything that is not an indented entry closes the block, exactly as it
+    // does for a list; the next top-level key belongs to the rest of the file.
+    if (!entry) break;
+    entries[entry[1]] = entry[2];
+  }
+  return entries;
+}
+
+// Who runs a task. Declaring a tier is what permits delegation at that tier —
+// there is no separate on/off entry, because a tier with no permission and a
+// permission with no tier are both incomplete, and one field cannot disagree
+// with itself. An absent declaration delegates nothing, which is the default.
+function readDelegationPolicy(repo) {
+  const block = configMap(repo, "delegation");
+  const tier = block.tier;
+  // The accepted set travels with every answer so a caller reporting a refusal
+  // can name the alternatives without importing the vocabulary itself. A copy,
+  // because a caller that sorted or spliced it in place would edit the closed
+  // set for everyone who read it afterward.
+  const accepted = [...DELEGATION_TIERS];
+  if (!tier) return { declared: false, tier: null, unknown: [], accepted };
+  // Fail closed, the same way an unrecognized `authorize:` action does: a
+  // declaration Keel cannot fully read authorizes nothing, because the author
+  // of a typo believes they declared what they typed.
+  if (!DELEGATION_TIERS.includes(tier)) {
+    return { declared: true, tier: null, unknown: [tier], accepted };
+  }
+  return { declared: true, tier, unknown: [], accepted };
 }
 
 function configScalar(repo, key) {
@@ -159,7 +215,9 @@ function triageIssue(repo, labels) {
 
 module.exports = {
   CONFIG_RELATIVE_PATH,
+  DELEGATION_TIERS,
   STANDING_AUTHORIZATION_ACTIONS,
+  readDelegationPolicy,
   readPrecedentStore,
   readStandingAuthorization,
   readTriagePolicy,
