@@ -81,11 +81,11 @@
       - Findings: `pathAllowed` and `scopeEvidence` each carried their own separator rewrite beyond the reader D5 names, and both are removed here. This is inside M2's authored wording — "as the filesystem spells them" — but wider than D5's, which speaks only of the git path readers. Recorded because a reader comparing the design to the diff will find three deletions where one was described. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 2.1, whose changelog check states what the release changed. Second finding: `src/core/gates.js` and `src/core/context.js` now hold the same eleven-line `-z` record loop, the second copy added here. It is small and both are covered by this scenario, which reads one through the gate and the other through `keel context`, so a divergence fails. Closed in this task; no follow-up is owed.
     - Blocker: none
 
-- [ ] 1.3 Check the interpreter and the OpenSpec binary instead of assuming them
+- [x] 1.3 Check the interpreter and the OpenSpec binary instead of assuming them
   - Covers:
     - keel-target-surface-diagnostics / The interpreter and the OpenSpec binary that run are checked against what is required
     - D6 — the runner requires 3.10 and reports what it found
-    - D7 — the OpenSpec binary is reported, never enforced
+    - D7 — the OpenSpec binary is reported against the lock, never enforced
     - D8 — validation asserts the version it tested against
     - F5, F6 — the silent PATH fallback and the accepted 3.9
   - Touch:
@@ -96,22 +96,56 @@
     - Strategy: vertical-tdd
     - M1: driven with `KEEL_PYTHON` pointing at an interpreter that reports a version below the minimum, the runner exits non-zero without running the script, and its message names that interpreter and the version it reported
     - M2: driven with an interpreter at or above the minimum, the runner still runs the script and passes its exit code through unchanged
-    - M3: `keel doctor` reports the resolved `openspec` command, the version it reports, and the range declared in `package.json`, and states a disagreement when the resolved version falls outside that range
-    - M4: the suite fails with one message naming both versions when the resolved `openspec` is outside the declared range, rather than surfacing a validation error about the artifact under test
-    - M5: `keel doctor` performs no install and names no Keel-side remedy for an out-of-range OpenSpec, asserted on the reported text
+    - M3: `keel doctor` reports the resolved `openspec` command, the version it reports, and the version `package-lock.json` resolves; it states a disagreement when the resolved version is not the locked one; and the line it renders names no install command, because Keel reports which build answered and selects none
+    - M4: the suite fails with one message naming the resolved and the locked version when they differ, rather than surfacing a validation error about the artifact under test
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
-    - M5: pending
+    - Contract: keel-task-capsule/v1 sha256:11764b4b1689952da4a28ed5b040f16c8ebe4e6305d2b373b44c692aef73e7d4
+    - M1: pass. New scenario `runtime-versions-are-checked`, run as `python3.11 scripts/validate_plugin.py --scenario runtime-versions-are-checked`. A shell stub reporting `Python 3.9.6` is handed to the runner through `KEEL_PYTHON`; the runner exits non-zero and its message names the stub, the version it reported, and the 3.10 minimum. The stub exits 7 for anything but `--version`, and the check refuses a run that exited 7 — otherwise "non-zero" would be satisfied by handing the script over and letting it fail, which is the behavior being removed.
+    - M1.red: fail. `M1 the refusal does not name the version the interpreter reported`, from the shipped `commandExists`, which asked only whether `--version` exited zero.
+    - M1.green: pass, after `reportedVersion` and `meetsMinimum` replaced it and the refusal began listing every candidate with what it reported.
+    - M2: pass. A stub reporting `3.10.0` is used, and the script's own exit status 7 arrives unchanged.
+    - M2.red: fail. `M2 an interpreter reporting 3.10.0 did not run the script and pass its exit status through; got 127 rather than the script's 7`, aimed by making `meetsMinimum` return false unconditionally. M1 stayed green under that mutation, so the red is M2's own — it is the check that stops a version gate from becoming a wall.
+    - M2.green: pass.
+    - M3: pass. `keel doctor` emits exactly one `openspec:` line, it names the resolved command and both versions, and the line names no `npm install`, `npm ci`, or `keel --update`. Observed here as `openspec: ok - …/node_modules/.bin/openspec (1.6.0, lockfile 1.6.0)`.
+    - M3.red: fail. `M3 the openspec doctor line does not name the locked version 1.6.0, so a reader cannot tell which program answered`, printing the shipped line in full: `openspec: ok - openspec`. That line named neither the binary's path nor any version.
+    - M3.green: pass, after `openspecReportedVersion` and `lockedOpenSpecVersion` were added and the line began carrying both. The mismatch branch was also observed directly before `npm ci`: `openspec: warning - openspec (1.4.1, lockfile 1.6.0) — validation is answering from a different build than this repository pins…`.
+    - M4: pass. The suite reads the version `keel openspec --version` reports and the version `package-lock.json` resolves, and fails naming both when they differ.
+    - M4.red: fail — and not by mutation. `M4 validation is running against OpenSpec 1.4.1 while package-lock.json resolves 1.6.0. Results describe a different program: run npm ci so the pinned OpenSpec is the one keel openspec resolves.` That was the true state of this worktree: no `node_modules`, PATH holding 1.4.1, lockfile resolving 1.6.0. `npm ci` was run and the check went green.
+    - M4.green: pass.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 and M2 drive the shipped runner as a subprocess with real interpreters that report what the check needs them to report, and assert its exit status and its message. M3 and M4 read `keel doctor` and `keel openspec --version` as a person and as the suite would. Both directions are covered in each pair: refuse the old interpreter and still use the new one, report the disagreement and stay quiet when there is none.
+      - Scope check: `git status --short` shows `scripts/run_python.js`, `bin/keel.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory. `node_modules/` is gitignored and is a local install, not a repository change.
+      - Findings: M5 was merged into M3 and 1.3 reauthorized from `sha256:ec4ba9da…` to `sha256:11764b4b…`. As authored it asserted that the doctor line names no Keel-side remedy for an unlocked OpenSpec — and once `npm ci` aligned the versions, the mismatch branch stops rendering, so nothing could make that check fail. An unfalsifiable check is the defect this repository keeps removing, so the assertion moved onto whichever branch does render. The consequence is real and named: the mismatch branch's wording is not covered by an automated check, because forcing it needs a second package root with no `node_modules`. Durable owner: https://github.com/TanglmChris/keel/issues/36, reopened scope noted in this task's own record; the branch was observed by hand and its text is quoted in M3's evidence above. Second finding: M3's aimed red did not fire — the mutation targeted a template literal whose escaping the patch did not match — but M3's true red was captured before implementation and is quoted above, which is stronger than a mutation. Closed here; no follow-up is owed.
     - Blocker: none
+
+- [x] 1.4 Stop the template fixture from mangling the template
+  - Covers:
+    - keel-target-surface-diagnostics / The interpreter and the OpenSpec binary that run are checked against what is required
+    - F8 — the filler replaces an own-line instruction with slot text
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `spec-template-validates` passes against the shipped spec template with no change to the template itself
+    - M2: the filled template contains no paragraph that is slot text alone, so the fixture cannot produce a requirement the validator was always going to reject
+    - M3 (regression): `tasks-template-validates` and every other caller of the template filler stay green
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:47e6445e13fea55d1e83c2c442d82238a2caabef892f6dba7c467de4053e1c08
+    - M1: pass. `python3.11 scripts/validate_plugin.py --scenario spec-template-validates` passes. `openspec/` templates are untouched: the whole change is in the fixture's filler.
+    - M1.red: fail. `spec-template-validates: a requirement written from the shipped template did not validate`, quoting openspec's own `ADDED "the recorded feed status" must contain SHALL or MUST`. This red is one of the two failures issue #36 reports, and it reproduced identically on OpenSpec 1.4.1 and 1.6.0 — which is what rules out the version disagreement F5 describes and makes it F8.
+    - M1.green: pass, after `fill_template_slots` stopped replacing own-line comments. The filled template is now three content lines with no stray paragraph.
+    - M2: pass. The scenario asserts no line of the filled template is slot text alone, which is what an own-line author instruction becomes when it is filled instead of stripped.
+    - M2.red: fail. `spec-template-validates: the filled template has slot text alone on line(s) [4], so an own-line author instruction was filled rather than stripped and the fixture is malforming the template`, aimed by restoring the replace-everything rule. This is the assertion that names the cause: M1 alone reports that the template did not validate, which points at the template rather than at the fixture holding it.
+    - M2.green: pass.
+    - M3: pass. `tasks-template-red-green-example` — the only other caller of the filler — passes unchanged, and the full suite passes with no exceptions.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 runs the real `openspec validate` over the real shipped template, filled the way an author fills it, so what is asserted is that the template works rather than that the fixture is happy. M2 is the diagnostic half: it fails at the fixture, so a future reader is not sent to edit a template that was never wrong. M3 covers the other caller, whose own template has only own-line comments and was already relying on the rule this change made universal.
+      - Scope check: `git status --short` shows `scripts/validate_plugin.py` only — the Touch list exactly — plus this change's own directory.
+      - Findings: the `comments` parameter is gone rather than kept for compatibility, because both templates now want one rule and a mode that exists to be passed once is a trap. The instruction that broke this arrived in `ed1388d`, the change whose own task asserted a requirement written from this template validates — so the fix for issue #28 is what the scenario proving issue #28 has been tripping over ever since, and nothing detected it because the scenario's failure named the template. Discard reason: both halves are closed in this task — the filler is corrected and M2 now names the fixture rather than the template when it happens again.
+    - Blocker: none
+
 
 ## 2. Close
 
@@ -180,3 +214,4 @@
 - E7: A result produced against a different OpenSpec version than the repository declares is not reported as a result about this repository. Covered by: 1.3
 - E8: Keel reports these facts and manages none of them. Covered by: 1.3
 - E9: A reader whose guarded write starts being denied learns from the release notes why and what changed. Covered by: 2.1
+- E10: The suite that proves the templates works on the templates as shipped. Covered by: 1.4

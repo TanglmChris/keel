@@ -688,6 +688,42 @@ function runCommand(command, args, options = {}) {
   return typeof result.status === "number" ? result.status : 1;
 }
 
+// Which OpenSpec answered is not cosmetic. `openspecCandidates` prefers the
+// installed dependency and otherwise falls back to PATH in silence, so a
+// worktree with no `node_modules` validates against whatever version happens
+// to be installed globally — measured here as 1.4.1 against a lockfile that
+// resolves 1.6.0, which rejects a requirement the shipped template writes.
+// A green pipeline and a red worktree were the same command run against two
+// different programs. Keel states which one; it does not install or select.
+function openspecReportedVersion(command) {
+  const result = spawnSync(command, ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (result.error || result.status !== 0) return null;
+  const match = `${result.stdout || ""}${result.stderr || ""}`.match(
+    /\d+\.\d+\.\d+/
+  );
+  return match ? match[0] : null;
+}
+
+function lockedOpenSpecVersion() {
+  try {
+    const lock = JSON.parse(
+      fs.readFileSync(path.join(PACKAGE_ROOT, "package-lock.json"), "utf8")
+    );
+    for (const [name, entry] of Object.entries(lock.packages || {})) {
+      if (name.endsWith("@fission-ai/openspec") && entry && entry.version) {
+        return entry.version;
+      }
+    }
+  } catch {
+    // No lockfile in a published install; there is then nothing to disagree
+    // with, which is not the same as agreement and is reported as such.
+  }
+  return null;
+}
+
 function findOpenSpecCommand() {
   for (const command of openspecCandidates()) {
     const status = runCommand(command, ["--version"], {
@@ -1341,12 +1377,26 @@ function runDoctor(options) {
         stdio: "ignore",
         silentNotFound: true,
       }) === 0;
+    const resolvedVersion = openspecReportedVersion(openspec);
+    const locked = lockedOpenSpecVersion();
+    const mismatched = Boolean(
+      resolvedVersion && locked && resolvedVersion !== locked
+    );
+    const where = bareOpenSpecOnPath
+      ? openspec
+      : `${openspec} is keel-resolvable but bare \`openspec\` is not on PATH — use \`keel openspec\``;
+    const versions = `${resolvedVersion || "version unreadable"}, lockfile ${
+      locked || "unreadable"
+    }`;
     printDoctorLine(
       "openspec",
-      bareOpenSpecOnPath ? "ok" : "warning",
-      bareOpenSpecOnPath
-        ? openspec
-        : `${openspec} is keel-resolvable but bare \`openspec\` is not on PATH — use \`keel openspec\``
+      mismatched || !bareOpenSpecOnPath ? "warning" : "ok",
+      mismatched
+        ? `${where} (${versions}) — validation is answering from a different `
+          + "build than this repository pins, which is what a green pipeline "
+          + "and a red worktree look like. Keel reports which one answered "
+          + "and selects none."
+        : `${where} (${versions})`
     );
   }
 

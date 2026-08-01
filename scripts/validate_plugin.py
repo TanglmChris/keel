@@ -5121,28 +5121,27 @@ SLOT_FILLER = "the recorded feed status"
 SLOT_VOCABULARY = {"<strategy>": "evidence-first"}
 
 
-def fill_template_slots(text: str, comments: str = "strip") -> str:
+def fill_template_slots(text: str) -> str:
     """Fill a shipped template's author-facing slots the way an author would.
 
     Deliberately mechanical, so a slot added to the template later is handled
     without touching the scenario: what is asserted is the template's structure
     rather than a hand-maintained copy of it.
 
-    The two templates use HTML comments for different jobs, so the caller says
-    which. In the spec template a comment *is* the slot — the requirement name
-    and body are both comments — so it is replaced. In the tasks template
-    comments are instructions to the author sitting on their own lines, and the
-    slots are angle-bracket runs, so the comments are stripped.
+    One rule for both templates. An own-line comment is an instruction to the
+    author and goes; a comment with text before it on the line is that line's
+    slot — a requirement name, a task title — and is filled, because stripping
+    it would leave a heading the parser cannot read.
+
+    The spec template used to take a mode that replaced every comment, and it
+    stopped being correct the moment that template gained an own-line
+    instruction (`ed1388d`, the change that fixed issue #28). The instruction
+    became a bare paragraph of slot text above `The system SHALL …`, and
+    `openspec validate` reported the requirement as lacking a modal verb —
+    the fixture failing the template rather than the template failing.
     """
-    if comments == "replace":
-        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
-    else:
-        # An own-line comment is an instruction to the author, so it goes. A
-        # comment with text before it on the line is that line's slot — a task
-        # title, a group name — and stripping it leaves a task line the parser
-        # cannot read, so it is filled like any other slot.
-        text = re.sub(r"^[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n", "", text, flags=re.M)
-        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
+    text = re.sub(r"^[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n", "", text, flags=re.M)
+    text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
     # A slot whose value comes from a fixed vocabulary needs a member of it, so
     # those are named. Everything else takes the generic filler.
     for slot, value in SLOT_VOCABULARY.items():
@@ -5312,6 +5311,154 @@ def validate_guard_scope_is_the_repository_scenario() -> int:
         )
         return 1
     report("guard-scope-is-the-repository scenario passed.")
+    return 0
+
+
+def validate_runtime_versions_are_checked_scenario() -> int:
+    """Issue #36: the suite ran on whatever interpreter and OpenSpec answered.
+
+    `run_python.js` accepted any candidate whose `--version` exited zero, so
+    macOS system Python 3.9 ran a suite needing 3.10 and failed ten scenarios
+    with messages naming ten unrelated features. `findOpenSpecCommand` prefers
+    `node_modules/.bin/openspec` and otherwise falls back to PATH in silence,
+    so this repository validated changes against openspec 1.4.1 while its
+    lockfile resolves 1.6.0 — which is the whole of why `spec-template-
+    validates` was green in CI and red in the worktree.
+    """
+    label = "runtime-versions-are-checked"
+    runner = ROOT / "scripts/run_python.js"
+    with tempfile.TemporaryDirectory(prefix="keel-runtime-versions-") as raw:
+        root = Path(raw).resolve()
+        script = root / "target.py"
+        write_text(script, "import sys\nsys.exit(7)\n")
+
+        def fake_python(name: str, version: str) -> Path:
+            path = root / name
+            write_text(
+                path,
+                "#!/bin/sh\n"
+                f'if [ "$1" = "--version" ]; then echo "Python {version}"; '
+                "exit 0; fi\nexit 7\n",
+            )
+            path.chmod(0o755)
+            return path
+
+        def run_runner(python: Path) -> subprocess.CompletedProcess[str]:
+            env = dict(os.environ)
+            env["KEEL_PYTHON"] = str(python)
+            return subprocess.run(
+                ["node", str(runner), str(script)],
+                env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+
+        # M1 — an interpreter below the minimum is refused by version, and the
+        # refusal names it. The fake exits 7 for anything but `--version`, so a
+        # runner that handed the script over anyway would exit 7, not non-zero
+        # for the right reason — the message is what separates the two.
+        old = fake_python("old-python", "3.9.6")
+        result = run_runner(old)
+        if result.returncode == 0:
+            report(
+                f"{label} M1 the runner accepted an interpreter reporting 3.9.6 "
+                "and ran the suite on it."
+            )
+            return 1
+        combined = f"{result.stdout}{result.stderr}"
+        for needle, why in (
+            ("3.9.6", "the version the interpreter reported"),
+            ("old-python", "which interpreter it tried"),
+            ("3.10", "the minimum the suite needs"),
+        ):
+            if needle not in combined:
+                report(f"{label} M1 the refusal does not name {why}.")
+                report(f"  {combined.strip()}")
+                return 1
+        if result.returncode == 7:
+            report(
+                f"{label} M1 the runner exited with the script's own status, so "
+                "it ran the script rather than refusing the interpreter."
+            )
+            return 1
+
+        # M2 — and an interpreter at the minimum is still used, with the
+        # script's exit status passed through untouched.
+        new = fake_python("new-python", "3.10.0")
+        passed = run_runner(new)
+        if passed.returncode != 7:
+            report(
+                f"{label} M2 an interpreter reporting 3.10.0 did not run the "
+                f"script and pass its exit status through; got "
+                f"{passed.returncode} rather than the script's 7."
+            )
+            report(f"  {(passed.stdout + passed.stderr).strip()}")
+            return 1
+
+    # M3/M4/M5 — the OpenSpec binary that actually answers, against the one the
+    # lockfile resolves. Read from this repository, because the fact under test
+    # is which program a developer's `keel` invokes here.
+    locked = None
+    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    for name, entry in lock.get("packages", {}).items():
+        if name.endswith("@fission-ai/openspec"):
+            locked = entry.get("version")
+    if not locked:
+        report(f"{label} could not read the locked OpenSpec version.")
+        return 1
+    doctor = run_keel(ROOT, "--doctor")
+    lines = [line for line in doctor.stdout.splitlines() if line.startswith("openspec:")]
+    if len(lines) != 1:
+        report(f"{label} M3 `keel doctor` did not emit exactly one openspec line.")
+        return 1
+    line = lines[0]
+    if locked not in line:
+        report(
+            f"{label} M3 the openspec doctor line does not name the locked "
+            f"version {locked}, so a reader cannot tell which program answered."
+        )
+        report(f"  {line}")
+        return 1
+    resolved = re.search(r"\b(\d+\.\d+\.\d+)\b", line)
+    if not resolved:
+        report(f"{label} M3 the openspec doctor line reports no resolved version.")
+        report(f"  {line}")
+        return 1
+    if resolved.group(1) != locked and "warning" not in line:
+        report(
+            f"{label} M3 the resolved OpenSpec is {resolved.group(1)} and the "
+            f"lockfile resolves {locked}, but the doctor line does not state "
+            "the disagreement."
+        )
+        report(f"  {line}")
+        return 1
+    for banned in ("npm install", "npm ci", "keel --update"):
+        if banned in line:
+            report(
+                f"{label} M5 the openspec doctor line names {banned!r} as a "
+                "remedy. Keel reports which version answered and does not "
+                "install or select one."
+            )
+            report(f"  {line}")
+            return 1
+    # M4 — the same fact, asserted by the suite rather than by a person who
+    # thought to run doctor.
+    probe = run_keel(ROOT, "openspec", "--version")
+    running = re.search(r"\b(\d+\.\d+\.\d+)\b", probe.stdout or "")
+    if not running:
+        report(f"{label} M4 could not read the version of the OpenSpec in use.")
+        return 1
+    if running.group(1) != locked:
+        report(
+            f"{label} M4 validation is running against OpenSpec "
+            f"{running.group(1)} while package-lock.json resolves {locked}. "
+            "Results describe a different program: run `npm ci` so the pinned "
+            "OpenSpec is the one `keel openspec` resolves."
+        )
+        return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
     return 0
 
 
@@ -6449,9 +6596,23 @@ def validate_spec_template_validates_scenario() -> int:
         report("spec-template-validates skipped: the openspec CLI is not on PATH.")
         return 0
 
-    filled = fill_template_slots(
-        shipped.read_text(encoding="utf-8"), comments="replace"
-    )
+    filled = fill_template_slots(shipped.read_text(encoding="utf-8"))
+    # A line that is slot text and nothing else is an author instruction the
+    # filler treated as a slot. It reads as a requirement body with no modal
+    # verb, so the fixture would be handing the validator something no author
+    # would ever write and reporting the template for it.
+    stray = [
+        index + 1
+        for index, line in enumerate(filled.splitlines())
+        if line.strip() == SLOT_FILLER
+    ]
+    if stray:
+        report(
+            "spec-template-validates: the filled template has slot text alone "
+            f"on line(s) {stray}, so an own-line author instruction was filled "
+            "rather than stripped and the fixture is malforming the template."
+        )
+        return 1
     with tempfile.TemporaryDirectory(prefix="keel-spec-template-") as raw:
         repo = Path(raw)
         write_text(repo / "openspec/project.md", "# Project\n\nA fixture.\n")
@@ -17902,6 +18063,10 @@ SCENARIOS: tuple = (
     (
         "git-paths-carry-no-escaping",
         validate_git_paths_carry_no_escaping_scenario,
+    ),
+    (
+        "runtime-versions-are-checked",
+        validate_runtime_versions_are_checked_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
