@@ -160,7 +160,7 @@ Target archive directory already exists.
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 
-<!-- keel:openspec-surface-overlay version=5.18.0 -->
+<!-- keel:openspec-surface-overlay version=5.19.0 -->
 ## Keel Archive Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.

@@ -120,9 +120,19 @@ TASKS_COMMIT_STATUS_PATTERNS = (
         "remove branch merge state from tasks.md; git log is the source of truth",
     ),
 )
+# A commit identifier is hexadecimal, and `a`-`f` are the only reason those
+# letters appear in one. A run of decimal digits alone is a phone number, a
+# timestamp, an order number, or a port — evidence prose, not state git owns.
+# Matching one as a recorded identifier (#58) asks the author to reword
+# something that was true, and a check that refuses correct work is one people
+# learn to route around. The length and word-boundary conditions are kept
+# verbatim inside the lookahead, so the token that matches is the token that
+# always matched, minus the all-decimal ones.
+_HASH_SHAPED_TOKEN = r"\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b"
+_HASH_CONTEXT_WORD = r"(?:commit|提交|合入|master|main|HEAD|hash|哈希)"
 TASKS_CONTEXTUAL_HASH_RE = re.compile(
-    r"(?i)(?:commit|提交|合入|master|main|HEAD|hash|哈希).*\b[0-9a-f]{7,40}\b|"
-    r"\b[0-9a-f]{7,40}\b.*(?:commit|提交|合入|master|main|HEAD|hash|哈希)"
+    rf"(?i){_HASH_CONTEXT_WORD}.*{_HASH_SHAPED_TOKEN}|"
+    rf"{_HASH_SHAPED_TOKEN}.*{_HASH_CONTEXT_WORD}"
 )
 
 

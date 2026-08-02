@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.18.0"
-PROTOCOL_VERSION = "5.18.0"
+PACKAGE_VERSION = "5.19.0"
+PROTOCOL_VERSION = "5.19.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19619,6 +19619,162 @@ def validate_published_specs_validate_strictly_scenario() -> int:
     return 0
 
 
+def validate_decimal_runs_are_not_hash_shaped_scenario() -> int:
+    """Issue #58: an eleven-digit fake phone number failed `keel state`.
+
+    The criterion was a context word beside `[0-9a-f]{7,40}`, and eleven
+    decimal digits are eleven characters of that class. So was a timestamp,
+    an order number, a port, and any numeric fixture that happened to sit on a
+    line with the word `commit` or `提交` — which in evidence prose is most of
+    them.
+
+    The cost is not the refusal, it is what the refusal asks for. Nothing is
+    wrong with the line, so the only way past it is to write the evidence
+    differently; the reporter changed the number to `138****0000`. Evidence
+    reworded to satisfy a pattern is weaker than the evidence that was true,
+    and a check that fails on correct work is one people learn to route
+    around.
+
+    Same class as #60, repaired one release earlier in the other direction:
+    there the character class was too narrow. The rule was right both times.
+    """
+    label = "decimal-runs-are-not-hash-shaped"
+
+    def tasks_doc(body: str) -> str:
+        return (
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "## Tasks\n\n"
+            "- [x] A1 implementation\n"
+            f"{body}\n"
+            "## Workflow Notes\n\n- None.\n"
+        )
+
+    # F2, measured at 5.18.0: each of these is refused by the pre-change
+    # criterion, and none of them records anything git owns.
+    accepted = (
+        "- M1: pass —— 提交表单时手机号 13800138000 通过校验。\n",
+        "- M2: pass —— 时间戳 1700000000 与 commit 记录对齐。\n",
+        "- M3: pass —— 提交订单号 20260802123 落库。\n",
+    )
+    # The other half of the requirement: what the rule exists to refuse.
+    refused_token = "- M4: pass —— 合入前的 commit a1b2c3d4e5f6 已验证。\n"
+    # Wording alone, carrying no hash-shaped token at all.
+    refused_wording = "- M5: 该任务**未提交**，等待评审。\n"
+
+    def state_of(check) -> str:
+        if "keel state: ok" in check.stdout:
+            return "ok"
+        if "keel state: failed" in check.stdout:
+            return "failed"
+        return "unreported"
+
+    with tempfile.TemporaryDirectory(prefix="keel-decimal-runs-") as raw:
+        repo = (Path(raw) / "repo").resolve()
+        repo.mkdir()
+        install = run_keel(repo, "--install")
+        if install.returncode != 0:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report((install.stderr or install.stdout).strip())
+            return 1
+
+        tasks_path = repo / "openspec/changes/numbers-in-evidence/tasks.md"
+
+        def check(body: str):
+            write_text(tasks_path, tasks_doc(body))
+            return run_keel(repo, "--check")
+
+        # `keel state` reporting nothing at all is a different failure from it
+        # reporting a refusal, and one condition covering both would send the
+        # reader to a line that has no problem in it.
+        def unreported(result, where: str) -> bool:
+            if state_of(result) != "unreported":
+                return False
+            report(
+                f"{label}: keel --check reported no state at all while {where}. "
+                "This is not a verdict about the fixture — the check did not "
+                "reach the point of having one."
+            )
+            report((result.stderr or result.stdout).strip()[:600])
+            return True
+
+        # M1 — the reported shape and its two siblings, each on its own line so
+        # a failure names which one.
+        for line in accepted:
+            result = check(line)
+            if unreported(result, "reading one ordinary number"):
+                return 1
+            if state_of(result) != "ok":
+                report(
+                    f"{label}: an ordinary number in evidence prose was refused "
+                    "as a recorded identifier. Nothing on this line records "
+                    "anything git owns, so the only way past the refusal is to "
+                    "reword evidence that was true."
+                )
+                report(f"  line: {line.strip()}")
+                for state_error in [
+                    out for out in result.stdout.splitlines()
+                    if out.startswith("state-error")
+                ]:
+                    report(f"  {state_error}")
+                return 1
+
+        # All three together, because the check reports per line and a
+        # per-line pass says nothing about a file holding several.
+        together = check("".join(accepted))
+        if unreported(together, "reading three ordinary numbers in one file"):
+            return 1
+        if state_of(together) != "ok":
+            report(f"{label}: three ordinary numbers in one file were refused.")
+            report(together.stdout.strip()[:600])
+            return 1
+
+        # M1 negative — the narrowing must not have narrowed the rule.
+        with_token = check("".join(accepted) + refused_token)
+        if unreported(with_token, "reading a hexadecimal identifier"):
+            return 1
+        if state_of(with_token) != "failed":
+            report(
+                f"{label}: a hexadecimal identifier of that length beside a "
+                "context word was accepted. Narrowing what counts as an "
+                "identifier must not stop the check refusing one."
+            )
+            report(with_token.stdout.strip()[:600])
+            return 1
+        if with_token.returncode == 0:
+            report(f"{label}: the refusal did not fail the check's exit status.")
+            return 1
+        named = [
+            out for out in with_token.stdout.splitlines()
+            if out.startswith("state-error") and "tasks.md:" in out
+        ]
+        if not named:
+            report(
+                f"{label}: the refusal named no line. An author cannot act on "
+                "a refusal that does not say where."
+            )
+            report(with_token.stdout.strip()[:600])
+            return 1
+
+        # And the wording patterns, which never depended on a digit run.
+        wording = check(refused_wording)
+        if unreported(wording, "reading recorded work state written in words"):
+            return 1
+        if state_of(wording) != "failed":
+            report(
+                f"{label}: recorded work state written in words was accepted. "
+                "That rule reads the wording and is untouched by any change to "
+                "what counts as an identifier."
+            )
+            report(wording.stdout.strip()[:600])
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -19976,6 +20132,10 @@ SCENARIOS: tuple = (
     (
         "published-specs-validate-strictly",
         validate_published_specs_validate_strictly_scenario,
+    ),
+    (
+        "decimal-runs-are-not-hash-shaped",
+        validate_decimal_runs_are_not_hash_shaped_scenario,
     ),
     ("validation-runner", validate_validation_runner_scenario),
 )
