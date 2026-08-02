@@ -2,7 +2,7 @@
   "name": "@christang/keel",
   "displayName": "Keel",
   "description": "Keel OpenSpec execution discipline CLI for Claude Code, Codex, and OpenCode.",
-  "version": "5.19.0",
+  "version": "5.20.0",
   "license": "MIT",
   "repository": {
     "type": "git",
