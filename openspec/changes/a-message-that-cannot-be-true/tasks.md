@@ -77,7 +77,7 @@
       - Findings: two. First: the defect is larger than the proposal states. The proposal describes the archived-manifest case as a misleading refusal; M1's red shows that a write *inside* the stale Touch was allowed silently, so an archived task went on granting write authority until this fix. The proposal's account of it is now incomplete rather than wrong. Resolved here: M1, whose assertion is the corrected statement, and the release entry states the allow as the more serious half. Second: design.md's A2 said this scenario would archive a real change; it relocates the directory to the archive path instead, because coupling a guard test to a complete valid change plus the OpenSpec CLI would make it depend on a program it never exercises, and the assumption A2 rests on was already verified directly against this repository. A2 was corrected to say what the scenario does and why. Resolved here: openspec/changes/a-message-that-cannot-be-true/design.md
     - Blocker: none
 
-- [ ] 1.3 Count the assertions that guard several failures behind one message
+- [x] 1.3 Count the assertions that guard several failures behind one message
   - Covers:
     - keel-validation-runner / The one-message-many-failures assertion shape is counted
     - D5 — a count, not a lint, and why 75 sites make the lint unshippable
@@ -91,21 +91,31 @@
     - Strategy: vertical-tdd
     - M1: the counter, given a synthetic source holding one assertion of the counted shape, reports exactly that site; given the same source with the assertion split into two, it reports none
     - M2: the counter does not report an `or`-tested assertion whose operands are all membership tests, nor one whose body is not a `report(...)` followed by a single `return`
-    - M3: the scenario fails when the measured count of `scripts/validate_plugin.py` exceeds the recorded number, naming the sites that are not in the recorded set, and fails with a distinct message when the measured count is below it
+    - M3: the comparison fails when the measured count exceeds the recorded number, listing the measured line numbers so the added site can be located, and fails with a distinct message naming both numbers when the measured count is below it; it passes only when they are equal
     - M4: the scenario passes against `scripts/validate_plugin.py` as this change leaves it, and its own assertions are not of the counted shape
     - M5: the reported wording states that the count bounds a shape rather than asserting that each site is wrong
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
-    - M5: pending
+    - Contract: keel-task-capsule/v1 sha256:6747b7b5fa568b84b6b674f2b4dc12bf20110be220335958e3e54ccebacec046
+    - M1: pass. New scenario `assertion-shape-count` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario assertion-shape-count`. `or_guarded_assertion_sites` is a pure function over source text, so the counted and the split forms of the same assertion are compared directly: the counted one reports line 3, and splitting it so each failure carries its own message reports nothing.
+    - M1.red: fail. `M1 the counter did not report the single counted site at line 3 of the synthetic source; got []`, aimed by requiring three or more operands, so a two-operand `or` — the shape issue #43 actually records — stopped being seen.
+    - M1.green: pass.
+    - M2: pass. An `or` whose operands are all membership tests is one claim about one subject and is not counted; an `if` whose body is not a `report(...)` followed by a single `return` is not an assertion site at all.
+    - M2.red: fail, twice, once per exemption. Removing the all-membership exemption gave `M2 an \`or\` whose operands are all membership tests is one claim about one subject and is not counted; got [3]`; removing the report-and-return requirement gave `M2 an \`if\` whose body is not a report followed by a single return is not an assertion site; got [3]`. Both matter: without the first the count would fold in ordinary two-substring assertions, and without the second it would count control flow that reports nothing.
+    - M2.green: pass.
+    - M3: pass. `assertion_site_drift` fails when the measured count is above the recorded number and lists the measured line numbers, fails with a different message naming staleness when it is below, and returns empty only when they are equal.
+    - M3.red: fail, twice, once per direction. Making the fall branch unreachable gave `M3 a measured count below the recorded one produced no failure, so the recorded number could go stale silently` — that is the rise-only check the design refuses. Making the fall reuse the rise's message gave `M3 the fall must say the recorded number is stale and name the new one`, printing a rise message for a fall. A first attempt at this red edited a line that did not carry the asserted phrase and the scenario stayed green; that mutation proved nothing and was redone rather than recorded as a red.
+    - M3.green: pass.
+    - M4: pass. `scripts/validate_plugin.py` measures 75 sites against a recorded 75, and none of them is inside this scenario.
+    - M4.red: fail, twice, and both were real rather than aimed. The constant was first written as 77, and the real-file comparison answered `M4 77 assertion sites are recorded but only 75 are present, so the recorded number is stale. Lower OR_GUARDED_ASSERTION_SITES to 75.` — the fall direction firing on the real file, naming the exact edit. Then the self-check answered `M4 this scenario's own assertions are of the shape it counts, at lines [18490, 18493]`; the counter was right and the scenario's arithmetic was wrong, adding a character offset to a line number, so it was reading into the next function. Fixed by counting newlines to the offset.
+    - M4.green: pass. The measured 75 is the same number the file carried before this change, so all three scenarios added by it — `findings-resolved-here`, `guard-stale-manifest`, and this one — contributed zero counted sites.
+    - M5: pass. The rise message states that the number bounds a shape and is not a count of defects, so a reader meeting it for the first time does not read 75 as 75 bugs.
+    - M5.red: fail. `M5 the failure must state that the count bounds a shape rather than asserting each site is wrong`, printing the message with that clause replaced by "This number is measured." — which is true, uninformative, and exactly the reading the clause exists to prevent.
+    - M5.green: pass.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the counter and the comparison are pure functions over source text and a pair of numbers, so every claim is exercised on inputs the check controls rather than on whatever the file happens to contain — which is what makes M1's and M2's negative cases meaningful. The one check that runs against the real file, M4, is the one that has to: a count nobody compares to the file is not a count. Both directions of the comparison are covered, so a rise-only implementation fails rather than passes.
+      - Scope check: `git status --short` shows `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: two, both closed here. First: the constant was recorded as 77 by carrying forward the pre-change measurement plus an assumption that this change's own scenarios would add two sites. They added none, and the check refused the guessed number immediately. The number is now measured rather than predicted, which is the discipline the check exists to enforce, applied to its own constant. Resolved here: M4. Second: the self-check computing this scenario's own line range added a character offset to a line number, so it reported sites in the following function as its own. Caught by the check itself on first run and corrected to count newlines. Resolved here: M4, whose assertion is what failed and what now passes. Third, and not this task's defect: the `keel` on PATH is 5.7.0 and the installed plugin is 5.7.1, against a 5.11.0 repository, so every bare `keel gate` run in this session used a four-minor-old binary — surfaced when 5.7.0 refused this task's `Resolved here:` Findings, a disposition 1.1 had just implemented. The validator's `run_keel` targets `ROOT/bin/keel.js`, so all scenario evidence is unaffected; the three tasks were re-run through `node bin/keel.js`, every anchor recompiled byte-identical, and all three return `pass`. The finding that outlives this task is why nothing warned: the SessionStart version comparison shipped in 5.9.0 and the installed plugin is 5.7.1, so the check that reports a stale runtime is itself part of the stale runtime, and its silence is indistinguishable from agreement. Durable owner: https://github.com/TanglmChris/keel/issues/38, whose L3 layer now records the measurement and the design constraint it puts on any fix.
     - Blocker: none
 
 ## 2. Close

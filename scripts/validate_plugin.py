@@ -18136,6 +18136,277 @@ def validate_guard_stale_manifest_scenario() -> int:
     return 0
 
 
+# The one-message-many-failures shape, counted rather than forbidden.
+#
+# Issue #43 records it caught by `keel-review-checklist` in three consecutive
+# changes, every time in this file: `if <the run did not work> or <the output
+# lacks a specific thing>:` followed by one `report(...)` describing only the
+# second operand. When the first fires the sentence is false, and it sends the
+# reader to a place with no problem in it.
+#
+# This number bounds a SHAPE. It is not a count of defects: many of the sites
+# it counts carry a message that genuinely covers every operand, and deciding
+# whether a particular sentence misleads needs a model, so that judgment stays
+# in `keel-review-checklist`. What the number does is make a *new* one visible
+# when it is written, which is earlier than a review that only runs at a
+# completion gate.
+#
+# A pass/fail lint was the obvious form and is unshippable: the shape was
+# already present at this many sites when the count was introduced, and
+# rewriting them all in the file every other correctness claim rests on is a
+# large blind diff. A recorded count fails when the number rises and lists what
+# it measured; it also fails when the number falls without this constant being
+# lowered, because a number that only checks for rises becomes false the first
+# time someone fixes a site — and a false number is what this whole change is
+# about. Fixing sites is expected. Lowering this constant is one line.
+OR_GUARDED_ASSERTION_SITES = 75
+
+
+def or_guarded_assertion_sites(source: str) -> list[int]:
+    """Line numbers of `if` statements where one message covers several failures.
+
+    The counted shape, stated so the next reader can restate it exactly: a body
+    of one or more `report(...)` calls followed by exactly one `return`, under
+    an `or` test with at least one membership operand (`in` / `not in`) and at
+    least one operand that is not.
+
+    A heuristic rule keyed on `returncode`, `is None`, `len(` and
+    `.get("status")` was measured first and found 68 sites against this rule's
+    75; the simple one is used because a rule nobody can reproduce produces a
+    number nobody can check.
+    """
+
+    def is_report_return(body: list) -> bool:
+        reports = [
+            node for node in body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "report"
+        ]
+        if not reports:
+            return False
+        returns = [node for node in body if isinstance(node, ast.Return)]
+        if len(returns) != 1:
+            return False
+        return len(body) == len(reports) + len(returns)
+
+    def is_membership(node) -> bool:
+        if not isinstance(node, ast.Compare):
+            return False
+        return any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops)
+
+    sites = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.If):
+            continue
+        if not is_report_return(node.body):
+            continue
+        test = node.test
+        if not isinstance(test, ast.BoolOp):
+            continue
+        if not isinstance(test.op, ast.Or):
+            continue
+        operands = test.values
+        if not any(is_membership(item) for item in operands):
+            continue
+        if all(is_membership(item) for item in operands):
+            continue
+        sites.append(node.lineno)
+    return sorted(sites)
+
+
+def assertion_site_drift(measured: list[int], recorded: int) -> str:
+    """Empty when the measured sites match the recorded count.
+
+    Both directions fail, and they fail differently, because they call for
+    opposite actions: a rise means split the assertion you just wrote, and a
+    fall means lower the constant.
+    """
+    if len(measured) > recorded:
+        return (
+            f"{len(measured)} assertion sites guard several distinct failures "
+            f"behind one message, but {recorded} are recorded. One condition "
+            "reporting two failures names the wrong cause whenever the other "
+            "one fires. Split the `if` you just added so each failure carries "
+            "its own message, or — if the message genuinely covers every "
+            "operand — raise OR_GUARDED_ASSERTION_SITES and say why. This "
+            "number bounds a shape and is not a count of defects. Measured at "
+            f"lines: {', '.join(str(line) for line in measured)}."
+        )
+    if len(measured) < recorded:
+        return (
+            f"{recorded} assertion sites are recorded but only {len(measured)} "
+            "are present, so the recorded number is stale. Lower "
+            f"OR_GUARDED_ASSERTION_SITES to {len(measured)}. The count fails in "
+            "this direction too because a number that only checks for rises "
+            "stops being true the first time a site is fixed."
+        )
+    return ""
+
+
+# Synthetic sources for the counter. They are strings rather than fixtures on
+# disk because the rule is about syntax, and a fixture file would itself be
+# counted when the suite measures this file's siblings.
+COUNTED_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0 or "Usage:" not in result.stdout:
+        report("no Usage: line")
+        return 1
+    return 0
+'''
+
+SPLIT_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0:
+        report("the command failed to run")
+        return 1
+    if "Usage:" not in result.stdout:
+        report("no Usage: line")
+        return 1
+    return 0
+'''
+
+ALL_MEMBERSHIP_ASSERTION_SOURCE = '''
+def probe():
+    if "alpha" not in text or "beta" not in text:
+        report("the output names neither alpha nor beta")
+        return 1
+    return 0
+'''
+
+NO_REPORT_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0 or "Usage:" not in result.stdout:
+        cleanup()
+        return 1
+    return 0
+'''
+
+
+def validate_assertion_shape_count_scenario() -> int:
+    """Issue #43: one condition guarding two failures, caught three times.
+
+    `keel-review-checklist` catches it, but only at a completion gate and only
+    because a human wrote a checklist entry pointing the model at it. This
+    counts the shape so a new one is visible when it is written.
+    """
+    # M1 — the counter finds the shape, and stops finding it once it is split.
+    counted = or_guarded_assertion_sites(COUNTED_ASSERTION_SOURCE)
+    if counted != [3]:
+        report(
+            "assertion-shape-count: M1 the counter did not report the single "
+            f"counted site at line 3 of the synthetic source; got {counted}."
+        )
+        return 1
+    split = or_guarded_assertion_sites(SPLIT_ASSERTION_SOURCE)
+    if split:
+        report(
+            "assertion-shape-count: M1 splitting the assertion so each failure "
+            f"carries its own message must clear it; got {split}."
+        )
+        return 1
+
+    # M2 — the two shapes that are deliberately not counted.
+    all_membership = or_guarded_assertion_sites(ALL_MEMBERSHIP_ASSERTION_SOURCE)
+    if all_membership:
+        report(
+            "assertion-shape-count: M2 an `or` whose operands are all "
+            "membership tests is one claim about one subject and is not "
+            f"counted; got {all_membership}."
+        )
+        return 1
+    no_report = or_guarded_assertion_sites(NO_REPORT_ASSERTION_SOURCE)
+    if no_report:
+        report(
+            "assertion-shape-count: M2 an `if` whose body is not a report "
+            f"followed by a single return is not an assertion site; got "
+            f"{no_report}."
+        )
+        return 1
+
+    # M3 — the comparison fails in both directions, differently.
+    risen = assertion_site_drift([10, 20, 30], 2)
+    if not risen:
+        report(
+            "assertion-shape-count: M3 a measured count above the recorded one "
+            "produced no failure."
+        )
+        return 1
+    if "30" not in risen:
+        report(
+            "assertion-shape-count: M3 the rise must list the measured line "
+            f"numbers so the added site can be located. Got: {risen}"
+        )
+        return 1
+    fallen = assertion_site_drift([10], 2)
+    if not fallen:
+        report(
+            "assertion-shape-count: M3 a measured count below the recorded one "
+            "produced no failure, so the recorded number could go stale "
+            "silently."
+        )
+        return 1
+    if fallen == risen:
+        report(
+            "assertion-shape-count: M3 a rise and a fall call for opposite "
+            "actions and must not share a message."
+        )
+        return 1
+    if "stale" not in fallen:
+        report(
+            f"assertion-shape-count: M3 the fall must say the recorded number "
+            f"is stale and name the new one. Got: {fallen}"
+        )
+        return 1
+    if assertion_site_drift([10, 20], 2):
+        report(
+            "assertion-shape-count: M3 a measured count equal to the recorded "
+            "one must pass."
+        )
+        return 1
+
+    # M4 — the real file, and this scenario's own assertions.
+    source = (ROOT / "scripts/validate_plugin.py").read_text(encoding="utf-8")
+    measured = or_guarded_assertion_sites(source)
+    drift = assertion_site_drift(measured, OR_GUARDED_ASSERTION_SITES)
+    if drift:
+        report(f"assertion-shape-count: M4 {drift}")
+        return 1
+    own_start = source.index("def validate_assertion_shape_count_scenario")
+    own_first_line = source[:own_start].count("\n") + 1
+    own_end = own_start + source[own_start:].index("\n\n\ndef ")
+    own_last_line = source[:own_end].count("\n") + 1
+    inside = [
+        line for line in measured
+        if own_first_line <= line <= own_last_line
+    ]
+    if inside:
+        report(
+            "assertion-shape-count: M4 this scenario's own assertions are of "
+            f"the shape it counts, at lines {inside}."
+        )
+        return 1
+
+    # M5 — the wording says what the number is.
+    if "bounds a shape and is not a count of defects" not in risen:
+        report(
+            "assertion-shape-count: M5 the failure must state that the count "
+            f"bounds a shape rather than asserting each site is wrong. Got: "
+            f"{risen}"
+        )
+        return 1
+
+    if "assertion-shape-count" not in {name for name, _ in SCENARIOS}:
+        report("assertion-shape-count: the scenario registry does not include it.")
+        return 1
+    report(
+        f"assertion-shape-count scenario passed: {len(measured)} sites, "
+        "a bound on a shape and not a count of defects."
+    )
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -18405,6 +18676,7 @@ SCENARIOS: tuple = (
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
     ("findings-resolved-here", validate_findings_resolved_here_scenario),
     ("guard-stale-manifest", validate_guard_stale_manifest_scenario),
+    ("assertion-shape-count", validate_assertion_shape_count_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     (
         "guard-status-is-not-enforcement",
