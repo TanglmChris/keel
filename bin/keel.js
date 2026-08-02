@@ -72,7 +72,14 @@ const OPENSPEC_SKILLS = [
   "openspec-sync-specs",
   "openspec-archive-change",
 ];
-const OPENSPEC_OVERLAY_ACTIONS = ["propose", "apply", "archive"];
+// `sync` is here because `AGENTS.md` gates it exactly as it gates archive —
+// `keel gate change-close --action sync|archive` plus `keel-review-checklist`.
+// Archive's surface said so and sync's said nothing, so an agent invoking
+// `/opsx:sync` read generic upstream instructions with no mention of the gate
+// that decides whether the sync may complete. `explore` is deliberately absent:
+// it reads and reports, reaches no gate, and changes no state, so an overlay
+// there would read as governance where there is none.
+const OPENSPEC_OVERLAY_ACTIONS = ["propose", "apply", "archive", "sync"];
 const OPENSPEC_SURFACE_OVERLAY_START =
   `<!-- keel:openspec-surface-overlay version=${PACKAGE_JSON.version} -->`;
 const OPENSPEC_SURFACE_OVERLAY_END =
@@ -1021,12 +1028,12 @@ function openspecOverlaySurfacesForTarget(target, repo) {
     if (action === "propose" && target === "opencode") {
       return [];
     }
-    const skillName =
-      action === "propose"
-        ? "openspec-propose"
-        : action === "apply"
-          ? "openspec-apply-change"
-          : "openspec-archive-change";
+    const skillName = {
+      propose: "openspec-propose",
+      apply: "openspec-apply-change",
+      archive: "openspec-archive-change",
+      sync: "openspec-sync-specs",
+    }[action];
     return [
       {
         action,
@@ -1040,11 +1047,23 @@ function openspecOverlaySurfacesForTarget(target, repo) {
   });
 }
 
+// Derived from the managed set rather than written beside it. The label was
+// the literal string "apply/archive", which was correct while those were the
+// managed actions and became wrong — silently — the moment a third joined them.
+// `propose` is excluded because its overlay governs authoring rather than a
+// state-changing command, and the doctor line counts the command surfaces.
+function overlayActionLabel() {
+  return OPENSPEC_OVERLAY_ACTIONS.filter((action) => action !== "propose")
+    .join("/");
+}
+
 function overlayTitleForAction(action) {
-  if (action === "propose") return "Keel Authoring Overlay";
-  return action === "apply"
-    ? "Keel Apply Overlay"
-    : "Keel Archive Overlay";
+  return {
+    propose: "Keel Authoring Overlay",
+    apply: "Keel Apply Overlay",
+    archive: "Keel Archive Overlay",
+    sync: "Keel Sync Overlay",
+  }[action];
 }
 
 function keelOpenSpecOverlay(action) {
@@ -1067,6 +1086,33 @@ function keelOpenSpecOverlay(action) {
       "",
     ];
     return lines.join("\n");
+  }
+  // Sync mirrors archive's structure and not its content: the two are gated and
+  // owned identically, so the ownership, subagent, and delegation-language
+  // rules are the same statements with `sync` in them. What differs is the
+  // artifact consequence — archive warns about re-applying a promoted delta,
+  // and sync is the thing that promotes it, so it says so from its own side. A
+  // reader who only ever sees one of the two surfaces still learns the pairing.
+  const syncBody = [
+    "- The current agent owns the sync decision and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
+    "- Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.",
+    "- Before syncing, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
+    "- Target-native subagents may help with bounded assessment or evidence production only; they cannot sync, change acceptance, or bypass completion gates.",
+    "- Do not treat generic OpenSpec sync delegation language as authority to transfer Keel ownership.",
+    "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+    "- Syncing promotes the change's spec delta into `openspec/specs/`. A later archive of the same change must use `--skip-specs`, because archive is not idempotent over an already-promoted delta.",
+  ];
+  if (action === "sync") {
+    return [
+      OPENSPEC_SURFACE_OVERLAY_START,
+      `## ${overlayTitleForAction(action)}`,
+      "",
+      "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+      "",
+      ...syncBody,
+      OPENSPEC_SURFACE_OVERLAY_END,
+      "",
+    ].join("\n");
   }
   const actionBody =
     action === "apply"
@@ -1316,13 +1362,13 @@ function printTargetSurface(repo, target) {
   const overlayCounts = countOpenSpecOverlays(overlayPaths);
   const overlayDetail =
     surfaceStatus(overlayCounts) === "ok"
-      ? formatCount(overlayCounts, "apply/archive skills and commands")
+      ? formatCount(overlayCounts, `${overlayActionLabel()} skills and commands`)
       : `${formatCount(
           overlayCounts,
-          "apply/archive skills and commands"
+          `${overlayActionLabel()} skills and commands`
         )}; ${overlayRemediation(target)}`;
   printDoctorLine(
-    "Keel apply/archive overlay",
+    `Keel ${overlayActionLabel()} overlay`,
     surfaceStatus(overlayCounts),
     overlayDetail
   );

@@ -2147,6 +2147,135 @@ def assert_target_overlays(
     return None
 
 
+def validate_sync_surface_overlay_scenario() -> int:
+    """The surface that performs a gated action never named its gate.
+
+    AGENTS.md gates sync and archive identically — `keel gate change-close
+    --action sync|archive` plus `keel-review-checklist`. Archive's command
+    surface carries a Keel overlay saying so; sync's carried none, because
+    `OPENSPEC_OVERLAY_ACTIONS` listed only propose, apply, and archive. An
+    agent invoking `/opsx:sync` read generic upstream instructions and was told
+    nothing about the gate that decides whether the sync may complete.
+
+    Measured 2026-08-02: neither `.claude/commands/opsx/sync.md` nor
+    `.claude/skills/openspec-sync-specs/SKILL.md` contained `change-close`,
+    `keel gate`, or `keel openspec`.
+    """
+    label = "sync-surface-overlay"
+    marker = "keel:openspec-surface-overlay"
+    with tempfile.TemporaryDirectory(prefix="keel-sync-overlay-") as raw:
+        tmp = Path(raw)
+
+        surfaces = {
+            "claude": [
+                ".claude/commands/opsx/sync.md",
+                ".claude/skills/openspec-sync-specs/SKILL.md",
+            ],
+            "codex": [
+                ".codex/skills/openspec-sync-specs/SKILL.md",
+            ],
+        }
+
+        for target, paths in surfaces.items():
+            repo = tmp / target
+            repo.mkdir()
+            init = run_keel(repo, "--init", "--target", target)
+            if init.returncode != 0:
+                report(f"{label} M1 `keel --init --target {target}` failed.")
+                report((init.stderr or init.stdout).strip())
+                return 1
+
+            # M1 — the marker lands on every sync surface the target has.
+            for relative in paths:
+                surface = repo / relative
+                if not surface.is_file():
+                    report(
+                        f"{label} M1 {target} has no sync surface at "
+                        f"{relative}, so the projection has nothing to cover."
+                    )
+                    return 1
+                text = surface.read_text(encoding="utf-8")
+                if marker not in text:
+                    report(
+                        f"{label} M1 {relative} carries no Keel overlay, so the "
+                        "surface that performs a gated action never names its "
+                        "gate."
+                    )
+                    return 1
+
+                # M2 — and it says the things that change behavior.
+                for needle, why in (
+                    ("keel gate change-close --action sync", "the gate"),
+                    ("keel-review-checklist", "the semantic review"),
+                    ("keel openspec", "how to invoke OpenSpec off PATH"),
+                    ("--skip-specs", "that a following archive must skip specs"),
+                ):
+                    if needle not in text:
+                        report(
+                            f"{label} M2 the sync overlay in {relative} does "
+                            f"not name {why} ({needle!r})."
+                        )
+                        return 1
+
+            # M4 — explore stays uncovered, deliberately.
+            explore = repo / (
+                ".claude/commands/opsx/explore.md" if target == "claude"
+                else f".{target}/skills/openspec-explore/SKILL.md"
+            )
+            if explore.is_file() and marker in explore.read_text(encoding="utf-8"):
+                report(
+                    f"{label} M4 the explore surface received an overlay. It "
+                    "reaches no gate and changes no state, so an overlay there "
+                    "reads as governance where there is none."
+                )
+                return 1
+
+            # M3 — the doctor names sync rather than a hardcoded pair.
+            doctor = run_keel(repo, "--doctor", "--target", target)
+            overlay_lines = [
+                line for line in doctor.stdout.splitlines()
+                if "overlay" in line and line.startswith("Keel ")
+            ]
+            if not overlay_lines:
+                report(f"{label} M3 {target} `keel --doctor` printed no overlay line.")
+                report((doctor.stderr or doctor.stdout).strip())
+                return 1
+            if not any("sync" in line for line in overlay_lines):
+                report(
+                    f"{label} M3 the {target} doctor overlay line does not name "
+                    f"sync: {overlay_lines}"
+                )
+                return 1
+            if not any(": ok" in line for line in overlay_lines):
+                report(
+                    f"{label} M3 the {target} doctor did not report the overlay "
+                    f"healthy after a fresh install: {overlay_lines}"
+                )
+                return 1
+
+            # Uninstall is deliberately not asserted here. It does not strip
+            # the overlay from any surface — measured on archive as well as
+            # sync — so an assertion would be about a contract that has never
+            # existed rather than about this change. Filed as
+            # https://github.com/TanglmChris/keel/issues/50.
+
+    # M4 — covering the surface did not widen what may be standing-authorized.
+    config_doc = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
+    if re.search(r"^\s*-\s*sync\s*$", config_doc, re.MULTILINE):
+        report(
+            f"{label} M4 `sync` was added to the standing-authorization "
+            "vocabulary. Naming the gate that governs an action and deciding "
+            "whether a repository may authorize it once are separate."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_openspec_surface_overlay_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-overlay-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -2165,7 +2294,7 @@ def validate_openspec_surface_overlay_scenario() -> int:
         claude_doctor = run_keel(claude_repo, "--doctor", "--target", "claude")
         if (
             claude_doctor.returncode != 0
-            or "Keel apply/archive overlay: ok" not in claude_doctor.stdout
+            or "Keel apply/archive/sync overlay: ok" not in claude_doctor.stdout
         ):
             report("openspec-surface-overlay scenario Claude doctor missed overlay health.")
             report((claude_doctor.stderr or claude_doctor.stdout).strip())
@@ -2188,7 +2317,7 @@ def validate_openspec_surface_overlay_scenario() -> int:
         codex_doctor = run_keel(codex_repo, "--doctor", "--target", "codex", env=codex_env)
         if (
             codex_doctor.returncode != 0
-            or "Keel apply/archive overlay: ok" not in codex_doctor.stdout
+            or "Keel apply/archive/sync overlay: ok" not in codex_doctor.stdout
             or str(codex_home / "prompts") not in codex_doctor.stdout
         ):
             report("openspec-surface-overlay scenario Codex doctor missed overlay health.")
@@ -2249,7 +2378,7 @@ def validate_openspec_surface_overlay_scenario() -> int:
         )
         if (
             opencode_missing_doctor.returncode != 0
-            or "Keel apply/archive overlay: missing" not in opencode_missing_doctor.stdout
+            or "Keel apply/archive/sync overlay: missing" not in opencode_missing_doctor.stdout
             or "keel --install --target opencode" not in opencode_missing_doctor.stdout
         ):
             report("openspec-surface-overlay scenario doctor did not report a missing overlay marker.")
@@ -2274,7 +2403,7 @@ def validate_openspec_surface_overlay_scenario() -> int:
         )
         if (
             install_only_doctor.returncode != 0
-            or "Keel apply/archive overlay: missing" not in install_only_doctor.stdout
+            or "Keel apply/archive/sync overlay: missing" not in install_only_doctor.stdout
             or "keel --init --target opencode" not in install_only_doctor.stdout
         ):
             report("openspec-surface-overlay scenario install-only doctor missed remediation.")
@@ -19059,6 +19188,7 @@ SCENARIOS: tuple = (
     ("domain-lenses", validate_domain_lenses_scenario),
     ("skill-portability-policy", validate_skill_portability_policy_scenario),
     ("version-alignment", validate_version_alignment_scenario),
+    ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("uninstall", validate_uninstall_scenario),
     ("cli", validate_cli_scenario),
