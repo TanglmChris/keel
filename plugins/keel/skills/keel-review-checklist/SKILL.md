@@ -32,7 +32,22 @@ Record the current agent's judgment inside the selected task Evidence:
 - `Status`: `pass` only when the task is ready to complete.
 - `Acceptance check`: why the behavior evidence proves the authored Acceptance.
 - `Scope check`: why the actual changes stay within Touch; identify an explicit base if deterministic comparison was used.
-- `Findings`: `none`, or each unresolved finding with a durable OpenSpec task/new change, archive-evidence owner, or explicit discard rationale.
+- `Findings`: `none`, or every finding with the disposition it actually has.
+
+A finding has three, and the criterion is what the task did about it — not
+whichever marker gets past the gate:
+
+- **`Resolved here:`** — found and fixed inside this task. Name what proves it:
+  an `M<n>` check this task declares, or a repo-relative path that exists. If no
+  check covers it, the fix is not proved and the finding is one of the other two.
+- **`Durable owner:`** — real, still open, and someone must do it. Name an
+  absolute `https://…` tracker reference or a repo-relative path that exists.
+  The reference must already carry the content it claims to hold.
+- **`Discard reason:`** — considered, and deliberately not being done. Say why.
+
+Picking the marker that passes rather than the one that is true is how a repair
+gets filed as a dismissal, and the archive then records the opposite of what
+happened.
 
 The Review remains in tasks.md. A user-facing Report summarizes delivery but is not hidden gate state. Do not let Core or this checklist write evidence automatically.
 

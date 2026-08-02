@@ -194,6 +194,29 @@ function main() {
     return 0;
   }
   const pointer = `${manifest.change}#${manifest.task}`;
+  // Two states used to arrive at the same place, and they need different
+  // answers. A task id absent from a live `tasks.md` is a parse miss the guard
+  // must not guess about — see `taskIsChecked`. A change directory that is not
+  // there at all is a fact: the manifest points at work that has been archived
+  // or removed, and `keel guard status` already classifies it as drifted.
+  //
+  // Untreated, the archived case was wrong in both directions. A write outside
+  // the stale Touch was denied by a message naming a task in an archived change
+  // and telling the reader to reauthorize it, which cannot be done; a write
+  // *inside* it passed silently, so an archived task went on granting write
+  // authority. Denying here fixes both, and denying rather than allowing is
+  // what stops `openspec archive` from quietly disabling the guard.
+  const changeDir = path.join(repo, "openspec", "changes", manifest.change);
+  if (!fs.existsSync(changeDir)) {
+    deny(
+      `Keel write guard: this manifest is stale — it guards ${pointer}, but `
+        + `openspec/changes/${manifest.change} no longer exists, so the task it `
+        + "names cannot be reauthorized and its Touch list authorizes nothing. "
+        + "File edits fail closed. Run `keel guard clear`, then start the task "
+        + "you are actually working on with `keel gate task-start`."
+    );
+    return 0;
+  }
   // The record layer: the guarded change's own directory holds the records the
   // task produces — its checkbox, Evidence, and Review — not the product it
   // changes. `keel gate task-complete` already refuses to attribute this

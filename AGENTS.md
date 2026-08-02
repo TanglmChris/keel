@@ -1,6 +1,6 @@
-# Keel v5.11.0 Agent Protocol
+# Keel v5.12.0 Agent Protocol
 
-<!-- keel:start version=5.11.0 -->
+<!-- keel:start version=5.12.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -77,6 +77,7 @@
 
 ## Follow-up Ownership
 - Follow-up Ownership covers work the change left undone. Statements left standing by work the change *completed* are the opposite shape and belong to `## Invalidates` under Completion gates; a change owes both.
+- A Review finding has three dispositions, chosen by what the task did about it rather than by which marker passes: `Resolved here:` — fixed in this task, naming an `M<n>` check the task declares or a repo-relative path that exists; `Durable owner:` — still open and owned by someone, naming an absolute `https://…` reference or an existing path; `Discard reason:` — deliberately not being done, with the reason. Only the last two are follow-ups. A tracker reference is never resolution evidence, because a link to work someone else will do is not proof this task did it, and picking the marker that passes over the one that is true files a repair as a dismissal.
 - Before archive or handoff, unresolved follow-ups must be owned by the current OpenSpec tasks, a new OpenSpec change, archive evidence, or an explicit discard reason.
 - `keel/HANDOFF.md` is an optional pointer override, not a durable follow-up owner. It may name one durable owner and action but must not contain the work item.
 - `keel/CHANGELOG.md` records Keel workflow/protocol/project-operation changes. Root `CHANGELOG.md` is product-facing only when the host project explicitly owns one.
@@ -89,7 +90,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.11.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.12.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions
@@ -104,4 +105,4 @@
 - **Native memory goes stale mainly because we fix things.** Every defect fix invalidates any memory that recorded that defect or its workaround, so a behavior change is not finished until the memory directory has been checked. Grep it by the **symptom wording**, not by filename — the entries that rot are the ones in files you were not already thinking about. On 2026-07-27 four memories went stale this way in a single session, every one of them invalidated by a fix made in that same session.
 - **Keep out of memory whatever this repository can answer.** The installed version, what a gate accepts, whether a workflow exists — all derivable in seconds, and all guaranteed to rot. Memory earns its place only for what the repository cannot answer: why a decision was made, host and toolchain facts found by investigation, and the user's stated preferences. This is the resident protocol's own rule, applied to memory: OpenSpec artifacts and Git are the durable authority.
 - **Stamp a behavioral claim with its version and issue** — "as of 5.2.2 the gate refuses X, tracked as #12" — instead of stating it timelessly. A stamped claim announces its own age; an unstamped one reads as permanent fact and will be believed after it stops being true.
-- **Recording a finding on a task**: cite the issue URL directly in the Review `Findings` line — `keel gate task-complete` accepts an absolute `https://…` reference as a durable owner, alongside a `Discard reason:`/`Discard rationale:` prefix and **any repo-relative path that exists**, which covers `keel/archive/…`, an `openspec/changes/…` artifact, and a project's own ledger. A path is checked for existence, so one with no file behind it is refused by name; in `Findings`, which is free prose, a path counts only when it follows `Durable owner:`, because mentioning the file a finding concerns does not give that finding an owner. The same forms apply to `## Expectation Coverage` and `## Invalidates` `Durable owner:` entries. `keel/HANDOFF.md` is still refused even though it exists. A `keel/archive/follow-ups/` note is now optional — write one only when the finding needs evidence the issue body does not carry. Notes written before this (issue #12, fixed in 5.2.4) record the old workaround and are kept as historical evidence.
+- **Recording a finding on a task**: first pick the disposition the finding actually has (the three are in `## Follow-up Ownership`). For one this task **fixed**, write `Resolved here:` and name the `M<n>` check that proves it — no issue is owed, and filing it as a discard misrepresents a repair. For one that is **still open**, cite the issue URL directly in the Review `Findings` line — `keel gate task-complete` accepts an absolute `https://…` reference as a durable owner, alongside a `Discard reason:`/`Discard rationale:` prefix and **any repo-relative path that exists**, which covers `keel/archive/…`, an `openspec/changes/…` artifact, and a project's own ledger. A path is checked for existence, so one with no file behind it is refused by name; in `Findings`, which is free prose, a path counts only when it follows `Durable owner:`, because mentioning the file a finding concerns does not give that finding an owner. The same forms apply to `## Expectation Coverage` and `## Invalidates` `Durable owner:` entries. `keel/HANDOFF.md` is still refused even though it exists. A `keel/archive/follow-ups/` note is now optional — write one only when the finding needs evidence the issue body does not carry. Notes written before this (issue #12, fixed in 5.2.4) record the old workaround and are kept as historical evidence.

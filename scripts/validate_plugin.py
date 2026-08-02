@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.11.0"
-PROTOCOL_VERSION = "5.11.0"
+PACKAGE_VERSION = "5.12.0"
+PROTOCOL_VERSION = "5.12.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -142,8 +142,9 @@ SKILL_DOC_REQUIREMENTS = [
             "`Acceptance check`",
             "`Scope check`",
             "`Findings`",
-            "durable OpenSpec task/new change",
-            "discard rationale",
+            "Resolved here:",
+            "Durable owner:",
+            "Discard reason:",
             "HANDOFF",
             "return-to-work",
             "critical expectation",
@@ -1625,7 +1626,9 @@ def validate_expectation_completion_gates_scenario() -> int:
     review_snippets = [
         "critical expectation",
         "behavior evidence",
-        "durable OpenSpec task/new change",
+        "Resolved here:",
+        "Durable owner:",
+        "Discard reason:",
         "explicit discard reason",
         "thin Keel consistency gate",
         "evidence details",
@@ -7378,6 +7381,241 @@ def validate_tracker_durable_owner_scenario() -> int:
         report("tracker-durable-owner: the scenario registry does not include it.")
         return 1
     report("tracker-durable-owner scenario passed.")
+    return 0
+
+
+def validate_findings_resolved_here_scenario() -> int:
+    """A finding fixed in its own task is recorded as fixed, not as discarded.
+
+    The gate required a durable owner for every non-`none` Findings value, while
+    the spec and `keel-review-checklist` both scope that requirement to
+    *unresolved* findings. A finding found and repaired inside one task had no
+    accepted form, so the only text that passed was `Discard reason:` — which
+    files a repair as a dismissal. `## Invalidates` has carried the same third
+    slot since it shipped, where `Updated by:` names tasks of this change.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-resolved-here-") as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        def complete(findings: str):
+            write_text(tasks, tracker_owner_tasks(findings, "Covered by: 1.1"))
+            record_contract_anchor(repo, "demo")
+            return run_keel(
+                repo, "gate", "task-complete",
+                "--change", "demo", "--task", "1.1", "--json",
+            )
+
+        def problems(result, code: str) -> str:
+            payload = json.loads(result.stdout) if result.stdout else {}
+            return " ".join(
+                item.get("message", "")
+                for item in payload.get("problems", [])
+                if item.get("code") == code
+            )
+
+        # M1 — the disposition exists, and its evidence has to be real.
+        resolved = complete(
+            "the helper rewrote its own baseline path. Resolved here: M1"
+        )
+        if resolved.returncode != 0:
+            report(
+                "findings-resolved-here: M1 a finding recorded as resolved here "
+                "and citing M1, a check this task declares, was still refused."
+            )
+            report((resolved.stderr or resolved.stdout).strip())
+            return 1
+
+        bare = complete("the helper rewrote its own baseline path. Resolved here:")
+        bare_message = problems(bare, "finding-resolution-evidence")
+        if bare.returncode != 3:
+            report(
+                "findings-resolved-here: M1 a resolved finding naming no "
+                f"evidence exited {bare.returncode}, not 3."
+            )
+            report((bare.stderr or bare.stdout).strip())
+            return 1
+        if not bare_message:
+            report(
+                "findings-resolved-here: M1 a resolved finding naming no "
+                "evidence produced no finding-resolution-evidence problem."
+            )
+            report((bare.stderr or bare.stdout).strip())
+            return 1
+
+        unknown = complete(
+            "the helper rewrote its own baseline path. Resolved here: M7"
+        )
+        unknown_message = problems(unknown, "finding-resolution-evidence")
+        if unknown.returncode != 3:
+            report(
+                "findings-resolved-here: M1 a resolved finding citing M7, which "
+                f"this task does not declare, exited {unknown.returncode}, not 3."
+            )
+            report((unknown.stderr or unknown.stdout).strip())
+            return 1
+        if "M7" not in unknown_message:
+            report(
+                "findings-resolved-here: M1 the refusal must name the check it "
+                f"could not find. Got: {unknown_message or '(no problem)'}"
+            )
+            return 1
+
+        # M2 — a path is evidence when it exists; a tracker URL never is.
+        write_text(repo / "src/feature.js", "// the fix\n")
+        by_path = complete(
+            "the helper rewrote its own baseline path. Resolved here: src/feature.js"
+        )
+        if by_path.returncode != 0:
+            report(
+                "findings-resolved-here: M2 resolution evidence naming an "
+                "existing repo-relative path was refused."
+            )
+            report((by_path.stderr or by_path.stdout).strip())
+            return 1
+
+        missing = complete(
+            "the helper rewrote its own baseline path. Resolved here: src/gone.js"
+        )
+        missing_message = problems(missing, "finding-resolution-evidence")
+        if missing.returncode != 3:
+            report(
+                "findings-resolved-here: M2 resolution evidence naming a path "
+                f"that does not exist exited {missing.returncode}, not 3."
+            )
+            report((missing.stderr or missing.stdout).strip())
+            return 1
+        if "src/gone.js" not in missing_message:
+            report(
+                "findings-resolved-here: M2 the refusal must name the path it "
+                f"could not find. Got: {missing_message or '(no problem)'}"
+            )
+            return 1
+
+        as_evidence = complete(
+            f"the helper rewrote its own baseline path. Resolved here: {TRACKER_OWNER}"
+        )
+        tracker_message = problems(as_evidence, "finding-resolution-evidence")
+        if as_evidence.returncode != 3:
+            report(
+                "findings-resolved-here: M2 a tracker reference is not evidence "
+                "that a finding was fixed, but it was accepted as resolution "
+                f"evidence (exit {as_evidence.returncode})."
+            )
+            report((as_evidence.stderr or as_evidence.stdout).strip())
+            return 1
+        if "Durable owner" not in tracker_message:
+            report(
+                "findings-resolved-here: M2 the refusal must send a tracker "
+                f"reference to `Durable owner:`. Got: {tracker_message or '(none)'}"
+            )
+            return 1
+
+        as_owner = complete(
+            f"the helper rewrote its own baseline path. Durable owner: {TRACKER_OWNER}"
+        )
+        if as_owner.returncode != 0:
+            report(
+                "findings-resolved-here: M2 the same tracker reference must "
+                "still pass as a durable owner."
+            )
+            report((as_owner.stderr or as_owner.stdout).strip())
+            return 1
+
+        # A Findings block normally holds several findings with different
+        # dispositions, all in one line of free prose. The evidence taken from
+        # a marker is what follows *that* marker, not the rest of the line —
+        # otherwise the first `Resolved here:` swallows every disposition after
+        # it, and a block mixing a fix with a tracker-owned follow-up is
+        # refused on the follow-up's URL. Measured on this change's own task
+        # 1.3 before it was fixed.
+        mixed = complete(
+            "the counter's own line arithmetic was wrong. Resolved here: M1. "
+            "Second, nothing warned that the CLI was four minors old. "
+            f"Durable owner: {TRACKER_OWNER}"
+        )
+        if mixed.returncode != 0:
+            report(
+                "findings-resolved-here: M1 a block holding a resolved finding "
+                "and a tracker-owned one was refused; the resolved marker must "
+                "not reach past its own evidence."
+            )
+            report((mixed.stderr or mixed.stdout).strip())
+            return 1
+
+        second_bare = complete(
+            "the first was fixed. Resolved here: M1. The second was too. "
+            "Resolved here:"
+        )
+        if second_bare.returncode != 3:
+            report(
+                "findings-resolved-here: M2 every resolved marker must be "
+                "checked, not only the first; a block whose second names no "
+                f"evidence exited {second_bare.returncode}, not 3."
+            )
+            report((second_bare.stderr or second_bare.stdout).strip())
+            return 1
+        if not problems(second_bare, "finding-resolution-evidence"):
+            report(
+                "findings-resolved-here: M2 the second resolved marker was not "
+                "reported as missing its evidence."
+            )
+            return 1
+
+        # M3 — the general refusal has to name the form that now exists.
+        unowned = complete("a finding with no disposition at all")
+        owner_message = problems(unowned, "finding-owner")
+        if unowned.returncode != 3:
+            report(
+                "findings-resolved-here: M3 a finding with no disposition "
+                f"exited {unowned.returncode}, not 3."
+            )
+            report((unowned.stderr or unowned.stdout).strip())
+            return 1
+        for phrase in ("Resolved here", "M<n>", "Discard reason", "Durable owner"):
+            if phrase not in owner_message:
+                report(
+                    "findings-resolved-here: M3 the accepted-forms message must "
+                    f"name every disposition; {phrase!r} is missing from it."
+                )
+                report(owner_message or "(no finding-owner problem)")
+                return 1
+
+    # M4 — the criterion is stated where the author reads it, and the portable
+    # skill and its projection do not disagree about it.
+    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
+    if canonical.read_bytes() != projected.read_bytes():
+        report(
+            "findings-resolved-here: M4 the portable checklist and its plugin "
+            "projection are not byte-identical."
+        )
+        return 1
+    checklist = canonical.read_text(encoding="utf-8")
+    for phrase in ("Resolved here:", "Durable owner:", "Discard reason:"):
+        if phrase not in checklist:
+            report(
+                "findings-resolved-here: M4 keel-review-checklist does not name "
+                f"the {phrase!r} disposition."
+            )
+            return 1
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    if "Resolved here:" not in agents:
+        report(
+            "findings-resolved-here: M4 AGENTS.md does not name the "
+            "`Resolved here:` disposition."
+        )
+        return 1
+
+    if "findings-resolved-here" not in {name for name, _ in SCENARIOS}:
+        report("findings-resolved-here: the scenario registry does not include it.")
+        return 1
+    report("findings-resolved-here scenario passed.")
     return 0
 
 
@@ -17815,6 +18053,400 @@ def validate_touch_guard_drift_scenario() -> int:
     return 0
 
 
+def validate_guard_stale_manifest_scenario() -> int:
+    """A manifest whose change is gone says so, instead of enumerating Touch.
+
+    `taskIsChecked` reads `openspec/changes/<change>/tasks.md`. After the change
+    is archived that path is gone, the read throws, the miss is read as "not
+    checked", and control reaches the Touch comparison — which denies the write
+    while naming a task inside an archived change and telling the reader to
+    reauthorize it. That instruction cannot be followed. `keel guard status`
+    already classifies the same manifest as drifted; the hook enforcing it did
+    not, and the two states it conflates are genuinely different: a task id
+    missing from a live `tasks.md` is a parse miss the guard must not guess
+    about, while a directory that is not there is a fact.
+
+    Measured at the start of this change: the first write of a new change was
+    refused against `the-name-is-not-the-thing#2.1`, archived one commit earlier.
+    """
+    with tempfile.TemporaryDirectory(
+        prefix="keel-guard-stale-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        change_dir = repo / "openspec/changes/demo"
+        write_text(change_dir / "tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+
+        started = run_keel(
+            repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("guard-stale-manifest: guard start failed.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        # The directory is relocated to the path `openspec archive` moves it to.
+        # What is under test is the guard's answer once the change is gone, not
+        # the archiver's behavior; making this depend on a complete change plus
+        # the OpenSpec CLI would couple a guard test to a program it never
+        # exercises. That archive relocates rather than marking in place was
+        # verified directly against this repository — see design.md A2.
+        archived_dir = repo / "openspec/changes/archive/2026-08-02-demo"
+        archived_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(change_dir), str(archived_dir))
+
+        decision = pretooluse_decision(
+            run_pretooluse_guard_hook(
+                repo, edit_event(repo, repo / "src/feature.js", "Edit")
+            )
+        )
+        if decision is None:
+            report(
+                "guard-stale-manifest: M1 archiving the change made the guard "
+                "allow a write silently. A stale manifest must fail closed, or "
+                "`openspec archive` quietly disables the guard."
+            )
+            return 1
+        if decision.get("permissionDecision") != "deny":
+            report(
+                "guard-stale-manifest: M1 expected deny once the change was "
+                f"archived, got {decision.get('permissionDecision')!r}."
+            )
+            return 1
+        reason = decision.get("permissionDecisionReason", "")
+        for needle in ("stale", "keel guard clear", "openspec/changes/demo"):
+            if needle not in reason:
+                report(
+                    "guard-stale-manifest: M1 the refusal must report the "
+                    f"manifest as stale and name what resolves it; {needle!r} "
+                    f"is missing from: {reason!r}"
+                )
+                return 1
+
+        # M2 — the advice that could not be followed must be gone. The old
+        # denial enumerated Touch for a task in an archived change and told the
+        # reader to reauthorize it.
+        for forbidden in ("update the task authority", "Touch allows:"):
+            if forbidden in reason:
+                report(
+                    "guard-stale-manifest: M2 the refusal still tells the "
+                    f"reader to do something impossible; {forbidden!r} is in: "
+                    f"{reason!r}"
+                )
+                return 1
+
+        # M3 — a live change whose task id is absent is a parse miss, and the
+        # guard's answer there is unchanged.
+        shutil.move(str(archived_dir), str(change_dir))
+        write_text(
+            change_dir / "tasks.md",
+            guard_task_fixture().replace("1.1", "9.9"),
+        )
+        miss = pretooluse_decision(
+            run_pretooluse_guard_hook(
+                repo, edit_event(repo, repo / "src/outside.js", "Edit")
+            )
+        )
+        if miss is None or miss.get("permissionDecision") != "deny":
+            report(
+                "guard-stale-manifest: M3 a write outside Touch must still be "
+                f"denied when the task id is absent from a live tasks.md; got "
+                f"{miss!r}"
+            )
+            return 1
+        miss_reason = miss.get("permissionDecisionReason", "")
+        if "Touch allows:" not in miss_reason:
+            report(
+                "guard-stale-manifest: M3 the parse-miss path must still deny "
+                f"by enumerating Touch. Got: {miss_reason!r}"
+            )
+            return 1
+        if "stale" in miss_reason:
+            report(
+                "guard-stale-manifest: M3 a live change with an unmatched task "
+                f"id was reported as a stale manifest. Got: {miss_reason!r}"
+            )
+            return 1
+
+    if "guard-stale-manifest" not in {name for name, _ in SCENARIOS}:
+        report("guard-stale-manifest: the scenario registry does not include it.")
+        return 1
+    report("guard-stale-manifest scenario passed.")
+    return 0
+
+
+# The one-message-many-failures shape, counted rather than forbidden.
+#
+# Issue #43 records it caught by `keel-review-checklist` in three consecutive
+# changes, every time in this file: `if <the run did not work> or <the output
+# lacks a specific thing>:` followed by one `report(...)` describing only the
+# second operand. When the first fires the sentence is false, and it sends the
+# reader to a place with no problem in it.
+#
+# This number bounds a SHAPE. It is not a count of defects: many of the sites
+# it counts carry a message that genuinely covers every operand, and deciding
+# whether a particular sentence misleads needs a model, so that judgment stays
+# in `keel-review-checklist`. What the number does is make a *new* one visible
+# when it is written, which is earlier than a review that only runs at a
+# completion gate.
+#
+# A pass/fail lint was the obvious form and is unshippable: the shape was
+# already present at this many sites when the count was introduced, and
+# rewriting them all in the file every other correctness claim rests on is a
+# large blind diff. A recorded count fails when the number rises and lists what
+# it measured; it also fails when the number falls without this constant being
+# lowered, because a number that only checks for rises becomes false the first
+# time someone fixes a site — and a false number is what this whole change is
+# about. Fixing sites is expected. Lowering this constant is one line.
+OR_GUARDED_ASSERTION_SITES = 75
+
+
+def or_guarded_assertion_sites(source: str) -> list[int]:
+    """Line numbers of `if` statements where one message covers several failures.
+
+    The counted shape, stated so the next reader can restate it exactly: a body
+    of one or more `report(...)` calls followed by exactly one `return`, under
+    an `or` test with at least one membership operand (`in` / `not in`) and at
+    least one operand that is not.
+
+    A heuristic rule keyed on `returncode`, `is None`, `len(` and
+    `.get("status")` was measured first and found 68 sites against this rule's
+    75; the simple one is used because a rule nobody can reproduce produces a
+    number nobody can check.
+    """
+
+    def is_report_return(body: list) -> bool:
+        reports = [
+            node for node in body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "report"
+        ]
+        if not reports:
+            return False
+        returns = [node for node in body if isinstance(node, ast.Return)]
+        if len(returns) != 1:
+            return False
+        return len(body) == len(reports) + len(returns)
+
+    def is_membership(node) -> bool:
+        if not isinstance(node, ast.Compare):
+            return False
+        return any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops)
+
+    sites = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.If):
+            continue
+        if not is_report_return(node.body):
+            continue
+        test = node.test
+        if not isinstance(test, ast.BoolOp):
+            continue
+        if not isinstance(test.op, ast.Or):
+            continue
+        operands = test.values
+        if not any(is_membership(item) for item in operands):
+            continue
+        if all(is_membership(item) for item in operands):
+            continue
+        sites.append(node.lineno)
+    return sorted(sites)
+
+
+def assertion_site_drift(measured: list[int], recorded: int) -> str:
+    """Empty when the measured sites match the recorded count.
+
+    Both directions fail, and they fail differently, because they call for
+    opposite actions: a rise means split the assertion you just wrote, and a
+    fall means lower the constant.
+    """
+    if len(measured) > recorded:
+        return (
+            f"{len(measured)} assertion sites guard several distinct failures "
+            f"behind one message, but {recorded} are recorded. One condition "
+            "reporting two failures names the wrong cause whenever the other "
+            "one fires. Split the `if` you just added so each failure carries "
+            "its own message, or — if the message genuinely covers every "
+            "operand — raise OR_GUARDED_ASSERTION_SITES and say why. This "
+            "number bounds a shape and is not a count of defects. Measured at "
+            f"lines: {', '.join(str(line) for line in measured)}."
+        )
+    if len(measured) < recorded:
+        return (
+            f"{recorded} assertion sites are recorded but only {len(measured)} "
+            "are present, so the recorded number is stale. Lower "
+            f"OR_GUARDED_ASSERTION_SITES to {len(measured)}. The count fails in "
+            "this direction too because a number that only checks for rises "
+            "stops being true the first time a site is fixed."
+        )
+    return ""
+
+
+# Synthetic sources for the counter. They are strings rather than fixtures on
+# disk because the rule is about syntax, and a fixture file would itself be
+# counted when the suite measures this file's siblings.
+COUNTED_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0 or "Usage:" not in result.stdout:
+        report("no Usage: line")
+        return 1
+    return 0
+'''
+
+SPLIT_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0:
+        report("the command failed to run")
+        return 1
+    if "Usage:" not in result.stdout:
+        report("no Usage: line")
+        return 1
+    return 0
+'''
+
+ALL_MEMBERSHIP_ASSERTION_SOURCE = '''
+def probe():
+    if "alpha" not in text or "beta" not in text:
+        report("the output names neither alpha nor beta")
+        return 1
+    return 0
+'''
+
+NO_REPORT_ASSERTION_SOURCE = '''
+def probe():
+    if result.returncode != 0 or "Usage:" not in result.stdout:
+        cleanup()
+        return 1
+    return 0
+'''
+
+
+def validate_assertion_shape_count_scenario() -> int:
+    """Issue #43: one condition guarding two failures, caught three times.
+
+    `keel-review-checklist` catches it, but only at a completion gate and only
+    because a human wrote a checklist entry pointing the model at it. This
+    counts the shape so a new one is visible when it is written.
+    """
+    # M1 — the counter finds the shape, and stops finding it once it is split.
+    counted = or_guarded_assertion_sites(COUNTED_ASSERTION_SOURCE)
+    if counted != [3]:
+        report(
+            "assertion-shape-count: M1 the counter did not report the single "
+            f"counted site at line 3 of the synthetic source; got {counted}."
+        )
+        return 1
+    split = or_guarded_assertion_sites(SPLIT_ASSERTION_SOURCE)
+    if split:
+        report(
+            "assertion-shape-count: M1 splitting the assertion so each failure "
+            f"carries its own message must clear it; got {split}."
+        )
+        return 1
+
+    # M2 — the two shapes that are deliberately not counted.
+    all_membership = or_guarded_assertion_sites(ALL_MEMBERSHIP_ASSERTION_SOURCE)
+    if all_membership:
+        report(
+            "assertion-shape-count: M2 an `or` whose operands are all "
+            "membership tests is one claim about one subject and is not "
+            f"counted; got {all_membership}."
+        )
+        return 1
+    no_report = or_guarded_assertion_sites(NO_REPORT_ASSERTION_SOURCE)
+    if no_report:
+        report(
+            "assertion-shape-count: M2 an `if` whose body is not a report "
+            f"followed by a single return is not an assertion site; got "
+            f"{no_report}."
+        )
+        return 1
+
+    # M3 — the comparison fails in both directions, differently.
+    risen = assertion_site_drift([10, 20, 30], 2)
+    if not risen:
+        report(
+            "assertion-shape-count: M3 a measured count above the recorded one "
+            "produced no failure."
+        )
+        return 1
+    if "30" not in risen:
+        report(
+            "assertion-shape-count: M3 the rise must list the measured line "
+            f"numbers so the added site can be located. Got: {risen}"
+        )
+        return 1
+    fallen = assertion_site_drift([10], 2)
+    if not fallen:
+        report(
+            "assertion-shape-count: M3 a measured count below the recorded one "
+            "produced no failure, so the recorded number could go stale "
+            "silently."
+        )
+        return 1
+    if fallen == risen:
+        report(
+            "assertion-shape-count: M3 a rise and a fall call for opposite "
+            "actions and must not share a message."
+        )
+        return 1
+    if "stale" not in fallen:
+        report(
+            f"assertion-shape-count: M3 the fall must say the recorded number "
+            f"is stale and name the new one. Got: {fallen}"
+        )
+        return 1
+    if assertion_site_drift([10, 20], 2):
+        report(
+            "assertion-shape-count: M3 a measured count equal to the recorded "
+            "one must pass."
+        )
+        return 1
+
+    # M4 — the real file, and this scenario's own assertions.
+    source = (ROOT / "scripts/validate_plugin.py").read_text(encoding="utf-8")
+    measured = or_guarded_assertion_sites(source)
+    drift = assertion_site_drift(measured, OR_GUARDED_ASSERTION_SITES)
+    if drift:
+        report(f"assertion-shape-count: M4 {drift}")
+        return 1
+    own_start = source.index("def validate_assertion_shape_count_scenario")
+    own_first_line = source[:own_start].count("\n") + 1
+    own_end = own_start + source[own_start:].index("\n\n\ndef ")
+    own_last_line = source[:own_end].count("\n") + 1
+    inside = [
+        line for line in measured
+        if own_first_line <= line <= own_last_line
+    ]
+    if inside:
+        report(
+            "assertion-shape-count: M4 this scenario's own assertions are of "
+            f"the shape it counts, at lines {inside}."
+        )
+        return 1
+
+    # M5 — the wording says what the number is.
+    if "bounds a shape and is not a count of defects" not in risen:
+        report(
+            "assertion-shape-count: M5 the failure must state that the count "
+            f"bounds a shape rather than asserting each site is wrong. Got: "
+            f"{risen}"
+        )
+        return 1
+
+    if "assertion-shape-count" not in {name for name, _ in SCENARIOS}:
+        report("assertion-shape-count: the scenario registry does not include it.")
+        return 1
+    report(
+        f"assertion-shape-count scenario passed: {len(measured)} sites, "
+        "a bound on a shape and not a count of defects."
+    )
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -18082,6 +18714,9 @@ SCENARIOS: tuple = (
         validate_source_repo_bootstrap_skip_scenario,
     ),
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
+    ("findings-resolved-here", validate_findings_resolved_here_scenario),
+    ("guard-stale-manifest", validate_guard_stale_manifest_scenario),
+    ("assertion-shape-count", validate_assertion_shape_count_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     (
         "guard-status-is-not-enforcement",
