@@ -1,0 +1,112 @@
+## 1. Hold the boundary without being asked
+
+- [x] 1.1 Record the task-start dirty set and refuse an out-of-Touch write in the default completion gate
+  - Covers:
+    - keel-touch-write-guard / The manifest records what was dirty when the task started / The set is recorded when the task is authorized
+    - keel-touch-write-guard / The manifest records what was dirty when the task started / A manifest without the record does not claim a clean start
+    - keel-touch-write-guard / The completion gate catches what the guard cannot intercept / A shell-issued write outside Touch is caught at completion
+    - keel-core-gates / Dirty-worktree attribution is conservative / A write outside Touch is refused without the caller asking
+    - keel-core-gates / Dirty-worktree attribution is conservative / A path already dirty at task start is not attributed
+    - keel-core-gates / Dirty-worktree attribution is conservative / An explicit base takes precedence over the recorded set
+    - keel-core-gates / Dirty-worktree attribution is conservative / Dirty worktree without base or record needs review
+    - D1 — the baseline is the task-start dirty set, not a Git ref
+    - D2 — an attributed out-of-Touch path fails rather than warns
+    - D3 — an explicit base keeps precedence
+    - D4 — a manifest with no record falls back to unattributed reporting
+    - A1 — a path already dirty at task start is not attributed, and the spec says so
+    - A2 — the manifest and the change's own directory are not attributed to the task
+    - F1 — the refusal machinery already exists and is skipped without a base
+    - F3 — task-start already writes the manifest at the moment the baseline must be taken
+  - Touch:
+    - src/core/guard.js
+    - src/core/gates.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario default-completion-attributes-writes` passes. The scenario authorizes a task with the guard active, writes a path outside Touch by a means the guard does not intercept, and asserts `keel gate task-complete` fails in its default invocation naming that path. It further asserts the three boundaries: a path already dirty before task start is not attributed, a manifest carrying no recorded set falls back to reporting without attributing and does not fail, and an explicit `--base` answers against the supplied base rather than the record.
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario core-gates` still passes, so the existing gate contract is unchanged where no record exists.
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario git-paths-carry-no-escaping` still passes, so the unattributed-dirty warning keeps naming both endpoints of a rename — the channel D5 declines to reshape.
+    - M4 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario guard-scope-is-the-repository` still passes, so the manifest's added field does not disturb guard scoping or shape validation.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:add3a8dc88e4913a5eb63c6faab23c4f8d2bf46bc2fb8d8ab48ad5062563f990
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario default-completion-attributes-writes` reports `default-completion-attributes-writes scenario passed.` The scenario builds a Git repository with a committed baseline, dirties one path *before* authorizing the task, runs `task-start --record` with the guard active, then writes `src/undeclared.js` — outside Touch — and asserts four things about `keel gate task-complete` with no `--base`: it fails, it names `src/undeclared.js`, it does not name the path that was already dirty, and with the manifest cleared and re-authorized `--no-guard` it neither attributes nor fails while still reporting the dirty paths.
+    - M1.red: fail, as required, against the real prior implementation on this change's actual base. `git checkout ac32672 -- src/core/gates.js src/core/guard.js` (the 5.15.0 commit this branch is stacked on) and re-running reports `a path written outside Touch after task start was not refused by the default completion gate. The boundary holds only when the caller asks for it.` beside `status='pass'` and `warning: Working-tree paths are dirty but not attributed without an explicit base: openspec/changes/demo/tasks.md, src/already-dirty.js, src/undeclared.js, keel/guard.json` — the offending path is in the warning, and the gate passes anyway. That is the defect verbatim.
+    - M1.green: pass. With the recorded baseline in the manifest and `scopeEvidence` consuming it, the same fixture reports `Changed path is outside Touch: src/undeclared.js` and `status: fail`. `src/already-dirty.js` stays unattributed because it is in the recorded set; under `--base HEAD` it *is* attributed, which is the precedence assertion — the two comparisons answer different questions and the supplied base wins. `keel/guard.json` never appears, because the baseline is read before the manifest is written.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario core-gates` reports `core-gates scenario passed.` The existing gate contract is unchanged where no record exists.
+    - M3: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario git-paths-carry-no-escaping` reports `git-paths-carry-no-escaping scenario passed.` That scenario reads a rename's two endpoints out of the unattributed-dirty warning and starts with `--no-guard`, so it exercises exactly the no-record fallback and confirms the warning kept its shape — the channel D5 declines to reshape.
+    - M4: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario guard-scope-is-the-repository` reports `guard-scope-is-the-repository scenario passed.` The manifest's added field does not disturb guard scoping or shape validation. `npm test` reports `validation --all passed: baseline plus 125 scenarios.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the behavior is asserted through `keel gate task-complete` as an author actually invokes it — no `--base`, on a real Git repository, with a write issued by the test process rather than by a guarded tool, which is the means that produced the defect. The red half was proved against `ac32672`, the commit this branch is stacked on, not against a simulated prior state. The three boundaries are asserted as behavior too rather than as configuration: `--base HEAD` attributing a path the record excludes is what proves precedence, and clearing the manifest before re-authorizing is what proves the fallback.
+      - Scope check: `git status --short` plus the branch's WIP commit lists exactly `src/core/gates.js`, `src/core/guard.js`, and `scripts/validate_plugin.py` — the three Touch entries — and this change's own directory, which is the record-write layer. `gitPaths` moved from `gates.js` to `guard.js` rather than into a new module, because a new file would have been outside Touch; `gates.js` already required `guard.js`, so the direction was available without a reauthorization and without a cycle.
+      - Findings: two. First: this task's own completion exercised D4 rather than the new attribution, and that is worth recording because it looks like the feature not working. The guard manifest was written by `task-start` before the field existed, so it carries no `startedDirty`, and the gate correctly fell back to `Working-tree paths are dirty but not attributed without an explicit base`. A manifest predating the field is exactly the case D4 defines, and the first task to be genuinely bound by the new check is 2.1. Resolved here: M1, whose fallback assertion is this same path exercised deliberately rather than incidentally. Second: the task was authored against the wrong base. It declared `Release 5.16.0` and an `Invalidates` entry quoting `version=5.15.0`, both of which assume 5.15.0 is the parent — but the branch was cut from `main`, which is still 5.14.0 because the 5.15.0 work is an open pull request. Caught at implementation by the scenario count reading 124 instead of 125. The branch was rebased onto `doctor-answers-for-the-repo-it-names` so the stack is honest, and every check was re-run on the rebased base; the `.red` evidence above is from that base, not the original one. This is the fourth occurrence of the class already tracked as a contract naming something that is not there. Durable owner: https://github.com/TanglmChris/keel/issues/51
+    - Blocker: none
+
+## 2. Close
+
+- [x] 2.1 Release 5.16.0
+  - Covers:
+    - E5 — a reader of the release notes learns that a task writing outside Touch now fails a gate that previously passed
+    - I1, I2, I4 — the wordings this change makes stale
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - src/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every version marker in the package, both plugin manifests, the managed blocks, the overlay markers, and the validator constants names 5.16.0
+    - M2: `keel/CHANGELOG.md` carries a 5.16.0 entry naming the breaking change in the terms a reader will meet it — a task writing outside Touch now fails a default `task-complete` that previously passed — and stating what is deliberately not done: the guard still cannot intercept a shell write, and the unattributed-dirty warning keeps its shape
+    - M3: `src/skills/keel-review-checklist/SKILL.md` and its `plugins/keel/` projection no longer instruct the reviewer that dirty paths cannot be attributed without an explicit Git base, and the two files are byte-identical to each other
+    - M4: the two spec deltas are promoted into `openspec/specs/`, `node bin/keel.js openspec validate the-boundary-holds-only-when-asked --strict` passes, and `openspec validate --specs --strict` reports 21 passed and 0 failed after the promotion
+    - M5: `npm test` passes with no failing scenario and no exception
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:fcdc2f9041aba873bbfb8f7966ca4f38fbf8fd36c025b31ff9aeed0675c56dc1
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` 20 markers moved from 5.15.0 to 5.16.0: the package and lockfile, both plugin manifests, the three `keel:start` managed blocks, the twelve `keel:openspec-surface-overlay` markers, the AGENTS.md title and its preflight line, and the validator's `PACKAGE_VERSION`/`PROTOCOL_VERSION`.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.16.0 - the boundary holds only when asked`, opening with the breaking change stated as a reader meets it — a task writing outside Touch now fails a gate that previously passed — and naming both deliberate non-goals: the guard still cannot intercept a shell write, and the unattributed-dirty warning keeps enumerating its paths because `git-paths-carry-no-escaping` reads a rename's endpoints out of it.
+    - M3: pass. The sentence telling the reviewer that dirty paths cannot be attributed without an explicit Git base is gone from `src/skills/keel-review-checklist/SKILL.md` and its `plugins/keel/` projection, replaced by what the reviewer now has to do instead: read an *unattributed* report as no check having run, and read the gate's silence about an already-dirty path as absence of a check rather than absence of a write. `cmp` reports the two files byte-identical.
+    - M4: pass. Both deltas are promoted. `node bin/keel.js openspec validate the-boundary-holds-only-when-asked --strict` reports the change valid, and `openspec validate --specs --strict` reports `Totals: 21 passed, 0 failed (21 items)`.
+    - M5: pass. `npm test` reports `validation --all passed: baseline plus 125 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release claims are checked by running what they describe — the alignment scenario over every marker, `cmp` over the two checklist copies, the OpenSpec validator over the promoted store, and the real suite over every scenario. M3 asserts the replacement rather than only the deletion, because a reviewer who loses an instruction and gains nothing is worse off than one who kept a stale one.
+      - Scope check: this is the first task in the repository actually bound by the check task 1.1 added, and it was verified as binding rather than assumed. The manifest recorded `openspec/changes/the-boundary-holds-only-when-asked/tasks.md`, `src/core/gates.js`, `src/core/guard.js` at task start; the gate reported no `outside-touch` problem and no unattributed-dirty warning, meaning the record was used and every path written during the task is in Touch. Proved by contradiction: appending a line to `README.md` produced `Problem: Changed path is outside Touch: README.md`, and reverting it removed the problem. `git status` agrees — every modified path is a 2.1 Touch entry, plus this change's own directory.
+      - Findings: one. The gate that made this scope check trustworthy could not have done so for task 1.1, and the asymmetry is worth naming rather than leaving for a reader to notice: 1.1's manifest predated the field it was adding, so 1.1's own completion fell back to unattributed reporting and its scope check rests on a human reading `git status` — the exact evidence this change exists to stop relying on. That is unavoidable for the task that introduces the mechanism and is not a defect, but it means the change's first task carries weaker scope evidence than its second. Resolved here: M5, in the sense that the mechanism is proved by the suite rather than by either task's own completion; the bootstrapping limit itself is inherent and has nothing to own it.
+    - Blocker: none
+
+## Invalidates
+
+- I1: "Keel MUST NOT attribute dirty paths to a selected task unless the caller supplies a trustworthy comparison base." — the opening sentence of `### Requirement: Dirty-worktree attribution is conservative` in `openspec/specs/keel-core-gates/spec.md`. It makes the caller the only possible source of a trustworthy base, which is the assumption this change removes. Updated by: 1.1, promoted by 2.1
+- I2: "When no trustworthy explicit Git base exists, do not attribute dirty paths automatically. Review scope semantically." — `src/skills/keel-review-checklist/SKILL.md` and its projection under `plugins/keel/skills/`. It tells the reviewer that attribution is unavailable by default, which stops being true: after this change the default gate attributes from its own record, and a reviewer who believes this sentence will read a `pass` as proof of nothing. Updated by: 2.1
+- I3: "Working-tree paths are dirty but not attributed without an explicit base" — the warning text in `src/core/gates.js` and the string `scripts/validate_plugin.py` matches on. It stays correct for the no-record case and becomes wrong as a blanket statement, since the gate now attributes without an explicit base whenever a record exists. Updated by: 1.1
+- I4: "version=5.15.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as `"version": "5.15.0"` in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+
+## Expectation Coverage
+
+- E1: A write that lands outside Touch fails the completion gate without the caller having to ask for the check. Covered by: 1.1
+- E2: The conservatism that was protecting against untrustworthy bases is preserved where it still applies — no record and no base means nothing is attributed. Covered by: 1.1
+- E3: A caller supplying an explicit base keeps the comparison they asked for. Covered by: 1.1
+- E4: The limit of a non-Git baseline — a path already dirty at task start is not attributed — is stated in the specification rather than discovered by a missed write. Covered by: 1.1
+- E5: A reader of the release notes learns that a previously passing gate now fails, and why. Covered by: 2.1
+- E6: The reviewer's own instructions stop telling them that attribution is unavailable by default. Covered by: 2.1
