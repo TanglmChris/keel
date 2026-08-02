@@ -5465,6 +5465,100 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     return 0
 
 
+def validate_context_names_its_keel_scenario() -> int:
+    """The version comparison has to survive a runtime too old to contain it.
+
+    Measured 2026-08-02: installed plugin 5.7.1, CLI 5.7.0, repository protocol
+    5.12.0, and no session reported anything. The SessionStart version
+    comparison shipped in 5.9.0, so the installed plugin does not carry it, and
+    its silence is indistinguishable from three versions agreeing — which is
+    exactly what 5.9.0 designed silence to mean.
+
+    That is not fixable inside the plugin: an absent mechanism cannot announce
+    itself. The repository is the one participant that cannot be stale, because
+    the working tree is what every runtime reads. So the version rides on
+    `keel context`, which the protocol already requires, and the resident
+    protocol asks for it to be reported beside the version the repository
+    declares.
+    """
+    label = "context-names-its-keel"
+    version = json.loads(
+        (ROOT / "package.json").read_text(encoding="utf-8")
+    )["version"]
+
+    with tempfile.TemporaryDirectory(prefix="keel-context-version-") as raw:
+        repo = Path(raw).resolve()
+
+        # M1 — every status carries it. A result that omits the version cannot
+        # be compared against anything, so an idle or failed answer needs it as
+        # much as a selected one does.
+        idle = run_keel(repo, "context")
+        if version not in idle.stdout:
+            report(
+                f"{label} M1 an idle `keel context` does not name the Keel "
+                f"that produced it: {idle.stdout.strip()!r}"
+            )
+            return 1
+
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        selected = run_keel(repo, "context")
+        if version not in selected.stdout:
+            report(
+                f"{label} M1 a selected `keel context` does not name the Keel "
+                f"that produced it: {selected.stdout.strip()!r}"
+            )
+            return 1
+
+        write_text(repo / "openspec/changes/broken/tasks.md", "not a task file\n")
+        failing = run_keel(repo, "context")
+        if version not in failing.stdout:
+            report(
+                f"{label} M1 an ambiguous or failing `keel context` does not "
+                f"name the Keel that produced it: {failing.stdout.strip()!r}"
+            )
+            return 1
+
+        payload = run_keel(repo, "context", "--json")
+        try:
+            parsed = json.loads(payload.stdout)
+        except json.JSONDecodeError:
+            report(f"{label} M1 `keel context --json` did not emit JSON.")
+            return 1
+        if parsed.get("keel") != version:
+            report(
+                f"{label} M1 the JSON projection carries no `keel` version; got "
+                f"{parsed.get('keel')!r}, expected {version!r}."
+            )
+            return 1
+
+    # M2 — the protocol asks for the comparison, and says why it does not
+    # depend on the hook. Without the second half a reader who sees the
+    # SessionStart line assumes it is covered.
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for needle, why in (
+        ("keel context", "the command whose output carries the version"),
+        ("protocol version", "the version the repository declares"),
+        ("SessionStart", "that the requirement does not depend on the hook"),
+    ):
+        if needle not in agents:
+            report(f"{label} M2 the Session Start protocol does not name {why}.")
+            return 1
+    session_start = agents.split("## Full/Lite routing", 1)[0]
+    if "SessionStart" not in session_start:
+        report(
+            f"{label} M2 the hook-independence statement is not in the Session "
+            "Start section, where an agent deciding what to report reads it."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_interpreter_surfaces_agree_scenario() -> int:
     """`keel --doctor` called an interpreter ok that the runner refuses.
 
@@ -18891,6 +18985,7 @@ SCENARIOS: tuple = (
         "runtime-versions-are-checked",
         validate_runtime_versions_are_checked_scenario,
     ),
+    ("context-names-its-keel", validate_context_names_its_keel_scenario),
     ("interpreter-surfaces-agree", validate_interpreter_surfaces_agree_scenario),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (

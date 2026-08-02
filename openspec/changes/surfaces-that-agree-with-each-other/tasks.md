@@ -41,14 +41,14 @@
       - Findings: two, both closed here. First: M5 as authored named `target-surface-doctor`, a scenario that does not exist, so the regression check could not have run; found by executing it rather than assuming, corrected to `target-surface` and `doctor-openspec-honesty`, and reauthorized from `sha256:88d50632…` to `sha256:792c33e7…` before any evidence existed. This is the second change running where an authored regression check named a scenario that was not real, which suggests the names should be verified at authoring rather than at execution. Resolved here: M5. Second: the M4 probe inherited `KEEL_PYTHON` and reported a true fact about a question nobody asked. Resolved here: M4.
     - Blocker: none
 
-- [ ] 1.2 Let the context answer name the Keel that produced it
+- [x] 1.2 Let the context answer name the Keel that produced it
   - Covers:
     - keel-stateless-continuity / The context projection names the Keel that produced it
     - D3 — the comparison is asked for by the repository, because it cannot report its own absence
     - D4 — the version rides on the surface the protocol already requires
     - F3, F4 — the measured three-way drift nobody reported, and the silent context output
   - Touch:
-    - bin/keel.js
+    - src/core/context.js
     - AGENTS.md
     - scripts/validate_plugin.py
   - Verify:
@@ -57,15 +57,19 @@
     - M2: the resident protocol in `AGENTS.md` requires the agent to report that version beside the protocol version the repository declares, and states that the requirement does not depend on the SessionStart hook having run
     - M3 (regression): `stateless-continuity` and `native-plugin-session-start` stay green, so the projection's existing status, next-action, and reason lines and the hook's two channels are unchanged
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:a44ee1b0f7d20a2a7ad5494adabe0a8379fecd5f61c7d31f5ea031dc2a5e7e5b
+    - M1: pass. New scenario `context-names-its-keel` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario context-names-its-keel`. It runs the real `keel context` against a fixture in three states — idle, with a change selected, and with a malformed change alongside it — and asserts the package version appears in each, then asserts `--json` carries it as a `keel` field. Live outside the fixture, `keel context` in this repository now opens with `Keel: 5.12.0`.
+    - M1.red: fail. `M1 an idle \`keel context\` does not name the Keel that produced it`, printing the three shipped lines with no version among them. Aimed a second time at the harder half: setting the version only when a selection exists gave `Keel: undefined` for the idle result, which is why the check covers every status rather than the interesting one — a projection that names its version only when it has something to report cannot be compared in the case where the comparison matters most.
+    - M1.green: pass. `resolveContext` sets it, so text, JSON, and any host reading the projection carry it without the caller knowing to add it.
+    - M2: pass. The Session Start section of `AGENTS.md` requires the agent to state the `Keel:` version beside the protocol version in the `keel:start` marker, and states that the requirement holds whether or not the SessionStart hook said anything.
+    - M2.red: fail. `M2 the hook-independence statement is not in the Session Start section, where an agent deciding what to report reads it`, aimed by deleting that sentence and leaving the rest. Without it a reader who has seen the 5.9.0 SessionStart line assumes the comparison is already covered — which is exactly the assumption that let plugin 5.7.1, CLI 5.7.0, and protocol 5.12.0 coexist unreported on this machine for an entire session.
+    - M2.green: pass.
+    - M3: pass. `stateless-continuity` and `native-plugin-session-start` both pass unchanged, so the projection's status, next-action, selection, reason, and warning lines and the hook's two channels are untouched.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 runs the real CLI and reads what a person or a host would read, in every status rather than one, and checks the JSON projection separately because a host consuming JSON is the case where a missing field is silent. M2 is a documentation assertion and is scoped to the section an agent actually reads when deciding what to report, not to the file as a whole — the sentence existing somewhere in AGENTS.md would not put it where the decision is made.
+      - Scope check: `git status --short` shows `src/core/context.js`, `AGENTS.md`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: one, closed here. The authored Touch named `bin/keel.js`, but `renderContext` and `resolveContext` live in `src/core/context.js`; rendering the version from the CLI instead would have put it outside the projection and left `--json` without it. Touch was corrected before implementation and reauthorized from `sha256:e8b18180…` to `sha256:a44ee1b0…`. The general lesson is the same one 1.1 recorded — authored contracts named things without checking they were the right things — and it is the reason 1.3 exists. Resolved here: M1
     - Blocker: none
 
 - [ ] 1.3 Name two tasks that are shaped like one behavior
