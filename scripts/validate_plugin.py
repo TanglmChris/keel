@@ -7527,6 +7527,46 @@ def validate_findings_resolved_here_scenario() -> int:
             report((as_owner.stderr or as_owner.stdout).strip())
             return 1
 
+        # A Findings block normally holds several findings with different
+        # dispositions, all in one line of free prose. The evidence taken from
+        # a marker is what follows *that* marker, not the rest of the line —
+        # otherwise the first `Resolved here:` swallows every disposition after
+        # it, and a block mixing a fix with a tracker-owned follow-up is
+        # refused on the follow-up's URL. Measured on this change's own task
+        # 1.3 before it was fixed.
+        mixed = complete(
+            "the counter's own line arithmetic was wrong. Resolved here: M1. "
+            "Second, nothing warned that the CLI was four minors old. "
+            f"Durable owner: {TRACKER_OWNER}"
+        )
+        if mixed.returncode != 0:
+            report(
+                "findings-resolved-here: M1 a block holding a resolved finding "
+                "and a tracker-owned one was refused; the resolved marker must "
+                "not reach past its own evidence."
+            )
+            report((mixed.stderr or mixed.stdout).strip())
+            return 1
+
+        second_bare = complete(
+            "the first was fixed. Resolved here: M1. The second was too. "
+            "Resolved here:"
+        )
+        if second_bare.returncode != 3:
+            report(
+                "findings-resolved-here: M2 every resolved marker must be "
+                "checked, not only the first; a block whose second names no "
+                f"evidence exited {second_bare.returncode}, not 3."
+            )
+            report((second_bare.stderr or second_bare.stdout).strip())
+            return 1
+        if not problems(second_bare, "finding-resolution-evidence"):
+            report(
+                "findings-resolved-here: M2 the second resolved marker was not "
+                "reported as missing its evidence."
+            )
+            return 1
+
         # M3 — the general refusal has to name the form that now exists.
         unowned = complete("a finding with no disposition at all")
         owner_message = problems(unowned, "finding-owner")

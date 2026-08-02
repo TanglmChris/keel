@@ -357,7 +357,15 @@ function durableOwnerVerdict(repo, value) {
 // implementation applied it to all of them. `## Invalidates` has carried the
 // same third slot since it shipped, where `Updated by:` names tasks of this
 // change.
-const RESOLVED_HERE = /\bresolved here\s*:[ \t]*([^\n]*)/i;
+// The capture is the single token after the marker, not the rest of the line.
+// Findings is one line of free prose that normally holds several findings with
+// different dispositions, so a capture reaching to the newline swallows every
+// marker after it — a block recording one fix and one tracker-owned follow-up
+// was refused because the *follow-up's* URL was read as the *fix's* evidence.
+// Measured on this change's own task 1.3. The match is global because each
+// resolved claim owes its own evidence; checking only the first would let a
+// second one assert itself for free.
+const RESOLVED_HERE = /\bresolved here\s*:[ \t]*(\S*)/gi;
 
 // Resolution evidence is deliberately narrower than a durable owner. An
 // `http`/`https` reference says someone else will do the work later, which is
@@ -694,13 +702,15 @@ function completionChecks(repo, task, contract = null) {
     // pass as a tracker owner, which is the one reading this disposition must
     // not have: a link to work someone else will do is not evidence that this
     // task did it.
-    const resolved = reviewFields.Findings.match(RESOLVED_HERE);
-    if (resolved) {
-      const verdict = resolutionEvidenceVerdict(repo, resolved[1], commands);
-      if (!verdict.ok) {
+    const resolved = [...reviewFields.Findings.matchAll(RESOLVED_HERE)];
+    if (resolved.length > 0) {
+      for (const claim of resolved) {
+        const verdict = resolutionEvidenceVerdict(repo, claim[1], commands);
+        if (verdict.ok) continue;
         problems.push(
           problem("finding-resolution-evidence", resolutionEvidenceMessage(verdict))
         );
+        break;
       }
     } else if (!findingOwnerIsDurable(repo, reviewFields.Findings)) {
       problems.push(
