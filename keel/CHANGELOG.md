@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.17.0 - the store validates itself
+
+The specs Keel publishes are the artifact it asks every consumer to trust, and nothing in the repository ever ran the validator Keel ships over them. `--specs` appeared zero times in the suite.
+
+- **Validating a change says nothing about the store.** Every change's closing task runs `openspec validate <change> --strict`, which reads the change directory and stays green. The published store under `openspec/specs/` was read by no check at all. `npm test` now asserts it, fails naming each spec that did not pass, and states the validator version it exercised. (keel-validation-runner, closes #46)
+- **The assertion is absolute, not the ratchet the issue proposed** — and the reason is the correction below. A recorded tolerance is a budget, and a budget for failures is where the next one hides.
+- **The 8 failures #46 recorded were a different program's output.** The issue reports `13 passed, 8 failed` as an `openspec 1.6.0` result. Measured here: `node_modules/.bin/openspec` is **1.6.0** and reports `21 passed, 0 failed`; bare `openspec` on PATH is **1.4.1** and reports exactly `13 passed, 8 failed`, naming the same eight specs in the same order. **The store has always passed under the version this repository pins.** This is precisely the drift the `keel doctor` cross-check exists to expose — landing on the bug report that was trying to use it.
+- **The suite has been reading PATH all along.** `run_openspec` resolves through `shutil.which("openspec")`, so every scenario sharing it answers for whatever OpenSpec happens to be installed rather than the pinned dependency. This change's first draft reproduced #46's 8 failures and briefly believed them current, which is how it was found. The new scenario resolves `node_modules/.bin/openspec` directly and **reports a skip rather than falling back**, because falling back is the mistake. Repairing the shared helper is real work for the scenarios that share it and is deliberately not bundled here.
+- **What a spec author has to do differently**: put the modal verb in the requirement's **first** paragraph. The strict validator reads only the block directly under the `### Requirement:` heading, and this repository's house style of opening with a context paragraph is what produced the whole class.
+- **Version alignment**: the npm package, both native plugin manifests, protocol docs, the twelve OpenSpec surface overlays, and this changelog share Keel 5.17.0; the OpenSpec dependency pin stays `^1.4.1`.
+- No new dependency. Validator at **126 registered scenarios**, one added: `published-specs-validate-strictly`.
+
 ## 5.16.0 - the boundary holds only when asked
 
 **BREAKING.** A task that writes a file outside its `Touch` now fails `keel gate task-complete`. Before this release the same task passed, with the offending path printed in a warning.
