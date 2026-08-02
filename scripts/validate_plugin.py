@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.13.0"
-PROTOCOL_VERSION = "5.13.0"
+PACKAGE_VERSION = "5.14.0"
+PROTOCOL_VERSION = "5.14.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5773,7 +5773,7 @@ def validate_context_names_its_keel_scenario() -> int:
     """The version comparison has to survive a runtime too old to contain it.
 
     Measured 2026-08-02: installed plugin 5.7.1, CLI 5.7.0, repository protocol
-    5.13.0, and no session reported anything. The SessionStart version
+    5.14.0, and no session reported anything. The SessionStart version
     comparison shipped in 5.9.0, so the installed plugin does not carry it, and
     its silence is indistinguishable from three versions agreeing — which is
     exactly what 5.9.0 designed silence to mean.

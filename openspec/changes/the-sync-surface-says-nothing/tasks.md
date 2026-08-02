@@ -40,14 +40,14 @@
     - M5: pass. `openspec-surface-overlay` and `target-surface` both pass. `openspec-surface-overlay` failed first on the doctor label, which is declared as I1: it pinned the literal `Keel apply/archive overlay: ok`. Four occurrences were updated to the derived label, which is the pinned-wording maintenance the `## Invalidates` entry exists to make expected rather than surprising.
     - Review:
       - Status: pass
-      - Acceptance check: every check runs the real `keel` binary — `--init` and `--doctor` — into a fresh repository per target and reads the files and output a user would. Both directions are covered: M1 and M2 prove the sync surface is covered and says the right things, M4 proves explore is not, so a change that projected the overlay everywhere would fail rather than pass. M3's red is the strongest evidence that the derived label was needed, since the hardcoded one reported a fully healthy `8/8` while describing a set that had grown to eleven.
+      - Acceptance check: every check runs the real `keel` binary — `--init` and `--doctor` — into a fresh repository per target and reads the files and output a user would. Both directions are covered: M1 and M2 prove the sync surface is covered and says the right things, M4 proves explore is not, so a change that projected the overlay everywhere would fail rather than pass. M3's red is the strongest evidence that the derived label was needed, since the hardcoded one reported a fully healthy `8/8` while describing a set that had grown to twelve surfaces.
       - Scope check: `git status --short` shows `bin/keel.js`, `.claude/commands/opsx/sync.md`, `.claude/skills/openspec-sync-specs/SKILL.md`, `.codex/skills/openspec-sync-specs/SKILL.md`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The three projected surfaces changed because the local repository's own overlay was refreshed, which is the same projection the scenario exercises in a fixture.
       - Findings: two. First: `keel --uninstall` does not remove the overlay block from any OpenSpec surface, so after uninstalling Keel those files still instruct an agent to run `keel gate change-close` and `keel-review-checklist` — commands that no longer exist. Measured on archive as well as sync, so it is not specific to this change; found because M1 originally asserted that uninstall strips the marker "as it does from the others", which turned out to be a contract that has never existed for any action. M1 was corrected to assert only the install side and reauthorized from `sha256:950e7245…` to `sha256:fddd01f0…`. Fixing it changes `--uninstall` for all four actions and deletes content from files OpenSpec owns, which needs its own design and verification rather than being folded into a task about sync coverage. Durable owner: https://github.com/TanglmChris/keel/issues/50, which carries the measurement, why it is a defect, the implementation constraint that the two code paths do not currently meet, and the boundary that only the marked block may be removed. Second: this is the third task in two changes whose authored contract named something that was not real — a scenario that did not exist, a file that was not the right one, and now a behavior that had never shipped. Each was caught by executing the check rather than assuming it, which is the system working, but the recurrence says authored contracts are not being verified against the repository at authoring time. This task's own contract now matches what exists. Durable owner: https://github.com/TanglmChris/keel/issues/51, which records all four occurrences, separates the two mechanically decidable classes — a scenario name that is not registered, and a Touch path whose parent directory does not exist — from the one that is not, and carries a candidate check for each.
     - Blocker: none
 
 ## 2. Close
 
-- [ ] 2.1 Release 5.14.0
+- [x] 2.1 Release 5.14.0
   - Covers:
     - E5 — a reader of the release notes learns which of #34's layers were already delivered
     - I1, I2, I3 — the wordings this change makes stale
@@ -77,27 +77,27 @@
     - openspec/specs/keel-target-surface-diagnostics/spec.md
   - Verify:
     - Strategy: evidence-first
-    - M1: `version-alignment` passes, so every version marker names 5.14.0, including the eleven overlay markers
+    - M1: `version-alignment` passes, so every version marker names 5.14.0, including the twelve overlay markers
     - M2: `keel/CHANGELOG.md` carries a 5.14.0 entry naming the uncovered sync surface, why explore stays uncovered, that `sync` was deliberately not added to `authorize:`, and which of #34's layers were already delivered before this one
     - M3: the two spec deltas are promoted, `openspec validate the-sync-surface-says-nothing --strict` passes, and `openspec validate --specs --strict` reports errors byte-identical to those it reported before the promotion
     - M4: `npm test` passes with no failing scenario and no exception
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:58686ed8d14146e0eadeb36ad97e14facccd706613c51ec49c39231525609704
+    - M1: pass. `version-alignment scenario passed.` Every marker moved from 5.13.0 to 5.14.0 across twenty files, and `grep -rl keel:openspec-surface-overlay .claude .codex` lists **twelve** surfaces — the nine that existed plus the three sync surfaces this change covers.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.14.0 - the sync surface says nothing`, naming the uncovered sync surface and what it left unsaid, the hardcoded doctor label, why explore stays uncovered, that `sync` was deliberately kept out of `authorize:`, and which of #34's layers had already shipped before this one.
+    - M3: pass. Both deltas are promoted and `openspec validate the-sync-surface-says-nothing --strict` reports the change valid. `openspec validate --specs --strict` reports 13 passed and 8 failed, the same totals as before the promotion; the 8 are pre-existing and owned by https://github.com/TanglmChris/keel/issues/46.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 123 scenarios.` — no failing scenario, no exception, none skipped.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: each claim is checked by running the thing it describes — the alignment scenario over every marker, a direct grep for the marker count rather than a recollection of it, the real suite, and the OpenSpec validator over both the change and the promoted store. Verified live outside any fixture: `keel --doctor` in this repository now prints `Keel apply/archive/sync overlay: ok - 8/8`.
+      - Scope check: `git status --short` lists exactly the Touch entries plus this change's own directory, which is the record-write layer.
+      - Findings: one, closed here. The changelog and `## Invalidates` I2 both stated the overlay marker count as eleven, which was arithmetic rather than measurement — three sync surfaces join nine, which is twelve. Caught by counting them before completing, and corrected in both places; the M1 wording changed with it, so the contract was reauthorized from `sha256:9f2bc957…` to `sha256:58686ed8…`. It is the same defect this release is about, committed inside its own release notes: a number that looks right and was never checked. Resolved here: M1, which now asserts the counted value rather than a derived one.
     - Blocker: none
 
 ## Invalidates
 
 - I1: "Keel apply/archive overlay" — the doctor label in `bin/keel.js` and every scenario asserting it. It names a hardcoded pair that stops describing the managed set the moment a third action joins it. Updated by: 1.1
-- I2: "`OPENSPEC_OVERLAY_ACTIONS = [\"propose\", \"apply\", \"archive\"]`" — the constant in `bin/keel.js`, and the nine-marker count stated in the 5.11.0, 5.12.0, and 5.13.0 changelog entries as "the nine `keel:openspec-surface-overlay` markers". The count becomes eleven. The shipped changelog entries are historical records of what was true when written and are not edited; what goes stale is the standing expectation that there are nine. Updated by: 1.1, and the live count is restated by 2.1.
+- I2: "`OPENSPEC_OVERLAY_ACTIONS = [\"propose\", \"apply\", \"archive\"]`" — the constant in `bin/keel.js`, and the nine-marker count stated in the 5.11.0, 5.12.0, and 5.13.0 changelog entries as "the nine `keel:openspec-surface-overlay` markers". The count becomes twelve: three sync surfaces join the nine. The shipped changelog entries are historical records of what was true when written and are not edited; what goes stale is the standing expectation that there are nine. Updated by: 1.1, and the live count is restated by 2.1.
 - I3: "version=5.13.0" — the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, the `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`, `"version": "5.13.0"` in `package.json`, `package-lock.json`, and both plugin manifests, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. Updated by: 2.1
 
 ## Expectation Coverage
