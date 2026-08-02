@@ -1,0 +1,122 @@
+## 1. The comparison
+
+- [x] 1.1 Compare the recorded anchor wherever a live change's contract is checked
+  - Covers:
+    - keel-core-gates / A recorded anchor is compared against the recompiled fingerprint
+    - keel-core-gates / change-close compares the anchor of every checked task
+    - keel-core-gates / Completion requires a recorded start fingerprint
+    - D1 — drift is a hard failure
+    - D2 — the code is `contract-drift`
+    - D3 — the refusal names both values, the command, and the stale evidence
+    - D4 — change-close compares, and refuses a checked task with no anchor
+    - D5 — the schema prefix stays optional and becomes diagnostic
+    - D7 — one task, because splitting by call site is a horizontal split
+    - F1, F4, F5, F6, F7 — the measured defect and the free comparison
+    - A1 — the dishonest fixture is repaired, not accommodated
+  - Touch:
+    - src/core/gates.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a task whose Touch is rewritten after `task-start --record` fails `task-complete` with a `contract-drift` problem whose message names the recorded fingerprint, the recompiled fingerprint, the reauthorization command, and the staleness of evidence produced under the previous contract
+    - M2: an anchor holding sixty-four zeros — a well-formed digest the task does not compile to — fails `task-complete`, so the gate refuses on the value rather than on the shape
+    - M3: an anchor equal to the recompiled fingerprint still passes `task-complete` with no problem, and the same contract anchored as a bare `sha256:` digest with no `keel-task-capsule/v1` prefix passes identically
+    - M4: with every task checked, editing a task's contract fails `change-close --action sync` naming the drifted task, and a checked task whose anchor holds no fingerprint fails the close with a diagnostic that does not direct the reader to complete an already-checked task
+    - M5: a fully checked change whose anchors all match still passes `change-close --action sync`
+    - M6: the repaired `completion-requires-a-recorded-anchor` scenario records its anchor on the change it completes, still refuses `Contract: pending`, and now also refuses a fingerprint compiled from a different change
+    - M7 (regression): `anchor-reverification-bound` and `task-complete-selection-requires-a-started-task` stay green, so the surfaces that already compared are unchanged
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:41f9030d0b1ad3259b104db2d5a9da9ad2d26d95d0f0913cf099e00566420cc2
+    - M1: pass. New scenario `contract-anchor-is-compared` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario contract-anchor-is-compared`. It records an anchor, rewrites the task's Touch from `src/feature.js` to `src/DRIFTED.js`, and asserts `task-complete` fails with `contract-drift`. The fixture first proves it produced drift at all — recompiled must differ from recorded — so a check that passed for want of a difference is refused before the assertion runs. The message is then checked for the recorded digest, the recompiled digest, `task-start`, and `stale`.
+    - M1.red: fail. `M1 a task whose Touch was rewritten after recording reported no contract-drift problem, so the recorded anchor is still being counted rather than compared`, printing `status=pass` from the shipped `hasRecordedAnchor` existence check.
+    - M1.green: pass, after `contractDriftProblem` was written and wired into `taskComplete` beside the missing-anchor branch. The hard-failure half is a separate branch with its own message, and it was fired by routing the drift problem into `reviewProblems`: `M1 reported contract drift but did not fail the gate; status was 'needs-review'`.
+    - M2: pass. Same scenario, the issue's own reproduction: an anchor of sixty-four zeros — a well-formed digest the task does not compile to — fails `task-complete` with `contract-drift`.
+    - M2.red: fail. `M2 an anchor of sixty-four zeros passed task-complete, so the gate still accepts any well-formed digest`, aimed by making `contractDriftProblem` return null for an all-zero digest, which is the plausible "that is not a real fingerprint" special case. M1 still passed under that mutation, so this red belongs to M2 rather than being M1's red seen twice.
+    - M2.green: pass. The comparison has no special cases; a value either equals the recompiled fingerprint or it does not.
+    - M3: pass. Same scenario. A matching anchor still completes, and the same contract anchored as a bare `sha256:` digest with the `keel-task-capsule/v1` prefix stripped completes identically. The fixture asserts the prefix is actually gone before running the gate, so the bare case cannot pass by never having been created.
+    - M3.red: fail. `M3 a task whose anchor matches its recompiled fingerprint no longer completes, so the comparison refuses correct work`, aimed by comparing the raw `- Contract:` line instead of the parsed digest and quoting the result — `records sha256:keel-task-capsule/v1 sha256:4859bda1…, but this task now compiles to sha256:4859bda1…`, the same digest reported as a disagreement with itself.
+    - M3.green: pass. The comparison takes `anchoredFingerprint`'s parsed digest, so both accepted anchor forms compare equal and D5's decision costs nothing.
+    - M4: pass. Same scenario, two closes. With every task checked and a task's Touch then edited, `change-close --action sync` fails with `contract-drift` and the message names task 1.1. With a checked task whose anchor holds no fingerprint, the close fails with `missing-contract-anchor`, and the diagnostic is asserted not to contain `then complete it` — `task-complete`'s remedy sentence, which would send the reader of an already-checked task to a place with no problem in it.
+    - M4.red: fail. `M4 change-close passed a checked task whose contract was edited after its anchor was recorded as sha256:bcaa1770…, so the window between completion and the archive is unguarded`, aimed by deleting the anchor block from `changeClose` while leaving `taskComplete` correct.
+    - M4.green: pass, after the loop that already compiles every task's capsule began reading the anchor beside it.
+    - M5: pass. Same scenario. A fully checked change whose anchors all match still closes.
+    - M5.red: fail. `M5 a change whose every anchor matches no longer closes, so the comparison blocks correct work at the close`, aimed by making only `changeClose` compare the raw anchor line; M3 stayed green under that mutation, so the red is the close's own.
+    - M5.green: pass.
+    - M6: pass. The shipping `completion-requires-a-recorded-anchor` scenario recorded the fingerprint of change `unrecorded` and wrote it into change `recorded`. It now records against the change it completes, asserts the two changes compile to different values so the next assertion can bite, and asserts that the foreign fingerprint is refused before the correct one is accepted.
+    - M6.red: fail. `recording the anchor did not clear the refusal`, printing `contract-drift: … records sha256:21ead76a…, but this task now compiles to sha256:d71346ce…`. This red needed no mutation: the fixture that claimed to prove the comparison went red the moment the comparison existed, which is what F7 predicted.
+    - M6.green: pass, after the fixture recorded against its own change and gained the foreign-anchor assertion.
+    - M7: pass. `anchor-reverification-bound` and `task-complete-selection-requires-a-started-task` both pass unchanged, so the surfaces that already compared are untouched by this.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check drives the real `keel` binary as a subprocess and reads its JSON verdict, so what is asserted is the gate's published behavior rather than the shape of a helper. M1, M2 and M4 prove the gate now refuses what it accepted; M3 and M5 prove it still accepts what it should, which is the half a comparison can quietly break. All seven reds were fired: five by aimed mutations, M6 by the implementation alone, M7 by being green before and after. Nothing here asserts that a function exists or returns a type.
+      - Scope check: `git status --short` shows `src/core/gates.js` and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The disposable guard manifest does not appear because `keel/.gitignore` excludes it. Four shipping scenarios changed beyond the new one, and all four changed for the same reason rather than to accommodate the gate: `core-gates` added a path to Touch without reauthorizing and closed a change whose checked task had no anchor at all, `tracker-durable-owner` closed without recording, and `task-capsule` compiled a fingerprint it never wrote down. Each now does what an author does.
+      - Findings: `change-close` now refuses a checked task that records no anchor, which is stricter than anything issue #37 asked for and can bite a consuming repository whose live change was completed before 5.10.0. The reasoning is in D4 — an absent record and a drifted one are the same absence of proof at the gate that closes a live change, and without it the comparison is bypassed by deleting a line. The migration consequence is not left to the code: Durable owner: openspec/changes/the-anchor-is-compared-not-counted/tasks.md, task 2.1, whose changelog check covers what now fails and what the recovery is. Second finding: four shipping fixtures encoded states these gates forbid and nothing detected that until a gate started checking, which is the ordinary cost of adding a real check rather than a defect of its own. Discard reason: closed here — each fixture was corrected to the behavior it was always meant to model, and the corrections are listed in the Scope check above. Third finding, from `keel-review-checklist` after this task first passed: three of the new assertions were one condition guarding two distinct failures — `if payload.get("status") != "fail" or "contract-drift" not in codes(payload)` would have reported that a forged anchor "passed task-complete" when the gate had in fact failed for a different reason. All three are split and the hard-failure branch was fired. This is the third consecutive change in which the checklist has caught this exact shape, always in validator assertion code, and it is caught only after the task has already passed its completion gate. Durable owner: https://github.com/TanglmChris/keel/issues/43, which carries the three occurrences, the argument that the shape is mechanically detectable while the semantics are not, and a candidate AST lint over `scripts/validate_plugin.py`.
+    - Blocker: none
+
+## 2. Close
+
+- [x] 2.1 Promote the delta and record the release
+  - Covers:
+    - keel-core-gates / A recorded anchor is compared against the recompiled fingerprint
+    - keel-core-gates / change-close compares the anchor of every checked task
+    - F3 — two shipped requirements stop being false
+    - I1, I2, I3
+  - Touch:
+    - openspec/specs/keel-core-gates/spec.md
+    - keel/CHANGELOG.md
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate the-anchor-is-compared-not-counted` passes and every `### Requirement:` and `#### Scenario:` heading in the delta appears in the live spec, including the modified scenario that replaced "completes as before"
+    - M2: `AGENTS.md` names `change-close` among the surfaces that recompile and compare, so the protocol sentence lists every gate that now does
+    - M3: the changelog entry states that a well-formed but non-matching anchor now fails where it passed, names the reauthorization command as the recovery, and records that archived changes are unaffected
+    - M4: `version-alignment` passes with every marker at the new version, including the changelog-head comparison
+    - M5: `npm test` passes, with the two environment failures owned by issue #36 as the only exceptions
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:09fd84b65a073482513c53d38e757ceaaf3df064546e5de85bbd65524b8ab24f
+    - M1: pass. `keel openspec validate the-anchor-is-compared-not-counted` → `Change 'the-anchor-is-compared-not-counted' is valid`. All 13 delta headings — 3 `### Requirement:` and 10 `#### Scenario:` — were checked against `openspec/specs/keel-core-gates/spec.md` by substring and none is missing. That set includes the modified scenario: `A recorded anchor completes as before` is gone from the live spec and `A recorded anchor is compared, not counted` stands in its place, with an outcome line that names the failure rather than the word "before".
+    - M2: pass. `AGENTS.md` now reads "resume, projection, completion, and the change close recompile and compare it", and adds the sentence a reader of the old text could not have derived: "A well-formed digest is not an anchor: what is compared is the value, and `change-close` also refuses a checked task that recorded none."
+    - M3: pass. The 5.10.0 entry leads with the measured before/after — the `2ca3e03d…` beside `241984…` payload and the sixty-four-zero anchor — states `keel gate task-start --record` as the recovery in bold, and carries a dedicated bullet stating that archived changes are unaffected together with why (change discovery excludes the archive tree, and an archived capsule names renamed source paths). The close's missing-anchor refusal is called out as the stricter half most likely to be met on upgrade.
+    - M4: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` → `version-alignment scenario passed`, with `PACKAGE_VERSION`/`PROTOCOL_VERSION`, `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay markers all at 5.10.0. The changelog-head comparison is what makes this alignment rather than presence: the newest `## X.Y.Z` heading is now 5.10.0.
+    - M5: pass. `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` → 111 of 113 registered scenarios pass. The two failures are `spec-template-validates` and `native-helper-read-only`, both local-environment and both owned by https://github.com/TanglmChris/keel/issues/36; they fail identically on the unmodified base commit and are green in CI.
+    - Review:
+      - Status: pass
+      - Acceptance check: the Acceptance is a release rather than a behavior, so evidence-first is the honest strategy and each check is one of the release's own conditions: the specs say what shipped (M1), the resident protocol says it in the one place every session reads (M2), the changelog says what breaks and what to run (M3), every marker names the same version (M4), and the behavior the release carries is still proven by the suite (M5). The behavioral proof for the comparison itself lives in task 1.1, whose `contract-anchor-is-compared` scenario runs inside M5's suite.
+      - Scope check: `git status --short` shows the promoted spec, the changelog, both `package*.json`, both plugin manifests, `scripts/validate_plugin.py`, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay files — the Touch list exactly — plus this change's own `tasks.md`, which is the record-write layer. The disposable guard manifest does not appear because `keel/.gitignore` excludes it. `scripts/validate_plugin.py` changed only in its two version constants; task 1.1 committed its scenario separately at `75e9452`.
+      - Findings: I1 and I2 are both closed by edits in this task rather than by the passage of time — the core-gates scenario was retitled and its outcome line rewritten, and the AGENTS.md sentence gained `change-close` plus the value-not-shape clause. I5 stays discarded as authored: `keel-touch-write-guard`'s contract-drift scenario said `task-complete` "refuses the recorded anchor, because both compile the capsule and compare it", and it is left untouched because the code moved to meet it. One thing this release cannot do is announce itself to a session already running: the installed plugin and CLI are pinned at session start, so a repository upgrading to 5.10.0 keeps the old gates until a restart — which is exactly what 5.9.0's version report exists to say, and it will say it. Discard reason: no work item; the mechanism that covers it shipped one release ago.
+    - Blocker: none
+
+## Invalidates
+
+- I1: "the anchor is compared against the recompiled fingerprint as before" — `openspec/specs/keel-core-gates/spec.md`, under the scenario headed "A recorded anchor completes as before". Both the scenario title and its outcome line describe a comparison that never ran, and "as before" points at a history in which the anchor was only counted. Updated by: 2.1
+- I2: "resume, projection, and completion recompile and compare it" — `AGENTS.md`, in the completion-gates bullet. The sentence becomes accurate for completion and simultaneously incomplete as a list, because `change-close` starts comparing too. Updated by: 2.1
+- I3: "version=5.9.0" — grep it and you find the `keel:start` managed block plus the nine `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is also written as `"version": "5.9.0"` in `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md` (its title, its `keel:start` marker, and the preflight line naming the protocol), `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. Every one names the shipping version and goes stale the moment this change releases. Updated by: 2.1
+- I4: "the anchor comparison that follows is a real comparison rather than a shape check" — `scripts/validate_plugin.py`, the comment above the recorded-anchor half of `validate_completion_requires_a_recorded_anchor_scenario`. It asserts the exact property this change adds, sitting above a fixture that writes a fingerprint compiled from a different change; the neighbouring claim that "the fingerprint is the one this task actually compiles to" is wrong for the same reason. Updated by: 1.1
+- I5: "`keel gate task-complete` refuses the recorded anchor, because both compile the capsule and compare it" — `openspec/specs/keel-touch-write-guard/spec.md`, in the contract-drift scenario. The sentence is not edited: it was false when written and becomes true here, which is the change's purpose rather than a side effect. Discard reason: recorded because a reader comparing the new requirement against this one will ask which of them moved, and the answer is neither — the code moved to meet both.
+
+## Expectation Coverage
+
+- E1: A task whose authority changed after recording cannot be completed. Covered by: 1.1
+- E2: The refusal is actionable — it names both values, the command that resolves it, and what becomes stale. Covered by: 1.1
+- E3: Correct work is not newly blocked; a matching anchor completes exactly as it did. Covered by: 1.1
+- E4: The window between the last checkbox and the archive is closed. Covered by: 1.1
+- E5: A hand-written anchor with no schema prefix keeps working. Covered by: 1.1
+- E6: The scenario that claimed to prove the comparison actually proves it. Covered by: 1.1
+- E7: Two shipped spec statements stop being false. Covered by: 1.1, 2.1
+- E8: A reader whose change starts failing at completion learns from the release notes why and what to run. Covered by: 2.1

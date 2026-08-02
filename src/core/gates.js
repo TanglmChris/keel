@@ -110,9 +110,36 @@ function loadSelection(repo, options, requireTask = true) {
 // of the task they just finished. A task that has started records a fingerprint
 // in its Evidence `Contract` anchor, so that anchor is what makes the inference
 // safe — and without one there is nothing for completion to compare against.
-function hasRecordedAnchor(selection, task) {
+function recordedAnchor(selection, task) {
   const plan = contractAnchorPlan(selection, task);
-  return Boolean(plan && anchoredFingerprint(plan.previous));
+  return plan ? anchoredFingerprint(plan.previous) : null;
+}
+
+function hasRecordedAnchor(selection, task) {
+  return Boolean(recordedAnchor(selection, task));
+}
+
+// The anchor was parsed, shape-checked, and then discarded: completion asked
+// whether sixty-four hex characters were present and never whether they were
+// the ones this task compiles to. `keel context` and `keel guard status` both
+// already compared, and two shipped requirements already described completion
+// as comparing, so this is the one surface that did not do what was written
+// down about it. A digest that matches can only have come from the schema that
+// produced it, so the `keel-task-capsule/v1` prefix is diagnostic detail here
+// rather than a second thing to require.
+function contractDriftProblem(recorded, contract) {
+  if (!recorded || recorded === contract.fingerprint.value) return null;
+  return problem(
+    "contract-drift",
+    `The Evidence \`Contract\` anchor records sha256:${recorded}, but this `
+      + `task now compiles to ${contract.fingerprint.algorithm}:`
+      + `${contract.fingerprint.value} under ${contract.schema}. The contract `
+      + "changed after the anchor was recorded, so the authority this task was "
+      + "implemented under is not the authority it is being judged against. "
+      + "Reauthorize with `keel gate task-start --record`, which rewrites the "
+      + "anchor in place; execution evidence produced under the previous "
+      + "contract is stale and has to be cleared or re-verified first."
+  );
 }
 
 // A task that recorded no anchor has no drift detection at all while presenting
@@ -625,7 +652,17 @@ function taskComplete(repo, options) {
   const checks = completionChecks(repo, task, usableContract);
   checks.problems.push(...contract.diagnostics);
   const missingAnchor = missingAnchorProblem(selection, task);
-  if (missingAnchor) checks.problems.push(missingAnchor);
+  if (missingAnchor) {
+    checks.problems.push(missingAnchor);
+  } else if (usableContract) {
+    // Only when an anchor exists: a missing one is already its own problem, and
+    // reporting drift on top of it would name a comparison that never ran.
+    const drift = contractDriftProblem(
+      recordedAnchor(selection, task),
+      usableContract
+    );
+    if (drift) checks.problems.push(drift);
+  }
   const scope = scopeEvidence(
     repo,
     task,
@@ -893,6 +930,28 @@ function changeClose(repo, options) {
         problem("incomplete-task", `Task ${task.id} is not checked complete.`)
       );
       continue;
+    }
+    // Completion is not the last moment a live change's contract can move. The
+    // window between the final checkbox and the archive was unguarded, at the
+    // one gate whose job is closing that window — and the loop already compiled
+    // every task's capsule, so the comparison costs nothing here either.
+    const anchor = recordedAnchor(selection, task);
+    if (!anchor) {
+      problems.push(
+        problem(
+          "missing-contract-anchor",
+          `Task ${task.id} is checked complete but its Evidence \`Contract\` `
+            + "anchor holds no compiled fingerprint, so the close has nothing "
+            + "to compare and cannot verify the contract this task was "
+            + "completed under. Return it through `keel gate task-start "
+            + "--record` and `keel gate task-complete` before closing."
+        )
+      );
+    } else if (contract.diagnostics.length === 0) {
+      const drift = contractDriftProblem(anchor, contract);
+      if (drift) {
+        problems.push(problem(drift.code, `Task ${task.id}: ${drift.message}`));
+      }
     }
     const checks = completionChecks(
       repo,
