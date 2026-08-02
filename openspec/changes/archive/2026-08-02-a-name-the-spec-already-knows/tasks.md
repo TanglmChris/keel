@@ -57,7 +57,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release 5.21.0
+- [x] 2.1 Release 5.21.0
   - Covers:
     - E6 — a reader of the release notes learns which message changed, and that what resolves did not
     - I1, I2, I3 — the wordings this change makes stale
@@ -96,16 +96,16 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:bb0108fd19b1cebaea5405ac5204e7461aefa3ab985ed35a51f8d7ace00bc812
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Twenty-two markers moved from 5.20.0 to 5.21.0 via `node scripts/bump_version.js 5.21.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks, the twelve `keel:openspec-surface-overlay` markers, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.21.0 - a name the spec already knows`, quoting the reported reference and the sentence it now produces, naming the template wording that taught the failing shape, and stating plainly that what resolves is unchanged and that every case still fails with the same code. It records the design.md critical-statement shape as deliberately not done, with the four-shape measurement, the reason both directions are user-visible, and where the decision is left.
+    - M3: pass. The delta is promoted — `An unresolved reference into an existing capability names what failed` and its five scenarios now sit in `openspec/specs/keel-task-capsule/spec.md` immediately after `Over-segmented capability reference does not degrade silently`, the requirement it completes. `node bin/keel.js openspec validate a-name-the-spec-already-knows --strict` reports `Change 'a-name-the-spec-already-knows' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 130 scenarios.` — no failing scenario, no exception, none skipped.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: each release claim is checked by running the thing it describes rather than by reading it — the marker count by `version-alignment`, the promotion by `openspec validate --strict` and then by `published-specs-validate-strictly` against the store that now holds the new requirement.
+      - Scope check: `git status --short` lists 2.1's Touch entries plus this change's own `tasks.md`, which is the record-write layer. No path outside Touch. The version markers were written by `scripts/bump_version.js`, the repository's own release tool; a script's writes are invisible to the PreToolUse guard, so every file it touches was declared in Touch beforehand and the resulting worktree was compared against that list here rather than assumed.
+      - Findings: none
     - Blocker: none
   - Stop if:
     - Requires files outside Touch.
