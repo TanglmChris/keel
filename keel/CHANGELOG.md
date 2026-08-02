@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.18.0 - every path reader reads every path
+
+A `Durable owner:` naming a file under a Chinese directory was refused, and the refusal named a path nobody wrote: `notes/note-006-转岗最难的不是流程/note.md` exists, and `change-close` reported that `notes/note-006-` does not.
+
+- **The extractor answered the wrong question.** It was `[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+` — it decided *where a path ends* by assuming *what a path is made of*. A path is now a run of non-whitespace containing a separator, whatever script it is written in. The check being performed is whether the file exists, and a path that exists is a path an author may name. (keel-core-gates, closes #60)
+- **Two more shapes fell out while reproducing it**, and the issue's own suggested fix would have left one of them broken. A path whose *first* segment is non-ASCII did not match at all rather than truncating. And a path containing a **space** truncated at the space — which no character-class widening can repair, because there the terminator is the problem.
+- **A path may be wrapped in backticks**, which is how one containing whitespace is declared. This is not a new convention: `touchEntries` has always stripped backticks from a `Touch` entry, so `Touch` and `Durable owner:` had been spelling one authorship two different ways depending on which reader would read it.
+- **Trailing punctuation is trimmed, in both families.** A Chinese sentence ends in `。`, which is not whitespace, so a non-whitespace run swallows it. Once the extractor stops assuming ASCII, its terminators cannot assume ASCII either.
+- **Four copies became one.** The durable-owner reader, the resolution-evidence reader, and both `keel/archive/…` readers each carried the same character class. That is why this survived #40, which fixed the identical class in `gitPaths` on the worktree-reading side: that repair fixed one reader rather than how the repository extracts paths.
+- **Not precedent for widening anything else.** #58 is the same cause with the opposite repair — `[0-9a-f]{7,40}` matching an eleven-digit phone number as a commit hash, where the fix is a *narrowing*. The general rule is that the implementation must match the rule, in whichever direction that lies; "loosen the pattern" is not the lesson.
+- **Deliberately untouched**: the change-name validators. Those match an OpenSpec-generated kebab-case identifier, not a filesystem path, and widening them would accept names the tool will not produce.
+- **Version alignment**: the npm package, both native plugin manifests, protocol docs, the twelve OpenSpec surface overlays, and this changelog share Keel 5.18.0; the OpenSpec dependency pin stays `^1.4.1`.
+- No new dependency. Validator at **127 registered scenarios**, one added: `declared-paths-are-read-whole`, which asserts the negative case beside the positives — a widening whose tests only prove that more things pass has not shown it kept the check.
+
 ## 5.17.0 - the store validates itself
 
 The specs Keel publishes are the artifact it asks every consumer to trust, and nothing in the repository ever ran the validator Keel ships over them. `--specs` appeared zero times in the suite.

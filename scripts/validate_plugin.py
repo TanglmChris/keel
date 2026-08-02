@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.17.0"
-PROTOCOL_VERSION = "5.17.0"
+PACKAGE_VERSION = "5.18.0"
+PROTOCOL_VERSION = "5.18.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19344,6 +19344,160 @@ def validate_assertion_shape_count_scenario() -> int:
     return 0
 
 
+def validate_declared_paths_are_read_whole_scenario() -> int:
+    """Issue #60: a durable owner under a Chinese directory was refused.
+
+    `notes/note-006-转岗最难的不是流程/note.md` exists and `git ls-files` finds
+    it, and `change-close` reported that `notes/note-006-` does not exist — a
+    path nobody wrote. The extractor was `[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+`,
+    which answers "where does the path end" by assuming what a path is made of.
+
+    Two more shapes fell out while reproducing it: a path whose *first* segment
+    is not ASCII does not match at all, and a path containing a space truncates
+    at the space. The last is why the backtick form matters — `Touch` already
+    accepts it, so one authorship was spelled two ways depending on which
+    reader would read it.
+
+    Same class as #40, which fixed it in `gitPaths` for the worktree side. That
+    fix did not generalize because it repaired one reader rather than how the
+    repository extracts paths.
+    """
+    label = "declared-paths-are-read-whole"
+    cjk_owner = "notes/note-006-转岗最难的不是流程/note.md"
+    cjk_first = "文档/风格.md"
+    spaced = "docs/has space.md"
+
+    def git(repo, *args):
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def tasks_doc(findings: str, coverage: str) -> str:
+        return (
+            "# Tasks\n\n"
+            "- [x] 1.1 Exercise the declared-path readers\n"
+            "  - Covers:\n    - E1: Public behavior passes.\n"
+            "  - Touch:\n    - src/declared.js\n"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n"
+            "    - Contract: keel-task-capsule/v1 sha256:"
+            + ("0" * 64) + "\n"
+            "    - M1: the suite passed\n"
+            "    - Review:\n      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            f"      - Findings: {findings}\n"
+            "    - Blocker: none\n\n"
+            "## Invalidates\n\n- None.\n\n"
+            "## Expectation Coverage\n\n"
+            f"- E1: the behavior {coverage}\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-declared-paths-") as raw:
+        repo = (Path(raw) / "repo").resolve()
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        for item in (cjk_owner, cjk_first, spaced):
+            write_text(repo / item, "# owner\n")
+        write_text(repo / "src/declared.js", "// product\n")
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+
+        def close(findings: str, coverage: str) -> dict:
+            write_text(tasks_path, tasks_doc(findings, coverage))
+            return json.loads(
+                run_keel(
+                    repo, "gate", "change-close", "--change", "demo",
+                    "--action", "sync", "--json",
+                ).stdout
+            )
+
+        def problems(payload: dict) -> list[str]:
+            return [p.get("message", "") for p in payload.get("problems", [])]
+
+        # M1 — the reported shape, on both readers that take a declared path.
+        for where, findings, coverage in (
+            ("Findings", f"one open. Durable owner: {cjk_owner}", "Covered by: 1.1"),
+            ("Expectation Coverage", "none", f"Durable owner: {cjk_owner}"),
+        ):
+            payload = close(findings, coverage)
+            truncated = [m for m in problems(payload) if "note-006-" in m]
+            if truncated:
+                report(
+                    f"{label} M1 a {where} durable owner naming an existing "
+                    "file under a non-ASCII directory was refused, and the "
+                    "refusal names a path nobody wrote."
+                )
+                for message in truncated:
+                    report(f"  {message}")
+                return 1
+
+        # M1 — a path whose first segment is not ASCII matched nothing at all,
+        # which is a different failure from truncation and needs its own case.
+        payload = close("none", f"Durable owner: {cjk_first}")
+        rejected = [m for m in problems(payload) if "E1" in m and "owner" in m.lower()]
+        if rejected:
+            report(
+                f"{label} M1 a durable owner whose first segment is not ASCII "
+                "was not recognized as a path at all."
+            )
+            for message in rejected:
+                report(f"  {message}")
+            return 1
+
+        # M1 — whitespace arrives in backticks, the form Touch already accepts.
+        payload = close("none", f"Durable owner: `{spaced}`")
+        rejected = [m for m in problems(payload) if "E1" in m and "owner" in m.lower()]
+        if rejected:
+            report(
+                f"{label} M1 a backtick-wrapped path containing a space was "
+                "not read whole, so Touch and Durable owner still disagree "
+                "about how one path is written."
+            )
+            for message in rejected:
+                report(f"  {message}")
+            return 1
+
+        # M1 — a path ending a sentence, in both punctuation families.
+        for mark in ("。", ","):
+            payload = close("none", f"Durable owner: {cjk_owner}{mark} 说明文字")
+            rejected = [
+                m for m in problems(payload) if "E1" in m and "owner" in m.lower()
+            ]
+            if rejected:
+                report(
+                    f"{label} M1 a path followed by {mark!r} was extended by "
+                    "its punctuation, so the gate looked for a file that "
+                    "cannot exist."
+                )
+                for message in rejected:
+                    report(f"  {message}")
+                return 1
+
+        # M1 — the check itself must survive the widening. A path that does not
+        # exist is still refused, and the refusal names the whole path.
+        missing = "notes/不存在的目录/note.md"
+        payload = close("none", f"Durable owner: {missing}")
+        named = [m for m in problems(payload) if missing in m]
+        if not named:
+            report(
+                f"{label} M1 a durable owner naming a file that does not exist "
+                "was accepted, or was refused without naming the whole path. "
+                "Widening the extractor must not weaken the existence check."
+            )
+            for message in problems(payload):
+                report(f"  {message}")
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_published_specs_validate_strictly_scenario() -> int:
     """Issue #46: the store Keel publishes was validated by nothing.
 
@@ -19815,6 +19969,10 @@ SCENARIOS: tuple = (
     ("domain-lens-doctor", validate_domain_lens_doctor_scenario),
     ("plan-funnel-guidance", validate_plan_funnel_guidance_scenario),
     ("native-tasks-view", validate_native_tasks_view_scenario),
+    (
+        "declared-paths-are-read-whole",
+        validate_declared_paths_are_read_whole_scenario,
+    ),
     (
         "published-specs-validate-strictly",
         validate_published_specs_validate_strictly_scenario,
