@@ -699,21 +699,35 @@ function openspecReportedVersion(command) {
   return match ? match[0] : null;
 }
 
-function lockedOpenSpecVersion() {
+// The root is the repository under diagnosis, never PACKAGE_ROOT. Rooting this
+// at Keel's own install location made the line a statement about a repository
+// the reader was never shown: a consumer pinning 9.9.9 was told the version
+// Keel's checkout pins, and a global install — which ships no lockfile — was
+// told `unreadable` forever, which is exactly the drift this check was added
+// to expose. There is no fallback to PACKAGE_ROOT on purpose; falling back
+// would reinstate the misattribution and leave the reader unable to tell which
+// case they were in.
+//
+// Three outcomes, not two. A repository with no lockfile and one whose lockfile
+// names no OpenSpec both *declare* nothing, which is the ordinary case for any
+// project that does not depend on OpenSpec directly. A lockfile that exists and
+// cannot be parsed is a read failure. Collapsing them would either warn at
+// everyone or hide a real failure.
+function declaredOpenSpecVersion(repo) {
+  const lockPath = path.join(repo, "package-lock.json");
+  if (!fs.existsSync(lockPath)) return { state: "none", version: null };
+  let lock;
   try {
-    const lock = JSON.parse(
-      fs.readFileSync(path.join(PACKAGE_ROOT, "package-lock.json"), "utf8")
-    );
-    for (const [name, entry] of Object.entries(lock.packages || {})) {
-      if (name.endsWith("@fission-ai/openspec") && entry && entry.version) {
-        return entry.version;
-      }
-    }
+    lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
   } catch {
-    // No lockfile in a published install; there is then nothing to disagree
-    // with, which is not the same as agreement and is reported as such.
+    return { state: "unreadable", version: null };
   }
-  return null;
+  for (const [name, entry] of Object.entries(lock.packages || {})) {
+    if (name.endsWith("@fission-ai/openspec") && entry && entry.version) {
+      return { state: "declared", version: entry.version };
+    }
+  }
+  return { state: "none", version: null };
 }
 
 function findOpenSpecCommand() {
@@ -1426,16 +1440,24 @@ function runDoctor(options) {
         silentNotFound: true,
       }) === 0;
     const resolvedVersion = openspecReportedVersion(openspec);
-    const locked = lockedOpenSpecVersion();
+    const declared = declaredOpenSpecVersion(repo);
     const mismatched = Boolean(
-      resolvedVersion && locked && resolvedVersion !== locked
+      resolvedVersion
+      && declared.state === "declared"
+      && resolvedVersion !== declared.version
     );
     const where = bareOpenSpecOnPath
       ? openspec
       : `${openspec} is keel-resolvable but bare \`openspec\` is not on PATH — use \`keel openspec\``;
-    const versions = `${resolvedVersion || "version unreadable"}, lockfile ${
-      locked || "unreadable"
-    }`;
+    // Two versions on one line need two owners. `repo` is the repository named
+    // on doctor's first line; the answering build is attributed by the path
+    // already printed beside it.
+    const declaredText = {
+      declared: `repo pins ${declared.version}`,
+      none: "repo declares no OpenSpec version",
+      unreadable: "repo package-lock.json unreadable",
+    }[declared.state];
+    const versions = `${resolvedVersion || "version unreadable"}, ${declaredText}`;
     printDoctorLine(
       "openspec",
       mismatched || !bareOpenSpecOnPath ? "warning" : "ok",
