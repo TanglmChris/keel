@@ -471,16 +471,27 @@ function resolveHandoff(repo, handoff) {
 }
 
 function gitWarnings(repo) {
+  // `-z`, so a non-ASCII path is reported as the filesystem spells it rather
+  // than as the octal escape Git produces in every other form. The gate's
+  // `gitPaths` reads the same way, for the same reason.
   const git = spawnSync(
     "git",
-    ["status", "--short", "--untracked-files=all"],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     { cwd: repo, encoding: "utf8" }
   );
   if (git.error || git.status !== 0 || !git.stdout.trim()) return [];
-  const paths = git.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => line.slice(3).trim());
+  // Each record is `XY <path>`; a rename or copy adds a second bare field for
+  // its other endpoint, which carries no status prefix to strip.
+  const fields = git.stdout.split("\0").filter(Boolean);
+  const paths = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index];
+    paths.push(record.slice(3));
+    if (record[0] === "R" || record[0] === "C") {
+      index += 1;
+      if (index < fields.length) paths.push(fields[index]);
+    }
+  }
   return paths.length > 0
     ? [`Working tree has uncommitted paths (selection-neutral): ${paths.join(", ")}`]
     : [];

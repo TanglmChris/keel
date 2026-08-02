@@ -1,0 +1,217 @@
+## 1. The things behind the names
+
+- [x] 1.1 Decide repository containment on resolved paths
+  - Covers:
+    - keel-touch-write-guard / Repository containment is decided on resolved paths
+    - D1 — one rule, two call sites, no shared import
+    - D2 — resolve the nearest existing ancestor
+    - D3 — an unresolvable path falls back to today's comparison
+    - F1, F2 — the measured bypass and its mirror image
+    - A1 — `event.cwd` may arrive in either form
+  - Touch:
+    - plugins/keel/scripts/pretooluse-guard.js
+    - src/core/helper.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: with a manifest active whose Touch allows one file, a write to a file outside Touch is denied both when named by the repository's resolved path and when named through a symbolic link to it, and a write inside Touch is allowed through both spellings
+    - M2: the same four probes pass when the hook is given the symlinked form as `event.cwd` and the resolved form as the target, so the answer does not depend on which form arrives
+    - M3: a guarded write to a path that does not exist yet is denied outside Touch and allowed inside it, so resolving the nearest existing ancestor did not turn a new file into an unguarded one
+    - M4: `keel project helper --capture-baseline` refuses a baseline path that resolves inside the worktree when the worktree is reached through a symbolic link, and still accepts one that genuinely resolves outside it
+    - M5 (regression): `touch-write-guard`, `touch-guard-record-layer`, `touch-guard-drift`, `touch-guard-surface`, and `guard-scope-is-the-repository` stay green, so the boundaries that already worked are unchanged
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d612f6d8edef735b38ef75ce17e6d9971b0e699dc87bc02a3e2e0137b7178a3b
+    - M1: pass. New scenario `guard-containment-is-resolved` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario guard-containment-is-resolved`. It builds a real repository, symlinks a second path to it, starts a guard whose Touch allows `src/allowed.js` and `docs/**`, and drives the shipped hook with all four combinations. Out of Touch is denied by the resolved path and through the link; in Touch is allowed by both. The temp root is `.resolve()`d deliberately so the fixture's own link is the only one in play — macOS hands out `/var/folders/…`, which is itself a link.
+    - M1.red: fail. `M1: a write to denied.js through the symlink was 'allow', not 'deny'`, printing the resolved cwd and the linked target. The deny on the resolved path passed in the same run, so the red is the bypass and not a broken fixture.
+    - M1.green: pass, after `realPathOrNearest` and `repoRelative` were added to the hook and the containment test moved onto resolved paths. The `startsWith("..")` test was corrected to `".."` or `".." + sep` at the same time, because `<repo>/..foo` is inside the repository and the old form called it outside.
+    - M2: pass. The same four probes with the link as `event.cwd` and the resolved path as the target, and the reverse. The hook does not choose which form the host hands it.
+    - M2.red: fail. `M2: a write to denied.js by its resolved path was 'allow', not 'deny'`, aimed by resolving only the target side. M1 still passed under that mutation — the host usually reports the resolved cwd — so the red is M2's own and shows why one side is not enough.
+    - M2.green: pass.
+    - M3: pass. A guarded write to a path that does not exist yet is denied outside Touch and allowed inside it, through both spellings. This is the normal case rather than an edge one: a guarded write is usually a file about to be created.
+    - M3.red: fail. `M3: a write to not-yet.js through the symlink was 'allow', not 'deny'`, aimed by resolving the target itself instead of its nearest existing ancestor, so `realpathSync` threw on the new file and fell back to the unresolved path. M1 and M2 stayed green, because both only touch files that exist.
+    - M3.green: pass. The loop walks up to the deepest existing ancestor and re-appends the remainder.
+    - M4: pass. `keel project helper --capture-baseline` refuses a baseline named through the link that resolves inside the worktree, the scenario asserts no baseline file was written into the repository anyway, and a baseline that genuinely resolves outside is still captured and still lands on disk.
+    - M4.red: fail. `M4 captured a helper baseline at a path that resolves inside the worktree, because it was named through a symlink`, aimed by reverting only `src/core/helper.js` with the hook left correct. This is also the shipping `native-helper-read-only` failure: it has been red locally and green on Linux CI since the move to macOS, and it now passes without being touched, because the defect it was reporting was real.
+    - M4.green: pass.
+    - M5: pass. `touch-write-guard`, `touch-guard-record-layer`, `touch-guard-drift`, `touch-guard-surface`, and `guard-scope-is-the-repository` all pass unchanged, so the record layer, drift detection, out-of-repo passthrough, and manifest precedence are untouched.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check drives the shipped hook as the host drives it — a JSON event on stdin, the permission decision read back off stdout — and the helper checks run the real CLI. What is asserted is the decision, not the shape of any function. The four-probe matrix is what makes each result meaningful: a scenario asserting only that the linked path is denied would pass against a hook that denied everything, and the in-Touch allows are the control that rules that out. M3 asserts both directions for the same reason, since resolving too eagerly would deny legitimate new files.
+      - Scope check: `git status --short` shows `plugins/keel/scripts/pretooluse-guard.js`, `src/core/helper.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The guard manifest is gitignored. `native-helper-read-only` was not edited; it started passing because the defect it reported was fixed.
+      - Findings: the containment rule now exists twice, in the hook and in `src/core/helper.js`, and the two copies can drift apart. That duplication is deliberate and recorded as D1 — the hook is a standalone script the host executes from the installed plugin, and importing `src/core` would make the guard fail wherever the package layout differs from this repository's — but the risk it creates is real and is not covered by any check: nothing fails if one copy is corrected and the other is not. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 1.1's M4, which exercises the helper's copy through the same fixture that exercises the hook's, so a divergence in either direction fails this scenario. Second finding: the fix changes what the guard denies, and a session already running against a symlinked repository will start seeing denials for writes that passed a moment ago. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 2.1, whose M2 requires the changelog to state the measured bypass and which writes are now denied.
+    - Blocker: none
+
+- [x] 1.2 Read Git paths in a form that carries no escaping
+  - Covers:
+    - keel-core-gates / Git path output is read in a form that carries no escaping
+    - D4 — `-z`, not `core.quotepath=false`
+    - D5 — the backslash rewrite is deleted
+    - F3, F4, F7 — the measured quoting, the corruption, the `-z` rename shape
+    - A2 — Node returns the NUL-separated output as UTF-8
+  - Touch:
+    - src/core/gates.js
+    - src/core/context.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a task whose Touch declares a path containing Chinese characters completes when that file is the only change, and no problem message contains an escaped or partially decoded form of the path
+    - M2: paths containing a space, a double quote, and a backslash are each attributed against Touch as the filesystem spells them, through both the dirty-worktree reader and the explicit-base diff reader
+    - M3: a rename whose endpoints contain characters Git would otherwise escape is reported with both endpoints, spelled as the filesystem spells them, in the dirty-path warning the gate emits when no base has attributed them
+    - M4: `keel context` reports an uncommitted non-ASCII path as the filesystem spells it
+    - M5 (regression): `core-gates` and `completed-sibling-attribution` stay green, so ASCII attribution, globs, and the guard-manifest exemption are unchanged
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:1f75deb936b8e52f3c7f92af6a24df82999371abb4364f2238095bf4b2d6fe69
+    - M1: pass. New scenario `git-paths-carry-no-escaping` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario git-paths-carry-no-escaping`. The fixture leaves Git at its default configuration on purpose: the claim is that Keel reads a form carrying no escaping, not that it asks each repository to stop escaping, and a per-repository setting is the environment coupling this change exists to remove. A task whose Touch declares `src/摄影光影规划工具.js` completes with that file as the only change, through the dirty reader and the explicit-base reader.
+    - M1.red: fail. `M1 the explicit base reader called a path outside Touch that Touch declares on its own line`, quoting `Changed path is outside Touch: "src/\346\221\204…"` — the reported defect exactly, with the surrounding quote still attached.
+    - M1.green: pass, after both readers moved to `--porcelain=v1 -z` and `--name-only -z` and the NUL split replaced the line split.
+    - M2: pass. Paths holding a space, a double quote, and a backslash are each attributed as the filesystem spells them, through both readers. A second probe is what gives this check teeth: `src/back/slash.js` is created as a real nested file the task never declared, and it must be the one outside-Touch problem — a separator rewrite makes it indistinguishable from the declared `src/back\slash.js`.
+    - M2.red: fail. `M2 the explicit base reader called a declared path outside Touch once spaces, quotes, or backslashes were involved`, quoting `Changed path is outside Touch: src/back\slash.js`, aimed by restoring the Touch-side separator rewrite alone.
+    - M2.green: pass. Three separator rewrites were removed, not one. `gitPaths` corrupted every escape it read; `pathAllowed` rewrote the Touch entry; `scopeEvidence` rewrote the candidate. The last two cancelled each other for a literal-backslash filename, which is why the first aimed red at this check did not fire and why the defect had never surfaced — two wrongs producing the right answer, while a Touch entry naming `src/back/slash.js` silently admitted a changed `src/back\slash.js` the task never declared.
+    - M3: pass. A rename whose endpoints hold Chinese characters and a space is reported with both endpoints, undamaged, in the dirty-path warning.
+    - M3.red: fail. `M3 the old endpoint of the rename is missing from the dirty-path warning`, printing the warning with only `src/重命名 后.js` in it, aimed by dropping the second field of the `-z` rename record.
+    - M3.green: pass. M3's authored wording was corrected before this check could mean anything: it said "attributes both endpoints", and with an explicit base the diff reader reports both endpoints itself, so a dropped endpoint was invisible there. The unattributed-dirty warning is the only place the rename parser's own output reaches. `keel guard status` hard-stopped the contract edit and `task-start --record` reauthorized from `sha256:846372ba…` to `sha256:1f75deb9…`; no evidence had been recorded under the previous contract.
+    - M4: pass. `keel context` reports the uncommitted non-ASCII path as the filesystem spells it, and the assertion also refuses an escaped form appearing anywhere in the warning.
+    - M4.red: fail. `M4 keel context did not report the uncommitted non-ASCII path as the filesystem spells it`, printing `Working tree has uncommitted paths (selection-neutral): "src/\346\221\204…"`, aimed by leaving `src/core/context.js` on `--short`.
+    - M4.green: pass. `context.js` reads `-z` too, and gained the rename branch it never had — its `record.slice(3)` would otherwise have chopped three characters off the bare second field.
+    - M5: pass. `core-gates` and `completed-sibling-attribution` both pass unchanged, so ASCII attribution, `**` globs, the guard-manifest exemption, the authoring-artifact exemption, and completed-sibling attribution are untouched.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check runs the real `keel` binary against a real Git repository holding the four filename shapes Git treats differently, and reads the gate's published JSON. The two directions are both covered: M1 and M2 prove a declared path is attributed inside Touch, and M2's nested-file probe proves an undeclared one is still reported — without that second half, deleting the comparison entirely would pass.
+      - Scope check: `git status --short` shows `src/core/gates.js`, `src/core/context.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: `pathAllowed` and `scopeEvidence` each carried their own separator rewrite beyond the reader D5 names, and both are removed here. This is inside M2's authored wording — "as the filesystem spells them" — but wider than D5's, which speaks only of the git path readers. Recorded because a reader comparing the design to the diff will find three deletions where one was described. Durable owner: openspec/changes/the-name-is-not-the-thing/tasks.md, task 2.1, whose changelog check states what the release changed. Second finding: `src/core/gates.js` and `src/core/context.js` now hold the same eleven-line `-z` record loop, the second copy added here. It is small and both are covered by this scenario, which reads one through the gate and the other through `keel context`, so a divergence fails. Closed in this task; no follow-up is owed.
+    - Blocker: none
+
+- [x] 1.3 Check the interpreter and the OpenSpec binary instead of assuming them
+  - Covers:
+    - keel-target-surface-diagnostics / The interpreter and the OpenSpec binary that run are checked against what is required
+    - D6 — the runner requires 3.10 and reports what it found
+    - D7 — the OpenSpec binary is reported against the lock, never enforced
+    - D8 — validation asserts the version it tested against
+    - F5, F6 — the silent PATH fallback and the accepted 3.9
+  - Touch:
+    - scripts/run_python.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: driven with `KEEL_PYTHON` pointing at an interpreter that reports a version below the minimum, the runner exits non-zero without running the script, and its message names that interpreter and the version it reported
+    - M2: driven with an interpreter at or above the minimum, the runner still runs the script and passes its exit code through unchanged
+    - M3: `keel doctor` reports the resolved `openspec` command, the version it reports, and the version `package-lock.json` resolves; it states a disagreement when the resolved version is not the locked one; and the line it renders names no install command, because Keel reports which build answered and selects none
+    - M4: the suite fails with one message naming the resolved and the locked version when they differ, rather than surfacing a validation error about the artifact under test
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:11764b4b1689952da4a28ed5b040f16c8ebe4e6305d2b373b44c692aef73e7d4
+    - M1: pass. New scenario `runtime-versions-are-checked`, run as `python3.11 scripts/validate_plugin.py --scenario runtime-versions-are-checked`. A shell stub reporting `Python 3.9.6` is handed to the runner through `KEEL_PYTHON`; the runner exits non-zero and its message names the stub, the version it reported, and the 3.10 minimum. The stub exits 7 for anything but `--version`, and the check refuses a run that exited 7 — otherwise "non-zero" would be satisfied by handing the script over and letting it fail, which is the behavior being removed.
+    - M1.red: fail. `M1 the refusal does not name the version the interpreter reported`, from the shipped `commandExists`, which asked only whether `--version` exited zero.
+    - M1.green: pass, after `reportedVersion` and `meetsMinimum` replaced it and the refusal began listing every candidate with what it reported.
+    - M2: pass. A stub reporting `3.10.0` is used, and the script's own exit status 7 arrives unchanged.
+    - M2.red: fail. `M2 an interpreter reporting 3.10.0 did not run the script and pass its exit status through; got 127 rather than the script's 7`, aimed by making `meetsMinimum` return false unconditionally. M1 stayed green under that mutation, so the red is M2's own — it is the check that stops a version gate from becoming a wall.
+    - M2.green: pass.
+    - M3: pass. `keel doctor` emits exactly one `openspec:` line, it names the resolved command and both versions, and the line names no `npm install`, `npm ci`, or `keel --update`. Observed here as `openspec: ok - …/node_modules/.bin/openspec (1.6.0, lockfile 1.6.0)`.
+    - M3.red: fail. `M3 the openspec doctor line does not name the locked version 1.6.0, so a reader cannot tell which program answered`, printing the shipped line in full: `openspec: ok - openspec`. That line named neither the binary's path nor any version.
+    - M3.green: pass, after `openspecReportedVersion` and `lockedOpenSpecVersion` were added and the line began carrying both. The mismatch branch was also observed directly before `npm ci`: `openspec: warning - openspec (1.4.1, lockfile 1.6.0) — validation is answering from a different build than this repository pins…`.
+    - M4: pass. The suite reads the version `keel openspec --version` reports and the version `package-lock.json` resolves, and fails naming both when they differ.
+    - M4.red: fail — and not by mutation. `M4 validation is running against OpenSpec 1.4.1 while package-lock.json resolves 1.6.0. Results describe a different program: run npm ci so the pinned OpenSpec is the one keel openspec resolves.` That was the true state of this worktree: no `node_modules`, PATH holding 1.4.1, lockfile resolving 1.6.0. `npm ci` was run and the check went green.
+    - M4.green: pass.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 and M2 drive the shipped runner as a subprocess with real interpreters that report what the check needs them to report, and assert its exit status and its message. M3 and M4 read `keel doctor` and `keel openspec --version` as a person and as the suite would. Both directions are covered in each pair: refuse the old interpreter and still use the new one, report the disagreement and stay quiet when there is none.
+      - Scope check: `git status --short` shows `scripts/run_python.js`, `bin/keel.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory. `node_modules/` is gitignored and is a local install, not a repository change.
+      - Findings: M5 was merged into M3 and 1.3 reauthorized from `sha256:ec4ba9da…` to `sha256:11764b4b…`. As authored it asserted that the doctor line names no Keel-side remedy for an unlocked OpenSpec — and once `npm ci` aligned the versions, the mismatch branch stops rendering, so nothing could make that check fail. An unfalsifiable check is the defect this repository keeps removing, so the assertion moved onto whichever branch does render. The consequence is real and named: the mismatch branch's wording is not covered by an automated check, because forcing it needs a second package root with no `node_modules`. Durable owner: https://github.com/TanglmChris/keel/issues/36, reopened scope noted in this task's own record; the branch was observed by hand and its text is quoted in M3's evidence above. Second finding: M3's aimed red did not fire — the mutation targeted a template literal whose escaping the patch did not match — but M3's true red was captured before implementation and is quoted above, which is stronger than a mutation. Closed here; no follow-up is owed.
+    - Blocker: none
+
+- [x] 1.4 Stop the template fixture from mangling the template
+  - Covers:
+    - keel-target-surface-diagnostics / The interpreter and the OpenSpec binary that run are checked against what is required
+    - F8 — the filler replaces an own-line instruction with slot text
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `spec-template-validates` passes against the shipped spec template with no change to the template itself
+    - M2: the filled template contains no paragraph that is slot text alone, so the fixture cannot produce a requirement the validator was always going to reject
+    - M3 (regression): `tasks-template-validates` and every other caller of the template filler stay green
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:47e6445e13fea55d1e83c2c442d82238a2caabef892f6dba7c467de4053e1c08
+    - M1: pass. `python3.11 scripts/validate_plugin.py --scenario spec-template-validates` passes. `openspec/` templates are untouched: the whole change is in the fixture's filler.
+    - M1.red: fail. `spec-template-validates: a requirement written from the shipped template did not validate`, quoting openspec's own `ADDED "the recorded feed status" must contain SHALL or MUST`. This red is one of the two failures issue #36 reports, and it reproduced identically on OpenSpec 1.4.1 and 1.6.0 — which is what rules out the version disagreement F5 describes and makes it F8.
+    - M1.green: pass, after `fill_template_slots` stopped replacing own-line comments. The filled template is now three content lines with no stray paragraph.
+    - M2: pass. The scenario asserts no line of the filled template is slot text alone, which is what an own-line author instruction becomes when it is filled instead of stripped.
+    - M2.red: fail. `spec-template-validates: the filled template has slot text alone on line(s) [4], so an own-line author instruction was filled rather than stripped and the fixture is malforming the template`, aimed by restoring the replace-everything rule. This is the assertion that names the cause: M1 alone reports that the template did not validate, which points at the template rather than at the fixture holding it.
+    - M2.green: pass.
+    - M3: pass. `tasks-template-red-green-example` — the only other caller of the filler — passes unchanged, and the full suite passes with no exceptions.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 runs the real `openspec validate` over the real shipped template, filled the way an author fills it, so what is asserted is that the template works rather than that the fixture is happy. M2 is the diagnostic half: it fails at the fixture, so a future reader is not sent to edit a template that was never wrong. M3 covers the other caller, whose own template has only own-line comments and was already relying on the rule this change made universal.
+      - Scope check: `git status --short` shows `scripts/validate_plugin.py` only — the Touch list exactly — plus this change's own directory.
+      - Findings: the `comments` parameter is gone rather than kept for compatibility, because both templates now want one rule and a mode that exists to be passed once is a trap. The instruction that broke this arrived in `ed1388d`, the change whose own task asserted a requirement written from this template validates — so the fix for issue #28 is what the scenario proving issue #28 has been tripping over ever since, and nothing detected it because the scenario's failure named the template. Discard reason: both halves are closed in this task — the filler is corrected and M2 now names the fixture rather than the template when it happens again.
+    - Blocker: none
+
+
+## 2. Close
+
+- [x] 2.1 Promote the delta and record the release
+  - Covers:
+    - keel-touch-write-guard / Repository containment is decided on resolved paths
+    - keel-core-gates / Git path output is read in a form that carries no escaping
+    - keel-target-surface-diagnostics / The interpreter and the OpenSpec binary that run are checked against what is required
+    - I1, I2, I3
+  - Touch:
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-target-surface-diagnostics/spec.md
+    - keel/CHANGELOG.md
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel openspec validate the-name-is-not-the-thing` passes and every `### Requirement:` and `#### Scenario:` heading in all three delta files appears in its live spec
+    - M2: the changelog entry states the measured guard bypass with both probe results, names the symlink as the cause, and says which writes that previously passed are now denied
+    - M3: `version-alignment` passes with every marker at the new version, including the changelog-head comparison
+    - M4: `npm test` passes with no exceptions, because the two failures previously owned by issue #36 are what this change fixes
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:96cdf01969d7d897261a30896764ccc68796bd703c2d5850fc0bc883512cd613
+    - M1: pass. `keel openspec validate the-name-is-not-the-thing` → `Change 'the-name-is-not-the-thing' is valid`. All 12 delta headings across the three delta files — 3 `### Requirement:` and 9 `#### Scenario:` — were checked against their live specs by substring and none is missing.
+    - M2: pass. The 5.11.0 entry leads with the guard bypass, gives both probe results in the same sentence (`<real>/src/denied.js` denied, `<symlink>/src/denied.js` allowed), names the symlink and the unresolved `path.resolve` as the cause, names macOS `/tmp` and symlinked checkouts as where it bites, and states in bold that a write which passed yesterday through a symlinked path is denied today and can land mid-session.
+    - M3: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` → `version-alignment scenario passed`, with `PACKAGE_VERSION`/`PROTOCOL_VERSION`, `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay markers all at 5.11.0, and the newest changelog heading now 5.11.0.
+    - M4: pass, and with no exceptions. `KEEL_PYTHON=/opt/homebrew/bin/python3.11 npm test` → `validation --all passed: baseline plus 116 scenarios`. The two failures issue #36 owned are what tasks 1.1 and 1.4 fixed: `native-helper-read-only` passes because the containment defect it reported was real, and `spec-template-validates` passes because the fixture stopped malforming the template.
+    - Review:
+      - Status: pass
+      - Acceptance check: the Acceptance is a release, so evidence-first is the honest strategy and each check is one of the release's own conditions: the specs say what shipped (M1), the changelog says what changed and what now breaks (M2), every marker names one version (M3), and the behavior is still proven by the suite (M4). The behavioral proof lives in tasks 1.1 through 1.4, whose three new scenarios run inside M4's suite.
+      - Scope check: `git status --short` shows 22 paths: the three promoted specs, the changelog, both `package*.json`, both plugin manifests, `scripts/validate_plugin.py`, `AGENTS.md`, `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the nine overlay files — the Touch list exactly — plus this change's own `tasks.md` and `design.md`, which are the record-write layer. `scripts/validate_plugin.py` changed only in its two version constants; tasks 1.1 through 1.4 committed their scenarios separately at `815d244`, `72a39c4`, and `85a7832`.
+      - Findings: `node_modules/` was installed during task 1.3 with `npm ci`, which is what made the locked OpenSpec 1.6.0 the one `keel openspec` resolves. It is gitignored and local, so it is not part of this release, but a reader reproducing `npm test` green needs it — the changelog and `keel doctor` both name the fact rather than leaving it as folklore. Discard reason: closed by task 1.3's M4, which fails naming both versions whenever the resolved OpenSpec is not the locked one, so the requirement announces itself instead of being remembered. Second finding: `keel --doctor` reports `keel state: failed` on this change's own `tasks.md`, because Evidence prose containing words like "dirty" and "uncommitted" trips a resident-state check meant to catch work state recorded in tasks.md. It is a false positive on a file full of quoted failure messages, and it is unrelated to this change's Touch. Durable owner: https://github.com/TanglmChris/keel/issues/34, the execution-automation ledger, where a diagnostic that cries wolf on its own evidence belongs.
+    - Blocker: none
+
+## Invalidates
+
+- I1: "the two environment failures owned by issue #36" — the phrase and its variants appear in the 5.9.0 and 5.10.0 entries of `keel/CHANGELOG.md` and in archived task Evidence under `openspec/changes/archive/`. Those entries are historical records of what was true when they were written and are not edited; what goes stale is the standing expectation that `npm test` cannot be green locally. Discard reason: the sentences are dated by their own release headings, and rewriting a shipped changelog entry would misrepresent what that release knew. The live statement is replaced by this change's own entry and by M4, which requires a clean suite with no exceptions.
+- I2: "wrote a baseline inside the repository" and "must be written outside the repository worktree" — `scripts/validate_plugin.py` and `src/core/helper.js`. Both describe a boundary that was not being enforced as written, because the check answering it compared an unresolved path against a resolved one. Updated by: 1.1
+- I3: "version=5.10.0" — grep it and you find the `keel:start` managed block plus the nine `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is also written as `"version": "5.10.0"` in `package.json`, `package-lock.json`, both plugin manifests, `AGENTS.md` (its title, its `keel:start` marker, and the preflight line naming the protocol), `CLAUDE.md`, `assets/bootstrap/AGENTS.md`, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. Every one names the shipping version and goes stale the moment this change releases. Updated by: 2.1
+- I4: "A staged rename/copy is one porcelain line, `R  old -> new`" — the comment above `gitPaths` in `src/core/gates.js`. In `-z` form a rename is two NUL-terminated fields with the new path first, so the sentence describes a format the reader no longer parses. Updated by: 1.2
+
+## Expectation Coverage
+
+- E1: One file gets one containment answer, however its path is spelled. Covered by: 1.1
+- E2: A file that does not exist yet is still placed correctly, in both directions. Covered by: 1.1
+- E3: The helper cannot write a baseline into the repository it promised not to touch. Covered by: 1.1
+- E4: A path Touch declares is attributed to Touch whatever characters it contains. Covered by: 1.2
+- E5: Both endpoints of a rename survive the read. Covered by: 1.2
+- E6: A developer whose interpreter is too old is told that, once, instead of ten unrelated failures. Covered by: 1.3
+- E7: A result produced against a different OpenSpec version than the repository declares is not reported as a result about this repository. Covered by: 1.3
+- E8: Keel reports these facts and manages none of them. Covered by: 1.3
+- E9: A reader whose guarded write starts being denied learns from the release notes why and what changed. Covered by: 2.1
+- E10: The suite that proves the templates works on the templates as shipped. Covered by: 1.4

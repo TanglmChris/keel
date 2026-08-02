@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.10.0"
-PROTOCOL_VERSION = "5.10.0"
+PACKAGE_VERSION = "5.11.0"
+PROTOCOL_VERSION = "5.11.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5121,28 +5121,27 @@ SLOT_FILLER = "the recorded feed status"
 SLOT_VOCABULARY = {"<strategy>": "evidence-first"}
 
 
-def fill_template_slots(text: str, comments: str = "strip") -> str:
+def fill_template_slots(text: str) -> str:
     """Fill a shipped template's author-facing slots the way an author would.
 
     Deliberately mechanical, so a slot added to the template later is handled
     without touching the scenario: what is asserted is the template's structure
     rather than a hand-maintained copy of it.
 
-    The two templates use HTML comments for different jobs, so the caller says
-    which. In the spec template a comment *is* the slot — the requirement name
-    and body are both comments — so it is replaced. In the tasks template
-    comments are instructions to the author sitting on their own lines, and the
-    slots are angle-bracket runs, so the comments are stripped.
+    One rule for both templates. An own-line comment is an instruction to the
+    author and goes; a comment with text before it on the line is that line's
+    slot — a requirement name, a task title — and is filled, because stripping
+    it would leave a heading the parser cannot read.
+
+    The spec template used to take a mode that replaced every comment, and it
+    stopped being correct the moment that template gained an own-line
+    instruction (`ed1388d`, the change that fixed issue #28). The instruction
+    became a bare paragraph of slot text above `The system SHALL …`, and
+    `openspec validate` reported the requirement as lacking a modal verb —
+    the fixture failing the template rather than the template failing.
     """
-    if comments == "replace":
-        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
-    else:
-        # An own-line comment is an instruction to the author, so it goes. A
-        # comment with text before it on the line is that line's slot — a task
-        # title, a group name — and stripping it leaves a task line the parser
-        # cannot read, so it is filled like any other slot.
-        text = re.sub(r"^[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n", "", text, flags=re.M)
-        text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
+    text = re.sub(r"^[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n", "", text, flags=re.M)
+    text = re.sub(r"<!--[\s\S]*?-->", SLOT_FILLER, text)
     # A slot whose value comes from a fixed vocabulary needs a member of it, so
     # those are named. Everything else takes the generic filler.
     for slot, value in SLOT_VOCABULARY.items():
@@ -5312,6 +5311,515 @@ def validate_guard_scope_is_the_repository_scenario() -> int:
         )
         return 1
     report("guard-scope-is-the-repository scenario passed.")
+    return 0
+
+
+def validate_runtime_versions_are_checked_scenario() -> int:
+    """Issue #36: the suite ran on whatever interpreter and OpenSpec answered.
+
+    `run_python.js` accepted any candidate whose `--version` exited zero, so
+    macOS system Python 3.9 ran a suite needing 3.10 and failed ten scenarios
+    with messages naming ten unrelated features. `findOpenSpecCommand` prefers
+    `node_modules/.bin/openspec` and otherwise falls back to PATH in silence,
+    so this repository validated changes against openspec 1.4.1 while its
+    lockfile resolves 1.6.0 — which is the whole of why `spec-template-
+    validates` was green in CI and red in the worktree.
+    """
+    label = "runtime-versions-are-checked"
+    runner = ROOT / "scripts/run_python.js"
+    with tempfile.TemporaryDirectory(prefix="keel-runtime-versions-") as raw:
+        root = Path(raw).resolve()
+        script = root / "target.py"
+        write_text(script, "import sys\nsys.exit(7)\n")
+
+        def fake_python(name: str, version: str) -> Path:
+            path = root / name
+            write_text(
+                path,
+                "#!/bin/sh\n"
+                f'if [ "$1" = "--version" ]; then echo "Python {version}"; '
+                "exit 0; fi\nexit 7\n",
+            )
+            path.chmod(0o755)
+            return path
+
+        def run_runner(python: Path) -> subprocess.CompletedProcess[str]:
+            env = dict(os.environ)
+            env["KEEL_PYTHON"] = str(python)
+            return subprocess.run(
+                ["node", str(runner), str(script)],
+                env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+
+        # M1 — an interpreter below the minimum is refused by version, and the
+        # refusal names it. The fake exits 7 for anything but `--version`, so a
+        # runner that handed the script over anyway would exit 7, not non-zero
+        # for the right reason — the message is what separates the two.
+        old = fake_python("old-python", "3.9.6")
+        result = run_runner(old)
+        if result.returncode == 0:
+            report(
+                f"{label} M1 the runner accepted an interpreter reporting 3.9.6 "
+                "and ran the suite on it."
+            )
+            return 1
+        combined = f"{result.stdout}{result.stderr}"
+        for needle, why in (
+            ("3.9.6", "the version the interpreter reported"),
+            ("old-python", "which interpreter it tried"),
+            ("3.10", "the minimum the suite needs"),
+        ):
+            if needle not in combined:
+                report(f"{label} M1 the refusal does not name {why}.")
+                report(f"  {combined.strip()}")
+                return 1
+        if result.returncode == 7:
+            report(
+                f"{label} M1 the runner exited with the script's own status, so "
+                "it ran the script rather than refusing the interpreter."
+            )
+            return 1
+
+        # M2 — and an interpreter at the minimum is still used, with the
+        # script's exit status passed through untouched.
+        new = fake_python("new-python", "3.10.0")
+        passed = run_runner(new)
+        if passed.returncode != 7:
+            report(
+                f"{label} M2 an interpreter reporting 3.10.0 did not run the "
+                f"script and pass its exit status through; got "
+                f"{passed.returncode} rather than the script's 7."
+            )
+            report(f"  {(passed.stdout + passed.stderr).strip()}")
+            return 1
+
+    # M3/M4/M5 — the OpenSpec binary that actually answers, against the one the
+    # lockfile resolves. Read from this repository, because the fact under test
+    # is which program a developer's `keel` invokes here.
+    locked = None
+    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    for name, entry in lock.get("packages", {}).items():
+        if name.endswith("@fission-ai/openspec"):
+            locked = entry.get("version")
+    if not locked:
+        report(f"{label} could not read the locked OpenSpec version.")
+        return 1
+    doctor = run_keel(ROOT, "--doctor")
+    lines = [line for line in doctor.stdout.splitlines() if line.startswith("openspec:")]
+    if len(lines) != 1:
+        report(f"{label} M3 `keel doctor` did not emit exactly one openspec line.")
+        return 1
+    line = lines[0]
+    if locked not in line:
+        report(
+            f"{label} M3 the openspec doctor line does not name the locked "
+            f"version {locked}, so a reader cannot tell which program answered."
+        )
+        report(f"  {line}")
+        return 1
+    resolved = re.search(r"\b(\d+\.\d+\.\d+)\b", line)
+    if not resolved:
+        report(f"{label} M3 the openspec doctor line reports no resolved version.")
+        report(f"  {line}")
+        return 1
+    if resolved.group(1) != locked and "warning" not in line:
+        report(
+            f"{label} M3 the resolved OpenSpec is {resolved.group(1)} and the "
+            f"lockfile resolves {locked}, but the doctor line does not state "
+            "the disagreement."
+        )
+        report(f"  {line}")
+        return 1
+    for banned in ("npm install", "npm ci", "keel --update"):
+        if banned in line:
+            report(
+                f"{label} M5 the openspec doctor line names {banned!r} as a "
+                "remedy. Keel reports which version answered and does not "
+                "install or select one."
+            )
+            report(f"  {line}")
+            return 1
+    # M4 — the same fact, asserted by the suite rather than by a person who
+    # thought to run doctor.
+    probe = run_keel(ROOT, "openspec", "--version")
+    running = re.search(r"\b(\d+\.\d+\.\d+)\b", probe.stdout or "")
+    if not running:
+        report(f"{label} M4 could not read the version of the OpenSpec in use.")
+        return 1
+    if running.group(1) != locked:
+        report(
+            f"{label} M4 validation is running against OpenSpec "
+            f"{running.group(1)} while package-lock.json resolves {locked}. "
+            "Results describe a different program: run `npm ci` so the pinned "
+            "OpenSpec is the one `keel openspec` resolves."
+        )
+        return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+CJK_PATH = "src/摄影光影规划工具.js"
+SPACE_PATH = "src/has space.js"
+QUOTE_PATH = 'src/has"quote.js'
+BACKSLASH_PATH = "src/back\\slash.js"
+
+
+def validate_git_paths_carry_no_escaping_scenario() -> int:
+    """Issue #40: a Chinese filename in Touch was reported as outside Touch.
+
+    Git escapes any path holding a non-ASCII byte to octal and wraps it in
+    quotes. `gitPaths` then ran `line.slice(3).trim().replace(/\\\\/g, "/")`,
+    which left the quotes in place and turned `\\346` into `/346`, so the path
+    the task declared on the first line of its Touch could never match. The
+    rewrite was defending against a Windows separator Git does not emit on any
+    platform.
+
+    Measured 2026-08-02: `core.quotepath=false` removes the octal but still
+    quotes a path holding a space, a quote, or a backslash, and `status
+    --short` and `diff --name-only` do not even agree on which cases they
+    quote. `-z` emits raw bytes in every one of those cases, which deletes the
+    problem instead of decoding it.
+    """
+    label = "git-paths-carry-no-escaping"
+    interesting = (CJK_PATH, SPACE_PATH, QUOTE_PATH, BACKSLASH_PATH)
+
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def tasks_doc(touch: tuple[str, ...]) -> str:
+        touch_lines = "".join(f"    - {item}\n" for item in touch)
+        return (
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise task contract\n"
+            "  - Covers:\n    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            f"{touch_lines}"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: the suite passed\n"
+            "    - Review:\n      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-git-paths-") as raw:
+        root = Path(raw).resolve()
+        repo = root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        # Left at the Git default on purpose. The point is that Keel reads a
+        # form that carries no escaping, not that it asks the repository to
+        # stop escaping — a per-repository setting is exactly the environment
+        # coupling this change exists to remove.
+        for item in interesting:
+            write_text(repo / item, "// product\n")
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(tasks, tasks_doc(interesting))
+        git(repo, "add", "-A")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+        def gate(*extra: str) -> dict:
+            return json.loads(
+                run_keel(
+                    repo, "gate", "task-complete", "--change", "demo",
+                    "--task", "1.1", *extra, "--json",
+                ).stdout
+            )
+
+        def record() -> bool:
+            return (
+                run_keel(
+                    repo, "gate", "task-start", "--change", "demo", "--task",
+                    "1.1", "--record", "--no-guard", "--json",
+                ).returncode
+                == 0
+            )
+
+        def outside(payload: dict) -> list[str]:
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == "outside-touch"
+            ]
+
+        if not record():
+            report(f"{label} could not record an anchor on the fixture.")
+            return 1
+
+        # M1 — the reported defect, on its own, through both readers.
+        write_text(repo / CJK_PATH, "// changed\n")
+        for reader, extra in (("dirty worktree", ()), ("explicit base", ("--base", "HEAD"))):
+            payload = gate(*extra)
+            problems = outside(payload)
+            if problems:
+                report(
+                    f"{label} M1 the {reader} reader called a path outside "
+                    "Touch that Touch declares on its own line, so the "
+                    "non-ASCII path never survived the read."
+                )
+                for message in problems:
+                    report(f"  {message}")
+                return 1
+            if payload.get("status") != "pass":
+                report(
+                    f"{label} M1 the {reader} reader did not attribute the "
+                    "non-ASCII path outside Touch, but the gate still did not "
+                    f"pass; status was {payload.get('status')!r}."
+                )
+                for problem in payload.get("problems", []):
+                    report(f"  {problem.get('code')}: {problem.get('message')}")
+                return 1
+
+        # M2 — the characters Git quotes even with `core.quotepath=false`, and
+        # the ones the two subcommands disagree about.
+        for item in (SPACE_PATH, QUOTE_PATH, BACKSLASH_PATH):
+            write_text(repo / item, "// changed\n")
+        for reader, extra in (("dirty worktree", ()), ("explicit base", ("--base", "HEAD"))):
+            problems = outside(gate(*extra))
+            if problems:
+                report(
+                    f"{label} M2 the {reader} reader called a declared path "
+                    "outside Touch once spaces, quotes, or backslashes were "
+                    "involved."
+                )
+                for message in problems:
+                    report(f"  {message}")
+                return 1
+
+        # Still M2: a separator rewrite makes two different files look like one.
+        # `src/back/slash.js` is a real nested file the task never declared, and
+        # it must not be admitted by a Touch entry naming `src/back\slash.js`.
+        write_text(repo / "src/back/slash.js", "// undeclared\n")
+        problems = outside(gate("--base", "HEAD"))
+        if len(problems) != 1 or "src/back/slash.js" not in problems[0]:
+            report(
+                f"{label} M2 a nested file the task never declared was not the "
+                "one outside-Touch problem, so a Touch entry naming a file with "
+                "a literal backslash is still admitting a different file; got "
+                f"{problems!r}."
+            )
+            return 1
+        (repo / "src/back/slash.js").unlink()
+        (repo / "src/back").rmdir()
+
+        # M3 — a rename is one record plus a bare second field in `-z` form and
+        # a single ` -> ` line otherwise. Only the unattributed-dirty warning
+        # shows what that parser produced: with an explicit base the diff
+        # reports both endpoints itself, so a dropped endpoint would be
+        # invisible there.
+        git(repo, "checkout", "-q", "--", ".")
+        renamed = "src/重命名 后.js"
+        git(repo, "mv", CJK_PATH, renamed)
+        payload = gate()
+        dirty = [
+            warning
+            for warning in payload.get("warnings", [])
+            if "not attributed without an explicit base" in warning
+        ]
+        if len(dirty) != 1:
+            report(
+                f"{label} M3 the gate did not emit exactly one "
+                "unattributed-dirty warning to read the rename out of; got "
+                f"{payload.get('warnings')!r}."
+            )
+            return 1
+        for endpoint, which in ((CJK_PATH, "old"), (renamed, "new")):
+            if endpoint not in dirty[0]:
+                report(
+                    f"{label} M3 the {which} endpoint of the rename is missing "
+                    "from the dirty-path warning, so one endpoint was dropped "
+                    "or damaged by the read."
+                )
+                report(f"  {dirty[0]}")
+                return 1
+        if "\\3" in dirty[0] or "/346" in dirty[0]:
+            report(
+                f"{label} M3 the warning names an escaped form of a rename "
+                "endpoint."
+            )
+            report(f"  {dirty[0]}")
+            return 1
+        git(repo, "reset", "-q", "--hard", "HEAD")
+
+        # M4 — the same reader inside `keel context`.
+        git(repo, "reset", "-q", "--hard", "HEAD")
+        write_text(repo / CJK_PATH, "// changed again\n")
+        context = json.loads(run_keel(repo, "context", "--json").stdout)
+        warnings = " ".join(context.get("warnings", []))
+        if CJK_PATH not in warnings:
+            report(
+                f"{label} M4 `keel context` did not report the uncommitted "
+                "non-ASCII path as the filesystem spells it."
+            )
+            report(f"  warnings: {context.get('warnings')!r}")
+            return 1
+        if "\\3" in warnings or "/3" in warnings:
+            report(
+                f"{label} M4 `keel context` reported an escaped form of the "
+                "path alongside or instead of the real one."
+            )
+            report(f"  warnings: {context.get('warnings')!r}")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_guard_containment_is_resolved_scenario() -> int:
+    """The guard decided containment by comparing two strings for one file.
+
+    `path.relative(repo, path.resolve(repo, target))` never follows a symbolic
+    link, while the `cwd` the host reports usually has already been resolved by
+    the operating system. A file reached through a link to the repository then
+    looked like a path outside it, and the guard returned before reading the
+    manifest at all. Measured 2026-08-02: the same out-of-Touch file was denied
+    by its resolved path and allowed through a link to the same directory.
+
+    `src/core/helper.js` had the mirror image, calling a path inside the
+    worktree external, which is why `native-helper-read-only` was red on macOS
+    — where `/tmp` is a link — and green on Linux CI.
+    """
+    label = "guard-containment-is-resolved"
+    with tempfile.TemporaryDirectory(prefix="keel-containment-") as raw:
+        # Resolved deliberately: the fixture's own link is what varies here, so
+        # the temp root must not smuggle in a second one. macOS hands out
+        # `/var/folders/...`, which is itself a link to `/private/var/...`.
+        root = Path(raw).resolve()
+        repo = root / "real" / "repo"
+        write_text(repo / "src/allowed.js", "// product\n")
+        write_text(repo / "src/denied.js", "// product\n")
+        write_text(
+            repo / "openspec/specs/demo-cap/spec.md",
+            "# demo-cap\n\n## Purpose\n\nFixture.\n\n"
+            "### Requirement: The system emits a feed status\n"
+            "The system SHALL emit the recorded feed status.\n\n"
+            "#### Scenario: A status is emitted\n"
+            "- **WHEN** the feed runs\n- **THEN** the status is recorded\n",
+        )
+        write_text(
+            repo / "openspec/changes/demo/tasks.md",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise the guard\n"
+            "  - Covers:\n    - demo-cap / The system emits a feed status\n"
+            "  - Touch:\n    - src/allowed.js\n    - docs/**\n"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: pending\n",
+        )
+        link = root / "link"
+        link.symlink_to(repo, target_is_directory=True)
+
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--record", "--json",
+        )
+        if started.returncode != 0 or not (repo / "keel/guard.json").is_file():
+            report(f"{label} could not start a guard to probe.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        def probe(cwd: Path, target: Path) -> str:
+            event = edit_event(cwd, target, tool="Write")
+            decision = pretooluse_decision(run_pretooluse_guard_hook(repo, event))
+            if decision is None:
+                return "allow"
+            if "error" in decision:
+                return f"error({decision['error']})"
+            return decision.get("permissionDecision", "unknown")
+
+        def expect(check: str, cwd: Path, target: Path, want: str) -> bool:
+            got = probe(cwd, target)
+            if got == want:
+                return True
+            spelling = "through the symlink" if str(link) in str(target) else "by its resolved path"
+            report(
+                f"{label} {check}: a write to {target.name} {spelling} was "
+                f"{got!r}, not {want!r}. One file must get one containment "
+                "answer however its path is spelled."
+            )
+            report(f"  cwd={cwd}")
+            report(f"  target={target}")
+            return False
+
+        # M1 — the host reports the resolved cwd, which is the common case and
+        # the one the bypass was measured against.
+        if not all([
+            expect("M1", repo, repo / "src/denied.js", "deny"),
+            expect("M1", repo, link / "src/denied.js", "deny"),
+            expect("M1", repo, repo / "src/allowed.js", "allow"),
+            expect("M1", repo, link / "src/allowed.js", "allow"),
+        ]):
+            return 1
+
+        # M2 — and the reverse, because the hook does not choose which form of
+        # `cwd` the host hands it.
+        if not all([
+            expect("M2", link, repo / "src/denied.js", "deny"),
+            expect("M2", link, link / "src/denied.js", "deny"),
+            expect("M2", link, repo / "src/allowed.js", "allow"),
+            expect("M2", link, link / "src/allowed.js", "allow"),
+        ]):
+            return 1
+
+        # M3 — a guarded write is usually a file that does not exist yet, so
+        # containment has to come from an ancestor. Both directions, because
+        # resolving too eagerly denies legitimate new files.
+        if not all([
+            expect("M3", repo, repo / "src/not-yet.js", "deny"),
+            expect("M3", repo, link / "src/not-yet.js", "deny"),
+            expect("M3", repo, repo / "docs/not-yet.md", "allow"),
+            expect("M3", repo, link / "docs/not-yet.md", "allow"),
+        ]):
+            return 1
+
+        # M4 — the same question, asked by the helper about its baseline.
+        def capture(target: Path) -> subprocess.CompletedProcess[str]:
+            return run_keel(
+                repo, "project", "helper", "--target", "codex",
+                "--capture-baseline", "--baseline", str(target), "--json",
+            )
+
+        inside_via_link = capture(link / "baseline.json")
+        if inside_via_link.returncode == 0:
+            report(
+                f"{label} M4 captured a helper baseline at a path that resolves "
+                "inside the worktree, because it was named through a symlink. "
+                "The baseline must live outside the repository it snapshots."
+            )
+            return 1
+        if (repo / "baseline.json").exists():
+            report(
+                f"{label} M4 refused the capture but the baseline file was "
+                "written into the repository anyway."
+            )
+            return 1
+        outside = capture(root / "outside.json")
+        if outside.returncode != 0:
+            report(
+                f"{label} M4 refused a baseline that genuinely resolves outside "
+                "the worktree, so the containment fix blocks correct use."
+            )
+            report((outside.stderr or outside.stdout).strip())
+            return 1
+        if not (root / "outside.json").is_file():
+            report(f"{label} M4 reported a capture that wrote no baseline.")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
     return 0
 
 
@@ -6088,9 +6596,23 @@ def validate_spec_template_validates_scenario() -> int:
         report("spec-template-validates skipped: the openspec CLI is not on PATH.")
         return 0
 
-    filled = fill_template_slots(
-        shipped.read_text(encoding="utf-8"), comments="replace"
-    )
+    filled = fill_template_slots(shipped.read_text(encoding="utf-8"))
+    # A line that is slot text and nothing else is an author instruction the
+    # filler treated as a slot. It reads as a requirement body with no modal
+    # verb, so the fixture would be handing the validator something no author
+    # would ever write and reporting the template for it.
+    stray = [
+        index + 1
+        for index, line in enumerate(filled.splitlines())
+        if line.strip() == SLOT_FILLER
+    ]
+    if stray:
+        report(
+            "spec-template-validates: the filled template has slot text alone "
+            f"on line(s) {stray}, so an own-line author instruction was filled "
+            "rather than stripped and the fixture is malforming the template."
+        )
+        return 1
     with tempfile.TemporaryDirectory(prefix="keel-spec-template-") as raw:
         repo = Path(raw)
         write_text(repo / "openspec/project.md", "# Project\n\nA fixture.\n")
@@ -17533,6 +18055,18 @@ SCENARIOS: tuple = (
     (
         "guard-scope-is-the-repository",
         validate_guard_scope_is_the_repository_scenario,
+    ),
+    (
+        "guard-containment-is-resolved",
+        validate_guard_containment_is_resolved_scenario,
+    ),
+    (
+        "git-paths-carry-no-escaping",
+        validate_git_paths_carry_no_escaping_scenario,
+    ),
+    (
+        "runtime-versions-are-checked",
+        validate_runtime_versions_are_checked_scenario,
     ),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (

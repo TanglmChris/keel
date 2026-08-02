@@ -56,8 +56,34 @@ function blockedBrief(target, reason, extra = {}) {
   };
 }
 
+// Symbolic links are resolved on both sides, because `process.cwd()` comes
+// back already resolved while `path.resolve` never follows a link — on macOS,
+// where `/tmp` is a link to `/private/tmp`, that made a path inside the
+// worktree look external and let the helper write its baseline into the
+// repository it had just promised not to touch. The baseline usually does not
+// exist yet, so the nearest existing ancestor is what resolves. The write
+// guard hook answers the same question and keeps its own copy of this rule,
+// because it is a standalone script that cannot import from here.
+function realPathOrNearest(target) {
+  let current = path.resolve(target);
+  const trailing = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...trailing);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      trailing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function isExternal(repo, candidate) {
-  const rel = path.relative(repo, path.resolve(candidate));
+  const rel = path.relative(
+    realPathOrNearest(repo),
+    realPathOrNearest(candidate)
+  );
   return (
     rel === ".."
     || rel.startsWith(`..${path.sep}`)
