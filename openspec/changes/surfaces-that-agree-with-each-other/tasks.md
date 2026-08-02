@@ -115,7 +115,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release 5.13.0
+- [x] 2.1 Release 5.13.0
   - Covers:
     - E7 — a reader of the release notes learns why the version instruction is in the repository and not in the plugin
     - I1, I2, I3, I4, I5 — the wordings this change makes stale
@@ -148,16 +148,16 @@
     - M3: the three spec deltas are promoted, `openspec validate surfaces-that-agree-with-each-other --strict` passes, and `openspec validate --specs --strict` reports errors byte-identical to those it reported before the promotion
     - M4: `npm test` passes with no failing scenario and no exception
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:ee341ee2560728f34355c466d673d299c030e96aad22b7d091090339f4e7bc61
+    - M1: pass. `version-alignment scenario passed.` Every marker moved from 5.12.0 to 5.13.0 across seventeen files: the package and lockfile, both plugin manifests, the three managed blocks, the nine overlay markers, the AGENTS.md title and preflight line, and the validator's `PACKAGE_VERSION`/`PROTOCOL_VERSION`.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.13.0 - surfaces that agree with each other`, naming the doctor/runner disagreement and its cause, the unsearched versioned interpreter and that this repository no longer needs `KEEL_PYTHON`, the measured 5.7.1/5.7.0/5.12.0 drift and why the version instruction lives in the repository rather than the plugin, and the task-shape warning with why it is a warning.
+    - M3: pass. The three deltas are promoted and `openspec validate surfaces-that-agree-with-each-other --strict` reports the change valid. `openspec validate --specs --strict` reports 13 passed and 8 failed after the promotion, the same totals as before it; the 8 are pre-existing and owned by https://github.com/TanglmChris/keel/issues/46.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 122 scenarios.` — no failing scenario, no exception, none skipped. Run with no `KEEL_PYTHON` set, which is itself the end-to-end proof of 1.1: before this change the suite could not start on this machine without it.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the release claims are checked by running the things they describe — the alignment scenario over every marker, the real suite over every scenario, the OpenSpec validator over the change and the promoted store. M4 carries the strongest evidence in the change: the suite now runs on this machine with no environment variable set by hand, which is the observable difference 1.1 exists to produce and which no fixture could establish.
+      - Scope check: `git status --short` lists exactly the 21 Touch entries plus this change's own directory, which is the record-write layer.
+      - Findings: one. `openspec validate --specs --strict` still fails on 8 of 21 specs, unchanged in count and cause by this change's three promotions — every one is `Requirement must contain SHALL or MUST keyword` where the requirement opens with a context paragraph and the strict validator reads only the block under the heading. It was measured and filed during 5.12.0 and nothing here addresses it. Durable owner: https://github.com/TanglmChris/keel/issues/46, which carries the measurement, the cause, why no release task had ever surfaced it, and two candidate fixes.
     - Blocker: none
 
 ## Invalidates

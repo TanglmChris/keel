@@ -117,7 +117,7 @@ All artifacts complete. All tasks complete.
 - If sync is requested, use openspec-sync-specs approach (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 
-<!-- keel:openspec-surface-overlay version=5.12.0 -->
+<!-- keel:openspec-surface-overlay version=5.13.0 -->
 ## Keel Archive Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
