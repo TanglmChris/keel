@@ -149,10 +149,10 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release 5.12.0
+- [x] 2.1 Release 5.12.0
   - Covers:
     - E9 — a reader of the release notes learns the new Findings vocabulary exists
-    - I1, I2, I3, I5, I6, I7 — the wordings this change makes stale
+    - I1, I2, I3, I5, I6, I7, I8 — the wordings this change makes stale
   - Touch:
     - package.json
     - package-lock.json
@@ -179,19 +179,19 @@
     - Strategy: evidence-first
     - M1: `keel --validate version-alignment` passes, so every version marker in the package, both plugin manifests, the managed blocks, the overlay markers, and the validator constants names 5.12.0
     - M2: `keel/CHANGELOG.md` carries a 5.12.0 entry naming the three dispositions and the criterion, the recorded assertion count and what it is not, and the stale-manifest refusal
-    - M3: the three spec deltas are promoted into `openspec/specs/`, and `openspec validate --strict` passes for each
+    - M3: the three spec deltas are promoted into `openspec/specs/`, `openspec validate a-message-that-cannot-be-true --strict` passes, and `openspec validate --specs --strict` reports errors byte-identical to those it reported before the promotion, so this change adds none to a store that already has some
     - M4: `npm test` passes with no failing scenario and no exception
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:f513fda348041beea9ab2f951657e45d38369ab4fbbd3ccae02d22e2b76e1fa5
+    - M1: pass. `python3.11 scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` 20 markers moved from 5.11.0 to 5.12.0 across seventeen files: the package and lockfile, both plugin manifests, the three managed blocks, the nine overlay markers, the AGENTS.md title and its preflight line, and the validator's `PACKAGE_VERSION`/`PROTOCOL_VERSION`.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.12.0 - a message that cannot be true`, stating the three dispositions and the criterion, the recorded assertion count with what it is and is not, the stale-manifest refusal including the silent allow that was the worse half, and the two known prose limits that are recorded rather than fixed.
+    - M3: pass. The three deltas are promoted and `openspec validate a-message-that-cannot-be-true --strict` reports the change valid. `openspec validate --specs --strict` reports 13 passed and 8 failed both before and after the promotion, and the per-spec ERROR lists diff clean, so this change adds none. `keel-touch-write-guard` passes outright. The 8 pre-existing failures are all one cause and are owned — see Findings.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 119 scenarios.` — no failing scenario and no exception, and no scenario skipped.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the release claims are checked by running the things they describe rather than by reading them — the alignment scenario over every marker, the real suite over every scenario, and the OpenSpec validator over the promoted store in both directions. M3 is the one that changed during execution, because its authored form asserted something that was never true of this repository; what replaced it is a differential claim, which is both provable and the thing actually worth knowing.
+      - Scope check: `git status --short` lists exactly the 21 Touch entries plus this change's own directory, which is the record-write layer. Nothing outside Touch was written.
+      - Findings: two. First: M3 as authored claimed `openspec validate --strict` passes for each promoted spec. It does not and did not before this change — 8 of 21 specs fail, every one of them on `Requirement must contain SHALL or MUST keyword`, because the requirement opens with a context paragraph and the strict validator reads only the block directly under the heading. Nothing had surfaced it: each release task validates the *change*, which passes, and no scenario runs `--specs --strict`. It is the same class as the `spec-template-validates` defect 5.11.0 fixed — a disagreement about where the modal verb has to appear. M3 was corrected to the differential claim that this change adds no new error, which is proved by a clean diff of the ERROR lists. Durable owner: https://github.com/TanglmChris/keel/issues/46, which carries the measurement, the cause, why it was never seen, and two candidate fixes. Second: this change added a fourth implementation task mid-flight, 1.4, to repair a defect task 1.1 had shipped and its gate had passed. That is not a process failure — the defect was found by using the feature, which is what the following task did — but it is the second change running where a task's own scenario only exercised the simplest shape of its input. Resolved here: M4, since the suite now covers the mixed block, and the general question of a task's checks being narrower than its behavior is already tracked as https://github.com/TanglmChris/keel/issues/41.
     - Blocker: none
 
 ## Invalidates
