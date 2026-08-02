@@ -200,6 +200,43 @@ function anchoredFingerprint(previous) {
   return match ? match[1].toLowerCase() : null;
 }
 
+// Two tasks in one change declaring the same Touch set, both driven red-green,
+// are shaped like one behavior split in half. Issue #41 records the case that
+// produced this: a split that passed task-start and the Slice Start Gate and
+// was not executable — implementing the first alone broke a shipping scenario,
+// and once it was right the second had no honest red left.
+//
+// A warning, deliberately, not a `needs-review`. A genuine vertical split can
+// share files, so the shape is a signal rather than a verdict; and there is no
+// way to acknowledge a `needs-review`, so making it one would leave a
+// legitimate split unstartable. The reader is given the other task's id and
+// compares two things, rather than being told something is wrong.
+function taskShapeWarnings(repo, selection, task, compiled) {
+  if (!compiled || compiled.diagnostics.length > 0) return [];
+  const strategy = compiled.capsule.verification.strategy.toLowerCase();
+  if (!RED_GREEN_VERIFICATION_STRATEGIES.has(strategy)) return [];
+  const touch = [...compiled.capsule.touch].sort().join("\n");
+  if (!touch) return [];
+  const matches = [];
+  for (const sibling of selection.tasks) {
+    if (sibling.id === task.id) continue;
+    const other = compileTaskContract(repo, selection.change, sibling);
+    if (other.diagnostics.length > 0) continue;
+    if ([...other.capsule.touch].sort().join("\n") !== touch) continue;
+    matches.push(sibling.id);
+  }
+  if (matches.length === 0) return [];
+  return [
+    `Task ${task.id} declares the same Touch set as `
+      + `${matches.join(", ")} and both are driven ${strategy}. Two tasks over `
+      + "the same files under a red-green strategy are often one behavior "
+      + "split in half, where the first half is wrong on its own and the "
+      + "second has no honest red left. This is a prompt, not a verdict — a "
+      + "genuine vertical split can share files. Compare them before "
+      + "implementing.",
+  ];
+}
+
 function taskStart(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
@@ -234,7 +271,7 @@ function taskStart(repo, options) {
     selection.change,
     [task.id],
     problems,
-    [],
+    taskShapeWarnings(repo, selection, task, compiled),
     problems.length === 0
       ? compiled
       : null

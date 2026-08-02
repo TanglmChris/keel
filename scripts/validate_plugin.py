@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.12.0"
-PROTOCOL_VERSION = "5.12.0"
+PACKAGE_VERSION = "5.13.0"
+PROTOCOL_VERSION = "5.13.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5458,6 +5458,466 @@ def validate_runtime_versions_are_checked_scenario() -> int:
             "OpenSpec is the one `keel openspec` resolves."
         )
         return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+TASK_SHAPE_TEMPLATE = """## 1. Work
+
+- [ ] 1.1 First half
+  - Covers:
+    - E1: behavior
+  - Touch:
+{touch_one}
+  - Verify:
+    - Strategy: {strategy_one}
+    - M1: the first half is observable through the public interface
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 1.2 Second half
+  - Covers:
+    - E2: behavior
+  - Touch:
+{touch_two}
+  - Verify:
+    - Strategy: {strategy_two}
+    - M1: the second half is observable through the public interface
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- None.
+
+## Expectation Coverage
+
+- E1: behavior. Covered by: 1.1
+- E2: behavior. Covered by: 1.2
+"""
+
+
+def task_shape_tasks(
+    touch_one: list[str],
+    touch_two: list[str],
+    strategy_one: str = "vertical-tdd",
+    strategy_two: str = "vertical-tdd",
+) -> str:
+    def block(entries: list[str]) -> str:
+        return "\n".join(f"    - {entry}" for entry in entries)
+
+    return TASK_SHAPE_TEMPLATE.format(
+        touch_one=block(touch_one),
+        touch_two=block(touch_two),
+        strategy_one=strategy_one,
+        strategy_two=strategy_two,
+    )
+
+
+def validate_task_shape_warning_scenario() -> int:
+    """Issue #41: authoring cannot tell when two tasks are one behavior.
+
+    `the-runtime-says-which-version-it-is` was authored with tasks 1.1 and 1.2
+    declaring an identical Touch and the same red-green strategy. Both passed
+    `task-start` and the Slice Start Gate, and the split was not executable:
+    implementing 1.1 alone broke a shipping scenario, and once it was right two
+    of 1.2's three checks were already green, leaving no honest red. They were
+    merged mid-execution, at the cost of a reauthorization cycle the Slice
+    Start Gate exists to make unnecessary.
+
+    A warning rather than a verdict. A genuine vertical split can share files,
+    the judgment is semantic, and there is no way to acknowledge a
+    `needs-review` — turning the signal into a refusal would leave a legitimate
+    split unstartable, which is worse than the problem.
+    """
+    label = "task-shape-warning"
+    shared = ["src/feature.js", "scripts/validate_plugin.py"]
+
+    with tempfile.TemporaryDirectory(prefix="keel-task-shape-") as raw:
+        repo = Path(raw).resolve()
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+
+        def start(content: str):
+            write_text(tasks, content)
+            return run_keel(
+                repo, "gate", "task-start",
+                "--change", "demo", "--task", "1.1", "--json", "--no-guard",
+            )
+
+        def warnings_of(result) -> list[str]:
+            payload = json.loads(result.stdout) if result.stdout else {}
+            return [str(item) for item in payload.get("warnings", [])]
+
+        # M1 — the shape that produced the merge.
+        matched = start(task_shape_tasks(shared, list(shared)))
+        matched_warnings = warnings_of(matched)
+        shape_warnings = [w for w in matched_warnings if "1.2" in w]
+        if not shape_warnings:
+            report(
+                f"{label} M1 two tasks with an identical Touch set under a "
+                "red-green strategy produced no warning naming the other task. "
+                f"Warnings were: {matched_warnings}"
+            )
+            return 1
+
+        # M2 — a signal, not a verdict.
+        payload = json.loads(matched.stdout) if matched.stdout else {}
+        if payload.get("status") != "pass":
+            report(
+                f"{label} M2 the task-shape signal changed the gate's status to "
+                f"{payload.get('status')!r}; it must stay a warning."
+            )
+            return 1
+        if matched.returncode != 0:
+            report(
+                f"{label} M2 the task-shape signal changed the exit code to "
+                f"{matched.returncode}; it must stay 0 so the task starts."
+            )
+            return 1
+
+        # M3 — the two cases that must stay silent.
+        differing = start(
+            task_shape_tasks(shared, ["src/other.js", "docs/notes.md"])
+        )
+        if [w for w in warnings_of(differing) if "1.2" in w]:
+            report(
+                f"{label} M3 a task whose Touch set differs from every other "
+                f"task was warned about: {warnings_of(differing)}"
+            )
+            return 1
+        not_red_green = start(
+            task_shape_tasks(
+                shared, list(shared),
+                strategy_one="evidence-first", strategy_two="evidence-first",
+            )
+        )
+        if [w for w in warnings_of(not_red_green) if "1.2" in w]:
+            report(
+                f"{label} M3 a matching Touch set under a strategy that is not "
+                f"red-green was warned about: {warnings_of(not_red_green)}"
+            )
+            return 1
+
+    # M4 — the same question at completion, in both copies.
+    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
+    if canonical.read_bytes() != projected.read_bytes():
+        report(
+            f"{label} M4 the portable checklist and its plugin projection are "
+            "not byte-identical."
+        )
+        return 1
+    checklist = canonical.read_text(encoding="utf-8")
+    if "one behavior" not in checklist:
+        report(
+            f"{label} M4 keel-review-checklist does not ask whether two tasks "
+            "turned out to be one behavior."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_context_names_its_keel_scenario() -> int:
+    """The version comparison has to survive a runtime too old to contain it.
+
+    Measured 2026-08-02: installed plugin 5.7.1, CLI 5.7.0, repository protocol
+    5.13.0, and no session reported anything. The SessionStart version
+    comparison shipped in 5.9.0, so the installed plugin does not carry it, and
+    its silence is indistinguishable from three versions agreeing — which is
+    exactly what 5.9.0 designed silence to mean.
+
+    That is not fixable inside the plugin: an absent mechanism cannot announce
+    itself. The repository is the one participant that cannot be stale, because
+    the working tree is what every runtime reads. So the version rides on
+    `keel context`, which the protocol already requires, and the resident
+    protocol asks for it to be reported beside the version the repository
+    declares.
+    """
+    label = "context-names-its-keel"
+    version = json.loads(
+        (ROOT / "package.json").read_text(encoding="utf-8")
+    )["version"]
+
+    with tempfile.TemporaryDirectory(prefix="keel-context-version-") as raw:
+        repo = Path(raw).resolve()
+
+        # M1 — every status carries it. A result that omits the version cannot
+        # be compared against anything, so an idle or failed answer needs it as
+        # much as a selected one does.
+        idle = run_keel(repo, "context")
+        if version not in idle.stdout:
+            report(
+                f"{label} M1 an idle `keel context` does not name the Keel "
+                f"that produced it: {idle.stdout.strip()!r}"
+            )
+            return 1
+
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        selected = run_keel(repo, "context")
+        if version not in selected.stdout:
+            report(
+                f"{label} M1 a selected `keel context` does not name the Keel "
+                f"that produced it: {selected.stdout.strip()!r}"
+            )
+            return 1
+
+        write_text(repo / "openspec/changes/broken/tasks.md", "not a task file\n")
+        failing = run_keel(repo, "context")
+        if version not in failing.stdout:
+            report(
+                f"{label} M1 an ambiguous or failing `keel context` does not "
+                f"name the Keel that produced it: {failing.stdout.strip()!r}"
+            )
+            return 1
+
+        payload = run_keel(repo, "context", "--json")
+        try:
+            parsed = json.loads(payload.stdout)
+        except json.JSONDecodeError:
+            report(f"{label} M1 `keel context --json` did not emit JSON.")
+            return 1
+        if parsed.get("keel") != version:
+            report(
+                f"{label} M1 the JSON projection carries no `keel` version; got "
+                f"{parsed.get('keel')!r}, expected {version!r}."
+            )
+            return 1
+
+    # M2 — the protocol asks for the comparison, and says why it does not
+    # depend on the hook. Without the second half a reader who sees the
+    # SessionStart line assumes it is covered.
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for needle, why in (
+        ("keel context", "the command whose output carries the version"),
+        ("protocol version", "the version the repository declares"),
+        ("SessionStart", "that the requirement does not depend on the hook"),
+    ):
+        if needle not in agents:
+            report(f"{label} M2 the Session Start protocol does not name {why}.")
+            return 1
+    session_start = agents.split("## Full/Lite routing", 1)[0]
+    if "SessionStart" not in session_start:
+        report(
+            f"{label} M2 the hook-independence statement is not in the Session "
+            "Start section, where an agent deciding what to report reads it."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_interpreter_surfaces_agree_scenario() -> int:
+    """`keel --doctor` called an interpreter ok that the runner refuses.
+
+    Measured 2026-08-02: the doctor printed `python3: ok - python3` while
+    `run_python.js` on the same machine printed "no Python 3.10 or newer was
+    found — tried python3 (3.9.6)". Two Keel surfaces, one question, opposite
+    verdicts, and the one a person runs deliberately to check their environment
+    was the wrong one. The cause is two implementations: `bin/keel.js` carried
+    its own `pythonCandidates` that asked only whether a command runs.
+
+    The same duplication hid a second defect. The candidate list held `python3`
+    and `python`, so on macOS — where `python3` is the system 3.9 — the runner
+    refused while `python3.11` sat on PATH, telling a reader who had already
+    installed one to install one.
+    """
+    label = "interpreter-surfaces-agree"
+    runner = ROOT / "scripts/run_python.js"
+    with tempfile.TemporaryDirectory(prefix="keel-interp-agree-") as raw:
+        root = Path(raw).resolve()
+        script = root / "target.py"
+        write_text(script, "import sys\nsys.exit(7)\n")
+
+        def shim(directory: Path, name: str, version: str) -> Path:
+            path = directory / name
+            write_text(
+                path,
+                "#!/bin/sh\n"
+                f'if [ "$1" = "--version" ]; then echo "Python {version}"; '
+                "exit 0; fi\nexit 7\n",
+            )
+            path.chmod(0o755)
+            return path
+
+        # The stub directory shadows every name Keel could look for, so the
+        # result does not depend on what happens to be installed on the machine
+        # running the suite. Without the versioned shims, a real python3.11 on
+        # PATH would satisfy the search that M1 needs to fail.
+        def stub_dir(mapping: dict[str, str]) -> Path:
+            directory = root / f"bin-{len(list(root.glob('bin-*')))}"
+            directory.mkdir()
+            for name in ("python", "python3", "python3.10", "python3.11",
+                         "python3.12", "python3.13"):
+                shim(directory, name, mapping.get(name, "3.9.6"))
+            return directory
+
+        def env_with(directory: Path, keel_python: str | None = None):
+            env = dict(os.environ)
+            env.pop("KEEL_PYTHON", None)
+            env["PATH"] = str(directory) + os.pathsep + env.get("PATH", "")
+            if keel_python:
+                env["KEEL_PYTHON"] = keel_python
+            return env
+
+        def run_runner(env) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["node", str(runner), str(script)],
+                env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+
+        def doctor_python_line(env) -> str:
+            result = subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "--doctor"],
+                cwd=str(root), env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("python3:"):
+                    return line
+            return ""
+
+        # M1 — nothing on PATH reaches the minimum. Both surfaces must say so.
+        old_only = stub_dir({})
+        old_env = env_with(old_only)
+        line = doctor_python_line(old_env)
+        if not line:
+            report(f"{label} M1 `keel --doctor` printed no python3 line at all.")
+            return 1
+        if ": ok" in line:
+            report(
+                f"{label} M1 the doctor called an interpreter ok that the "
+                f"runner refuses. Got: {line}"
+            )
+            return 1
+        for needle, why in (("3.9.6", "the version it found"),
+                            ("3.10", "the minimum required")):
+            if needle not in line:
+                report(f"{label} M1 the doctor line does not name {why}: {line}")
+                return 1
+        refused = run_runner(old_env)
+        if refused.returncode == 0:
+            report(
+                f"{label} M1 the runner accepted an interpreter the doctor "
+                "reported as a problem, so the two surfaces disagree."
+            )
+            return 1
+
+        # M2 — a usable interpreter exists only under a versioned name.
+        versioned = stub_dir({"python3.11": "3.11.9"})
+        versioned_env = env_with(versioned)
+        used = run_runner(versioned_env)
+        if used.returncode != 7:
+            report(
+                f"{label} M2 a usable interpreter was on PATH as python3.11 and "
+                f"the runner did not use it; exited {used.returncode} rather "
+                "than the script's 7."
+            )
+            report(f"  {(used.stdout + used.stderr).strip()}")
+            return 1
+        versioned_line = doctor_python_line(versioned_env)
+        if ": ok" not in versioned_line:
+            report(
+                f"{label} M2 the doctor did not report the versioned "
+                f"interpreter as ok. Got: {versioned_line}"
+            )
+            return 1
+        if "3.11.9" not in versioned_line:
+            report(
+                f"{label} M2 the doctor line names no version for the "
+                f"interpreter it resolved. Got: {versioned_line}"
+            )
+            return 1
+
+        # M3 — the refusal names every candidate with its version, and an
+        # explicit interpreter is used without a search.
+        combined = f"{refused.stdout}{refused.stderr}"
+        for needle in ("python3", "python3.13", "3.9.6"):
+            if needle not in combined:
+                report(
+                    f"{label} M3 the refusal does not name {needle!r} among the "
+                    f"candidates it tried: {combined.strip()}"
+                )
+                return 1
+        explicit = shim(root, "explicit-python", "3.12.1")
+        chosen = run_runner(env_with(old_only, str(explicit)))
+        if chosen.returncode != 7:
+            report(
+                f"{label} M3 KEEL_PYTHON naming a usable interpreter was not "
+                f"used; exited {chosen.returncode} rather than the script's 7."
+            )
+            return 1
+
+    # M4 — the versioned names are derived from the declared minimum.
+    # KEEL_PYTHON is cleared because it short-circuits the search by design, so
+    # a probe that inherited it would read an empty list and report the derived
+    # names as missing — a true observation about the wrong question.
+    probe_env = dict(os.environ)
+    probe_env.pop("KEEL_PYTHON", None)
+    probe = subprocess.run(
+        ["node", "-e",
+         "const m = require(process.argv[1]);"
+         "process.stdout.write(JSON.stringify({"
+         "minimum: m.MINIMUM_PYTHON,"
+         "names: m.pythonCandidates().map((c) => c.command)}));",
+         str(ROOT / "scripts/run_python.js")],
+        env=probe_env,
+        text=True, encoding="utf-8", capture_output=True, check=False,
+    )
+    if probe.returncode != 0:
+        report(
+            f"{label} M4 scripts/run_python.js does not export its minimum and "
+            f"candidate list: {(probe.stdout + probe.stderr).strip()}"
+        )
+        return 1
+    exported = json.loads(probe.stdout)
+    minor = exported["minimum"][1]
+    versioned_names = [
+        name for name in exported["names"] if re.match(r"^python3\.\d+$", name)
+    ]
+    if not versioned_names:
+        report(f"{label} M4 the candidate list holds no versioned names.")
+        return 1
+    below = [
+        name for name in versioned_names
+        if int(name.split(".")[1]) < minor
+    ]
+    if below:
+        report(
+            f"{label} M4 the candidate list names interpreters below the "
+            f"declared minimum 3.{minor}, so the two are written separately "
+            f"rather than derived: {below}"
+        )
+        return 1
+
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
         return 1
@@ -18700,6 +19160,9 @@ SCENARIOS: tuple = (
         "runtime-versions-are-checked",
         validate_runtime_versions_are_checked_scenario,
     ),
+    ("task-shape-warning", validate_task_shape_warning_scenario),
+    ("context-names-its-keel", validate_context_names_its_keel_scenario),
+    ("interpreter-surfaces-agree", validate_interpreter_surfaces_agree_scenario),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
         "tasks-template-red-green-example",

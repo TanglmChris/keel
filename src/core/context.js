@@ -506,11 +506,36 @@ function resolveContext(repo, options) {
     context = handoff ? resolveHandoff(repo, handoff) : inferContext(repo);
   }
   context.warnings.push(...gitWarnings(repo));
+  // Set here rather than by the caller, so every consumer of the projection —
+  // text, JSON, and any host reading it — carries the version without having
+  // to know to add it.
+  context.keel = keelVersion();
   return context;
+}
+
+// The version comparison has to survive a runtime too old to contain it. The
+// SessionStart check shipped in 5.9.0, so a plugin older than that carries no
+// check at all, and its silence is indistinguishable from three versions
+// agreeing — measured 2026-08-02 with plugin 5.7.1, CLI 5.7.0, and protocol
+// 5.12.0, where nothing was reported. An absent mechanism cannot announce
+// itself, so the answer is not another check inside the plugin: the version
+// rides on the surface the protocol already requires an agent to read, and
+// `AGENTS.md` — which is read from the working tree and therefore cannot be
+// stale — asks for it to be reported beside the version the repository
+// declares.
+function keelVersion() {
+  try {
+    return require(path.join(__dirname, "..", "..", "package.json")).version;
+  } catch {
+    return "unknown";
+  }
 }
 
 function renderContext(result) {
   const lines = [
+    // First, because it is the provenance of everything under it. A result
+    // that does not say which Keel produced it cannot be compared to anything.
+    `Keel: ${result.keel || keelVersion()}`,
     `Keel context: ${result.status}`,
     `Next action: ${result.nextAction.kind}`,
   ];
