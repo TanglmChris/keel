@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.16.0"
-PROTOCOL_VERSION = "5.16.0"
+PACKAGE_VERSION = "5.17.0"
+PROTOCOL_VERSION = "5.17.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19344,6 +19344,127 @@ def validate_assertion_shape_count_scenario() -> int:
     return 0
 
 
+def validate_published_specs_validate_strictly_scenario() -> int:
+    """Issue #46: the store Keel publishes was validated by nothing.
+
+    Every change's closing task runs `openspec validate <change> --strict`,
+    which reads the change directory and stays green. The published store under
+    `openspec/specs/` was read by no check at all — measured at 5.16.0,
+    `--specs` appeared zero times in this file. Issue #46 found 8 of 21 specs
+    failing strict validation, every one on `Requirement must contain SHALL or
+    MUST keyword`, because the requirement opened with a context paragraph and
+    the strict validator reads only the block under the heading. Those failures
+    had never appeared in front of anyone.
+
+    They are gone now, removed by spec rewrites made for other reasons. That is
+    what makes this the moment to assert it absolutely rather than as the
+    ratchet #46 proposed: at a count of 8 a ratchet was the honest shape, and at
+    0 the same mechanism becomes a budget for failures to hide in.
+    """
+    label = "published-specs-validate-strictly"
+
+    # The pinned binary, not whatever `openspec` PATH happens to offer. This is
+    # not fussiness: measured here, PATH answers 1.4.1 and reports 8 failures
+    # while the version this repository resolves answers 1.6.0 and reports
+    # none. Issue #46 recorded those 8 failures as an openspec 1.6.0 result;
+    # they are 1.4.1's, and the store has always passed under the version the
+    # repository pins. A check that reads PATH would re-record the same
+    # mistake, which is exactly what `keel-target-surface-diagnostics` means by
+    # a suite that silently changes which program it runs reporting facts about
+    # a different program.
+    pinned = ROOT / "node_modules" / ".bin" / (
+        "openspec.cmd" if os.name == "nt" else "openspec"
+    )
+    if not pinned.exists():
+        report(
+            f"{label}: the pinned openspec is not installed "
+            "(node_modules/.bin/openspec); reporting the skip rather than "
+            "falling back to PATH, which would answer for a different program."
+        )
+        return 0
+
+    def pinned_openspec(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(pinned), *args],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+
+    version = pinned_openspec("--version")
+    exercised = re.search(r"\d+\.\d+\.\d+", version.stdout or "")
+    result = pinned_openspec("validate", "--specs", "--strict")
+
+    output = f"{result.stdout or ''}{result.stderr or ''}"
+    # Two independent readings. The exit status alone would pass if the command
+    # stopped validating; the per-spec lines alone would pass if it started
+    # exiting non-zero for an unrelated reason. Neither is trusted on its own.
+    failed = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith("✗")
+    ]
+    totals = re.search(r"Totals:\s*(\d+) passed,\s*(\d+) failed", output)
+    if not totals:
+        report(
+            f"{label} the validator produced no totals line, so the result "
+            "cannot be read. The output shape it reports may have moved."
+        )
+        report(output.strip()[:600])
+        return 1
+    passed_count, failed_count = int(totals.group(1)), int(totals.group(2))
+
+    if failed:
+        report(
+            f"{label} {len(failed)} published spec(s) fail strict validation "
+            f"against openspec {exercised.group(0) if exercised else 'unknown'}. "
+            "A published spec that the validator Keel ships refuses is one "
+            "every consumer sees refused. The usual cause is a requirement "
+            "whose modal verb sits below its first paragraph — the strict "
+            "validator reads only the block directly under the heading."
+        )
+        for line in failed:
+            report(f"  {line}")
+        return 1
+    if failed_count != 0:
+        report(
+            f"{label} the totals line reports {failed_count} failing spec(s) "
+            "while no per-spec failure line was emitted. The two readings "
+            "disagree, so the result is not trustworthy either way."
+        )
+        report(output.strip()[:600])
+        return 1
+    if result.returncode != 0:
+        report(
+            f"{label} the validator reported {passed_count} passed and 0 "
+            f"failed but exited {result.returncode}. The verdict and the exit "
+            "status disagree."
+        )
+        report(output.strip()[:600])
+        return 1
+    if passed_count == 0:
+        report(
+            f"{label} the validator reports zero specs. An empty store passes "
+            "every assertion about it, which is the shape "
+            "`A derived assertion set that collapses to empty fails instead of "
+            "passing` exists to refuse."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(
+        f"{label} scenario passed: {passed_count} published specs validate "
+        f"strictly against openspec "
+        f"{exercised.group(0) if exercised else 'unknown'}."
+    )
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -19694,6 +19815,10 @@ SCENARIOS: tuple = (
     ("domain-lens-doctor", validate_domain_lens_doctor_scenario),
     ("plan-funnel-guidance", validate_plan_funnel_guidance_scenario),
     ("native-tasks-view", validate_native_tasks_view_scenario),
+    (
+        "published-specs-validate-strictly",
+        validate_published_specs_validate_strictly_scenario,
+    ),
     ("validation-runner", validate_validation_runner_scenario),
 )
 
