@@ -1,0 +1,167 @@
+## 1. Make the surfaces agree
+
+- [x] 1.1 Report the interpreter the runner would accept, and find the ones it would
+  - Covers:
+    - keel-target-surface-diagnostics / The interpreter diagnostic agrees with the runner that uses it
+    - keel-target-surface-diagnostics / The interpreter search covers versioned names
+    - D1 — one definition of the minimum, read by both surfaces
+    - D2 — versioned names, after the unversioned ones, KEEL_PYTHON first
+    - F1, F2 — the measured disagreement and the unsearched interpreter
+    - A1 — the version list is derived from the minimum
+  - Touch:
+    - scripts/run_python.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: with a `python3` that reports a version below the minimum on PATH, `keel --doctor` reports the interpreter as a problem naming the version found and the minimum required, and the runner refuses the same interpreter — the two surfaces never disagree
+    - M2: with a usable interpreter available only under a versioned name, the runner uses it and does not refuse, and `keel --doctor` reports it as ok naming its version
+    - M3: with no candidate at or above the minimum, the runner refuses and names each candidate with the version it reported, and `KEEL_PYTHON` naming a usable interpreter is used with no other candidate tried
+    - M4: the versioned names Keel searches are derived from the declared minimum, so raising the minimum drops the names below it without a second edit
+    - M5 (regression): `runtime-versions-are-checked`, `target-surface`, and `doctor-openspec-honesty` stay green, so the OpenSpec binary reporting and the rest of the doctor surface are unchanged
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:792c33e7736f17c23712c28555cfcdfaaa9d2c23b19b4c0f7f160baeefb0693f
+    - M1: pass. New scenario `interpreter-surfaces-agree` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario interpreter-surfaces-agree`. It builds a stub directory shadowing every name Keel can look for — `python`, `python3`, and `python3.10` through `python3.13` — so the answer does not depend on what happens to be installed on the machine running the suite. With all of them reporting 3.9.6, `keel --doctor` reports a problem naming 3.9.6 and 3.10, and the runner refuses the same interpreters.
+    - M1.red: fail. `M1 the doctor called an interpreter ok that the runner refuses. Got: python3: ok - python3` — the defect exactly as measured on this machine, reproduced in a fixture. Not an aimed mutation; this is what shipped.
+    - M1.green: pass, after `bin/keel.js` deleted its own `pythonCandidates`/`commandExists` and imported `MINIMUM_PYTHON`, `resolveInterpreter`, and `describeTried` from `scripts/run_python.js`. The doctor line now prints the resolved command and the version it reported, because `ok` with no number behind it is a claim the reader cannot check — and it was the wrong claim for as long as the line existed.
+    - M2: pass. With a usable interpreter present only as `python3.11`, the runner uses it and passes the script's exit status through, and `keel --doctor` reports it ok naming `3.11.9`.
+    - M2.red: fail. `M2 a usable interpreter was on PATH as python3.11 and the runner did not use it; exited 127 rather than the script's 7`, aimed by dropping `versionedPythonNames()` from the candidate list — which is the shipped behavior, and the reason this repository needed `KEEL_PYTHON` set by hand on macOS.
+    - M2.green: pass. Versioned names come after the unversioned ones, so a machine where `python3` already satisfies the minimum is unaffected.
+    - M3: pass. The refusal names every candidate tried with the version it reported, including the versioned names, and `KEEL_PYTHON` naming a usable interpreter is used with no search.
+    - M3.red: fail. `M3 KEEL_PYTHON naming a usable interpreter was not used; exited 127 rather than the script's 7`, aimed by removing the short-circuit so an explicit choice fell through to discovery. The explicit interpreter is deliberately outside the stub PATH, so the only way to reach it is to honour the variable.
+    - M3.green: pass.
+    - M4: pass. `scripts/run_python.js` exports its minimum and its candidate list, and every versioned name it generates is at or above the declared minimum.
+    - M4.red: fail, twice. First a real fixture defect: the probe inherited `KEEL_PYTHON` from the environment running the suite, which short-circuits the search by design, so it read an empty list and reported `M4 the candidate list holds no versioned names` — a true observation about the wrong question. The probe now clears the variable. Then aimed: adding `python3.9` by hand gave `M4 the candidate list names interpreters below the declared minimum 3.10, so the two are written separately rather than derived: ['python3.9']`.
+    - M4.green: pass. The names are generated from `MINIMUM_PYTHON` up to a single newest-known bound, so raising the minimum drops the names below it with no second edit.
+    - M5: pass. `runtime-versions-are-checked`, `target-surface`, and `doctor-openspec-honesty` all pass unchanged, so the OpenSpec binary reporting and the rest of the doctor surface are untouched.
+    - Review:
+      - Status: pass
+      - Acceptance check: both surfaces are driven as a person drives them — `keel --doctor` for its printed line, `run_python.js` for its exit status — against a PATH the fixture fully controls, and the claim asserted is that their verdicts agree rather than that either has a particular internal shape. M1 covers the disagreement in the direction it actually occurred, and M2 covers the opposite direction, so a fix that simply reported everything as a problem would fail M2 rather than pass. Verified live outside the fixture as well: `node scripts/run_python.js` now runs with no `KEEL_PYTHON` set on this machine, and the doctor prints `python3: ok - python3.11 (3.11.15)`.
+      - Scope check: `git status --short` shows `scripts/run_python.js`, `bin/keel.js`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: two, both closed here. First: M5 as authored named `target-surface-doctor`, a scenario that does not exist, so the regression check could not have run; found by executing it rather than assuming, corrected to `target-surface` and `doctor-openspec-honesty`, and reauthorized from `sha256:88d50632…` to `sha256:792c33e7…` before any evidence existed. This is the second change running where an authored regression check named a scenario that was not real, which suggests the names should be verified at authoring rather than at execution. Resolved here: M5. Second: the M4 probe inherited `KEEL_PYTHON` and reported a true fact about a question nobody asked. Resolved here: M4.
+    - Blocker: none
+
+- [ ] 1.2 Let the context answer name the Keel that produced it
+  - Covers:
+    - keel-stateless-continuity / The context projection names the Keel that produced it
+    - D3 — the comparison is asked for by the repository, because it cannot report its own absence
+    - D4 — the version rides on the surface the protocol already requires
+    - F3, F4 — the measured three-way drift nobody reported, and the silent context output
+  - Touch:
+    - bin/keel.js
+    - AGENTS.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `keel context` names the Keel version that produced its answer, for an idle result, a selected result, and a failure result alike
+    - M2: the resident protocol in `AGENTS.md` requires the agent to report that version beside the protocol version the repository declares, and states that the requirement does not depend on the SessionStart hook having run
+    - M3 (regression): `stateless-continuity` and `native-plugin-session-start` stay green, so the projection's existing status, next-action, and reason lines and the hook's two channels are unchanged
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 1.3 Name two tasks that are shaped like one behavior
+  - Covers:
+    - keel-core-gates / Two tasks shaped like one behavior are named at task-start
+    - D5 — a warning, not a verdict, and why `needs-review` would be worse
+    - D6 — the same question at completion, when it is answerable
+    - F5, F6 — the merged split, and the warning channel that already exists
+    - A2 — a warning does not change status or exit code
+  - Touch:
+    - src/core/gates.js
+    - src/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `task-start` on a task whose Touch set matches another task in the same change, under a red-green strategy, returns a warning naming the other task
+    - M2: that result's status is `pass` and its exit code is 0, so the task starts normally
+    - M3: a task whose Touch set differs from every other task in the change, and a task with a matching Touch set whose strategy is not red-green, each produce no task-shape warning
+    - M4: `keel-review-checklist` asks the same question at completion, in both copies, and the two copies are byte-identical
+    - M5 (regression): `core-gates` and `task-capsule` stay green, so compilation, the fingerprint, and the existing task-start diagnostics are unchanged
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - M5: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 2. Close
+
+- [ ] 2.1 Release 5.13.0
+  - Covers:
+    - E7 — a reader of the release notes learns why the version instruction is in the repository and not in the plugin
+    - I1, I2, I3, I4, I5 — the wordings this change makes stale
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-stateless-continuity/spec.md
+    - openspec/specs/keel-target-surface-diagnostics/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `version-alignment` passes, so every version marker names 5.13.0
+    - M2: `keel/CHANGELOG.md` carries a 5.13.0 entry naming the doctor/runner disagreement, the unsearched interpreter, why the version instruction lives in the repository rather than the plugin, and the task-shape warning
+    - M3: the three spec deltas are promoted, `openspec validate surfaces-that-agree-with-each-other --strict` passes, and `openspec validate --specs --strict` reports errors byte-identical to those it reported before the promotion
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- I1: "python3: ok" — the interpreter line `keel --doctor` prints in `bin/keel.js` and the scenarios asserting it. It reports a verdict with no version behind it, and reports ok for an interpreter the runner refuses. Updated by: 1.1
+- I2: "install a newer Python, or point KEEL_PYTHON at one" — the refusal in `scripts/run_python.js`. It is addressed to a reader who may already have installed one under a versioned name Keel never tried. Updated by: 1.1
+- I3: "Before deciding what to do, run `keel context` and follow its versioned result and minimal read list." and "State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked." — the Session Start section of `AGENTS.md`. The enumeration of what to state is now incomplete. Updated by: 1.2
+- I4: "`Findings`: `none`, or every finding with the disposition it actually has." — the Semantic Review section of `keel-review-checklist` gains the task-shape question beside it; the existing sentence stays true and the section around it goes stale as a complete list of what the checklist asks. Updated by: 1.3
+- I5: "version=5.12.0" — the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, the nine `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`, `"version": "5.12.0"` in `package.json`, `package-lock.json`, and both plugin manifests, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. Updated by: 2.1
+
+## Expectation Coverage
+
+- E1: Two Keel surfaces answering "is this interpreter usable" never disagree. Covered by: 1.1
+- E2: A refusal naming a missing interpreter is issued only when none is installed. Covered by: 1.1
+- E3: Raising the minimum cannot leave a stale interpreter name behind. Covered by: 1.1
+- E4: A version disagreement reaches the human even when the runtime is too old to contain the check that would report it. Covered by: 1.2
+- E5: The shape that forced a mid-execution task merge is visible before implementation starts. Covered by: 1.3
+- E6: That signal never blocks a legitimate vertical split. Covered by: 1.3
+- E7: A reader of the release notes learns why the version instruction is in the repository and not in the plugin. Covered by: 2.1

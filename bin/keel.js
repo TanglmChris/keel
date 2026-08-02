@@ -614,31 +614,16 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function pythonCandidates() {
-  if (process.env.KEEL_PYTHON) {
-    return [{ command: process.env.KEEL_PYTHON, prefixArgs: [] }];
-  }
-
-  const candidates = [];
-  if (process.platform === "win32") {
-    candidates.push({ command: "py", prefixArgs: ["-3"] });
-    candidates.push({ command: "python", prefixArgs: [] });
-    candidates.push({ command: "python3", prefixArgs: [] });
-  } else {
-    candidates.push({ command: "python3", prefixArgs: [] });
-    candidates.push({ command: "python", prefixArgs: [] });
-  }
-  return candidates;
-}
-
-function commandExists(candidate) {
-  const result = spawnSync(
-    candidate.command,
-    [...candidate.prefixArgs, "--version"],
-    { encoding: "utf8" }
-  );
-  return !result.error && result.status === 0;
-}
+// The interpreter rule lives in `scripts/run_python.js` and is imported rather
+// than restated. This file used to carry its own candidate list that asked only
+// whether a command runs, so `keel --doctor` reported `python3: ok` for the
+// same 3.9.6 the runner refuses — measured 2026-08-02. Two statements of one
+// threshold drift the moment either moves; one statement cannot.
+const {
+  MINIMUM_PYTHON,
+  resolveInterpreter,
+  describeTried,
+} = require(path.join(__dirname, "..", "scripts", "run_python.js"));
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -862,10 +847,8 @@ function runPython(script, args) {
     return 1;
   }
 
-  for (const candidate of pythonCandidates()) {
-    if (!commandExists(candidate)) {
-      continue;
-    }
+  const { candidate, tried } = resolveInterpreter();
+  if (candidate) {
     const result = spawnSync(
       candidate.command,
       [...candidate.prefixArgs, script, ...args],
@@ -874,8 +857,11 @@ function runPython(script, args) {
     return typeof result.status === "number" ? result.status : 1;
   }
 
+  const minimum = MINIMUM_PYTHON.join(".");
   process.stderr.write(
-    "keel: Python 3 is required. Install python3/python, or set KEEL_PYTHON.\n"
+    `keel: Python ${minimum} or newer is required. Tried `
+      + `${describeTried(tried) || "nothing"}. Install one, or set `
+      + "KEEL_PYTHON.\n"
   );
   return 1;
 }
@@ -1356,12 +1342,28 @@ function runDoctor(options) {
   const repo = path.resolve(options.repo || process.cwd());
   process.stdout.write(`keel doctor for ${repo}\n`);
 
-  const python = pythonCandidates().find(commandExists);
-  printDoctorLine(
-    "python3",
-    python ? "ok" : "missing",
-    python ? formatCommand(python.command, python.prefixArgs) : "set KEEL_PYTHON or install Python 3"
-  );
+  // The version is printed, not just a verdict: `ok` with no number behind it
+  // is a claim the reader cannot check, and it was the wrong claim here for as
+  // long as this line existed.
+  const minimumPython = MINIMUM_PYTHON.join(".");
+  const interpreter = resolveInterpreter();
+  if (interpreter.candidate) {
+    printDoctorLine(
+      "python3",
+      "ok",
+      `${formatCommand(interpreter.candidate.command, interpreter.candidate.prefixArgs)}`
+        + ` (${interpreter.version})`
+    );
+  } else {
+    const runnable = interpreter.tried.filter((entry) => entry.version);
+    printDoctorLine(
+      "python3",
+      runnable.length > 0 ? "problem" : "missing",
+      runnable.length > 0
+        ? `needs ${minimumPython} or newer; found ${describeTried(runnable)}`
+        : `needs ${minimumPython} or newer; set KEEL_PYTHON or install Python 3`
+    );
+  }
 
   const openspec = findOpenSpecCommand();
   if (!openspec) {

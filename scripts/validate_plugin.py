@@ -5465,6 +5465,197 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     return 0
 
 
+def validate_interpreter_surfaces_agree_scenario() -> int:
+    """`keel --doctor` called an interpreter ok that the runner refuses.
+
+    Measured 2026-08-02: the doctor printed `python3: ok - python3` while
+    `run_python.js` on the same machine printed "no Python 3.10 or newer was
+    found — tried python3 (3.9.6)". Two Keel surfaces, one question, opposite
+    verdicts, and the one a person runs deliberately to check their environment
+    was the wrong one. The cause is two implementations: `bin/keel.js` carried
+    its own `pythonCandidates` that asked only whether a command runs.
+
+    The same duplication hid a second defect. The candidate list held `python3`
+    and `python`, so on macOS — where `python3` is the system 3.9 — the runner
+    refused while `python3.11` sat on PATH, telling a reader who had already
+    installed one to install one.
+    """
+    label = "interpreter-surfaces-agree"
+    runner = ROOT / "scripts/run_python.js"
+    with tempfile.TemporaryDirectory(prefix="keel-interp-agree-") as raw:
+        root = Path(raw).resolve()
+        script = root / "target.py"
+        write_text(script, "import sys\nsys.exit(7)\n")
+
+        def shim(directory: Path, name: str, version: str) -> Path:
+            path = directory / name
+            write_text(
+                path,
+                "#!/bin/sh\n"
+                f'if [ "$1" = "--version" ]; then echo "Python {version}"; '
+                "exit 0; fi\nexit 7\n",
+            )
+            path.chmod(0o755)
+            return path
+
+        # The stub directory shadows every name Keel could look for, so the
+        # result does not depend on what happens to be installed on the machine
+        # running the suite. Without the versioned shims, a real python3.11 on
+        # PATH would satisfy the search that M1 needs to fail.
+        def stub_dir(mapping: dict[str, str]) -> Path:
+            directory = root / f"bin-{len(list(root.glob('bin-*')))}"
+            directory.mkdir()
+            for name in ("python", "python3", "python3.10", "python3.11",
+                         "python3.12", "python3.13"):
+                shim(directory, name, mapping.get(name, "3.9.6"))
+            return directory
+
+        def env_with(directory: Path, keel_python: str | None = None):
+            env = dict(os.environ)
+            env.pop("KEEL_PYTHON", None)
+            env["PATH"] = str(directory) + os.pathsep + env.get("PATH", "")
+            if keel_python:
+                env["KEEL_PYTHON"] = keel_python
+            return env
+
+        def run_runner(env) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["node", str(runner), str(script)],
+                env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+
+        def doctor_python_line(env) -> str:
+            result = subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "--doctor"],
+                cwd=str(root), env=env, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, check=False,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("python3:"):
+                    return line
+            return ""
+
+        # M1 — nothing on PATH reaches the minimum. Both surfaces must say so.
+        old_only = stub_dir({})
+        old_env = env_with(old_only)
+        line = doctor_python_line(old_env)
+        if not line:
+            report(f"{label} M1 `keel --doctor` printed no python3 line at all.")
+            return 1
+        if ": ok" in line:
+            report(
+                f"{label} M1 the doctor called an interpreter ok that the "
+                f"runner refuses. Got: {line}"
+            )
+            return 1
+        for needle, why in (("3.9.6", "the version it found"),
+                            ("3.10", "the minimum required")):
+            if needle not in line:
+                report(f"{label} M1 the doctor line does not name {why}: {line}")
+                return 1
+        refused = run_runner(old_env)
+        if refused.returncode == 0:
+            report(
+                f"{label} M1 the runner accepted an interpreter the doctor "
+                "reported as a problem, so the two surfaces disagree."
+            )
+            return 1
+
+        # M2 — a usable interpreter exists only under a versioned name.
+        versioned = stub_dir({"python3.11": "3.11.9"})
+        versioned_env = env_with(versioned)
+        used = run_runner(versioned_env)
+        if used.returncode != 7:
+            report(
+                f"{label} M2 a usable interpreter was on PATH as python3.11 and "
+                f"the runner did not use it; exited {used.returncode} rather "
+                "than the script's 7."
+            )
+            report(f"  {(used.stdout + used.stderr).strip()}")
+            return 1
+        versioned_line = doctor_python_line(versioned_env)
+        if ": ok" not in versioned_line:
+            report(
+                f"{label} M2 the doctor did not report the versioned "
+                f"interpreter as ok. Got: {versioned_line}"
+            )
+            return 1
+        if "3.11.9" not in versioned_line:
+            report(
+                f"{label} M2 the doctor line names no version for the "
+                f"interpreter it resolved. Got: {versioned_line}"
+            )
+            return 1
+
+        # M3 — the refusal names every candidate with its version, and an
+        # explicit interpreter is used without a search.
+        combined = f"{refused.stdout}{refused.stderr}"
+        for needle in ("python3", "python3.13", "3.9.6"):
+            if needle not in combined:
+                report(
+                    f"{label} M3 the refusal does not name {needle!r} among the "
+                    f"candidates it tried: {combined.strip()}"
+                )
+                return 1
+        explicit = shim(root, "explicit-python", "3.12.1")
+        chosen = run_runner(env_with(old_only, str(explicit)))
+        if chosen.returncode != 7:
+            report(
+                f"{label} M3 KEEL_PYTHON naming a usable interpreter was not "
+                f"used; exited {chosen.returncode} rather than the script's 7."
+            )
+            return 1
+
+    # M4 — the versioned names are derived from the declared minimum.
+    # KEEL_PYTHON is cleared because it short-circuits the search by design, so
+    # a probe that inherited it would read an empty list and report the derived
+    # names as missing — a true observation about the wrong question.
+    probe_env = dict(os.environ)
+    probe_env.pop("KEEL_PYTHON", None)
+    probe = subprocess.run(
+        ["node", "-e",
+         "const m = require(process.argv[1]);"
+         "process.stdout.write(JSON.stringify({"
+         "minimum: m.MINIMUM_PYTHON,"
+         "names: m.pythonCandidates().map((c) => c.command)}));",
+         str(ROOT / "scripts/run_python.js")],
+        env=probe_env,
+        text=True, encoding="utf-8", capture_output=True, check=False,
+    )
+    if probe.returncode != 0:
+        report(
+            f"{label} M4 scripts/run_python.js does not export its minimum and "
+            f"candidate list: {(probe.stdout + probe.stderr).strip()}"
+        )
+        return 1
+    exported = json.loads(probe.stdout)
+    minor = exported["minimum"][1]
+    versioned_names = [
+        name for name in exported["names"] if re.match(r"^python3\.\d+$", name)
+    ]
+    if not versioned_names:
+        report(f"{label} M4 the candidate list holds no versioned names.")
+        return 1
+    below = [
+        name for name in versioned_names
+        if int(name.split(".")[1]) < minor
+    ]
+    if below:
+        report(
+            f"{label} M4 the candidate list names interpreters below the "
+            f"declared minimum 3.{minor}, so the two are written separately "
+            f"rather than derived: {below}"
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 CJK_PATH = "src/摄影光影规划工具.js"
 SPACE_PATH = "src/has space.js"
 QUOTE_PATH = 'src/has"quote.js'
@@ -18700,6 +18891,7 @@ SCENARIOS: tuple = (
         "runtime-versions-are-checked",
         validate_runtime_versions_are_checked_scenario,
     ),
+    ("interpreter-surfaces-agree", validate_interpreter_surfaces_agree_scenario),
     ("spec-template-validates", validate_spec_template_validates_scenario),
     (
         "tasks-template-red-green-example",
