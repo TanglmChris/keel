@@ -1,0 +1,173 @@
+## 1. Say the true thing
+
+- [x] 1.1 Record a finding resolved in the task that found it
+  - Covers:
+    - keel-core-gates / A finding resolved in its own task is recorded as resolved
+    - D1 — the third disposition, and why it must carry evidence
+    - D2 — an `M<n>` label or an existing path, and why not a URL
+    - D3 — the marker is `Resolved here:`
+    - D4 — the criterion, stated where the author reads it
+    - F1, F2, F3 — the divergence, the live refusal, the slot `## Invalidates` already has
+  - Touch:
+    - src/core/gates.js
+    - src/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - AGENTS.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a task whose Review `Findings` records a finding as resolved here and names an `M<n>` check of the same task passes `keel gate task-complete`; the same finding citing a check the task does not declare, and the same finding with nothing after the marker, are each refused with a `finding-resolution-evidence` problem naming what it found
+    - M2: resolution evidence naming a repo-relative path is accepted when the path exists and refused by name when it does not; an `http`/`https` reference is refused as resolution evidence with a message directing it to `Durable owner:`, while that same reference still passes as a durable owner
+    - M3: the `finding-owner` message names the resolved-here form and its evidence requirement alongside the durable-owner and discard forms
+    - M4: the criterion for choosing between the three dispositions is readable in `AGENTS.md` and in both copies of `keel-review-checklist`, and the two skill copies are byte-identical
+    - M5 (regression): `core-gates`, `tracker-durable-owner`, `durable-owner-vocabulary`, `review-checks-content`, and the baseline run stay green, so every ownership form that passed before still passes, `keel/HANDOFF.md` is still refused, and the checklist still carries the language the suite pins
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:454eebbd0fcadf0a92b30e81de9fbc4e4cba7be40d56bb1b742de83bb25a7811
+    - M1: pass. New scenario `findings-resolved-here` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario findings-resolved-here`. It builds a real change, writes a Findings value for each case, and reads the gate's published JSON. `Resolved here: M1` completes; `Resolved here:` with nothing after it and `Resolved here: M7` are each refused with exit 3 and a `finding-resolution-evidence` problem, and the M7 case must name M7 — a refusal that does not say which check it could not find leaves the author guessing between a typo and a missing check.
+    - M1.red: fail. `M1 a finding recorded as resolved here and citing M1, a check this task declares, was still refused`, printing the gate payload with its `finding-owner` problem. That is the 5.11.0 refusal reproduced: the disposition did not exist, so the honest text had no way through.
+    - M1.green: pass, after `RESOLVED_HERE`, `resolutionEvidenceVerdict`, and `resolutionEvidenceMessage` were added to `src/core/gates.js` and the Findings branch was restructured to evaluate the marker before the owner forms.
+    - M2: pass. An existing repo-relative path is accepted as resolution evidence; a path that does not exist is refused and named; a tracker reference is refused as resolution evidence with a message directing it to `Durable owner:`, and that same reference still completes the task when written as `Durable owner:`.
+    - M2.red: fail. `M2 the refusal must send a tracker reference to \`Durable owner:\`. Got: … \`github.com/TanglmChris/keel/issues/12\` does not exist.` — aimed by deleting the tracker branch so a URL fell through to the path check. The red is worth reading: the mutated gate produced a sentence that is *true* about a thing nobody asked about, which is the defect this whole change is named for, reproduced inside its own test.
+    - M2.green: pass. The tracker form is tested before the path form for exactly that reason, and the comment at the branch says so.
+    - M3: pass. The `finding-owner` message names `Resolved here`, `M<n>`, `Durable owner`, and `Discard reason`, so a reader who wrote no disposition sees all three rather than the two that existed.
+    - M3.red: fail. `M3 the accepted-forms message must name every disposition; 'Resolved here' is missing from it`, printing the mutated message — aimed by cutting the resolved clause out of the diagnostic while leaving the accepting logic intact, so the red is the message's own defect and not the check's.
+    - M3.green: pass, with the full clause restored: the diagnostic now opens on `Resolved here:` and its evidence requirement before naming the owner and discard forms, so the disposition a reader most likely wanted is the first one they see.
+    - M4: pass. `AGENTS.md` and both copies of `keel-review-checklist` name all three dispositions, and the portable `SKILL.md` and its plugin projection are byte-identical.
+    - M4.red: fail, twice, because M4 asserts two separable things. Mutating only the projection gave `M4 the portable checklist and its plugin projection are not byte-identical`; mutating both copies identically — so the identity check still passed — gave `M4 keel-review-checklist does not name the 'Resolved here:' disposition`. The second red is what proves the phrase branch is doing work rather than riding on the first.
+    - M4.green: pass.
+    - M5: pass. `core-gates`, `tracker-durable-owner`, `durable-owner-vocabulary`, and `review-checks-content` all pass unchanged, and the baseline run reports `Keel v4.1.0 baseline validation passed.` Every ownership form that passed before still passes, `keel/HANDOFF.md` is still refused, and the checklist still carries the language the suite pins — after that pinned language was itself corrected, see Findings.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check drives the real `keel` binary against a real change directory and reads the gate's published JSON; nothing asserts the shape of a function. Both directions are covered, which is what makes the result mean anything: M1 proves the new disposition is accepted *and* that three separate unusable forms are refused, so deleting the evidence requirement entirely would fail rather than pass. M2's tracker case is the load-bearing one — without it, `Resolved here: <url>` would quietly pass through the durable-owner branch and the new disposition would be a way to launder an unowned finding.
+      - Scope check: `git status --short` shows `src/core/gates.js`, `src/skills/keel-review-checklist/SKILL.md`, `plugins/keel/skills/keel-review-checklist/SKILL.md`, `AGENTS.md`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: three, all closed here. First: M5 originally named `gate-diagnostics`, a scenario that does not exist, so the regression check could never have run; caught when the check was executed rather than assumed, corrected to four real scenarios plus the baseline, and reauthorized from `sha256:18312deb…` to `sha256:454eebbd…`. Resolved here: M5. Second: two required-language lists in `scripts/validate_plugin.py` pinned the phrases "durable OpenSpec task/new change" and "discard rationale" into the checklist. That enumeration has been incomplete since 5.2.4 added the tracker form, so the pin was holding stale wording in place and would have blocked any correction to it; repinned to the three disposition markers, which is the vocabulary that must not be silently dropped. Recorded as I8 and Resolved here: M5, whose baseline run is what exercises those lists. Third: because `Findings` is free prose the gate cannot split, one valid `Resolved here:` now satisfies a block that also contains an unresolved finding. Discard reason: this is the same limitation the owner forms have had since they shipped — one valid `Durable owner:` has always satisfied a block containing a second unowned finding — so it is pre-existing and unchanged in kind rather than introduced here. Making it strict requires one-finding-per-line Findings, a protocol change this task has no authority for; the limitation is recorded in design.md so a later reader finds the reasoning rather than rediscovering the hole.
+    - Blocker: none
+
+- [ ] 1.2 Refuse a manifest whose change is gone by naming the clear
+  - Covers:
+    - keel-touch-write-guard / A manifest whose change is gone is refused as stale
+    - D8 — a vanished directory is a fact, an unmatched task id is a guess
+    - F5, F6 — the measured denial, and the status command that already knows
+    - A2 — archive moves the directory rather than leaving a marker
+  - Touch:
+    - plugins/keel/scripts/pretooluse-guard.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: with a manifest active whose change directory has been archived, a write is denied and the denial reports the manifest as stale and names `keel guard clear`
+    - M2: that same denial does not tell the reader to reauthorize the vanished task through `keel gate task-start`
+    - M3: a manifest whose change directory exists but whose task id is absent from `tasks.md` is denied by the unchanged Touch comparison, and the stale-manifest wording is not produced
+    - M4 (regression): `touch-write-guard`, `touch-guard-record-layer`, `touch-guard-drift`, and `guard-containment-is-resolved` stay green, so the record layer, authority drift, and resolved-path containment are unchanged
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 1.3 Count the assertions that guard several failures behind one message
+  - Covers:
+    - keel-validation-runner / The one-message-many-failures assertion shape is counted
+    - D5 — a count, not a lint, and why 75 sites make the lint unshippable
+    - D6 — it fails in both directions
+    - D7 — the simple rule, and why the heuristic one was dropped
+    - F4 — the measured 1069 / 287 / 75
+    - A1 — the count bounds a shape and is not a defect count
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the counter, given a synthetic source holding one assertion of the counted shape, reports exactly that site; given the same source with the assertion split into two, it reports none
+    - M2: the counter does not report an `or`-tested assertion whose operands are all membership tests, nor one whose body is not a `report(...)` followed by a single `return`
+    - M3: the scenario fails when the measured count of `scripts/validate_plugin.py` exceeds the recorded number, naming the sites that are not in the recorded set, and fails with a distinct message when the measured count is below it
+    - M4: the scenario passes against `scripts/validate_plugin.py` as this change leaves it, and its own assertions are not of the counted shape
+    - M5: the reported wording states that the count bounds a shape rather than asserting that each site is wrong
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - M5: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## 2. Close
+
+- [ ] 2.1 Release 5.12.0
+  - Covers:
+    - E9 — a reader of the release notes learns the new Findings vocabulary exists
+    - I1, I2, I3, I5, I6, I7 — the wordings this change makes stale
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-validation-runner/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `keel --validate version-alignment` passes, so every version marker in the package, both plugin manifests, the managed blocks, the overlay markers, and the validator constants names 5.12.0
+    - M2: `keel/CHANGELOG.md` carries a 5.12.0 entry naming the three dispositions and the criterion, the recorded assertion count and what it is not, and the stale-manifest refusal
+    - M3: the three spec deltas are promoted into `openspec/specs/`, and `openspec validate --strict` passes for each
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- I1: "Review Findings must be `none` or carry a durable owner" — the `finding-owner` message in `src/core/gates.js`. It states a rule this change narrows to unresolved findings, and it enumerates the accepted forms without the resolved-here one. Updated by: 1.1
+- I2: "each unresolved finding with a durable OpenSpec task/new change, archive-evidence owner, or explicit discard rationale" — `src/skills/keel-review-checklist/SKILL.md` and its projection under `plugins/keel/skills/`. The sentence already says *unresolved* and then lists only the two dispositions available to a resolved one. Updated by: 1.1
+- I3: "cite the issue URL directly in the Review `Findings` line — `keel gate task-complete` accepts an absolute `https://…` reference as a durable owner, alongside a `Discard reason:`/`Discard rationale:` prefix and **any repo-relative path that exists**" — the Project Conventions section of `AGENTS.md`. It enumerates every accepted form, so it is wrong the moment a third exists. Updated by: 1.1
+- I4: "Discard reason: the finding is closed by this task's own M1" — archived task 1.4 Evidence in `openspec/changes/archive/2026-08-01-the-name-is-not-the-thing/tasks.md`, which recorded a repair as a discard because no other form passed. Discard reason: an archived record states what was true when it was written, and rewriting it would hide the very evidence that motivated this change. The live statement is replaced by 1.1 and by the 5.12.0 changelog entry.
+- I8: "durable OpenSpec task/new change" and "discard rationale" — two required-language lists in `scripts/validate_plugin.py` pin those exact strings in `keel-review-checklist`, and the checklist sentence they quote is the one this change rewrites. The enumeration was already incomplete before this change: 5.2.4 added the tracker form and the any-existing-path form, and neither appears in the phrase the suite was pinning, so the pin was holding stale wording in place. Updated by: 1.1
+- I5: "An unreadable or unmatched tasks.md is not read as checked — every gate that compiles the capsule catches that" — the comment above `taskIsChecked` in `plugins/keel/scripts/pretooluse-guard.js`. It gives one answer for two states that this change separates. Updated by: 1.2
+- I6: "version=5.11.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the nine `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as `"version": "5.11.0"` in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I7: "the error names the `Findings` field and shows the accepted forms: a `discard reason:`/`discard rationale:` prefix, a `keel/archive/…` path, an existing `openspec/changes/<change>/…` artifact, any other repo-relative path that exists, or an absolute `http`/`https` tracker reference" — `openspec/specs/keel-core-gates/spec.md`. An enumeration of the accepted forms that omits the new one. Updated by: 1.1, promoted by 2.1
+
+## Expectation Coverage
+
+- E1: An author who fixed a finding can record that, without having to call a repair a discard. Covered by: 1.1
+- E2: The resolved disposition cannot become a free exit from the ownership check. Covered by: 1.1
+- E3: The criterion for choosing between the three dispositions is written where the author reads it, not left to whichever marker passes. Covered by: 1.1
+- E4: A newly written one-message-many-failures assertion is reported at the moment it is added. Covered by: 1.3
+- E5: The recorded count cannot silently become false in either direction. Covered by: 1.3
+- E6: The count is not read as a count of defects. Covered by: 1.3
+- E7: A refusal names an action that resolves the state it is refusing. Covered by: 1.2
+- E8: Archiving a change does not silently disable the write guard. Covered by: 1.2
+- E9: A reader of the release notes learns the new Findings vocabulary exists and what it is for. Covered by: 2.1

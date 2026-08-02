@@ -349,6 +349,63 @@ function durableOwnerVerdict(repo, value) {
   return { ok: false, reason: "missing", path: candidate[0] };
 }
 
+// A finding has three dispositions and the gate recognized two. One found and
+// fixed inside the task recording it has no owner to name and nothing to
+// discard, so the only text that passed was `Discard reason:` — filing a repair
+// as a dismissal. This capability and `keel-review-checklist` both already
+// scoped the ownership requirement to an *unresolved* finding; only the
+// implementation applied it to all of them. `## Invalidates` has carried the
+// same third slot since it shipped, where `Updated by:` names tasks of this
+// change.
+const RESOLVED_HERE = /\bresolved here\s*:[ \t]*([^\n]*)/i;
+
+// Resolution evidence is deliberately narrower than a durable owner. An
+// `http`/`https` reference says someone else will do the work later, which is
+// exactly the durable-owner state; what proves a fix is the check that covers
+// it or the artifact that shows it. A bare marker is refused because a
+// disposition that asserts its own conclusion would be a way out of the other
+// two, and the third state would decay into the easiest exit.
+function resolutionEvidenceVerdict(repo, value, commands) {
+  const evidence = String(value || "").trim();
+  if (!evidence) return { ok: false, reason: "empty" };
+  // The tracker form is tested before the path form: a URL contains something
+  // shaped like a path, so leaving it to fall through would refuse
+  // `https://…/issues/43` by reporting that `github.com/…/issues/43` is not a
+  // file — a true sentence about the wrong thing.
+  if (TRACKER_REFERENCE.test(evidence)) return { ok: false, reason: "tracker" };
+  const cited = evidence.match(/\bM\d+\b/);
+  if (cited) {
+    if (commands.includes(cited[0])) return { ok: true };
+    return { ok: false, reason: "unknown-check", label: cited[0] };
+  }
+  const candidate = evidence.match(/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+/);
+  if (!candidate) return { ok: false, reason: "unrecognized" };
+  if (fs.existsSync(path.join(repo, candidate[0]))) return { ok: true };
+  return { ok: false, reason: "missing", path: candidate[0] };
+}
+
+function resolutionEvidenceMessage(verdict) {
+  const lead = "Review Findings records a finding as resolved here, but its "
+    + "evidence is not usable — ";
+  const tail = " Resolution evidence is an `M<n>` check this task declares, or "
+    + "a repo-relative path that exists.";
+  if (verdict.reason === "empty") {
+    return `${lead}the marker names nothing at all.${tail}`;
+  }
+  if (verdict.reason === "tracker") {
+    return `${lead}a tracker reference says the work is owned elsewhere, which `
+      + "is the durable-owner state, not a proof that this task fixed it. Write "
+      + `\`Durable owner:\` instead, or name what proves the fix.${tail}`;
+  }
+  if (verdict.reason === "unknown-check") {
+    return `${lead}${verdict.label} is not a check this task declares.${tail}`;
+  }
+  if (verdict.reason === "missing") {
+    return `${lead}\`${verdict.path}\` does not exist.${tail}`;
+  }
+  return `${lead}it names neither a check nor a path.${tail}`;
+}
+
 function findingOwnerIsDurable(repo, findings) {
   if (/keel\/HANDOFF\.md/i.test(findings)) return false;
   if (/\b(?:explicit\s+)?discard (?:reason|rationale)\s*:/i.test(findings)) {
@@ -631,19 +688,35 @@ function completionChecks(repo, task, contract = null) {
         `Current-agent Review is incomplete — ${details.join("; ")}.`
       )
     );
-  } else if (
-    !/^none\.?$/i.test(reviewFields.Findings)
-    && !findingOwnerIsDurable(repo, reviewFields.Findings)
-  ) {
-    problems.push(
-      problem(
-        "finding-owner",
-        "Review Findings must be `none` or carry a durable owner — a "
-          + "`Discard reason:`/`Discard rationale:` prefix, or "
-          + `${DURABLE_OWNER_FORMS}. Name a path after \`Durable owner:\` so `
-          + "it reads as the owner rather than a file the finding mentions."
-      )
-    );
+  } else if (!/^none\.?$/i.test(reviewFields.Findings)) {
+    // `Resolved here:` is evaluated on its own terms rather than falling
+    // through to the owner forms. Otherwise `Resolved here: https://…` would
+    // pass as a tracker owner, which is the one reading this disposition must
+    // not have: a link to work someone else will do is not evidence that this
+    // task did it.
+    const resolved = reviewFields.Findings.match(RESOLVED_HERE);
+    if (resolved) {
+      const verdict = resolutionEvidenceVerdict(repo, resolved[1], commands);
+      if (!verdict.ok) {
+        problems.push(
+          problem("finding-resolution-evidence", resolutionEvidenceMessage(verdict))
+        );
+      }
+    } else if (!findingOwnerIsDurable(repo, reviewFields.Findings)) {
+      problems.push(
+        problem(
+          "finding-owner",
+          "Review Findings must be `none` or carry a disposition. A finding "
+            + "fixed in this task is `Resolved here:` naming an `M<n>` check "
+            + "this task declares or a repo-relative path that exists; one "
+            + "someone must still do is `Durable owner:` naming "
+            + `${DURABLE_OWNER_FORMS}; one deliberately not being done is a `
+            + "`Discard reason:`/`Discard rationale:` prefix. Name a path after "
+            + "`Durable owner:` so it reads as the owner rather than a file the "
+            + "finding mentions."
+        )
+      );
+    }
   }
   return { problems, reviewProblems };
 }

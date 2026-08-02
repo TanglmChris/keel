@@ -142,8 +142,9 @@ SKILL_DOC_REQUIREMENTS = [
             "`Acceptance check`",
             "`Scope check`",
             "`Findings`",
-            "durable OpenSpec task/new change",
-            "discard rationale",
+            "Resolved here:",
+            "Durable owner:",
+            "Discard reason:",
             "HANDOFF",
             "return-to-work",
             "critical expectation",
@@ -1625,7 +1626,9 @@ def validate_expectation_completion_gates_scenario() -> int:
     review_snippets = [
         "critical expectation",
         "behavior evidence",
-        "durable OpenSpec task/new change",
+        "Resolved here:",
+        "Durable owner:",
+        "Discard reason:",
         "explicit discard reason",
         "thin Keel consistency gate",
         "evidence details",
@@ -7378,6 +7381,201 @@ def validate_tracker_durable_owner_scenario() -> int:
         report("tracker-durable-owner: the scenario registry does not include it.")
         return 1
     report("tracker-durable-owner scenario passed.")
+    return 0
+
+
+def validate_findings_resolved_here_scenario() -> int:
+    """A finding fixed in its own task is recorded as fixed, not as discarded.
+
+    The gate required a durable owner for every non-`none` Findings value, while
+    the spec and `keel-review-checklist` both scope that requirement to
+    *unresolved* findings. A finding found and repaired inside one task had no
+    accepted form, so the only text that passed was `Discard reason:` — which
+    files a repair as a dismissal. `## Invalidates` has carried the same third
+    slot since it shipped, where `Updated by:` names tasks of this change.
+    """
+    with tempfile.TemporaryDirectory(prefix="keel-resolved-here-") as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        def complete(findings: str):
+            write_text(tasks, tracker_owner_tasks(findings, "Covered by: 1.1"))
+            record_contract_anchor(repo, "demo")
+            return run_keel(
+                repo, "gate", "task-complete",
+                "--change", "demo", "--task", "1.1", "--json",
+            )
+
+        def problems(result, code: str) -> str:
+            payload = json.loads(result.stdout) if result.stdout else {}
+            return " ".join(
+                item.get("message", "")
+                for item in payload.get("problems", [])
+                if item.get("code") == code
+            )
+
+        # M1 — the disposition exists, and its evidence has to be real.
+        resolved = complete(
+            "the helper rewrote its own baseline path. Resolved here: M1"
+        )
+        if resolved.returncode != 0:
+            report(
+                "findings-resolved-here: M1 a finding recorded as resolved here "
+                "and citing M1, a check this task declares, was still refused."
+            )
+            report((resolved.stderr or resolved.stdout).strip())
+            return 1
+
+        bare = complete("the helper rewrote its own baseline path. Resolved here:")
+        bare_message = problems(bare, "finding-resolution-evidence")
+        if bare.returncode != 3:
+            report(
+                "findings-resolved-here: M1 a resolved finding naming no "
+                f"evidence exited {bare.returncode}, not 3."
+            )
+            report((bare.stderr or bare.stdout).strip())
+            return 1
+        if not bare_message:
+            report(
+                "findings-resolved-here: M1 a resolved finding naming no "
+                "evidence produced no finding-resolution-evidence problem."
+            )
+            report((bare.stderr or bare.stdout).strip())
+            return 1
+
+        unknown = complete(
+            "the helper rewrote its own baseline path. Resolved here: M7"
+        )
+        unknown_message = problems(unknown, "finding-resolution-evidence")
+        if unknown.returncode != 3:
+            report(
+                "findings-resolved-here: M1 a resolved finding citing M7, which "
+                f"this task does not declare, exited {unknown.returncode}, not 3."
+            )
+            report((unknown.stderr or unknown.stdout).strip())
+            return 1
+        if "M7" not in unknown_message:
+            report(
+                "findings-resolved-here: M1 the refusal must name the check it "
+                f"could not find. Got: {unknown_message or '(no problem)'}"
+            )
+            return 1
+
+        # M2 — a path is evidence when it exists; a tracker URL never is.
+        write_text(repo / "src/feature.js", "// the fix\n")
+        by_path = complete(
+            "the helper rewrote its own baseline path. Resolved here: src/feature.js"
+        )
+        if by_path.returncode != 0:
+            report(
+                "findings-resolved-here: M2 resolution evidence naming an "
+                "existing repo-relative path was refused."
+            )
+            report((by_path.stderr or by_path.stdout).strip())
+            return 1
+
+        missing = complete(
+            "the helper rewrote its own baseline path. Resolved here: src/gone.js"
+        )
+        missing_message = problems(missing, "finding-resolution-evidence")
+        if missing.returncode != 3:
+            report(
+                "findings-resolved-here: M2 resolution evidence naming a path "
+                f"that does not exist exited {missing.returncode}, not 3."
+            )
+            report((missing.stderr or missing.stdout).strip())
+            return 1
+        if "src/gone.js" not in missing_message:
+            report(
+                "findings-resolved-here: M2 the refusal must name the path it "
+                f"could not find. Got: {missing_message or '(no problem)'}"
+            )
+            return 1
+
+        as_evidence = complete(
+            f"the helper rewrote its own baseline path. Resolved here: {TRACKER_OWNER}"
+        )
+        tracker_message = problems(as_evidence, "finding-resolution-evidence")
+        if as_evidence.returncode != 3:
+            report(
+                "findings-resolved-here: M2 a tracker reference is not evidence "
+                "that a finding was fixed, but it was accepted as resolution "
+                f"evidence (exit {as_evidence.returncode})."
+            )
+            report((as_evidence.stderr or as_evidence.stdout).strip())
+            return 1
+        if "Durable owner" not in tracker_message:
+            report(
+                "findings-resolved-here: M2 the refusal must send a tracker "
+                f"reference to `Durable owner:`. Got: {tracker_message or '(none)'}"
+            )
+            return 1
+
+        as_owner = complete(
+            f"the helper rewrote its own baseline path. Durable owner: {TRACKER_OWNER}"
+        )
+        if as_owner.returncode != 0:
+            report(
+                "findings-resolved-here: M2 the same tracker reference must "
+                "still pass as a durable owner."
+            )
+            report((as_owner.stderr or as_owner.stdout).strip())
+            return 1
+
+        # M3 — the general refusal has to name the form that now exists.
+        unowned = complete("a finding with no disposition at all")
+        owner_message = problems(unowned, "finding-owner")
+        if unowned.returncode != 3:
+            report(
+                "findings-resolved-here: M3 a finding with no disposition "
+                f"exited {unowned.returncode}, not 3."
+            )
+            report((unowned.stderr or unowned.stdout).strip())
+            return 1
+        for phrase in ("Resolved here", "M<n>", "Discard reason", "Durable owner"):
+            if phrase not in owner_message:
+                report(
+                    "findings-resolved-here: M3 the accepted-forms message must "
+                    f"name every disposition; {phrase!r} is missing from it."
+                )
+                report(owner_message or "(no finding-owner problem)")
+                return 1
+
+    # M4 — the criterion is stated where the author reads it, and the portable
+    # skill and its projection do not disagree about it.
+    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
+    if canonical.read_bytes() != projected.read_bytes():
+        report(
+            "findings-resolved-here: M4 the portable checklist and its plugin "
+            "projection are not byte-identical."
+        )
+        return 1
+    checklist = canonical.read_text(encoding="utf-8")
+    for phrase in ("Resolved here:", "Durable owner:", "Discard reason:"):
+        if phrase not in checklist:
+            report(
+                "findings-resolved-here: M4 keel-review-checklist does not name "
+                f"the {phrase!r} disposition."
+            )
+            return 1
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    if "Resolved here:" not in agents:
+        report(
+            "findings-resolved-here: M4 AGENTS.md does not name the "
+            "`Resolved here:` disposition."
+        )
+        return 1
+
+    if "findings-resolved-here" not in {name for name, _ in SCENARIOS}:
+        report("findings-resolved-here: the scenario registry does not include it.")
+        return 1
+    report("findings-resolved-here scenario passed.")
     return 0
 
 
@@ -18082,6 +18280,7 @@ SCENARIOS: tuple = (
         validate_source_repo_bootstrap_skip_scenario,
     ),
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
+    ("findings-resolved-here", validate_findings_resolved_here_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     (
         "guard-status-is-not-enforcement",
