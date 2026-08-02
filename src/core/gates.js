@@ -706,7 +706,13 @@ function completionChecks(repo, task, contract = null) {
   const commands = contract
     ? contract.capsule.verification.commands.map((item) => item.label)
     : commandLabels(task);
-  if (commands.length === 0) {
+  // With no contract, the labels came from the expanded v3 `Commands` field,
+  // which a compact task never declares — so their absence is a fact about the
+  // fallback, not about the task. The compiler's own diagnostics are already in
+  // `problems` (the caller pushes them unconditionally, and an unusable
+  // contract has at least one), so this cannot turn a refusal into a pass. The
+  // per-label evidence checks below stay: a genuine v3 task yields real labels.
+  if (contract && commands.length === 0) {
     problems.push(problem("missing-commands", "Commands must define at least one M<n>."));
   }
   for (const label of commands) {

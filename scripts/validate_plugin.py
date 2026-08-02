@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.19.0"
-PROTOCOL_VERSION = "5.19.0"
+PACKAGE_VERSION = "5.20.0"
+PROTOCOL_VERSION = "5.20.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -7887,6 +7887,197 @@ def validate_non_concrete_check_names_token_scenario() -> int:
         )
         return 1
     report("non-concrete-check-names-token scenario passed.")
+    return 0
+
+
+def validate_unusable_contract_names_only_its_cause_scenario() -> int:
+    """Issue #52: the first problem named `Commands`, which compact tasks lack.
+
+    Two defects compound. `missingFieldProblems` emitted a bare "must be
+    concrete" while `unfilledToken` sat eight lines above it, and a contract
+    carrying any diagnostic is discarded, after which `completionChecks` falls
+    back to reading `Commands` — a field a compact task never declares. The
+    derived problem sorts first and is the only one naming a field, so it is the
+    one an author acts on, and it is about a schema they did not choose.
+
+    What is deliberately *not* changed is which fields the gate accepts. A bare
+    token in prose stays non-concrete; see the M3 regression on
+    `inline-code-is-concrete` and the decision recorded in
+    keel/archive/follow-ups/2026-07-27-unfilled-token-keywords.md.
+    """
+    less, greater = "<", ">"
+    # The reporter's own shape: two bare brackets separated by half a sentence,
+    # so the unbounded `<[^>]+>` swallows the span between them.
+    prose = (
+        f"pass — max ratio 0.001916 (bound {less}0.02), "
+        f"min ratio 0.998107 (bound {greater}0.98)."
+    )
+    captured = f"{less}0.02), min ratio 0.998107 (bound {greater}"
+    review = (
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-unusable-contract-") as raw:
+        repo = Path(raw)
+        clean = task_capsule_compact_fixture()
+        write_text(repo / "openspec/changes/prose/tasks.md", clean)
+        # The anchor has to be recorded while the Evidence is still concrete —
+        # which is the real sequence, not a workaround. The token arrives when
+        # the author writes up the result, after the task started.
+        if not record_contract_anchor(repo, "prose"):
+            report(
+                "unusable-contract-names-only-its-cause: the clean fixture "
+                "could not record a contract anchor."
+            )
+            return 1
+        started = (repo / "openspec/changes/prose/tasks.md").read_text(
+            encoding="utf-8"
+        )
+        write_text(
+            repo / "openspec/changes/prose/tasks.md",
+            started.replace(
+                "    - M1: pending\n", f"    - M1: {prose}\n{review}"
+            ),
+        )
+        completed = run_keel(
+            repo,
+            "gate",
+            "task-complete",
+            "--change",
+            "prose",
+            "--task",
+            "1.1",
+            "--json",
+        )
+        payload = json.loads(completed.stdout)
+        problems = payload.get("problems", [])
+        messages = [problem.get("message", "") for problem in problems]
+
+        # 1. The derived problem is gone. It named a field compact tasks lack.
+        derived = [text for text in messages if "must define at least one" in text]
+        if derived:
+            report(
+                "unusable-contract-names-only-its-cause: an unusable contract "
+                "still derived a verification-form problem from the other "
+                "schema's field."
+            )
+            for text in derived:
+                report(f"  {text}")
+            return 1
+
+        # 2. The remaining problem names the span that caused it, and the escape.
+        named = [
+            text
+            for text in messages
+            if captured in text and "inline code" in text
+        ]
+        if not named:
+            report(
+                "unusable-contract-names-only-its-cause: the Evidence "
+                "diagnostic did not name the matched span and the inline-code "
+                "escape."
+            )
+            for text in messages:
+                report(f"  {text}")
+            return 1
+
+        # 3. Naming the cause did not stop the gate refusing. This is the
+        #    assertion that must never be dropped: suppressing a problem is the
+        #    direction that can wrongly make a gate pass.
+        if payload.get("status") != "fail":
+            report(
+                "unusable-contract-names-only-its-cause: the gate returned "
+                f"{payload.get('status')!r} for a task whose Evidence is not "
+                "concrete."
+            )
+            return 1
+
+        # 4. Fencing exactly what the message names clears it, so the offered
+        #    repair is the one that works.
+        fenced = started.replace(
+            "    - M1: pending\n",
+            f"    - M1: `{prose}`\n{review}",
+        )
+        write_text(repo / "openspec/changes/fenced/tasks.md", fenced)
+        if not record_contract_anchor(repo, "fenced"):
+            report(
+                "unusable-contract-names-only-its-cause: fencing the named "
+                "span did not make the Evidence concrete."
+            )
+            return 1
+
+        # 5. An empty field has no token to name, so it keeps the plain wording.
+        empty = clean.replace(
+            "  - Covers:\n    - E1: Public behavior passes.\n", "  - Covers:\n"
+        )
+        write_text(repo / "openspec/changes/empty/tasks.md", empty)
+        bare = run_keel(
+            repo, "gate", "task-start", "--change", "empty", "--task", "1.1",
+            "--json",
+        )
+        bare_messages = [
+            problem.get("message", "")
+            for problem in json.loads(bare.stdout).get("problems", [])
+        ]
+        if not any(
+            text.startswith("Covers must be concrete") for text in bare_messages
+        ):
+            report(
+                "unusable-contract-names-only-its-cause: an empty required "
+                "field lost the unqualified wording."
+            )
+            for text in bare_messages:
+                report(f"  {text}")
+            return 1
+
+        # 6. Suppression must not hide a task that genuinely declares no
+        #    verification form. The refusal names the compact field to add.
+        noform = clean.replace(
+            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n",
+            "",
+        )
+        write_text(repo / "openspec/changes/noform/tasks.md", noform)
+        absent = run_keel(
+            repo, "gate", "task-complete", "--change", "noform", "--task", "1.1",
+            "--json",
+        )
+        absent_payload = json.loads(absent.stdout)
+        absent_messages = [
+            problem.get("message", "")
+            for problem in absent_payload.get("problems", [])
+        ]
+        if absent_payload.get("status") != "fail":
+            report(
+                "unusable-contract-names-only-its-cause: a task declaring no "
+                "verification form was not refused."
+            )
+            return 1
+        if not any("`Verify`" in text for text in absent_messages):
+            report(
+                "unusable-contract-names-only-its-cause: the refusal did not "
+                "name `Verify` as the field to add."
+            )
+            for text in absent_messages:
+                report(f"  {text}")
+            return 1
+        if any("must define at least one" in text for text in absent_messages):
+            report(
+                "unusable-contract-names-only-its-cause: a task declaring no "
+                "verification form was told about `Commands`."
+            )
+            return 1
+    if "unusable-contract-names-only-its-cause" not in {
+        name for name, _ in SCENARIOS
+    }:
+        report(
+            "unusable-contract-names-only-its-cause: the scenario registry "
+            "does not include it."
+        )
+        return 1
+    report("unusable-contract-names-only-its-cause scenario passed.")
     return 0
 
 
@@ -19995,6 +20186,10 @@ SCENARIOS: tuple = (
     (
         "non-concrete-check-names-token",
         validate_non_concrete_check_names_token_scenario,
+    ),
+    (
+        "unusable-contract-names-only-its-cause",
+        validate_unusable_contract_names_only_its_cause_scenario,
     ),
     (
         "absent-verification-form-is-one-problem",

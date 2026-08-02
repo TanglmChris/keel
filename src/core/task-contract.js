@@ -416,10 +416,24 @@ function requiredFieldProblems(task) {
 function missingFieldProblems(task, names) {
   return names
     .filter((name) => !isConcrete(field(task, name)))
-    .map((name) => ({
-      code: "missing-field",
-      message: `${name} must be concrete.`,
-    }));
+    .map((name) => {
+      // Name the matched slot, the way the check and Verify diagnostics already
+      // do. The unqualified wording stated only the verdict, so an author whose
+      // field held a token in ordinary prose had nothing to search for — and
+      // the first problem they saw named a field of the other schema instead.
+      // The code is unchanged: the verdict is the same either way, and a new
+      // one would hide this case from every consumer keying on `missing-field`.
+      const token = unfilledToken(field(task, name));
+      return {
+        code: "missing-field",
+        message: token
+          ? `${name} carries the unfilled slot \`${token}\`, so it is not `
+            + "concrete. Replace that slot with the value it stands for, or "
+            + "fence it in inline code when it is literal text — a numeric "
+            + "range or test output — rather than a slot left to fill."
+          : `${name} must be concrete.`,
+      };
+    });
 }
 
 function canonical(value) {
