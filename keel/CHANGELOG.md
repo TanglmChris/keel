@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.19.0 - a decimal run is not a hash
+
+`keel state: failed` on a line holding no commit identifier. The evidence prose contained a fake phone number, `13800138000`, and the check answered `remove contextual commit hash from tasks.md; git log is the source of truth`.
+
+- **Eleven decimal digits are eleven characters of `[0-9a-f]`.** The criterion paired a context word with any run of 7–40 characters from that class, so a phone number, a timestamp, an order number, a port, and every numeric fixture were commit identifiers to it. A run must now carry at least one `a`–`f`, which is the only reason those letters appear in a hexadecimal identifier at all. (keel-stateless-continuity, closes #58)
+- **The cost was never the refusal — it was what the refusal asked for.** Nothing was wrong with the line, so the only way past it was to write the evidence differently; the reporter changed the number to `138****0000`. Evidence reworded to satisfy a pattern is weaker than the evidence that was true, and a check that fails on correct work is one people learn to route around. At that point it is not protecting anything.
+- **What the narrowing costs, measured rather than assumed.** An abbreviated identifier that happens to carry no letter is now missed — `(10/16)^7` ≈ **3.7%** of seven-character abbreviations, 0.6% at twelve, nothing at forty. Two things bound it: across every tasks.md in this repository's OpenSpec history, active and archived, **5,210 lines, no verdict changes**; and the commit-*wording* patterns are untouched, so `已合入 master`, `未提交`, and `merged into main` still fail on the words regardless of the digits.
+- **The same cause as #60, repaired in the opposite direction.** 5.18.0 widened a class that was too narrow; this narrows one that was too wide. Its `D5` said so in advance, and both entries now stand for one rule: the implementation must match the criterion, in whichever direction that lies. "Loosen the pattern" was never the lesson, and neither is "tighten it."
+- **Three repairs the issue proposes are deliberately not here**, because they change *which lines the rule refuses* rather than how it recognizes what it already refuses — how much surrounding context is required, whether backticked text is exempt, and whether a violation stops `--check` at all. Each is the owner's call. Filed with the measurement as **#65**, together with a fourth found while writing this change: the wording rule refuses a tasks.md that *cites* it, because a `Covers` entry has to quote its requirement name verbatim. The requirement here is named "commit identifier" for exactly that reason — the same cost the issue reports, paid in the spec's vocabulary.
+- **Version alignment**: the npm package, both native plugin manifests, protocol docs, the twelve OpenSpec surface overlays, and this changelog share Keel 5.19.0; the OpenSpec dependency pin stays `^1.4.1`.
+- No new dependency. Validator at **128 registered scenarios**, one added: `decimal-runs-are-not-hash-shaped`, which asserts through `keel --check` that the three reported shapes pass, that a real hexadecimal identifier beside the same context word still fails and names its line, and that the wording rule still fails on its own.
+
 ## 5.18.0 - every path reader reads every path
 
 A `Durable owner:` naming a file under a Chinese directory was refused, and the refusal named a path nobody wrote: `notes/note-006-转岗最难的不是流程/note.md` exists, and `change-close` reported that `notes/note-006-` does not.
