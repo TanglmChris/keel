@@ -372,6 +372,35 @@ const DURABLE_OWNER_FORMS =
   + "repository's own ledger; `keel/HANDOFF.md` is a pointer override rather "
   + "than an owner";
 
+// Trailing punctuation a declared path can abut in prose. ASCII sentence marks
+// and their CJK counterparts both belong here: once the extractor stops
+// assuming ASCII, its terminators cannot assume ASCII either. A Chinese
+// sentence ends in `。`, which is not whitespace, so a non-whitespace run
+// swallows it and the gate looks for a file that cannot exist.
+const DECLARED_PATH_TRAILING = /[.,;:!?)\]}"'\u2019\u201d\u3002\uff0c\u3001\uff1b\uff1a\uff01\uff1f\uff09\u3011\u300b\u300d\u300f]+$/;
+
+// A declared path is a run of non-whitespace holding a separator. What ends a
+// path is whitespace; what a path is *made of* is the filesystem's business,
+// and answering the first question with the second is what refused
+// `notes/note-006-转岗最难的不是流程/note.md` by reporting that
+// `notes/note-006-` does not exist — a path nobody wrote (issue #60). It is the
+// same class as #40 on the worktree-reading side, which survived because that
+// fix repaired one reader rather than how paths are extracted; this is the one
+// extractor every gate reader of a declared path now uses.
+//
+// The backtick form wins when present. It is the only way to write a path
+// containing whitespace, and `touchEntries` already strips backticks from a
+// Touch entry, so one authorship stops being spelled two ways depending on
+// which reader will read it.
+function declaredPath(value) {
+  const text = String(value || "");
+  const quoted = text.match(/`([^`\n]*\/[^`\n]*)`/);
+  if (quoted) return quoted[1].trim() || null;
+  const bare = text.match(/[^\s`]+\/[^\s`]+/);
+  if (!bare) return null;
+  return bare[0].replace(DECLARED_PATH_TRAILING, "") || null;
+}
+
 // Classify a declared `Durable owner:` value. A gate runs without network, so a
 // URL is accepted on shape alone; a path is the one form it can actually check,
 // and checking it is stricter than the prefix whitelist this replaced.
@@ -380,10 +409,10 @@ function durableOwnerVerdict(repo, value) {
   if (!owner) return { ok: false, reason: "unrecognized" };
   if (/keel\/HANDOFF\.md/i.test(owner)) return { ok: false, reason: "handoff" };
   if (TRACKER_REFERENCE.test(owner)) return { ok: true };
-  const candidate = owner.match(/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+/);
+  const candidate = declaredPath(owner);
   if (!candidate) return { ok: false, reason: "unrecognized" };
-  if (fs.existsSync(path.join(repo, candidate[0]))) return { ok: true };
-  return { ok: false, reason: "missing", path: candidate[0] };
+  if (fs.existsSync(path.join(repo, candidate))) return { ok: true };
+  return { ok: false, reason: "missing", path: candidate };
 }
 
 // A finding has three dispositions and the gate recognized two. One found and
@@ -423,10 +452,10 @@ function resolutionEvidenceVerdict(repo, value, commands) {
     if (commands.includes(cited[0])) return { ok: true };
     return { ok: false, reason: "unknown-check", label: cited[0] };
   }
-  const candidate = evidence.match(/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+/);
+  const candidate = declaredPath(evidence);
   if (!candidate) return { ok: false, reason: "unrecognized" };
-  if (fs.existsSync(path.join(repo, candidate[0]))) return { ok: true };
-  return { ok: false, reason: "missing", path: candidate[0] };
+  if (fs.existsSync(path.join(repo, candidate))) return { ok: true };
+  return { ok: false, reason: "missing", path: candidate };
 }
 
 function resolutionEvidenceMessage(verdict) {
@@ -466,13 +495,12 @@ function findingOwnerIsDurable(repo, findings) {
     /\b(openspec\/changes\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:proposal|design|tasks)\.md)(?:#\d+(?:\.\d+)*)?/i
   );
   if (artifact && fs.existsSync(path.join(repo, artifact[1]))) return true;
-  return /\bkeel\/archive\/[A-Za-z0-9._/-]+/i.test(findings)
-    && fs.existsSync(
-      path.join(
-        repo,
-        findings.match(/\bkeel\/archive\/[A-Za-z0-9._/-]+/i)[0]
-      )
-    );
+  // Same extractor, scoped to the archive prefix: the segment after
+  // `keel/archive/` is a path like any other and was equally ASCII-bound.
+  const archive = findings.match(/keel\/archive\/[^\s`]*/i);
+  if (!archive) return false;
+  const archivePath = declaredPath(archive[0]);
+  return Boolean(archivePath) && fs.existsSync(path.join(repo, archivePath));
 }
 
 // Read in `-z` form, because every other form escapes. Git octal-escapes any
