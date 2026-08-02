@@ -5124,7 +5124,10 @@ def validate_covers_separator_collision_scenario() -> int:
             )
             report(trimmed_messages)
             return 1
-        # A capability with no collision keeps the plain wording.
+        # A capability with no colliding name receives no separator hint. It
+        # still gets the unresolved diagnostic, which since 5.21.0 names what
+        # the spec holds instead; what is asserted here is only that the
+        # separator explanation stays with the capability that has one.
         plain = start(
             "plain", "clean-cap / No such requirement / No such scenario"
         )
@@ -5159,6 +5162,195 @@ def validate_covers_separator_collision_scenario() -> int:
         )
         return 1
     report("covers-separator-collision scenario passed.")
+    return 0
+
+
+def validate_unresolved_covers_names_what_failed_scenario() -> int:
+    """Issue #49, 2026-08-02 supplement: an unresolved reference said only that.
+
+    A two-segment `Covers` reference whose second segment is a Scenario name is
+    the most common way to write the notation wrong — the shipped task template
+    taught it — and the spec being read holds that exact name one heading level
+    down. The refusal reported the reference back and nothing else, while the
+    hierarchy sentence sat thirty lines above in the same function, reachable
+    only by over-segmenting. Every case below still fails; only what it says
+    changes, and the last case asserts that.
+    """
+    spec = (
+        "# demo-cap\n\n## Purpose\nDemo.\n\n"
+        "### Requirement: The store validates itself\n"
+        "Keel MUST validate the published store.\n\n"
+        "#### Scenario: A published store passes the pinned validator\n"
+        "- **WHEN** the pinned validator runs\n"
+        "- **THEN** the published store passes\n"
+        "- **AND THEN** the pin is reported\n\n"
+        "#### Scenario: A shared scenario name\n"
+        "- **WHEN** a thing\n- **THEN** another\n\n"
+        "### Requirement: Another requirement\n"
+        "Keel MUST do the other thing.\n\n"
+        "#### Scenario: A shared scenario name\n"
+        "- **WHEN** a thing\n- **THEN** another\n"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-covers-what-failed-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/specs/demo-cap/spec.md", spec)
+
+        def start(change: str, reference: str) -> dict:
+            write_text(
+                repo / f"openspec/changes/{change}/tasks.md",
+                task_capsule_compact_fixture().replace(
+                    "    - E1: Public behavior passes.\n", f"    - {reference}\n"
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", change, "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def refusal(change: str, reference: str) -> tuple[dict, str]:
+            payload = start(change, reference)
+            message = " ".join(
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+            )
+            return payload, message
+
+        # The reported case: the Scenario name written where a Requirement goes.
+        scenario_ref = "demo-cap / A published store passes the pinned validator"
+        offered, offered_message = refusal("offered", scenario_ref)
+        corrected = (
+            "demo-cap / The store validates itself"
+            " / A published store passes the pinned validator"
+        )
+        if offered.get("status") != "fail":
+            report(
+                "unresolved-covers-names-what-failed: a Scenario named as a "
+                "Requirement stopped being refused."
+            )
+            report(json.dumps(offered.get("problems"), ensure_ascii=False))
+            return 1
+        if not any(
+            problem.get("code") == "unresolved-covers"
+            for problem in offered.get("problems", [])
+        ):
+            report(
+                "unresolved-covers-names-what-failed: the refusal no longer "
+                "carries the unresolved-covers code."
+            )
+            report(json.dumps(offered.get("problems"), ensure_ascii=False))
+            return 1
+        if (
+            "The store validates itself" not in offered_message
+            or "Scenario" not in offered_message
+            or corrected not in offered_message
+        ):
+            report(
+                "unresolved-covers-names-what-failed: the diagnostic did not "
+                "name the Requirement the Scenario belongs to, did not call it "
+                "a Scenario, or did not spell the corrected reference."
+            )
+            report(offered_message)
+            return 1
+
+        # A name the capability declares nowhere: say the spec was read.
+        absent, absent_message = refusal("absent", "demo-cap / No such name")
+        if absent.get("status") != "fail":
+            report(
+                "unresolved-covers-names-what-failed: a name the capability does "
+                "not declare stopped being refused."
+            )
+            report(json.dumps(absent.get("problems"), ensure_ascii=False))
+            return 1
+        if (
+            "No such name" not in absent_message
+            or "hierarchy is capability / requirement" not in absent_message
+        ):
+            report(
+                "unresolved-covers-names-what-failed: a name the spec does not "
+                "declare was not reported as read, or the hierarchy was withheld."
+            )
+            report(absent_message)
+            return 1
+
+        # A capability with no spec at all is a different failure.
+        nospec, nospec_message = refusal("nospec", "nosuch-cap / Whatever")
+        if nospec.get("status") != "fail":
+            report(
+                "unresolved-covers-names-what-failed: a capability with no spec "
+                "stopped being refused."
+            )
+            report(json.dumps(nospec.get("problems"), ensure_ascii=False))
+            return 1
+        if (
+            "nosuch-cap" not in nospec_message
+            or "no spec" not in nospec_message.lower()
+        ):
+            report(
+                "unresolved-covers-names-what-failed: a capability with no spec "
+                "was not distinguished from a name the spec lacks."
+            )
+            report(nospec_message)
+            return 1
+
+        # Ambiguous: the same Scenario name under two Requirements has no single
+        # correction, so none is offered.
+        shared, shared_message = refusal("shared", "demo-cap / A shared scenario name")
+        if shared.get("status") != "fail":
+            report(
+                "unresolved-covers-names-what-failed: an ambiguous Scenario name "
+                "stopped being refused."
+            )
+            report(json.dumps(shared.get("problems"), ensure_ascii=False))
+            return 1
+        if (
+            "The store validates itself" not in shared_message
+            or "Another requirement" not in shared_message
+        ):
+            report(
+                "unresolved-covers-names-what-failed: an ambiguous Scenario name "
+                "did not name the Requirements it appears under."
+            )
+            report(shared_message)
+            return 1
+        if "Write it as" in shared_message:
+            report(
+                "unresolved-covers-names-what-failed: a corrected reference was "
+                "offered for a Scenario name that has more than one parent."
+            )
+            report(shared_message)
+            return 1
+
+        # What resolves is unchanged. This is the assertion that must not be
+        # dropped: reading more of the spec on the failure path is the direction
+        # in which a refusal could accidentally become a resolution.
+        resolves = start("resolves", "demo-cap / The store validates itself")
+        capsule = resolves.get("contract", {}).get("capsule", {})
+        authority = capsule.get("authority", [])
+        if (
+            resolves.get("status") != "pass"
+            or resolves.get("problems")
+            or len(authority) != 1
+            or authority[0].get("kind") != "requirement"
+            or not authority[0]
+            .get("source", "")
+            .endswith("specs/demo-cap/spec.md#Requirement:The store validates itself")
+        ):
+            report(
+                "unresolved-covers-names-what-failed: a reference that resolves "
+                "no longer compiles to the same authority."
+            )
+            report(json.dumps(resolves, ensure_ascii=False)[:2000])
+            return 1
+
+    if "unresolved-covers-names-what-failed" not in {name for name, _ in SCENARIOS}:
+        report(
+            "unresolved-covers-names-what-failed: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("unresolved-covers-names-what-failed scenario passed.")
     return 0
 
 
@@ -20175,6 +20367,10 @@ SCENARIOS: tuple = (
     ),
     ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
     ("covers-separator-collision", validate_covers_separator_collision_scenario),
+    (
+        "unresolved-covers-names-what-failed",
+        validate_unresolved_covers_names_what_failed_scenario,
+    ),
     (
         "unresolved-authority-names-field",
         validate_unresolved_authority_names_field_scenario,
