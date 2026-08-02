@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.14.0"
-PROTOCOL_VERSION = "5.14.0"
+PACKAGE_VERSION = "5.15.0"
+PROTOCOL_VERSION = "5.15.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5587,6 +5587,146 @@ def validate_runtime_versions_are_checked_scenario() -> int:
             "OpenSpec is the one `keel openspec` resolves."
         )
         return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_doctor_reads_the_diagnosed_repository_scenario() -> int:
+    """Issue #57: doctor named one repository and answered about another.
+
+    The OpenSpec declaration was read from `PACKAGE_ROOT/package-lock.json` —
+    the directory Keel is installed in — while the line above it says
+    `keel doctor for <repo>`. The two coincide only when `node bin/keel.js`
+    runs from Keel's own checkout, which is the one arrangement every existing
+    scenario uses: `run_keel` always spawns `node <ROOT>/bin/keel.js`, so
+    `PACKAGE_ROOT` is Keel's checkout no matter what `cwd` is. Driving the
+    diagnosis at a repository that declares its own version is what separates
+    the two roots without needing a second installation.
+    """
+    label = "doctor-reads-the-diagnosed-repository"
+
+    def openspec_line(stdout: str) -> str:
+        return next(
+            (line for line in stdout.splitlines() if line.startswith("openspec:")),
+            "",
+        )
+
+    # M1 first half — a repository that declares a version Keel's own tree does
+    # not. The sentinel is deliberately one no published OpenSpec reports, so a
+    # line carrying it cannot have come from the resolved binary either.
+    declared = "0.0.1"
+    with tempfile.TemporaryDirectory(prefix="keel-doctor-declares-") as raw:
+        declares = Path(raw).resolve()
+        write_text(
+            declares / "package-lock.json",
+            json.dumps(
+                {
+                    "name": "consumer",
+                    "lockfileVersion": 3,
+                    "packages": {
+                        "node_modules/@fission-ai/openspec": {"version": declared}
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+        )
+        doctor = run_keel(declares, "--doctor")
+        line = openspec_line(doctor.stdout or "")
+        if not line:
+            report(f"{label} M1 `keel --doctor` emitted no openspec line.")
+            report((doctor.stdout or doctor.stderr or "").strip())
+            return 1
+        own_lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+        own_declared = None
+        for name, entry in own_lock.get("packages", {}).items():
+            if name.endswith("@fission-ai/openspec"):
+                own_declared = entry.get("version")
+        if not own_declared:
+            report(f"{label} could not read Keel's own declared OpenSpec version.")
+            return 1
+        # The reader sees two versions on this line: the one the resolved binary
+        # reports and the one the repository declares. Assert on the declared
+        # POSITION, not on bare presence — the resolved binary's version may
+        # legitimately equal Keel's own declared version, and a test that reads
+        # any occurrence cannot tell the two apart.
+        # Two distinct failures, two conditions. A line carrying the right
+        # version with no attribution and a line attributing the wrong version
+        # need different fixes, and one message covering both would send half
+        # its readers to a place with no problem in it.
+        if "repo pins" not in line:
+            report(
+                f"{label} M1 the openspec line does not attribute any declared "
+                "version to the repository, so a reader seeing two versions "
+                "cannot tell which one is theirs."
+            )
+            report(f"  {line}")
+            return 1
+        if f"repo pins {declared}" not in line:
+            report(
+                f"{label} M1 the openspec line attributes a declared version "
+                f"to the repository, but not {declared}, which is what this "
+                "repository declares. It is answering about some other "
+                "repository."
+            )
+            report(f"  {line}")
+            return 1
+        if own_declared != declared and f"repo pins {own_declared}" in line:
+            report(
+                f"{label} M1 the openspec line reports {own_declared} as the "
+                "declared version. That is what is declared where Keel is "
+                "installed, not where it was pointed."
+            )
+            report(f"  {line}")
+            return 1
+        if not line.startswith("openspec: warning"):
+            report(
+                f"{label} M1 the resolved binary and the declared version "
+                f"disagree ({declared} is declared and no release reports it), "
+                "and the line does not state the disagreement."
+            )
+            report(f"  {line}")
+            return 1
+
+    # M1 second half — absence is a statement about the repository, not a read
+    # failure, and not a disagreement. Most repositories do not depend on
+    # OpenSpec at all, so warning here would train readers to ignore the line.
+    with tempfile.TemporaryDirectory(prefix="keel-doctor-silent-") as raw:
+        silent = Path(raw).resolve()
+        write_text(silent / "README.md", "# consumer\n")
+        doctor = run_keel(silent, "--doctor")
+        line = openspec_line(doctor.stdout or "")
+        if not line:
+            report(f"{label} M1 `keel --doctor` emitted no openspec line.")
+            report((doctor.stdout or doctor.stderr or "").strip())
+            return 1
+        if "declares no OpenSpec" not in line:
+            report(
+                f"{label} M1 a repository declaring no OpenSpec version is not "
+                "reported as declaring none."
+            )
+            report(f"  {line}")
+            return 1
+        if "unreadable" in line:
+            report(
+                f"{label} M1 the absence of a declaration is reported as a "
+                "failure to read one. The two are different facts and only one "
+                "of them is true here."
+            )
+            report(f"  {line}")
+            return 1
+        if "answering from a different" in line:
+            report(
+                f"{label} M1 a repository declaring nothing is reported as "
+                "disagreeing with the resolved binary. There is nothing for it "
+                "to disagree with."
+            )
+            report(f"  {line}")
+            return 1
+
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
         return 1
@@ -19289,6 +19429,10 @@ SCENARIOS: tuple = (
     (
         "runtime-versions-are-checked",
         validate_runtime_versions_are_checked_scenario,
+    ),
+    (
+        "doctor-reads-the-diagnosed-repository",
+        validate_doctor_reads_the_diagnosed_repository_scenario,
     ),
     ("task-shape-warning", validate_task_shape_warning_scenario),
     ("context-names-its-keel", validate_context_names_its_keel_scenario),
