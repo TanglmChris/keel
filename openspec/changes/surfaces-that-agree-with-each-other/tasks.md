@@ -72,7 +72,7 @@
       - Findings: one, closed here. The authored Touch named `bin/keel.js`, but `renderContext` and `resolveContext` live in `src/core/context.js`; rendering the version from the CLI instead would have put it outside the projection and left `--json` without it. Touch was corrected before implementation and reauthorized from `sha256:e8b18180…` to `sha256:a44ee1b0…`. The general lesson is the same one 1.1 recorded — authored contracts named things without checking they were the right things — and it is the reason 1.3 exists. Resolved here: M1
     - Blocker: none
 
-- [ ] 1.3 Name two tasks that are shaped like one behavior
+- [x] 1.3 Name two tasks that are shaped like one behavior
   - Covers:
     - keel-core-gates / Two tasks shaped like one behavior are named at task-start
     - D5 — a warning, not a verdict, and why `needs-review` would be worse
@@ -92,17 +92,25 @@
     - M4: `keel-review-checklist` asks the same question at completion, in both copies, and the two copies are byte-identical
     - M5 (regression): `core-gates` and `task-capsule` stay green, so compilation, the fingerprint, and the existing task-start diagnostics are unchanged
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
-    - M5: pending
+    - Contract: keel-task-capsule/v1 sha256:af6fd74419a343b5d9d6bfcf3f66eff5159951af13657fd20457447917315607
+    - M1: pass. New scenario `task-shape-warning` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario task-shape-warning`. It writes a real change whose two tasks declare the same Touch set under `vertical-tdd`, runs `keel gate task-start --json`, and reads the published warnings. The warning names the other task, so the author compares two things rather than being told something is wrong.
+    - M1.red: fail. `M1 two tasks with an identical Touch set under a red-green strategy produced no warning naming the other task. Warnings were: []` — the shipped behavior, and the state issue #41 records: the split that could not be executed passed this gate cleanly.
+    - M1.green: pass, after `taskShapeWarnings` compiles each sibling task and compares sorted Touch sets.
+    - M2: pass. The result's status is `pass` and its exit code is 0, so the task starts normally.
+    - M2.red: fail. `M2 the task-shape signal changed the gate's status to 'fail'; it must stay a warning`, aimed by folding the warning into the status expression. This is the mistake the design refuses by name: a genuine vertical split can share files, and there is no way to acknowledge a verdict, so promoting the signal would leave a legitimate split unstartable.
+    - M2.green: pass.
+    - M3: pass. Two tasks with differing Touch sets produce no task-shape warning, and a matching Touch set under a strategy that is not red-green produces none either.
+    - M3.red: fail. `M3 a matching Touch set under a strategy that is not red-green was warned about`, printing the warning produced for two `evidence-first` tasks — aimed by dropping the strategy test. The red also shows why the strategy matters: the warning's own reasoning is about a first half that is wrong alone and a second with no honest red left, which is a red-green claim and says nothing about an evidence-first pair.
+    - M3.green: pass.
+    - M4: pass. `keel-review-checklist` asks whether the two tasks turned out to be one behavior, in both copies, and the copies are byte-identical.
+    - M4.red: fail. `M4 keel-review-checklist does not ask whether two tasks turned out to be one behavior`, aimed by rewording the phrase in both copies at once so the byte-identity check still passed and only the content branch fired.
+    - M4.green: pass.
+    - M5: pass. `core-gates` and `task-capsule` both pass unchanged, and the baseline run reports `Keel v4.1.0 baseline validation passed.` Compilation, the fingerprint, and the existing task-start diagnostics are untouched. Checked against this change's own tasks as well: 1.1, 1.2, and 1.3 declare different Touch sets, so none of them warns.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: every check runs the real `keel` binary against a real change and reads the gate's published JSON — the warnings array, the status, and the process exit code, which are the three things a caller can act on. Both directions are covered and it is the pair that makes the result mean anything: M1 proves the shape is named, M3 proves the two adjacent shapes are not, so a warning that fired on everything would fail rather than pass. M2 is the check that keeps this a prompt; without it the natural next edit turns a signal into a verdict and nobody notices until a legitimate split cannot start.
+      - Scope check: `git status --short` shows `src/core/gates.js`, `src/skills/keel-review-checklist/SKILL.md`, `plugins/keel/skills/keel-review-checklist/SKILL.md`, and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer.
+      - Findings: one, and it is about this task's own premise. The warning fires on a shape, and the shape is rare — measured across the changes in this session, no two tasks in one change declared identical Touch sets, which is what makes the signal worth having. If that stops being true the warning becomes noise and stops being read, which is the failure mode 5.9.0 designed silence to avoid. The design records this as a risk with the instruction to narrow rather than tolerate it, and the honest position is that one occurrence in the archive is thin evidence for a threshold. Discard reason: narrowing a check before it has fired once in anger would be guessing at a distribution nobody has measured, and the check is non-blocking, so the cost of being wrong is a sentence an author reads and dismisses rather than work they cannot do.
     - Blocker: none
 
 ## 2. Close

@@ -22,6 +22,7 @@ Read the selected OpenSpec proposal, design, specs, tasks, diff, and command evi
 - A behavioral task's checks must prove observable Acceptance through the public interface, not build-only or shape-only evidence.
 - For a red-green strategy (`vertical-tdd`, `regression-first`), confirm concrete per-label `.red` and `.green` Evidence exists for the same check; evidence-first tasks instead name their observable proof.
 - A failure message must **name the actual cause** of what it reports. Watch for one condition guarding **two distinct failures** — `if result is None or result["status"] != expected` reports the first failure's message when the second one happened, sending the reader to a place with no problem in it. Split the condition. No gate can judge this: deciding whether a sentence misleads needs a model, so it stays here.
+- When two tasks in the change declared the same Touch set under a red-green strategy — `keel gate task-start` warns about this — ask whether they turned out to be **one behavior** split in half. The tell is that the first task's minimal implementation was wrong in the field, or that the second had no honest red left because the first already made its checks pass. The gate can only see the shape; by completion you can see the outcome, which is the only point at which this is answerable.
 - When no trustworthy explicit Git base exists, do not attribute dirty paths automatically. Review scope semantically.
 - For `Coupling: required`, confirm one complete candidate reached its completion gate and generated artifacts are aligned.
 

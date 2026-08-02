@@ -5465,6 +5465,181 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     return 0
 
 
+TASK_SHAPE_TEMPLATE = """## 1. Work
+
+- [ ] 1.1 First half
+  - Covers:
+    - E1: behavior
+  - Touch:
+{touch_one}
+  - Verify:
+    - Strategy: {strategy_one}
+    - M1: the first half is observable through the public interface
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+- [ ] 1.2 Second half
+  - Covers:
+    - E2: behavior
+  - Touch:
+{touch_two}
+  - Verify:
+    - Strategy: {strategy_two}
+    - M1: the second half is observable through the public interface
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+
+## Invalidates
+
+- None.
+
+## Expectation Coverage
+
+- E1: behavior. Covered by: 1.1
+- E2: behavior. Covered by: 1.2
+"""
+
+
+def task_shape_tasks(
+    touch_one: list[str],
+    touch_two: list[str],
+    strategy_one: str = "vertical-tdd",
+    strategy_two: str = "vertical-tdd",
+) -> str:
+    def block(entries: list[str]) -> str:
+        return "\n".join(f"    - {entry}" for entry in entries)
+
+    return TASK_SHAPE_TEMPLATE.format(
+        touch_one=block(touch_one),
+        touch_two=block(touch_two),
+        strategy_one=strategy_one,
+        strategy_two=strategy_two,
+    )
+
+
+def validate_task_shape_warning_scenario() -> int:
+    """Issue #41: authoring cannot tell when two tasks are one behavior.
+
+    `the-runtime-says-which-version-it-is` was authored with tasks 1.1 and 1.2
+    declaring an identical Touch and the same red-green strategy. Both passed
+    `task-start` and the Slice Start Gate, and the split was not executable:
+    implementing 1.1 alone broke a shipping scenario, and once it was right two
+    of 1.2's three checks were already green, leaving no honest red. They were
+    merged mid-execution, at the cost of a reauthorization cycle the Slice
+    Start Gate exists to make unnecessary.
+
+    A warning rather than a verdict. A genuine vertical split can share files,
+    the judgment is semantic, and there is no way to acknowledge a
+    `needs-review` — turning the signal into a refusal would leave a legitimate
+    split unstartable, which is worse than the problem.
+    """
+    label = "task-shape-warning"
+    shared = ["src/feature.js", "scripts/validate_plugin.py"]
+
+    with tempfile.TemporaryDirectory(prefix="keel-task-shape-") as raw:
+        repo = Path(raw).resolve()
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+
+        def start(content: str):
+            write_text(tasks, content)
+            return run_keel(
+                repo, "gate", "task-start",
+                "--change", "demo", "--task", "1.1", "--json", "--no-guard",
+            )
+
+        def warnings_of(result) -> list[str]:
+            payload = json.loads(result.stdout) if result.stdout else {}
+            return [str(item) for item in payload.get("warnings", [])]
+
+        # M1 — the shape that produced the merge.
+        matched = start(task_shape_tasks(shared, list(shared)))
+        matched_warnings = warnings_of(matched)
+        shape_warnings = [w for w in matched_warnings if "1.2" in w]
+        if not shape_warnings:
+            report(
+                f"{label} M1 two tasks with an identical Touch set under a "
+                "red-green strategy produced no warning naming the other task. "
+                f"Warnings were: {matched_warnings}"
+            )
+            return 1
+
+        # M2 — a signal, not a verdict.
+        payload = json.loads(matched.stdout) if matched.stdout else {}
+        if payload.get("status") != "pass":
+            report(
+                f"{label} M2 the task-shape signal changed the gate's status to "
+                f"{payload.get('status')!r}; it must stay a warning."
+            )
+            return 1
+        if matched.returncode != 0:
+            report(
+                f"{label} M2 the task-shape signal changed the exit code to "
+                f"{matched.returncode}; it must stay 0 so the task starts."
+            )
+            return 1
+
+        # M3 — the two cases that must stay silent.
+        differing = start(
+            task_shape_tasks(shared, ["src/other.js", "docs/notes.md"])
+        )
+        if [w for w in warnings_of(differing) if "1.2" in w]:
+            report(
+                f"{label} M3 a task whose Touch set differs from every other "
+                f"task was warned about: {warnings_of(differing)}"
+            )
+            return 1
+        not_red_green = start(
+            task_shape_tasks(
+                shared, list(shared),
+                strategy_one="evidence-first", strategy_two="evidence-first",
+            )
+        )
+        if [w for w in warnings_of(not_red_green) if "1.2" in w]:
+            report(
+                f"{label} M3 a matching Touch set under a strategy that is not "
+                f"red-green was warned about: {warnings_of(not_red_green)}"
+            )
+            return 1
+
+    # M4 — the same question at completion, in both copies.
+    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
+    if canonical.read_bytes() != projected.read_bytes():
+        report(
+            f"{label} M4 the portable checklist and its plugin projection are "
+            "not byte-identical."
+        )
+        return 1
+    checklist = canonical.read_text(encoding="utf-8")
+    if "one behavior" not in checklist:
+        report(
+            f"{label} M4 keel-review-checklist does not ask whether two tasks "
+            "turned out to be one behavior."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_context_names_its_keel_scenario() -> int:
     """The version comparison has to survive a runtime too old to contain it.
 
@@ -18985,6 +19160,7 @@ SCENARIOS: tuple = (
         "runtime-versions-are-checked",
         validate_runtime_versions_are_checked_scenario,
     ),
+    ("task-shape-warning", validate_task_shape_warning_scenario),
     ("context-names-its-keel", validate_context_names_its_keel_scenario),
     ("interpreter-surfaces-agree", validate_interpreter_surfaces_agree_scenario),
     ("spec-template-validates", validate_spec_template_validates_scenario),
