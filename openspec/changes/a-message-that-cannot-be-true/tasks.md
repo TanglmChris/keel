@@ -43,7 +43,7 @@
       - Findings: three, all closed here. First: M5 originally named `gate-diagnostics`, a scenario that does not exist, so the regression check could never have run; caught when the check was executed rather than assumed, corrected to four real scenarios plus the baseline, and reauthorized from `sha256:18312deb…` to `sha256:454eebbd…`. Resolved here: M5. Second: two required-language lists in `scripts/validate_plugin.py` pinned the phrases "durable OpenSpec task/new change" and "discard rationale" into the checklist. That enumeration has been incomplete since 5.2.4 added the tracker form, so the pin was holding stale wording in place and would have blocked any correction to it; repinned to the three disposition markers, which is the vocabulary that must not be silently dropped. Recorded as I8 and Resolved here: M5, whose baseline run is what exercises those lists. Third: because `Findings` is free prose the gate cannot split, one valid `Resolved here:` now satisfies a block that also contains an unresolved finding. Discard reason: this is the same limitation the owner forms have had since they shipped — one valid `Durable owner:` has always satisfied a block containing a second unowned finding — so it is pre-existing and unchanged in kind rather than introduced here. Making it strict requires one-finding-per-line Findings, a protocol change this task has no authority for; the limitation is recorded in design.md so a later reader finds the reasoning rather than rediscovering the hole.
     - Blocker: none
 
-- [ ] 1.2 Refuse a manifest whose change is gone by naming the clear
+- [x] 1.2 Refuse a manifest whose change is gone by naming the clear
   - Covers:
     - keel-touch-write-guard / A manifest whose change is gone is refused as stale
     - D8 — a vanished directory is a fact, an unmatched task id is a guess
@@ -59,16 +59,22 @@
     - M3: a manifest whose change directory exists but whose task id is absent from `tasks.md` is denied by the unchanged Touch comparison, and the stale-manifest wording is not produced
     - M4 (regression): `touch-write-guard`, `touch-guard-record-layer`, `touch-guard-drift`, and `guard-containment-is-resolved` stay green, so the record layer, authority drift, and resolved-path containment are unchanged
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:4812e3bcd4bcf329b5cd1feec6cc42e6a227f349e20cfbb36da20b76a6e16b0b
+    - M1: pass. New scenario `guard-stale-manifest` in `scripts/validate_plugin.py`, run as `python3.11 scripts/validate_plugin.py --scenario guard-stale-manifest`. It starts a real guard, relocates the change directory to the path `openspec archive` moves it to, then drives the shipped hook with a JSON event on stdin and reads the permission decision off stdout. The write is denied and the reason reports the manifest as stale, names `keel guard clear`, and names the directory that is missing.
+    - M1.red: fail, and worse than the defect this task was authored from. `M1 archiving the change made the guard allow a write silently. A stale manifest must fail closed, or \`openspec archive\` quietly disables the guard.` The probe writes `src/feature.js`, which is *inside* the archived task's Touch — so the archived task was still handing out write authority, and the misleading denial I measured at the start of this change was only the half of the defect that reached a file outside it. Aiming M1 inside Touch is what exposed that; a probe outside it would have gone green on the message alone.
+    - M1.green: pass, after the hook gained an `fs.existsSync` check on the change directory, placed before the record-layer and Touch comparisons so a stale manifest authorizes nothing at all.
+    - M2: pass. The denial carries neither "update the task authority" nor an enumeration of the archived task's Touch — the two pieces of the old message that sent the reader to a task that cannot be reauthorized and a Touch list that authorizes nothing.
+    - M2.red: fail. `M2 the refusal still tells the reader to do something impossible; 'update the task authority' is in: …`, aimed by appending that clause to the new message while leaving M1's needles intact, so the red is M2's own and not a broken M1. A first attempt at this red replaced the clause instead of appending it and tripped M1's `keel guard clear` needle first; that mutation proved nothing about M2 and was redone.
+    - M2.green: pass.
+    - M3: pass. A change directory that exists but whose `tasks.md` no longer holds the guarded task id is still denied by the unchanged Touch comparison, the reason still enumerates Touch, and the stale wording is not produced.
+    - M3.red: fail. `M3 the parse-miss path must still deny by enumerating Touch`, printing the stale message produced for a live change — aimed by widening the condition from "the directory is gone" to "the task id does not appear in tasks.md", which is exactly the conflation this task exists to separate. A renumbered or reworded task id is a parse miss the guard must not read as an archive.
+    - M3.green: pass.
+    - M4: pass. `touch-write-guard`, `touch-guard-record-layer`, `touch-guard-drift`, and `guard-containment-is-resolved` all pass unchanged, so the record layer, authority drift, completed-task handling, invalid-manifest handling, and resolved-path containment are untouched.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: every check drives the shipped hook the way the host drives it — a JSON event on stdin, the permission decision read back off stdout — and asserts the decision and its reason, not the shape of any function. Both directions are covered, and that is what makes the result mean anything: M1 proves the archived case denies, M3 proves the live-but-unmatched case is unchanged, so a fix that simply denied more would fail M3 rather than pass.
+      - Scope check: `git status --short` shows `plugins/keel/scripts/pretooluse-guard.js` and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The guard manifest is gitignored.
+      - Findings: two. First: the defect is larger than the proposal states. The proposal describes the archived-manifest case as a misleading refusal; M1's red shows that a write *inside* the stale Touch was allowed silently, so an archived task went on granting write authority until this fix. The proposal's account of it is now incomplete rather than wrong. Resolved here: M1, whose assertion is the corrected statement, and the release entry states the allow as the more serious half. Second: design.md's A2 said this scenario would archive a real change; it relocates the directory to the archive path instead, because coupling a guard test to a complete valid change plus the OpenSpec CLI would make it depend on a program it never exercises, and the assumption A2 rests on was already verified directly against this repository. A2 was corrected to say what the scenario does and why. Resolved here: openspec/changes/a-message-that-cannot-be-true/design.md
     - Blocker: none
 
 - [ ] 1.3 Count the assertions that guard several failures behind one message

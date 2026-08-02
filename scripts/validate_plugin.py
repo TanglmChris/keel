@@ -18013,6 +18013,129 @@ def validate_touch_guard_drift_scenario() -> int:
     return 0
 
 
+def validate_guard_stale_manifest_scenario() -> int:
+    """A manifest whose change is gone says so, instead of enumerating Touch.
+
+    `taskIsChecked` reads `openspec/changes/<change>/tasks.md`. After the change
+    is archived that path is gone, the read throws, the miss is read as "not
+    checked", and control reaches the Touch comparison — which denies the write
+    while naming a task inside an archived change and telling the reader to
+    reauthorize it. That instruction cannot be followed. `keel guard status`
+    already classifies the same manifest as drifted; the hook enforcing it did
+    not, and the two states it conflates are genuinely different: a task id
+    missing from a live `tasks.md` is a parse miss the guard must not guess
+    about, while a directory that is not there is a fact.
+
+    Measured at the start of this change: the first write of a new change was
+    refused against `the-name-is-not-the-thing#2.1`, archived one commit earlier.
+    """
+    with tempfile.TemporaryDirectory(
+        prefix="keel-guard-stale-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        change_dir = repo / "openspec/changes/demo"
+        write_text(change_dir / "tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+
+        started = run_keel(
+            repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("guard-stale-manifest: guard start failed.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        # The directory is relocated to the path `openspec archive` moves it to.
+        # What is under test is the guard's answer once the change is gone, not
+        # the archiver's behavior; making this depend on a complete change plus
+        # the OpenSpec CLI would couple a guard test to a program it never
+        # exercises. That archive relocates rather than marking in place was
+        # verified directly against this repository — see design.md A2.
+        archived_dir = repo / "openspec/changes/archive/2026-08-02-demo"
+        archived_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(change_dir), str(archived_dir))
+
+        decision = pretooluse_decision(
+            run_pretooluse_guard_hook(
+                repo, edit_event(repo, repo / "src/feature.js", "Edit")
+            )
+        )
+        if decision is None:
+            report(
+                "guard-stale-manifest: M1 archiving the change made the guard "
+                "allow a write silently. A stale manifest must fail closed, or "
+                "`openspec archive` quietly disables the guard."
+            )
+            return 1
+        if decision.get("permissionDecision") != "deny":
+            report(
+                "guard-stale-manifest: M1 expected deny once the change was "
+                f"archived, got {decision.get('permissionDecision')!r}."
+            )
+            return 1
+        reason = decision.get("permissionDecisionReason", "")
+        for needle in ("stale", "keel guard clear", "openspec/changes/demo"):
+            if needle not in reason:
+                report(
+                    "guard-stale-manifest: M1 the refusal must report the "
+                    f"manifest as stale and name what resolves it; {needle!r} "
+                    f"is missing from: {reason!r}"
+                )
+                return 1
+
+        # M2 — the advice that could not be followed must be gone. The old
+        # denial enumerated Touch for a task in an archived change and told the
+        # reader to reauthorize it.
+        for forbidden in ("update the task authority", "Touch allows:"):
+            if forbidden in reason:
+                report(
+                    "guard-stale-manifest: M2 the refusal still tells the "
+                    f"reader to do something impossible; {forbidden!r} is in: "
+                    f"{reason!r}"
+                )
+                return 1
+
+        # M3 — a live change whose task id is absent is a parse miss, and the
+        # guard's answer there is unchanged.
+        shutil.move(str(archived_dir), str(change_dir))
+        write_text(
+            change_dir / "tasks.md",
+            guard_task_fixture().replace("1.1", "9.9"),
+        )
+        miss = pretooluse_decision(
+            run_pretooluse_guard_hook(
+                repo, edit_event(repo, repo / "src/outside.js", "Edit")
+            )
+        )
+        if miss is None or miss.get("permissionDecision") != "deny":
+            report(
+                "guard-stale-manifest: M3 a write outside Touch must still be "
+                f"denied when the task id is absent from a live tasks.md; got "
+                f"{miss!r}"
+            )
+            return 1
+        miss_reason = miss.get("permissionDecisionReason", "")
+        if "Touch allows:" not in miss_reason:
+            report(
+                "guard-stale-manifest: M3 the parse-miss path must still deny "
+                f"by enumerating Touch. Got: {miss_reason!r}"
+            )
+            return 1
+        if "stale" in miss_reason:
+            report(
+                "guard-stale-manifest: M3 a live change with an unmatched task "
+                f"id was reported as a stale manifest. Got: {miss_reason!r}"
+            )
+            return 1
+
+    if "guard-stale-manifest" not in {name for name, _ in SCENARIOS}:
+        report("guard-stale-manifest: the scenario registry does not include it.")
+        return 1
+    report("guard-stale-manifest scenario passed.")
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -18281,6 +18404,7 @@ SCENARIOS: tuple = (
     ),
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
     ("findings-resolved-here", validate_findings_resolved_here_scenario),
+    ("guard-stale-manifest", validate_guard_stale_manifest_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     (
         "guard-status-is-not-enforcement",

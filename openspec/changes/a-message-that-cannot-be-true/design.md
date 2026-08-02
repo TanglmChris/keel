@@ -57,7 +57,7 @@ Three shipped surfaces state something the reader cannot act on. In every one, t
 
 **A1** — The 75 sites include correct assertions whose message genuinely covers every disjunct. *Basis:* inspected a sample. *Owner:* the scenario's own wording states that the count is a bound on a shape and not a defect count, so the next reader does not read 75 as 75 bugs.
 
-**A2** — `openspec archive` moves the change directory rather than leaving a marker behind. *Basis:* verified — `openspec/changes/the-name-is-not-the-thing/` is absent and `openspec/changes/archive/2026-08-01-the-name-is-not-the-thing/` exists. *Owner:* the guard scenario archives a real change and drives the hook, rather than deleting a directory to simulate it.
+**A2** — `openspec archive` moves the change directory rather than leaving a marker behind. *Basis:* verified directly against this repository — `openspec/changes/the-name-is-not-the-thing/` is absent and `openspec/changes/archive/2026-08-01-the-name-is-not-the-thing/` exists. *Owner:* the guard scenario relocates the directory to that same archive path itself rather than invoking the archiver. What is under test is the guard's answer once the change is gone, and making a guard test depend on a complete valid change plus the OpenSpec CLI would couple it to a program it never exercises; the assumption it rests on is verified above rather than inside the fixture.
 
 ## Coupled Iteration Contract
 
