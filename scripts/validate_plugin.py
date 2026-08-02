@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.15.0"
-PROTOCOL_VERSION = "5.15.0"
+PACKAGE_VERSION = "5.16.0"
+PROTOCOL_VERSION = "5.16.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6186,6 +6186,174 @@ def validate_interpreter_surfaces_agree_scenario() -> int:
             f"rather than derived: {below}"
         )
         return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_default_completion_attributes_writes_scenario() -> int:
+    """A write outside Touch has to fail the gate the author actually runs.
+
+    `attributionResult` refuses an out-of-Touch path in full — diff, union with
+    the dirty set, `pathAllowed` filter, `outside-touch` problem — behind
+    `if (!base) return { problems: [] }`. Without `--base` the whole comparison
+    is skipped and the paths are printed as a warning instead. Measured at
+    5.15.0 on one tree and one task: `pass` with the offending path in a
+    warning, `fail` once `--base HEAD` was added.
+
+    It was found by it happening. During the 5.15.0 release task a file was
+    written that the task had not declared, through a `python3` heredoc in
+    Bash — the write guard binds the host's file-writing tools and cannot bind
+    a shell — and `task-complete` returned `pass`. A human reading `git status`
+    caught it. Nobody reads `git status` in an unattended run, and this
+    repository admits work into unattended runs by declaration.
+
+    The base does not have to come from the caller. `task-start` already writes
+    the manifest at the instant the task is authorized; recording what was
+    dirty then answers "did this task write it" without asking Git to answer
+    "which task wrote it", which is the question it cannot answer in a
+    half-finished change.
+    """
+    label = "default-completion-attributes-writes"
+
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    def tasks_doc() -> str:
+        return (
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "- [ ] 1.1 Exercise task contract\n"
+            "  - Covers:\n    - E1: Public behavior passes.\n"
+            "  - Touch:\n    - src/declared.js\n"
+            "  - Verify:\n    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n    - Contract: pending\n    - M1: the suite passed\n"
+            "    - Review:\n      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-default-attribution-") as raw:
+        repo = (Path(raw) / "repo").resolve()
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "keel-test")
+        write_text(repo / "src/declared.js", "// product\n")
+        write_text(repo / "src/undeclared.js", "// product\n")
+        write_text(repo / "src/already-dirty.js", "// product\n")
+        write_text(repo / "openspec/changes/demo/tasks.md", tasks_doc())
+        git(repo, "add", "-A")
+        git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
+
+        def start(*extra: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--record", *extra, "--json",
+            )
+
+        def gate(*extra: str) -> dict:
+            return json.loads(
+                run_keel(
+                    repo, "gate", "task-complete", "--change", "demo",
+                    "--task", "1.1", *extra, "--json",
+                ).stdout
+            )
+
+        def outside(payload: dict) -> list[str]:
+            return [
+                problem.get("message", "")
+                for problem in payload.get("problems", [])
+                if problem.get("code") == "outside-touch"
+            ]
+
+        # A path already dirty before the task is authorized. It must stay
+        # unattributed afterwards: subtracting the start set is what removes
+        # the false-positive class that made automatic attribution unsafe.
+        write_text(repo / "src/already-dirty.js", "// touched before the task\n")
+
+        if start().returncode != 0:
+            report(f"{label} could not authorize the fixture task.")
+            return 1
+
+        # M1 — the reported defect. A write the guard never saw, and the gate
+        # invoked the way an author actually invokes it.
+        write_text(repo / "src/undeclared.js", "// written outside Touch\n")
+        payload = gate()
+        problems = outside(payload)
+        if not any("src/undeclared.js" in message for message in problems):
+            report(
+                f"{label} M1 a path written outside Touch after task start was "
+                "not refused by the default completion gate. The boundary "
+                "holds only when the caller asks for it."
+            )
+            report(f"  status={payload.get('status')!r}")
+            for warning in payload.get("warnings", []):
+                report(f"  warning: {warning}")
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M1 the gate named the out-of-Touch path but did not "
+                f"fail; got status {payload.get('status')!r}. A boundary that "
+                "reports without refusing is not a boundary."
+            )
+            return 1
+        if any("src/already-dirty.js" in message for message in problems):
+            report(
+                f"{label} M1 a path that was already dirty when the task "
+                "started was attributed to the task. The recorded set is not "
+                "being subtracted, so an unrelated dirty worktree fails the "
+                "gate."
+            )
+            return 1
+
+        # M1 — an explicit base answers the question the caller asked, which is
+        # the broader one: everything since that commit, including what was
+        # already dirty when the task started.
+        base_problems = outside(gate("--base", "HEAD"))
+        if not any("src/already-dirty.js" in message for message in base_problems):
+            report(
+                f"{label} M1 an explicit --base did not attribute a path that "
+                "changed since that base, so the recorded set is overriding "
+                "the base the caller supplied instead of yielding to it."
+            )
+            for message in base_problems:
+                report(f"  {message}")
+            return 1
+
+        # M1 — no record means no attribution. A manifest written before this
+        # existed, or a cleared one, must not be read as a clean start: absence
+        # of a record is not a record of absence.
+        run_keel(repo, "guard", "clear")
+        if start("--no-guard").returncode != 0:
+            report(f"{label} could not re-authorize without a manifest.")
+            return 1
+        payload = gate()
+        if outside(payload):
+            report(
+                f"{label} M1 the gate attributed paths with no recorded "
+                "task-start set. A missing record is being read as a clean "
+                "start, which fails every completion in a dirty repository."
+            )
+            for message in outside(payload):
+                report(f"  {message}")
+            return 1
+        if not any(
+            "not attributed" in warning for warning in payload.get("warnings", [])
+        ):
+            report(
+                f"{label} M1 with no record the gate neither attributed nor "
+                "reported the dirty paths, so the fallback lost the semantic "
+                "review evidence it is supposed to preserve."
+            )
+            return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -19425,6 +19593,10 @@ SCENARIOS: tuple = (
     (
         "git-paths-carry-no-escaping",
         validate_git_paths_carry_no_escaping_scenario,
+    ),
+    (
+        "default-completion-attributes-writes",
+        validate_default_completion_attributes_writes_scenario,
     ),
     (
         "runtime-versions-are-checked",

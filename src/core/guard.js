@@ -9,7 +9,43 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { loadTaskContract } = require("./task-contract");
+
+// Nothing rewrites backslashes here. Git emits forward slashes on every
+// platform, so the rewrite normalized a separator that never arrives while
+// turning `\346` into `/346`, which is how a path declared on the first line
+// of Touch was reported as outside Touch (issue #40).
+//
+// This lives here rather than in gates.js because both the task-start record
+// and the completion comparison read it, and gates.js already requires this
+// module. One implementation is the point: a baseline and a comparison that
+// disagreed about what "dirty" means, or about how a rename is represented,
+// would attribute a path nobody wrote.
+function gitPaths(repo) {
+  const status = spawnSync(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: repo, encoding: "utf8" }
+  );
+  if (status.error || status.status !== 0) return [];
+  // Each record is `XY <path>`, NUL-terminated. A rename or copy is followed
+  // by a second bare field holding its other endpoint — the new path first in
+  // `-z`, the reverse of the ` -> ` line format. The order is immaterial:
+  // both endpoints are attributed, so a rename whose paths are both in Touch
+  // is not a false outside-Touch failure.
+  const fields = status.stdout.split("\0").filter(Boolean);
+  const paths = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index];
+    paths.push(record.slice(3));
+    if (record[0] === "R" || record[0] === "C") {
+      index += 1;
+      if (index < fields.length) paths.push(fields[index]);
+    }
+  }
+  return paths;
+}
 
 const MANIFEST_SCHEMA = "keel-write-guard/v1";
 
@@ -121,6 +157,18 @@ function readManifest(repo) {
   ) {
     shapeErrors.push("authority must list hashed source files");
   }
+  // Optional on purpose. A manifest written before this field existed, and one
+  // written by a Keel that omits it, are both valid; what they are not is
+  // evidence that nothing was dirty. The consumer distinguishes absent from
+  // empty, so an empty list means "nothing was dirty" and an absent one means
+  // "nobody looked".
+  if (
+    manifest.startedDirty !== undefined
+    && (!Array.isArray(manifest.startedDirty)
+      || manifest.startedDirty.some((item) => typeof item !== "string"))
+  ) {
+    shapeErrors.push("startedDirty must be a string list when present");
+  }
   if (shapeErrors.length > 0) {
     return {
       state: "invalid",
@@ -182,6 +230,9 @@ function startGuard(repo, options) {
   }
 
   const paths = authorityPaths(repo, options.change, loaded.contract);
+  // Read before the manifest is written, so the manifest is never in its own
+  // record and cannot be attributed to the task it authorizes.
+  const startedDirty = gitPaths(repo);
   const manifest = {
     schema: MANIFEST_SCHEMA,
     change: options.change,
@@ -189,6 +240,7 @@ function startGuard(repo, options) {
     fingerprint: loaded.contract.fingerprint,
     touch: loaded.contract.capsule.touch,
     authority: hashAuthority(repo, paths),
+    startedDirty,
   };
   fs.mkdirSync(path.join(repo, "keel"), { recursive: true });
   fs.writeFileSync(
@@ -302,6 +354,7 @@ module.exports = {
   GuardInputError,
   MANIFEST_SCHEMA,
   clearGuard,
+  gitPaths,
   guardStatus,
   readManifest,
   renderGuard,

@@ -14,7 +14,7 @@ const {
   isPassingReviewStatus,
   parseTasks,
 } = require("./task-contract");
-const { startGuard } = require("./guard");
+const { gitPaths, readManifest, startGuard } = require("./guard");
 
 const GATE_STAGES = new Set(["task-start", "task-complete", "change-close"]);
 
@@ -483,33 +483,21 @@ function findingOwnerIsDurable(repo, findings) {
 // decoder — and it is a flag rather than a repository setting, so the answer
 // does not depend on how the repository happens to be configured.
 //
-// Nothing rewrites backslashes here any more. Git emits forward slashes on
-// every platform, so the rewrite normalized a separator that never arrives
-// while turning `\346` into `/346`, which is how a path declared on the first
-// line of Touch was reported as outside Touch (issue #40).
-function gitPaths(repo) {
-  const status = spawnSync(
-    "git",
-    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    { cwd: repo, encoding: "utf8" }
-  );
-  if (status.error || status.status !== 0) return [];
-  // Each record is `XY <path>`, NUL-terminated. A rename or copy is followed
-  // by a second bare field holding its other endpoint — the new path first in
-  // `-z`, the reverse of the ` -> ` line format. The order is immaterial:
-  // both endpoints are attributed, so a rename whose paths are both in Touch
-  // is not a false outside-Touch failure.
-  const fields = status.stdout.split("\0").filter(Boolean);
-  const paths = [];
-  for (let index = 0; index < fields.length; index += 1) {
-    const record = fields[index];
-    paths.push(record.slice(3));
-    if (record[0] === "R" || record[0] === "C") {
-      index += 1;
-      if (index < fields.length) paths.push(fields[index]);
-    }
-  }
-  return paths;
+// `gitPaths` moved to guard.js, which owns the worktree reading now that the
+// task-start record and this comparison must use the same one.
+
+// The dirty set recorded when this task was authorized, or null when nobody
+// recorded one. Null and empty are different answers: an empty list says
+// nothing was dirty at task start, and null says no record exists, which is
+// what a manifest written before this field, a cleared guard, or a
+// `--no-guard` start all produce. Reading null as empty would attribute the
+// whole worktree to the task and fail every completion in a dirty repository.
+function recordedBaseline(repo, change, task) {
+  const loaded = readManifest(repo);
+  if (loaded.state !== "ok") return null;
+  const manifest = loaded.manifest;
+  if (manifest.change !== change || manifest.task !== task) return null;
+  return Array.isArray(manifest.startedDirty) ? manifest.startedDirty : null;
 }
 
 function touchEntries(task, contract = null) {
@@ -570,7 +558,15 @@ function scopeEvidence(
   tasks = null
 ) {
   const dirtyPaths = gitPaths(repo);
-  if (!base) {
+  // An explicit base wins. It asks a broader question than the record does —
+  // everything since that commit, not only since this task started — and
+  // substituting the narrower answer would make `--base` mean something other
+  // than what it says.
+  const baseline = base ? null : recordedBaseline(repo, change, task.id);
+  if (!base && !baseline) {
+    // No base and no record: the original conservatism, and the reason for it
+    // is unchanged. Git alone cannot say which task of a half-finished change
+    // wrote a given path, so the dirty state stays semantic review evidence.
     return {
       problems: [],
       warnings:
@@ -581,6 +577,27 @@ function scopeEvidence(
             ]
           : [],
     };
+  }
+
+  if (!base) {
+    // Dirty now and not dirty when the task started. This answers "did this
+    // task write it", which is the question the boundary actually asks; it
+    // does not answer "which task wrote it", which is why the completed-
+    // sibling exclusion below still applies and still reports itself.
+    //
+    // A path already dirty at task start is subtracted even if the task also
+    // modified it. That is the price of a baseline that is not a commit, and
+    // it buys the far larger class this exists to avoid: failing every
+    // completion in a worktree that was dirty before the task began.
+    const startedDirty = new Set(baseline);
+    return attributeChanged(
+      repo,
+      task,
+      dirtyPaths.filter((item) => !startedDirty.has(item)),
+      contract,
+      change,
+      tasks
+    );
   }
 
   const verified = spawnSync(
@@ -601,10 +618,23 @@ function scopeEvidence(
   if (diff.error || diff.status !== 0) {
     throw new GateInputError(`could not compare Git base: ${base}`);
   }
-  const changed = new Set([
-    ...diff.stdout.split("\0").filter(Boolean),
-    ...dirtyPaths,
-  ]);
+  return attributeChanged(
+    repo,
+    task,
+    [...diff.stdout.split("\0").filter(Boolean), ...dirtyPaths],
+    contract,
+    change,
+    tasks
+  );
+}
+
+// The one place a candidate path becomes a problem, whichever comparison
+// produced it. Both callers reach it: the recorded-baseline path and the
+// explicit-base path differ only in how they decide which paths are
+// candidates, and a second copy of this would be a second definition of what
+// Touch means.
+function attributeChanged(repo, task, changedList, contract, change, tasks) {
+  const changed = new Set(changedList);
   const touch = touchEntries(task, contract);
   // The disposable guard manifest is the one artifact the gate contract itself
   // permits a gate to write, and the selected change's own authoring artifacts
