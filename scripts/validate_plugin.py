@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.21.0"
-PROTOCOL_VERSION = "5.21.0"
+PACKAGE_VERSION = "5.22.0"
+PROTOCOL_VERSION = "5.22.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -20296,6 +20296,200 @@ def validate_doctor_openspec_honesty_scenario() -> int:
     return 0
 
 
+# A scenario name, as the registry spells one. Two registered names carry no
+# hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
+# two unchecked, and allowing single words was measured to add no false
+# positive.
+AUTHORED_SCENARIO_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# The two forms a scenario reference is read in. `--scenario` is the invocation
+# itself and needs no context. The other is keyed on the *assertion* rather than
+# on the token, because kebab-case is this project's spelling for gate stages,
+# diagnostic codes, skills, capabilities, and hook events too: reading every
+# such token as a scenario name flags 22 of the 55 in the archive. Keying on
+# "stays green" flags one, and that one is a real unregistered name.
+AUTHORED_SCENARIO_FLAG = re.compile(r"--scenario\s+`?([A-Za-z0-9][\w.-]*)`?")
+AUTHORED_SCENARIO_STAYS_GREEN = re.compile(r"stays? green", re.IGNORECASE)
+AUTHORED_CHECK_LINE = re.compile(r"^-\s*M\d+\b")
+AUTHORED_VERIFY_BLOCK = re.compile(r"^-\s*(?:Verify|Commands):\s*$")
+AUTHORED_CAPSULE_BLOCK = re.compile(r"^-\s*[A-Z][A-Za-z ]*:\s*$")
+AUTHORED_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+
+AUTHORED_SCENARIO_FORMS = (
+    "A scenario reference is read in two forms: a name after `--scenario`, and "
+    "a backticked lowercase token in a `Verify` M<n> check asserting that "
+    "something stays green. Other backticked vocabulary in a check is not read "
+    "as a scenario name."
+)
+
+
+def unregistered_scenario_references(
+    text: str, registered: set[str]
+) -> list[tuple[int, str, str]]:
+    """Scenario names a task contract declares that the registry does not hold.
+
+    Returns `(line, name, form)` for each, 1-indexed, in file order. The `form`
+    is which of the two recognized shapes matched, so a report can say why the
+    token was read as a scenario name at all.
+    """
+    problems: list[tuple[int, str, str]] = []
+    in_verify = False
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        # A capsule block heading ends the previous block, so `Evidence` and
+        # `Stop Rules` leave the Verify block rather than extending it. Evidence
+        # is written after the run, when execution has already answered the
+        # question this check exists to answer earlier.
+        if AUTHORED_CAPSULE_BLOCK.match(stripped):
+            in_verify = bool(AUTHORED_VERIFY_BLOCK.match(stripped))
+        for match in AUTHORED_SCENARIO_FLAG.finditer(line):
+            name = match.group(1)
+            if name not in registered:
+                problems.append((line_number, name, "--scenario"))
+        if not in_verify or not AUTHORED_CHECK_LINE.match(stripped):
+            continue
+        if not AUTHORED_SCENARIO_STAYS_GREEN.search(line):
+            continue
+        for token in AUTHORED_INLINE_CODE.findall(line):
+            if not AUTHORED_SCENARIO_NAME.match(token):
+                continue
+            if token not in registered:
+                problems.append((line_number, token, "stays green"))
+    return problems
+
+
+def active_change_tasks(repo: Path) -> list[Path]:
+    """Every active change's tasks.md. Archived changes are deliberately absent.
+
+    An archived task records what was true when it ran; a scenario renamed
+    afterwards does not make that record wrong, and turning history red for it
+    tells a reader nothing they can act on.
+    """
+    changes = repo / "openspec" / "changes"
+    archive = changes / "archive"
+    # The walk finds archived changes and the filter is what drops them, rather
+    # than a glob depth that happens not to reach them. A depth that excludes by
+    # accident passes every test aimed at the exclusion, including one aimed at
+    # it on purpose.
+    return sorted(
+        path for path in changes.rglob("tasks.md") if archive not in path.parents
+    )
+
+
+def validate_authored_scenario_names_scenario() -> int:
+    """Issue #51: a check whose scenario name is not registered cannot run.
+
+    Three of the four authored contracts #51 records named something that did
+    not exist, two of them scenario names, both written as an `M5 (regression)`
+    check asserting that named scenarios stay green, and both found only when
+    the check was executed. A fifth, unrecorded there, is
+    `2026-08-01-the-name-is-not-the-thing/tasks.md:132`, which declares
+    `tasks-template-validates` — a name `git log -S` finds at no commit — and
+    records that check as passing.
+
+    The assertions live on synthetic content with a known name set, because the
+    live scan reads whatever the working tree holds and is normally empty: a
+    change is archived when it closes. The temp-repository half is the positive
+    control for the whole path, so a run that passes because the file selection
+    silently found nothing is distinguishable from one that verified something.
+    """
+    registered = {name for name, _ in SCENARIOS}
+    known = {"core-gates", "cli"}
+    authored = (
+        "# Tasks\n"
+        "\n"
+        "- [ ] 1.1 Do the thing\n"
+        "  - Touch:\n"
+        "    - src/thing.js\n"
+        "  - Verify:\n"
+        "    - Strategy: vertical-tdd\n"
+        "    - M1: `node scripts/run_python.js scripts/validate_plugin.py "
+        "--scenario gate-diagnostics` passes\n"
+        "    - M2 (regression): `core-gates` and `target-surface-doctor` stay "
+        "green\n"
+        "    - M3 (regression): `task-start`, `keel-review-checklist`, "
+        "`contract-drift`, `subagent-stop`, and `keel-task-capsule` are "
+        "unchanged\n"
+        "    - M4: `cli` and "
+        "`node scripts/run_python.js scripts/validate_plugin.py "
+        "--scenario core-gates` stay green\n"
+        "  - Evidence:\n"
+        "    - M2: `target-surface-doctor` stays green\n"
+    )
+    found = unregistered_scenario_references(authored, known)
+    expected = [
+        (8, "gate-diagnostics", "--scenario"),
+        (9, "target-surface-doctor", "stays green"),
+    ]
+    if found != expected:
+        report(
+            "authored-scenario-names-are-registered: the recognized forms did "
+            f"not report what they must. expected {expected}, found {found}."
+        )
+        report(AUTHORED_SCENARIO_FORMS)
+        return 1
+
+    # Which files are read is a separate question from what is read out of
+    # them, and it is the half that can silently resolve to nothing. The
+    # planted reference is the positive control for the whole path: an
+    # extractor that stopped reporting, or a selection that stopped finding,
+    # both fail here rather than passing on an empty scan.
+    with tempfile.TemporaryDirectory(prefix="keel-authored-names-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/live/tasks.md", authored)
+        write_text(repo / "openspec/changes/archive/old/tasks.md", authored)
+        selected = active_change_tasks(repo)
+        if selected != [repo / "openspec/changes/live/tasks.md"]:
+            report(
+                "authored-scenario-names-are-registered: the active change "
+                "selection is wrong. An archived tasks.md must not be scanned "
+                "and an active one must be. "
+                f"selected {[str(path) for path in selected]}."
+            )
+            return 1
+        control = [
+            (path, unregistered_scenario_references(
+                path.read_text(encoding="utf-8"), known
+            ))
+            for path in selected
+        ]
+        if [problems for _, problems in control] != [expected]:
+            report(
+                "authored-scenario-names-are-registered: a planted reference "
+                "in an active change was not reported end to end, so a clean "
+                "run over the real tree would prove nothing. "
+                f"found {control}."
+            )
+            return 1
+
+    for path in active_change_tasks(ROOT):
+        problems = unregistered_scenario_references(
+            path.read_text(encoding="utf-8"), registered
+        )
+        if not problems:
+            continue
+        relative = path.relative_to(ROOT).as_posix()
+        for line_number, name, form in problems:
+            report(
+                f"authored-scenario-names-are-registered: {relative}:"
+                f"{line_number} names `{name}` after {form}, and no scenario by "
+                "that name is registered, so the check that names it cannot run."
+            )
+        report(AUTHORED_SCENARIO_FORMS)
+        return 1
+
+    if "authored-scenario-names-are-registered" not in {
+        name for name, _ in SCENARIOS
+    }:
+        report(
+            "authored-scenario-names-are-registered: the scenario registry "
+            "does not include it."
+        )
+        return 1
+    report("authored-scenario-names-are-registered scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -20315,6 +20509,10 @@ SCENARIOS: tuple = (
     ("uninstall", validate_uninstall_scenario),
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
+    (
+        "authored-scenario-names-are-registered",
+        validate_authored_scenario_names_scenario,
+    ),
     ("update-pack-install", validate_update_pack_install_scenario),
     ("update-default-registry", validate_update_default_registry_scenario),
     ("verification-layering-docs", validate_verification_layering_docs_scenario),
