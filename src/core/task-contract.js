@@ -518,6 +518,67 @@ function collisionHint(repo, change, capability) {
   );
 }
 
+// One phrasing, so an author who has read the over-segmented refusal recognizes
+// the unresolved one. It used to be reachable only by writing too many
+// segments, which withheld it from the reference people actually write wrong.
+const COVERS_HIERARCHY =
+  "the hierarchy is capability / requirement, or capability / requirement "
+  + "/ scenario";
+
+// Say which segment failed. The candidate specs were opened by the caller and
+// the name the author typed is very often a heading one level below where they
+// put it — the shipped task template taught exactly that reference — so the
+// refusal can name the requirement it belongs to instead of handing the
+// reference back. Reporting what a spec contains is not heuristic matching: the
+// reference still fails, and no near miss is resolved on the author's behalf.
+function unresolvedDetail(repo, change, capability, name) {
+  const candidates = specCandidatePaths(repo, change, capability);
+  const existing = candidates.filter((specPath) => fs.existsSync(specPath));
+  if (existing.length === 0) {
+    const looked = candidates
+      .map((specPath) => path.relative(repo, specPath).replace(/\\/g, "/"))
+      .join(" and ");
+    return ` No spec declares capability ${capability}; ${looked} do not exist.`;
+  }
+  const parents = [];
+  for (const specPath of existing) {
+    const content = fs.readFileSync(specPath, "utf8");
+    for (const requirement of headingSections(
+      content,
+      /^### Requirement:\s*(.+?)\s*$/
+    )) {
+      const holdsName = headingSections(
+        requirement.content,
+        /^#### Scenario:\s*(.+?)\s*$/
+      ).some((item) => item.title === name);
+      if (holdsName && !parents.includes(requirement.title)) {
+        parents.push(requirement.title);
+      }
+    }
+  }
+  if (parents.length === 1) {
+    return (
+      ` "${name}" is a Scenario of Requirement "${parents[0]}", not a `
+      + `Requirement; ${COVERS_HIERARCHY}. Write it as: `
+      + `${capability} / ${parents[0]} / ${name}.`
+    );
+  }
+  if (parents.length > 1) {
+    // No single reference corrects this one, so none is offered: sending the
+    // author to a reference that fails as ambiguous would cost them the round
+    // this diagnostic exists to save.
+    const named = parents.map((title) => `"${title}"`).join(", ");
+    return (
+      ` "${name}" is a Scenario of more than one Requirement — ${named} — so `
+      + `no single reference corrects it; ${COVERS_HIERARCHY}.`
+    );
+  }
+  return (
+    ` Capability ${capability} declares no Requirement or Scenario named `
+    + `"${name}"; ${COVERS_HIERARCHY}.`
+  );
+}
+
 function specAuthority(repo, change, reference) {
   const parts = reference.split("/").map((part) => part.trim());
   const [capability, requirementName, scenarioName] = parts;
@@ -534,9 +595,8 @@ function specAuthority(repo, change, reference) {
         diagnostic: {
           code: "unresolved-covers",
           message:
-            `Covers reference has ${parts.length} segments; the hierarchy is `
-            + "capability / requirement, or capability / requirement / "
-            + `scenario: ${reference}.`
+            `Covers reference has ${parts.length} segments; `
+            + `${COVERS_HIERARCHY}: ${reference}.`
             + collisionHint(repo, change, capability),
         },
       };
@@ -603,6 +663,7 @@ function specAuthority(repo, change, reference) {
       code: "unresolved-covers",
       message:
         `Covers reference could not be resolved: ${reference}.`
+        + unresolvedDetail(repo, change, capability, requirementName)
         + collisionHint(repo, change, capability),
     },
   };
