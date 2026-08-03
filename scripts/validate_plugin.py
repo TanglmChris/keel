@@ -19881,6 +19881,270 @@ def validate_declared_paths_are_read_whole_scenario() -> int:
     return 0
 
 
+def validate_section_ends_where_the_tasks_begin_scenario() -> int:
+    """Issue #71: a change-level section that is not last swallowed the tasks.
+
+    `invalidationProblems()` and `expectationProblems()` each ended their
+    section at the next `##` heading. A tasks.md is a list, not a document with
+    headings throughout, so a section placed anywhere but the file's tail
+    absorbed every task after it — and the entry patterns, anchored with `^\\s*-`
+    under `m`, then read task lines as section entries.
+
+    Two modes come out of that, and only the first was reported. A closed `E1`
+    was refused because the `- E1:` line a task declares under its own `Covers`
+    was read as a second, unclosed entry. And an `E1` or `I1` with no closure at
+    all *passed*, because the `- None.` early return matched a task's `- none`
+    field entry — the shape a `repo-action` task's `Touch` is required to take.
+
+    This is the mirror of issue #29, which ended a task's body at the next task
+    or the next heading and published the rule that every consumer of a task's
+    extent uses that one boundary. The section readers recomputed it and
+    implemented only the heading half.
+    """
+    label = "section-ends-where-the-tasks-begin"
+    invalidates_closed = (
+        '- I1: "the wording that is now wrong" — somewhere in the repo. '
+        "Updated by: 1.1"
+    )
+    invalidates_open = '- I1: "the wording that is now wrong" — somewhere in the repo.'
+    coverage_closed = "- E1: the behavior Covered by: 1.1"
+    coverage_open = "- E1: the behavior"
+
+    def task(checked: bool, repo_action: bool) -> str:
+        # `Touch: none` is only legal under repo-action, and it is the exact
+        # line the `- None.` early return used to match. The `Covers` entry is
+        # spelled `E1` on purpose: it is the line the widened section read as a
+        # second, unclosed coverage entry.
+        box = "x" if checked else " "
+        mode = "  - Mode: repo-action\n" if repo_action else ""
+        touch = "none" if repo_action else "src/feature.js"
+        return (
+            f"- [{box}] 1.1 Exercise the section boundary\n"
+            + mode
+            + "  - Covers:\n"
+            "    - E1: public behavior\n"
+            "  - Touch:\n"
+            f"    - {touch}\n"
+            "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n"
+            "    - Contract: pending\n"
+            "    - M1: the suite passed\n"
+            "    - Review:\n"
+            "      - Status: pass\n"
+            "      - Acceptance check: behavior asserted at the interface\n"
+            "      - Scope check: only Touch files changed\n"
+            "      - Findings: none\n"
+            "    - Blocker: none\n"
+        )
+
+    def document(
+        adjacent: str,
+        invalidation: str,
+        coverage: str,
+        position: str,
+        checked: bool,
+        repo_action: bool,
+    ) -> str:
+        # `adjacent` is the section that ends up last before the task list.
+        # Only that one meets a task instead of a heading, so which reader is
+        # under test is decided by the order the two sections are written in.
+        blocks = {
+            "Invalidates": f"## Invalidates\n\n{invalidation}\n",
+            "Expectation Coverage": f"## Expectation Coverage\n\n{coverage}\n",
+        }
+        other = (
+            "Expectation Coverage" if adjacent == "Invalidates" else "Invalidates"
+        )
+        sections = f"{blocks[other]}\n{blocks[adjacent]}"
+        body = task(checked, repo_action)
+        if position == "above":
+            return f"# Tasks\n\n{sections}\n{body}"
+        return f"# Tasks\n\n{body}\n{sections}"
+
+    with tempfile.TemporaryDirectory(prefix="keel-section-extent-") as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        write_text(repo / "src/feature.js", "// product\n")
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+
+        def close(position: str, coverage: str, repo_action: bool) -> list[dict]:
+            write_text(
+                tasks_path,
+                document(
+                    "Expectation Coverage",
+                    invalidates_closed,
+                    coverage,
+                    position,
+                    True,
+                    repo_action,
+                ),
+            )
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "change-close", "--change", "demo",
+                "--action", "sync", "--json",
+            )
+            payload = json.loads(result.stdout)
+            return [
+                item for item in payload.get("problems", [])
+                if item.get("code", "").startswith("expectation-")
+            ]
+
+        def start(position: str, invalidation: str, repo_action: bool) -> list[dict]:
+            write_text(
+                tasks_path,
+                document(
+                    "Invalidates",
+                    invalidation,
+                    coverage_closed,
+                    position,
+                    False,
+                    repo_action,
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--no-guard", "--json",
+            )
+            payload = json.loads(result.stdout)
+            return [
+                item for item in payload.get("problems", [])
+                if item.get("code", "").startswith("invalidation-")
+            ]
+
+        def texts(problems: list[dict]) -> list[str]:
+            return [item.get("message", "") for item in problems]
+
+        # M1 — the reported shape. A closed `E1` above the task list, and the
+        # identical section in the tail. The task's own `Covers` entry is the
+        # only other `E1` in the file, so any problem here is that line being
+        # read as a coverage entry.
+        tail_closed = close("tail", coverage_closed, False)
+        if tail_closed:
+            report(
+                f"{label} M1 a closed Expectation Coverage entry in the file's "
+                "tail was refused. The baseline this scenario compares against "
+                "does not hold, so nothing below it means anything."
+            )
+            for message in texts(tail_closed):
+                report(f"  {message}")
+            return 1
+
+        above_closed = close("above", coverage_closed, False)
+        if above_closed:
+            report(
+                f"{label} M1 the same closed Expectation Coverage section, "
+                "moved above the task list with not one character changed, was "
+                "refused. The section absorbed the task list and read the "
+                "task's own `Covers` entry as a second, unclosed E1."
+            )
+            for message in texts(above_closed):
+                report(f"  {message}")
+            return 1
+
+        # M1 — the silent mode, which #71 does not report. An `E1` with no
+        # closure at all, and a task carrying the `- none` line that the
+        # `- None.` early return used to match.
+        tail_open = close("tail", coverage_open, True)
+        if len(tail_open) != 1:
+            report(
+                f"{label} M1 an unclosed E1 in the file's tail was not refused "
+                f"exactly once ({len(tail_open)} problems). The refusal this "
+                "scenario asserts is preserved is not there to preserve."
+            )
+            for message in texts(tail_open):
+                report(f"  {message}")
+            return 1
+
+        above_open = close("above", coverage_open, True)
+        if not above_open:
+            report(
+                f"{label} M1 an E1 with no closure at all passed, silently, "
+                "because a `- none` line inside a task body was read as the "
+                "section's `- None.`. Nothing was reported and the whole "
+                "declaration was skipped."
+            )
+            return 1
+
+        if texts(above_open) != texts(tail_open):
+            report(
+                f"{label} M1 the same unclosed E1 produced different text "
+                "depending on where the section sits. Position must not reach "
+                "the message."
+            )
+            for message in texts(above_open):
+                report(f"  above: {message}")
+            for message in texts(tail_open):
+                report(f"  tail:  {message}")
+            return 1
+
+        # M1 — both readers, through one boundary. `## Invalidates` is written
+        # last of the two sections here, so it is the one that meets a task.
+        tail_inv_closed = start("tail", invalidates_closed, False)
+        if tail_inv_closed:
+            report(
+                f"{label} M1 a closed I1 in the file's tail was refused. The "
+                "Invalidates baseline does not hold."
+            )
+            for message in texts(tail_inv_closed):
+                report(f"  {message}")
+            return 1
+
+        above_inv_closed = start("above", invalidates_closed, False)
+        if above_inv_closed:
+            report(
+                f"{label} M1 the same closed I1, moved above the task list, "
+                "was refused."
+            )
+            for message in texts(above_inv_closed):
+                report(f"  {message}")
+            return 1
+
+        tail_inv_open = start("tail", invalidates_open, True)
+        if len(tail_inv_open) != 1:
+            report(
+                f"{label} M1 an unclosed I1 in the file's tail was not refused "
+                f"exactly once ({len(tail_inv_open)} problems)."
+            )
+            for message in texts(tail_inv_open):
+                report(f"  {message}")
+            return 1
+
+        above_inv_open = start("above", invalidates_open, True)
+        if not above_inv_open:
+            report(
+                f"{label} M1 an I1 with no closure at all passed silently when "
+                "the section sat above the task list. Fixing the reported "
+                "reader and leaving this one is how the defect comes back."
+            )
+            return 1
+
+        if texts(above_inv_open) != texts(tail_inv_open):
+            report(
+                f"{label} M1 the same unclosed I1 produced different text "
+                "depending on where the section sits."
+            )
+            for message in texts(above_inv_open):
+                report(f"  above: {message}")
+            for message in texts(tail_inv_open):
+                report(f"  tail:  {message}")
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_published_specs_validate_strictly_scenario() -> int:
     """Issue #46: the store Keel publishes was validated by nothing.
 
@@ -20519,6 +20783,10 @@ SCENARIOS: tuple = (
     (
         "declared-paths-are-read-whole",
         validate_declared_paths_are_read_whole_scenario,
+    ),
+    (
+        "section-ends-where-the-tasks-begin",
+        validate_section_ends_where_the_tasks_begin_scenario,
     ),
     (
         "published-specs-validate-strictly",

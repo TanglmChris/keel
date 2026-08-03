@@ -895,6 +895,34 @@ function taskComplete(repo, options) {
   );
 }
 
+// A change-level section ends at the next `##` heading or at the next task,
+// whichever comes first. That is the mirror of the boundary `parseTasks()`
+// applies to a task's own body, and `keel-task-capsule` already requires every
+// consumer of a task's extent to use that one boundary rather than recomputing
+// one. A tasks.md is a list rather than a document with headings throughout, so
+// what follows a section that is not the file's last is a task, not a heading:
+// with only the heading half, the section absorbed the whole task list, read a
+// task's own `- E<n>:` Covers line as a second unclosed entry, and matched a
+// `repo-action` task's `- none` Touch entry as the section's own `- None.` —
+// skipping the declaration without a word. The boundary tests against the task
+// lines already parsed rather than re-matching a checkbox pattern, because a
+// second pattern that has to agree with `parseTasks()` is the duplication this
+// helper exists to remove.
+function sectionBody(content, headingIndex, tasks) {
+  const lines = content.split(/\r?\n/);
+  const headingLine = content.slice(0, headingIndex).split(/\r?\n/).length - 1;
+  let end = lines.length;
+  for (let cursor = headingLine + 1; cursor < lines.length; cursor += 1) {
+    if (/^\s*##\s/.test(lines[cursor])) {
+      end = cursor;
+      break;
+    }
+  }
+  const nextTask = tasks.find((task) => task.line > headingLine);
+  if (nextTask && nextTask.line < end) end = nextTask.line;
+  return lines.slice(headingLine + 1, end).join("\n");
+}
+
 // Follow-up Ownership governs work a change left undone. This is the opposite
 // shape: statements left standing by work the change completed. It is asked at
 // task-start rather than change-close because the whole value is that the
@@ -919,10 +947,7 @@ function invalidationProblems(repo, content, tasks) {
       ),
     ];
   }
-  const bodyStart = content.indexOf("\n", heading);
-  const remainder = bodyStart < 0 ? "" : content.slice(bodyStart + 1);
-  const nextHeading = remainder.search(/^##\s+/m);
-  const section = nextHeading < 0 ? remainder : remainder.slice(0, nextHeading);
+  const section = sectionBody(content, heading, tasks);
   if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
   const entries = [
     ...section.matchAll(
@@ -1022,10 +1047,7 @@ function expectationProblems(repo, content, tasks) {
       ),
     ];
   }
-  const bodyStart = content.indexOf("\n", heading);
-  const remainder = bodyStart < 0 ? "" : content.slice(bodyStart + 1);
-  const nextHeading = remainder.search(/^##\s+/m);
-  const section = nextHeading < 0 ? remainder : remainder.slice(0, nextHeading);
+  const section = sectionBody(content, heading, tasks);
   if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
   const entries = [
     ...section.matchAll(
