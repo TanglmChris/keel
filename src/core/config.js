@@ -45,14 +45,110 @@ function configList(repo, key) {
   return entries;
 }
 
+// The sub-keys a `triage:` block may declare. Closed for the same reason the
+// authorization actions are: an entry outside it can then be reported by name
+// instead of being silently dropped from a policy about what may run unattended.
+const TRIAGE_SOURCES = ["labels", "issues"];
+
+// The lines belonging to one top-level block, handed back unclassified. The
+// list and map readers each stop at the first line they cannot use, which is
+// right for a flat shape and wrong here: a `triage:` block may hold two shapes,
+// and telling them apart — or refusing a mixture — needs to see all of it.
+// Returns null when the key is not declared at all, which is not the same as a
+// key declared with nothing under it.
+function configBlockLines(repo, key) {
+  const configPath = path.join(repo, "keel", "config.yaml");
+  if (!fs.existsSync(configPath)) return null;
+  const opener = new RegExp(`^${key}\\s*:\\s*(.*)$`);
+  const lines = [];
+  let inBlock = false;
+  let inline = null;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    if (/^\s*#/.test(line)) continue;
+    if (!inBlock) {
+      const opened = line.match(opener);
+      if (!opened) continue;
+      inBlock = true;
+      // `triage: { issues: [62] }` is the flow style, which this reader does
+      // not parse. Keeping the text lets the caller name it rather than
+      // reporting an undeclared policy for a declaration plainly present.
+      if (opened[1].trim() !== "") inline = opened[1].trim();
+      continue;
+    }
+    if (line.trim() === "") continue;
+    // A line at column zero is the next top-level key, whatever its shape.
+    if (!/^\s/.test(line)) break;
+    lines.push(line);
+  }
+  if (!inBlock) return null;
+  return { lines, inline };
+}
+
 // Which issues may start work without asking. This is a declaration and never
 // an inference: "should this issue be done" sits in the materiality categories
 // that require asking, and a precedent may never move a decision out of them.
-// A label is the unit because a human applies one to a specific issue, so the
-// policy authorizes a class the owner curates one issue at a time rather than a
-// guess about which issues look easy.
+//
+// Two sources, either sufficient alone. A label is applied by hand to one
+// issue; so is an issue number, so both curate a class one issue at a time
+// rather than guessing which issues look easy. They differ in where the
+// owner's decision is written down — the label writes it on the issue, where
+// the person who reported it can see an operational switch in a vocabulary
+// they were asked to classify with, and the number writes it in a file only a
+// committer can change (#62).
 function readTriagePolicy(repo) {
-  return { labels: configList(repo, "triage") };
+  const block = configBlockLines(repo, "triage");
+  const empty = { labels: [], issues: [], unreadable: [] };
+  if (block === null) return empty;
+
+  const unreadable = [];
+  if (block.inline !== null) unreadable.push(block.inline);
+
+  const sections = new Map();
+  // Entries written directly under `triage:` with no sub-key. This is the
+  // shape every repository declared before a second source existed, and it
+  // still means labels — a bare token is never read as a number, because
+  // reclassifying one would move an authorization boundary in a repository
+  // nobody edited.
+  const bare = [];
+  let current = null;
+  for (const line of block.lines) {
+    const opened = line.match(/^\s+([A-Za-z_]\w*)\s*:\s*$/);
+    if (opened) {
+      current = opened[1];
+      if (!TRIAGE_SOURCES.includes(current)) unreadable.push(current);
+      else if (!sections.has(current)) sections.set(current, []);
+      continue;
+    }
+    const entry = line.match(/^\s+-\s*(\S.*?)\s*$/);
+    if (!entry) {
+      unreadable.push(line.trim());
+      continue;
+    }
+    if (current === null) bare.push(entry[1]);
+    // Under a sub-key Keel could not read; the sub-key is already reported.
+    else if (!sections.has(current)) unreadable.push(entry[1]);
+    else sections.get(current).push(entry[1]);
+  }
+  // One shape or the other. A block written both ways has no reading that is
+  // obviously what its author meant, and guessing at one is how a policy comes
+  // to admit something nobody declared.
+  if (bare.length > 0 && sections.size > 0) unreadable.push(...bare);
+
+  const labels = bare.length > 0 ? bare : sections.get("labels") || [];
+  const issues = [];
+  for (const entry of sections.get("issues") || []) {
+    // A bare positive integer and nothing else. `#62` is reported by name
+    // rather than guessed at, because a declaration Keel half-understands is
+    // how an owner comes to believe they admitted something they did not.
+    if (/^[1-9]\d*$/.test(entry)) issues.push(entry);
+    else unreadable.push(entry);
+  }
+
+  // Fail closed, exactly as an unrecognized `authorize:` action does: a
+  // declaration Keel cannot fully read admits nothing, because the entries
+  // beside a typo were not the ones its author meant to grant either.
+  if (unreadable.length > 0) return { labels: [], issues: [], unreadable };
+  return { labels, issues, unreadable };
 }
 
 function readStandingAuthorization(repo) {
@@ -172,17 +268,48 @@ function readPrecedentStore(repo) {
   return { declared, path: resolved, precedents };
 }
 
-// Evaluate a declared policy against labels handed in. Keel never fetches the
-// issue: the agent reads it with `gh` and passes what it found, which keeps this
-// local, offline, deterministic, and testable without a network.
-function triageIssue(repo, labels) {
-  const { labels: accepted } = readTriagePolicy(repo);
+// The sentence every verdict ends on. Admission is a start and nothing else,
+// and the one place a reader meets that is the reason line.
+const ADMISSION_STARTS_ONLY =
+  "; admission starts work and decides nothing after it — every later gate "
+  + "still applies and a material decision still stops for the owner.";
+
+// Evaluate a declared policy against the issue attributes handed in. Keel never
+// fetches the issue: the agent reads it with `gh` and passes what it found,
+// which keeps this local, offline, deterministic, and testable without a
+// network. `issue` is the issue's number, or null when the caller has none.
+function triageIssue(repo, labels, issue = null) {
+  const policy = readTriagePolicy(repo);
+  const { labels: accepted, issues: acceptedIssues, unreadable } = policy;
   const carried = labels.filter((label) => label);
-  if (accepted.length === 0) {
+  const number = issue === null || issue === undefined ? null : String(issue);
+  const base = {
+    accepted,
+    acceptedIssues,
+    labels: carried,
+    issue: number,
+    sources: [],
+  };
+  if (unreadable.length > 0) {
     return {
+      ...base,
       status: "refuse",
-      accepted,
-      labels: carried,
+      unreadable,
+      reason:
+        "this repository's `triage:` declaration could not be read, so no "
+        + "issue starts work unattended. Keel could not read "
+        + `${unreadable.map((entry) => `\`${entry}\``).join(", ")}. Declare `
+        + "accepted labels under `labels:` and issue numbers under `issues:` "
+        + "as bare numbers, or a bare list of labels directly under `triage:`. "
+        + "A declaration that is only partly readable admits nothing, because "
+        + "the entries beside a mistake are not the ones its author meant to "
+        + "grant. This is not a judgement about the issue.",
+    };
+  }
+  if (accepted.length === 0 && acceptedIssues.length === 0) {
+    return {
+      ...base,
+      status: "refuse",
       reason:
         "this repository declares no triage policy, so no issue starts work "
         + "unattended; declare accepted labels under `triage:` in "
@@ -191,25 +318,41 @@ function triageIssue(repo, labels) {
     };
   }
   const matched = carried.filter((label) => accepted.includes(label));
-  if (matched.length > 0) {
+  const matchedIssue =
+    number !== null && acceptedIssues.includes(number) ? number : null;
+  if (matched.length > 0 || matchedIssue !== null) {
+    const by = [];
+    if (matched.length > 0) by.push(`declared label ${matched.join(", ")}`);
+    if (matchedIssue !== null) {
+      by.push(`issue number ${matchedIssue}, listed in keel/config.yaml`);
+    }
     return {
+      ...base,
       status: "admit",
-      accepted,
-      labels: carried,
       matched,
-      reason:
-        `admitted by declared label ${matched.join(", ")}; admission starts `
-        + "work and decides nothing after it — every later gate still applies "
-        + "and a material decision still stops for the owner.",
+      matchedIssue,
+      sources: [
+        ...(matched.length > 0 ? ["label"] : []),
+        ...(matchedIssue !== null ? ["issue"] : []),
+      ],
+      reason: `admitted by ${by.join(" and by ")}${ADMISSION_STARTS_ONLY}`,
     };
   }
+  // A source the repository did not declare is left out of both halves of the
+  // sentence. Naming it would read as a policy that exists and did not match,
+  // which is the distinction the refusal is here to draw.
+  let subject =
+    `the issue carries ${carried.length > 0 ? carried.join(", ") : "no labels"}`;
+  if (number !== null) subject += ` and is numbered ${number}`;
+  const acceptedParts = [];
+  if (accepted.length > 0) acceptedParts.push(accepted.join(", "));
+  if (acceptedIssues.length > 0) {
+    acceptedParts.push(`issues ${acceptedIssues.join(", ")}`);
+  }
   return {
+    ...base,
     status: "refuse",
-    accepted,
-    labels: carried,
-    reason:
-      `the issue carries ${carried.length > 0 ? carried.join(", ") : "no labels"}`
-      + ` and this repository accepts ${accepted.join(", ")}.`,
+    reason: `${subject} and this repository accepts ${acceptedParts.join(", and ")}.`,
   };
 }
 

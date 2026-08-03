@@ -1,6 +1,6 @@
-# Keel v5.23.0 Agent Protocol
+# Keel v5.24.0 Agent Protocol
 
-<!-- keel:start version=5.23.0 -->
+<!-- keel:start version=5.24.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -53,7 +53,7 @@
 - Target automation is capability-probed, not assumed by target name. Unverified activation, trust, version, blocking, or native projection remains `manual`; `keel project` creates only one-way views from OpenSpec, and goal/task/subagent projection requires explicit authorization.
 
 ## Unattended runs
-- An unattended run starts only from work the repository admitted: an issue carrying a label declared under `triage:` in `keel/config.yaml`. Evaluate with `keel triage --labels <labels>`, passing what `gh` returned — Keel never fetches the issue, and admission comes from that declaration and never from a precedent, however much triage history the store holds.
+- An unattended run starts only from work the repository admitted, by either source `triage:` declares in `keel/config.yaml`: a label the issue carries, or the issue number listed under `issues:`. The unit is one issue in both cases; they differ in where the owner's decision is written down, and the number keeps it out of a field the reporter reads. Evaluate with `keel triage --labels <labels> --issue <n>`, passing what `gh` returned — at least one is required, Keel never fetches the issue, and admission comes from that declaration and never from a precedent, however much triage history the store holds. A `triage:` block Keel cannot fully read admits nothing and names the entry that failed.
 - Admission answers "may this begin" and nothing after it. Alignment, the gates, the write guard, and Review all behave exactly as they do for work nobody triaged.
 - An unattended run may triage, author, implement, verify, push where `authorize:` permits, and open a pull request. It may not merge one: merging is where an unreviewed decision becomes the project's history, and no Keel declaration authorizes it.
 - Stopping at a material decision is the designed boundary rather than a failure. Report where the run stopped and why, and do not widen the triage policy to make it stop happening.
@@ -91,7 +91,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.23.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.24.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions

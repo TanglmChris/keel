@@ -187,6 +187,7 @@ function parseArgs(argv) {
     lensesSubcommand: null,
     lensName: null,
     labels: null,
+    issue: null,
     openspecArgs: [],
     force: false,
     projectionEvent: null,
@@ -236,6 +237,10 @@ function parseArgs(argv) {
     }
     if (arg === "--labels" && parsed.action === "triage") {
       parsed.labels = argv[++index] || "";
+      continue;
+    }
+    if (arg === "--issue" && parsed.action === "triage") {
+      parsed.issue = argv[++index] || "";
       continue;
     }
     if (arg === "openspec" && parsed.action === null && parsed.repo === null) {
@@ -559,14 +564,25 @@ function parseArgs(argv) {
     fail("lens subcommands apply only to keel lenses");
   }
   if (parsed.action === "triage") {
-    if (parsed.labels === null) {
+    // At least one attribute, rather than labels specifically: a repository
+    // that admits by issue number alone should not have to pass an empty label
+    // list to be answered. The requirement stays because Keel never fetches the
+    // issue, so a caller supplying nothing is expecting a fetch.
+    if (parsed.labels === null && parsed.issue === null) {
       fail(
-        "keel triage requires --labels; Keel never fetches the issue, so pass "
-          + "what `gh issue view --json labels` returned"
+        "keel triage requires --labels or --issue; Keel never fetches the "
+          + "issue, so pass what `gh issue view --json labels,number` returned"
       );
     }
-  } else if (parsed.labels !== null) {
-    fail("--labels applies only to keel triage");
+    if (parsed.issue !== null && !/^[1-9]\d*$/.test(parsed.issue)) {
+      fail(
+        `--issue takes an issue number as a bare number, such as --issue 62; `
+          + `got ${parsed.issue || "nothing"}`
+      );
+    }
+  } else {
+    if (parsed.labels !== null) fail("--labels applies only to keel triage");
+    if (parsed.issue !== null) fail("--issue applies only to keel triage");
   }
   if (parsed.noGuard && parsed.action !== "gate") {
     fail("--no-guard applies only to keel gate task-start");
@@ -1642,12 +1658,31 @@ function printStandingAuthorizationSurface(repo) {
 
 function printTriageSurface(repo) {
   process.stdout.write("\nUnattended triage:\n");
-  const { labels } = readTriagePolicy(repo);
+  const { labels, issues, unreadable } = readTriagePolicy(repo);
+  // An unreadable declaration is reported as broken rather than as absent. The
+  // owner who typed it needs to know their file is the reason nothing runs,
+  // which "undeclared" would tell them is not the case.
+  if (unreadable.length > 0) {
+    printDoctorLine(
+      "triage",
+      "unreadable",
+      `keel/config.yaml declares triage entries Keel could not read — `
+        + `${unreadable.join(", ")}; no issue starts work unattended until the `
+        + "declaration is corrected"
+    );
+    return;
+  }
+  // Only the declared sources are named. Naming a source with nothing under it
+  // would read as a policy that exists, on the one surface asked to answer
+  // "what may start work here" in a single line.
+  const declared = [];
+  if (labels.length > 0) declared.push(`issues labelled ${labels.join(", ")}`);
+  if (issues.length > 0) declared.push(`issues numbered ${issues.join(", ")}`);
   printDoctorLine(
     "triage",
-    labels.length > 0 ? "ok" : "none",
-    labels.length > 0
-      ? `issues labelled ${labels.join(", ")} may start work unattended; `
+    declared.length > 0 ? "ok" : "none",
+    declared.length > 0
+      ? `${declared.join(", and ")} may start work unattended; `
         + "admission decides nothing after it, and no declaration authorizes a merge"
       : "undeclared; no issue starts work unattended"
   );
@@ -1940,7 +1975,7 @@ function runAction(options) {
       .split(",")
       .map((label) => label.trim())
       .filter(Boolean);
-    const verdict = triageIssue(repo, labels);
+    const verdict = triageIssue(repo, labels, options.issue);
     const payload = {
       schemaVersion: 1,
       command: "triage",

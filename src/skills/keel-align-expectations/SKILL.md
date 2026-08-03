@@ -73,9 +73,13 @@ write guard are untouched by anything in the store.
 
 ## Unattended runs
 
-Work enters an unattended run only by the repository's declared triage policy — an issue carrying a
-label listed under `triage:` in `keel/config.yaml`, evaluated with `keel triage --labels <labels>`.
-Pass what `gh` returned; Keel never fetches the issue. Admission comes from that declaration and
+Work enters an unattended run only by the repository's declared triage policy in
+`keel/config.yaml`, which `triage:` may declare from either of two sources: a label the issue
+carries, or the issue number listed under `issues:`. Both are curated one issue at a time; the
+number keeps the owner's decision out of a field the issue's reporter reads. Evaluate with
+`keel triage --labels <labels> --issue <n>`, passing at least one of them. Pass what `gh` returned;
+Keel never fetches the issue. A `triage:` block Keel cannot fully read admits nothing and names the
+entry that failed. Admission comes from that declaration and
 never from a precedent, however much triage history the store accumulates: whether an issue becomes
 work is a materiality decision, and a precedent may not move one out of that list.
 
