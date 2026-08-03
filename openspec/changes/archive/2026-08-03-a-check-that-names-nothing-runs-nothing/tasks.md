@@ -1,0 +1,132 @@
+# Tasks
+
+## 1. Check the name before the check runs
+
+- [x] 1.1 Read scenario references out of active task contracts and fail on one the registry does not hold
+  - Covers:
+    - keel-validation-runner / A scenario name written into an active task contract is checked against the registry / An unregistered name in a regression check fails the suite
+    - keel-validation-runner / A scenario name written into an active task contract is checked against the registry / An unregistered name after `--scenario` fails the suite
+    - keel-validation-runner / A scenario name written into an active task contract is checked against the registry / Vocabulary that is not a scenario name is left alone
+    - keel-validation-runner / A scenario name written into an active task contract is checked against the registry / Archived changes are not scanned
+    - keel-validation-runner / A scenario name written into an active task contract is checked against the registry / An empty active set does not stand in for verification
+    - D1 — two recognized forms and no others
+    - D2 — active changes only
+    - D3 — a validator scenario, not a gate warning
+    - D4 — a pure extractor driven by synthetic content and by the live tree
+    - D5 — the live half carries a positive control
+    - D6 — the report names path, line, and token
+    - F1 — the two recorded occurrences and the form both were written in
+    - F2 — the fifth occurrence, never registered at any commit
+    - F3 — the naive rule flags 22 of 55 tokens
+    - F4 — the `--scenario` form measures exact
+    - F5 — the regression form measures exact when keyed on the assertion
+    - F6 — the bare word `scenario` does not measure exact
+    - F7 — both recorded occurrences would have been caught
+    - A1 — a registered name matches `^[a-z0-9][a-z0-9-]*$`
+    - A2 — the archive directory is what makes a change archived
+  - Read:
+    - scripts/validate_plugin.py
+    - openspec/changes/archive/2026-08-01-the-name-is-not-the-thing/tasks.md
+  - Touch:
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a planted unregistered name is reported in each recognized form. Against synthetic task content carrying a known name set, the extractor reports the name written in a `Verify` `M<n>` check asserting it stays green, and the name written after `--scenario`, each with the file, the 1-indexed line, and the token; and the scenario's message states both recognized forms.
+    - M2: nothing else is reported. Against the same synthetic content, a registered name in either form, and a backticked gate stage, diagnostic code, skill name, capability name, and hook event inside a `Verify` check, all produce no report; content under an `archive` directory produces no report even when it names something unregistered; and the scenario runs the extractor over this repository's real active changes with the real registry, which reports nothing.
+    - M3 (regression): `core-gates`, `expectation-slice-gates`, and `cli` stay green, so the gates, the authoring surface, and the runner's own dispatch are unchanged by a new registry entry.
+    - M4 (regression): `npm test` passes with no failing scenario and no exception, which is where the new scenario's registration is exercised by the `--all` runner.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a recognized form cannot be made exact against the archive, because a false positive is what the check exists to avoid producing.
+    - Stop if catching the class requires changing what authors must write.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b62aa60c8260cc251e65d8e1c865fa7dc3ac696ca05451689e3b36afbc978aad
+    - M1: pass. New scenario `authored-scenario-names-are-registered` in `scripts/validate_plugin.py`, run as `node scripts/run_python.js scripts/validate_plugin.py --scenario authored-scenario-names-are-registered`. Against synthetic task content with a two-name registry it reports exactly `[(8, 'gate-diagnostics', '--scenario'), (9, 'target-surface-doctor', 'stays green')]` — the two names #51 records, in the two forms they were written in, each with its 1-indexed line and which form matched. The failure path prints `AUTHORED_SCENARIO_FORMS`, which states both recognized forms.
+    - M1.red: fail. `the recognized forms did not report what they must. expected [(8, 'gate-diagnostics', '--scenario'), (9, 'target-surface-doctor', 'stays green')], found [].` This is the shipped state, not a mutation: the extractor was written as a stub returning nothing, so the red is the absence the whole change exists to fill.
+    - M1.green: pass, after the extractor read the two forms. The block tracker is what makes the second form scoped: `Evidence` ends the `Verify` block, so the fixture's Evidence line saying `` `target-surface-doctor` stays green `` is not counted twice.
+    - M2: pass, in three parts. The exact-equality assertion in M1 is also the negative: line 10's backticked `task-start`, `keel-review-checklist`, `contract-drift`, `subagent-stop`, and `keel-task-capsule` — a gate stage, a skill, a diagnostic code, a hook event, and a capability — are not reported, nor is the registered name on line 11 in either form, nor the Evidence line outside the block. A temporary repository holding one active and one archived change asserts the selection returns only the active one and that a reference planted in it is reported end to end. The live scan then runs over this repository's real active changes with the real 131-name registry and reports nothing.
+    - M2.red: fail, twice, each aimed at a different half. First, at the form rule: disabling the `stays green` guard so every backticked kebab token in a check is read as a scenario name produced `found [(8, 'gate-diagnostics', …), (9, 'target-surface-doctor', …), (10, 'task-start', …), (10, 'keel-review-checklist', …), (10, 'contract-drift', …), (10, 'subagent-stop', …), (10, 'keel-task-capsule', …)]` — F3's measurement reproduced as a failure. Second, at the selection: dropping the archive filter produced `the active change selection is wrong. An archived tasks.md must not be scanned and an active one must be.` naming both paths.
+    - M2.green: pass, after each mutation was reverted. The second red is why `active_change_tasks` walks with `rglob` rather than a one-level glob: as first written the archive was excluded by the glob's depth, the mutation aimed at the filter passed, and the assertion was proving nothing. See Findings.
+    - M3: pass. `core-gates`, `expectation-slice-gates`, and `cli` all pass unchanged, so the gates, the authoring surface, and the runner's own `--scenario` dispatch are unaffected by a new registry entry.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 131 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: the assertions run the extractor and the file selection that ship, over content whose right answer is known, and the report is checked for the line number and the form as well as the name. Both directions are covered: M1 proves the two forms report, M2 proves that this project's other kebab-case vocabulary, an Evidence line, a registered name, and an archived change all report nothing — so an implementation that flagged everything would fail rather than pass. The live scan alone would have proved nothing, which is why the temporary repository carries a planted reference: an empty active set is this repository's normal state.
+      - Scope check: `git status --short` shows `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The two aimed mutations were applied to the Touch file and reverted; the restored line is verified present at `scripts/validate_plugin.py:20375` and the suite is green after the restore.
+      - Findings: three. First: the archive-exclusion assertion was vacuous as first written. `active_change_tasks` used `changes.glob("*/tasks.md")`, which cannot reach `openspec/changes/archive/<name>/tasks.md` at all, so the `parent.name != "archive"` filter guarded a path that does not occur and the mutation aimed at it passed green. Found by aiming that mutation rather than by reading the code. The selection now walks with `rglob` so the filter is the thing that drops archived changes, and the same mutation now fails. Resolved here: M2. Second: #51's other candidate, a `task-start` warning on a `Touch` path that does not exist, is not implemented. Its two stated examples cannot both hold — a new file and a mistyped filename are the same shape on disk — and measured over the last 40 commits the base rule fires on 11 legitimately added files and the refined rule on 5, four of them the `openspec/specs/<new-capability>/spec.md` every capability-adding change creates, while neither fires on the one recorded `Touch` mistake, which named a file that exists. Shipping either would add a warning that on this repository's evidence would have been wrong every time it fired, which is user-visible gate behavior. Durable owner: https://github.com/TanglmChris/keel/issues/51, where the measurement and the recommendation are recorded. Third: a fifth occurrence of this class was found while reproducing and is not on #51 — `2026-08-01-the-name-is-not-the-thing/tasks.md:132` declares a regression check on a name `git log -S` finds at no commit, and its Evidence records that check as passing. Discard reason: `openspec/changes/archive/` holds completed records, and editing one to correct it would rewrite the history this project treats as durable authority; it is recorded as I2, as F2 in design.md, and in the changelog entry instead.
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [x] 2.1 Release 5.22.0
+  - Covers:
+    - E6 — a reader of the release notes learns which class is now caught and which is deliberately not
+    - I1, I2 — the wordings this change makes stale
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-validation-runner/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every version marker names 5.22.0
+    - M2: `keel/CHANGELOG.md` carries a 5.22.0 entry naming the class now caught, the fifth occurrence found while reproducing, the measurement that chose the two recognized forms over the wider one, and that the `Touch` path candidate is deliberately not done and where that decision is left
+    - M3: the spec delta is promoted into `openspec/specs/`, `node bin/keel.js openspec validate a-check-that-names-nothing-runs-nothing --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:fa8e27bc5029d5a3d02e229ac5524343b4ea74fb0a53baff7bb0305b9b292986
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.21.0 to 5.22.0 via `node scripts/bump_version.js 5.22.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks, the twelve `keel:openspec-surface-overlay` markers, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.22.0 - a check that names nothing runs nothing`. It names the class now caught and where it fails, quotes the fifth occurrence with the `git log -S` query that shows the name never existed and states why the archived record is left as written, gives the measurement that chose the two forms — 22 of 55 tokens flagged by the wider rule against 113/0 and 30/1 for the two that ship — and records the `Touch` path candidate as deliberately not done with its 11-and-5-against-zero firing measurement and where the decision is left.
+    - M3: pass. The delta is promoted — `A scenario name written into an active task contract is checked against the registry` and its five scenarios now sit at the end of `openspec/specs/keel-validation-runner/spec.md`. `node bin/keel.js openspec validate a-check-that-names-nothing-runs-nothing --strict` reports `Change 'a-check-that-names-nothing-runs-nothing' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 131 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check names the artifact a reader would open. M1 is the scenario that reads every marker rather than a spot check, so a marker left behind fails by name. M3 asserts the promotion through the two tools that consume the store — the change validator and the strict store scenario — rather than by reading the file back. M2 is the one prose check, and what it asserts is that the entry carries the three things a reader cannot reconstruct: the fifth occurrence, the measurement behind the two forms, and the candidate that was measured and refused.
+      - Scope check: `git status --short` shows the twenty-two Touch paths and nothing else, plus this change's own directory, which is the record-write layer. `scripts/validate_plugin.py` appears for both its 1.1 content and its version constants, and is declared in both tasks' Touch.
+      - Findings: none
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- I1: "version=5.21.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as `"version": "5.21.0"` in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I2: "M3: pass." — the Evidence of task 1.1 in `openspec/changes/archive/2026-08-01-the-name-is-not-the-thing/tasks.md`, which records a regression check as passing whose declared name at `:132` has never been registered at any commit, so that check cannot have run. Discard reason: `openspec/changes/archive/` holds completed records and evidence, and rewriting one to correct it would edit the history this project treats as durable authority. The measurement is recorded instead, as F2 in this change's design.md and in the 5.22.0 changelog entry, where a reader meets it as a finding rather than as a silent repair.
+
+## Expectation Coverage
+
+- E1: An author learns at authoring time that a scenario their contract names is not registered, without executing the check. Covered by: 1.1
+- E2: A check naming this project's other kebab-case vocabulary is not reported, because a check that is wrong more often than right stops being read. Covered by: 1.1
+- E3: The check cannot report success on the strength of having scanned nothing. Covered by: 1.1
+- E4: A scenario renamed later does not turn archived history red. Covered by: 1.1
+- E5: Whether `keel gate task-start` should warn on a `Touch` path that does not exist stays with the owner, with the measurement that both proposed criteria fire only on legitimate work. Durable owner: https://github.com/TanglmChris/keel/issues/51
+- E6: A reader of the release notes learns which class is now caught, that a fifth occurrence was found, and which candidate is deliberately not done. Covered by: 2.1
