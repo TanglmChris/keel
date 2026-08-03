@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.22.0"
-PROTOCOL_VERSION = "5.22.0"
+PACKAGE_VERSION = "5.23.0"
+PROTOCOL_VERSION = "5.23.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2147,6 +2147,256 @@ def assert_target_overlays(
     return None
 
 
+OVERLAY_ACTION_SKILLS = {
+    "propose": "openspec-propose",
+    "apply": "openspec-apply-change",
+    "archive": "openspec-archive-change",
+    "sync": "openspec-sync-specs",
+}
+
+
+def expected_overlay_surfaces(
+    repo: Path,
+    target: str,
+    codex_home: Path | None = None,
+) -> list[Path]:
+    """Every surface `openspecOverlaySurfacesForTarget` projects the overlay onto.
+
+    Written out rather than discovered, so that a scan of the tree can be
+    compared against it. A scan alone answers "the files that carry the
+    marker", which is the same answer whether the CLI covered eight surfaces
+    or none — and "none of them still carry it" is exactly what a broken
+    surface list also reports.
+    """
+    surfaces: list[Path] = []
+    for action, skill in OVERLAY_ACTION_SKILLS.items():
+        if action == "propose" and target == "opencode":
+            continue
+        if target == "claude":
+            surfaces.append(repo / f".claude/skills/{skill}/SKILL.md")
+            surfaces.append(repo / f".claude/commands/opsx/{action}.md")
+        elif target == "codex":
+            assert codex_home is not None
+            surfaces.append(repo / f".codex/skills/{skill}/SKILL.md")
+            surfaces.append(codex_home / f"prompts/opsx-{action}.md")
+        else:
+            surfaces.append(repo / f".opencode/skills/{skill}/SKILL.md")
+            surfaces.append(repo / f".opencode/commands/opsx-{action}.md")
+    return surfaces
+
+
+def files_carrying_overlay(*roots: Path) -> set[Path]:
+    found: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.md"):
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "keel:openspec-surface-overlay" in text:
+                found.add(path)
+    return found
+
+
+def validate_uninstall_removes_the_overlay_scenario() -> int:
+    """Uninstalling left Keel's instructions in files OpenSpec owns.
+
+    The overlay block is written into the `opsx` command surfaces and the
+    `openspec-*` skills, and every line of it is about Keel: the gate to run,
+    the checklist to run, how to invoke OpenSpec, where standing authorization
+    is declared. `keel --uninstall` removed the `keel:start` managed block from
+    AGENTS.md and CLAUDE.md and left all of that behind.
+
+    Measured 2026-08-03 at 5.22.0: Claude 8 of 8 surfaces, Codex 8 of 8 (four
+    of them under `CODEX_HOME/prompts/`), OpenCode 6 of 6 still carried the
+    marker after uninstall. Filed as
+    https://github.com/TanglmChris/keel/issues/50.
+    """
+    label = "uninstall-removes-the-overlay"
+    with tempfile.TemporaryDirectory(prefix="keel-uninstall-overlay-") as raw:
+        tmp = Path(raw)
+
+        for target in ("claude", "codex", "opencode"):
+            repo = tmp / target
+            repo.mkdir()
+            env = None
+            codex_home = None
+            roots = [repo]
+            if target == "codex":
+                codex_home = tmp / "codex-home"
+                env = os.environ.copy()
+                env["CODEX_HOME"] = str(codex_home)
+                roots.append(codex_home)
+
+            init = run_keel(repo, "--init", "--target", target, env=env)
+            if init.returncode != 0:
+                report(f"{label} `keel --init --target {target}` failed.")
+                report((init.stderr or init.stdout).strip())
+                return 1
+
+            # M1 positive control — the surfaces the CLI writes to are the ones
+            # this scenario is about to check, asserted before the act. Without
+            # it, a run whose surface list resolved to nothing reports the same
+            # clean tree as a run that removed everything.
+            expected = set(expected_overlay_surfaces(repo, target, codex_home))
+            carrying = files_carrying_overlay(*roots)
+            if carrying != expected:
+                report(
+                    f"{label} M1 the {target} surfaces carrying the overlay "
+                    "after init are not the ones this scenario expects, so "
+                    "nothing after this measures removal."
+                )
+                report(f"  only installed: {sorted(str(p) for p in carrying - expected)}")
+                report(f"  only expected:  {sorted(str(p) for p in expected - carrying)}")
+                return 1
+
+            # M2 — what the file held before Keel's block, kept so the whole
+            # file can be compared against it afterwards. Trailing newlines are
+            # normalized to one because the separator the install side inserted
+            # before the block goes with the block.
+            bodies = {}
+            for surface in expected:
+                text = surface.read_text(encoding="utf-8")
+                head = text[: text.index("<!-- keel:openspec-surface-overlay")]
+                bodies[surface] = head.rstrip("\n") + "\n"
+
+            uninstall = run_keel(repo, "--uninstall", "--target", target, env=env)
+            if uninstall.returncode != 0:
+                report(f"{label} M1 `keel --uninstall --target {target}` failed.")
+                report((uninstall.stderr or uninstall.stdout).strip())
+                return 1
+
+            # M1 — nothing Keel wrote is left in a file OpenSpec owns.
+            left = files_carrying_overlay(*roots)
+            if left:
+                report(
+                    f"{label} M1 uninstalling {target} left the Keel overlay "
+                    f"in {len(left)} of {len(expected)} surfaces, so the "
+                    "uninstalled repository still instructs an agent to run "
+                    "commands that were just removed."
+                )
+                for path in sorted(str(p) for p in left):
+                    report(f"  {path}")
+                return 1
+
+            # M4 — the run says how many surfaces it cleaned. An uninstall that
+            # silently does nothing and an uninstall that cleaned everything
+            # produce the same tree on a repository that was never installed.
+            if f"removed={len(expected)}" not in uninstall.stdout:
+                report(
+                    f"{label} M4 uninstalling {target} did not report the "
+                    f"{len(expected)} overlays it removed."
+                )
+                report((uninstall.stderr or uninstall.stdout).strip())
+                return 1
+
+            # M2 — the block, and only the block. The file is OpenSpec's, so a
+            # removal that took the marker and anything either side of it is a
+            # worse defect than the one being fixed, and "the marker is gone"
+            # cannot tell the two apart.
+            for surface, body in bodies.items():
+                if not surface.is_file():
+                    report(
+                        f"{label} M2 uninstalling {target} deleted {surface}, "
+                        "which is OpenSpec's file. Removing Keel's block is "
+                        "the whole obligation."
+                    )
+                    return 1
+                after = surface.read_text(encoding="utf-8")
+                if after != body:
+                    report(
+                        f"{label} M2 uninstalling {target} did not leave "
+                        f"{surface} at the bytes that preceded the overlay."
+                    )
+                    report(f"  expected {len(body)} bytes ending {body[-40:]!r}")
+                    report(f"  found    {len(after)} bytes ending {after[-40:]!r}")
+                    return 1
+
+        # M3 — a dry run plans the writes it would make. `--check` already had
+        # to learn that a Node-side step the installer's plan cannot see makes
+        # a dry run under-report a run that writes; the uninstall side has the
+        # same shape.
+        dry = tmp / "dry-run"
+        dry.mkdir()
+        dry_init = run_keel(dry, "--init", "--target", "claude")
+        if dry_init.returncode != 0:
+            report(f"{label} M3 dry-run fixture init failed.")
+            report((dry_init.stderr or dry_init.stdout).strip())
+            return 1
+        dry_expected = set(expected_overlay_surfaces(dry, "claude"))
+        dry_run = run_keel(dry, "--uninstall", "--target", "claude", "--dry-run")
+        if dry_run.returncode != 0:
+            report(f"{label} M3 `keel --uninstall --dry-run` failed.")
+            report((dry_run.stderr or dry_run.stdout).strip())
+            return 1
+        unplanned = [
+            str(surface)
+            for surface in sorted(dry_expected)
+            if str(surface) not in dry_run.stdout
+        ]
+        if unplanned:
+            report(
+                f"{label} M3 the dry run did not name {len(unplanned)} of "
+                f"{len(dry_expected)} surfaces it would clean, so the plan "
+                "under-reports a run that writes."
+            )
+            for surface in unplanned:
+                report(f"  {surface}")
+            return 1
+        if files_carrying_overlay(dry) != dry_expected:
+            report(
+                f"{label} M3 the dry run removed overlays. A dry run reports "
+                "what it would do and writes nothing."
+            )
+            return 1
+
+        # M4 — uninstalling again, and uninstalling a repository that never
+        # received the overlay, both succeed. Uninstall is something a user
+        # reaches for when something is already wrong; failing on the second
+        # attempt is the worst moment to fail.
+        again = run_keel(tmp / "claude", "--uninstall", "--target", "claude")
+        if again.returncode != 0:
+            report(
+                f"{label} M4 a second uninstall failed. Uninstall is reached "
+                "when something is already wrong; failing on the second "
+                "attempt is the worst moment to fail."
+            )
+            report((again.stderr or again.stdout).strip())
+            return 1
+        if "removed=0" not in again.stdout:
+            report(
+                f"{label} M4 a second uninstall did not report that it removed "
+                "nothing, so a run that cleaned nothing reads like a run that "
+                "cleaned everything."
+            )
+            report((again.stderr or again.stdout).strip())
+            return 1
+
+        bare = tmp / "install-only"
+        bare.mkdir()
+        bare_install = run_keel(bare, "--install", "--target", "claude")
+        if bare_install.returncode != 0:
+            report(f"{label} M4 install-only fixture failed.")
+            report((bare_install.stderr or bare_install.stdout).strip())
+            return 1
+        bare_uninstall = run_keel(bare, "--uninstall", "--target", "claude")
+        if bare_uninstall.returncode != 0:
+            report(
+                f"{label} M4 uninstalling a repository whose OpenSpec surfaces "
+                "were never created failed. An absent surface is nothing to "
+                "remove, not an error."
+            )
+            report((bare_uninstall.stderr or bare_uninstall.stdout).strip())
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_sync_surface_overlay_scenario() -> int:
     """The surface that performs a gated action never named its gate.
 
@@ -2253,11 +2503,11 @@ def validate_sync_surface_overlay_scenario() -> int:
                 )
                 return 1
 
-            # Uninstall is deliberately not asserted here. It does not strip
-            # the overlay from any surface — measured on archive as well as
-            # sync — so an assertion would be about a contract that has never
-            # existed rather than about this change. Filed as
-            # https://github.com/TanglmChris/keel/issues/50.
+            # Uninstall is asserted by `uninstall-removes-the-overlay`, which
+            # covers every surface on every target rather than sync alone. It
+            # stripped nothing from any surface when this scenario was written;
+            # that was #50, and the assertion lives there because the contract
+            # is about all four actions, not about this one.
 
     # M4 — covering the surface did not widen what may be standing-authorized.
     config_doc = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
@@ -20507,6 +20757,10 @@ SCENARIOS: tuple = (
     ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("uninstall", validate_uninstall_scenario),
+    (
+        "uninstall-removes-the-overlay",
+        validate_uninstall_removes_the_overlay_scenario,
+    ),
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     (

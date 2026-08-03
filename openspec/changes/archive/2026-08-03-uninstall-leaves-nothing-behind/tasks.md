@@ -1,0 +1,139 @@
+# Tasks
+
+## 1. Take back what installing wrote
+
+- [x] 1.1 Remove the OpenSpec surface overlay on uninstall, bounded to the block
+  - Covers:
+    - keel-openspec-surface-overlay / Uninstalling removes the overlay it installed / Uninstalling removes the overlay from every surface installing wrote it to
+    - keel-openspec-surface-overlay / Uninstalling removes the overlay it installed / The surrounding OpenSpec content survives
+    - keel-openspec-surface-overlay / Uninstalling removes the overlay it installed / A dry run reports the removal without performing it
+    - keel-openspec-surface-overlay / Uninstalling removes the overlay it installed / Uninstalling twice is not an error
+    - D1 — removal lives beside the write and shares its surface list
+    - D2 — the block and the separator installing inserted, and nothing else
+    - D3 — `--clear` behaves as `--uninstall`
+    - D4 — a dry run reports what it would remove and writes nothing
+    - D5 — an absent overlay or absent file is counted, not an error
+    - D6 — the scenario carries a positive control before the act
+    - D7 — content preservation is asserted byte-for-byte, not by the marker's absence
+    - F1 — 8/8, 8/8 and 6/6 surfaces keep the overlay after uninstall at 5.22.0
+    - F2 — the write path is Node and the uninstall path is Python, and they never meet
+    - F6 — the file survives its block's removal, as `remove_managed_block` already does
+    - F7 — the surface count is target-dependent and has grown
+    - A1 — the Codex prompt surfaces outside the repository are in bounds
+    - A2 — a second block in one file is removed rather than half-removed
+  - Read:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: uninstall clears every surface, on every target. A temporary repository is installed for claude, codex (with `CODEX_HOME` pointed at a temporary directory), and opencode; each surface `openspecOverlaySurfacesForTarget` names is asserted to carry the marker first — the positive control, so a run that found no surfaces is distinguishable from a run that cleaned them — and after `keel --uninstall --target <t>` no surface carries it, including the Codex prompts outside the repository.
+    - M2: the surrounding OpenSpec content survives. For every surface, the whole file after uninstall equals the bytes that preceded the overlay before it, and the file still exists.
+    - M3: `keel --uninstall --dry-run` names each surface it would clean, reports a non-zero removal count, and every surface still carries its overlay afterwards.
+    - M4: uninstalling twice succeeds. A second `keel --uninstall` on the already-cleaned repository exits 0 and reports nothing removed, and so does an uninstall of a repository whose surface files were never created.
+    - M5 (regression): `openspec-surface-overlay`, `sync-surface-overlay`, and `uninstall` stay green, so the install side, the sync surface, and the installer's own uninstall plan are unchanged.
+    - M6 (regression): `npm test` passes with no failing scenario and no exception, which is where the new scenario's registration is exercised by the `--all` runner.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if removing the block cannot be bounded to the block — if any surface's surrounding content changes, the removal is reaching into a file Keel does not own and the trade is the owner's.
+    - Stop if the removal needs a second surface list, because two lists drifting apart is the defect class this change is inside.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:8628b9a9eac3861d0fabfef02878819835c3a3545a54e381ea80bbf811303fe3
+    - M1: pass. New scenario `uninstall-removes-the-overlay` in `scripts/validate_plugin.py`, run as `node scripts/run_python.js scripts/validate_plugin.py --scenario uninstall-removes-the-overlay`. For claude, codex (with `CODEX_HOME` in a temporary directory), and opencode it installs a repository, asserts the set of files carrying the marker is exactly the 8, 8, and 6 surfaces `expected_overlay_surfaces` names — the positive control, and also the check that keeps that list and `openspecOverlaySurfacesForTarget` from drifting apart, since a mismatch in either direction fails by path — then uninstalls and asserts no file under the repository or the Codex home carries the marker.
+    - M1.red: fail. `M1 uninstalling claude left the Keel overlay in 8 of 8 surfaces, so the uninstalled repository still instructs an agent to run commands that were just removed.` This is the shipped state, not a mutation, and the positive control passed in the same run — so the red is about removal and not about a surface list that resolved to nothing.
+    - M1.green: pass, after `removeOpenSpecSurfaceOverlay` was added to `bin/keel.js` and the `clear`/`uninstall` dispatch called it once the installer returned 0.
+    - M2: pass. Before uninstalling, the scenario keeps each surface's bytes up to the overlay start marker with trailing newlines normalized to one; afterwards it asserts the file still exists and equals those bytes exactly. A removal that took the marker and any OpenSpec content either side of it fails here and passes a marker check.
+    - M2.red: fail. `M2 uninstalling claude did not leave …/openspec-archive-change/SKILL.md at the bytes that preceded the overlay. expected 4963 bytes ending 'w the combined summary before prompting\n' / found 4965 bytes ending 'the combined summary before prompting\n\n\n'.` The first implementation removed only the marked span, leaving the blank line the merge inserts before it — two bytes of Keel's own residue in a file OpenSpec owns.
+    - M2.green: pass, after `OPENSPEC_SURFACE_OVERLAY_REMOVE_RE` took the newlines before the block and the one closing it, with the replacement putting a single newline back and none at offset 0.
+    - M3: pass. A fourth fixture is installed and `keel --uninstall --target claude --dry-run` is asserted to name all 8 surface paths in stdout and to leave every one of them still carrying the marker.
+    - M3.red: fail. `M3 the dry run did not name 8 of 8 surfaces it would clean, so the plan under-reports a run that writes`, listing all eight paths — and the run had removed them, because the first implementation had no dry-run branch at all.
+    - M3.green: pass, after the removal honored `dryRun` by printing `keel: would remove OpenSpec <action> overlay from <path>` instead of writing.
+    - M4: pass, in two halves. A second `keel --uninstall` on the already-cleaned repository exits 0 and reports `removed=0`, and each first uninstall is asserted to report `removed=<the number of surfaces>`. An `--install`-only repository, which never receives the OpenSpec surfaces, uninstalls successfully.
+    - M4.red: fail, twice, each aimed at a different half. First `M4 uninstalling claude did not report the 8 overlays it removed` — there was no summary line, so a run that cleaned everything and a run that looked at nothing printed the same thing. Then, after the counters were added, `M4 uninstalling a repository whose OpenSpec surfaces were never created failed` with `Error: ENOENT: no such file or directory, open '…/install-only/.claude/skills/openspec-propose/SKILL.md'` — the loop read every declared surface without asking whether it was there.
+    - M4.green: pass, after the summary line was printed unconditionally (including `removed=0`) and a missing surface was counted rather than read. Measured end to end on a scratch repository: `--init` reports `refreshed=8`, the first `--uninstall` reports `removed=8 absent=0 missing=0`, the second reports `removed=0 absent=8 missing=0`.
+    - M5: pass. `openspec-surface-overlay`, `sync-surface-overlay`, and `uninstall` all pass unchanged, so the install side, the sync surface, and the Python installer's own uninstall plan are unaffected.
+    - M6: pass. `npm test` reports `validation --all passed: baseline plus 132 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check runs the shipped CLI end to end — `keel --init` then `keel --uninstall` against real temporary repositories on all three targets — and reads the resulting files, not the functions that wrote them. Both directions are covered: M1 proves the overlay is gone, M2 proves nothing else went with it, and the two are independent, since an implementation that emptied every surface would pass M1 and fail M2. The positive control before each act is what separates "removal worked" from "the surface list resolved to nothing", which are the same green otherwise. M3 and M4 cover the paths a user actually reaches for — a plan before the act, and a second attempt after one.
+      - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The correction to the stale comment in `validate_sync_surface_overlay_scenario` is inside the same Touch file and is I1.
+      - Findings: two. First: `refreshOpenSpecSurfaceOverlay`'s summary line still writes the literal `apply/archive` while covering apply, archive, and sync — the exact drift `overlayActionLabel()` was introduced to end, left behind in one of the two places when `--doctor` was converted, and the one with no assertion watching it. Measured on one repository back to back: `--init` prints `OpenSpec apply/archive overlay refreshed=8` and `--uninstall` prints `OpenSpec apply/archive/sync overlay removed=8`. It changes `--init`/`--install`/`--check` output text, which is not this task's Acceptance. Durable owner: https://github.com/TanglmChris/keel/issues/75. Second: `assertion-shape-count` failed on the first full run because M4's second-uninstall check guarded the exit code and the reported count behind one message, so a non-zero exit would have been reported as a missing count. The check was split so each failure carries its own message. Resolved here: M6, the run in which `assertion-shape-count` passes at 75 sites.
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [x] 2.1 Release 5.23.0
+  - Covers:
+    - E5 — a reader of the release notes learns that uninstall now cleans the OpenSpec surfaces and what it deliberately does not restore
+    - I1, I2 — the wordings this change makes stale
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every version marker names 5.23.0
+    - M2: `keel/CHANGELOG.md` carries a 5.23.0 entry naming what uninstall now removes, the measurement it was found by, the boundary it does not cross, and that `--clear` shares the behavior
+    - M3: the spec delta is promoted into `openspec/specs/`, `node bin/keel.js openspec validate uninstall-leaves-nothing-behind --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:1f08e6428c2e70bc489cde99001326398b16da8617543432d35c2922d7f5b46c
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.22.0 to 5.23.0 via `node scripts/bump_version.js 5.23.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks, the twelve `keel:openspec-surface-overlay` markers, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.23.0 - uninstall leaves nothing behind`. It names what is now removed and on which targets including the Codex prompts outside the repository, the 8/8, 8/8, 6/6 measurement it was found by and the fact that the same runs did clean `AGENTS.md` and `CLAUDE.md`, the byte-for-byte boundary and the blank-line defect that boundary caught, the `refreshed=8` / `removed=8` / `removed=0 absent=8` counts, what uninstall deliberately does not restore, and #75 as the adjacent drift found and filed rather than folded in. `--clear` is named in the first bullet as sharing the behavior.
+    - M3: pass. The delta is promoted — `Uninstalling removes the overlay it installed` and its four scenarios now sit at the end of `openspec/specs/keel-openspec-surface-overlay/spec.md`. `node bin/keel.js openspec validate uninstall-leaves-nothing-behind --strict` reports `Change 'uninstall-leaves-nothing-behind' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 132 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check names the artifact a reader would open. M1 is the scenario that reads every marker rather than a spot check, so one left at 5.22.0 fails by name. M3 asserts the promotion through the two tools that consume the store — the change validator and the strict store scenario — rather than by reading the file back. M2 is the one prose check, and what it asserts is that the entry carries what a reader cannot reconstruct from the diff: the pre-fix measurement on all three targets, why "the marker is gone" was not enough to assert, and the adjacent defect that was measured and deliberately left out.
+      - Scope check: `git status --short` shows the twenty-three Touch paths of tasks 1.1 and 2.1 and nothing else, plus this change's own directory, which is the record-write layer. `scripts/validate_plugin.py` appears for both its 1.1 content and its version constants and is declared in both tasks' Touch. Note the gate's limit here: `bin/keel.js` and `scripts/validate_plugin.py` were already dirty when 2.1 started, so deterministic attribution cannot speak to them and this Review is their scope evidence — 2.1's own writes to `scripts/validate_plugin.py` are the two version constants, which is what `bump_version.js` reported changing and what M1 verifies.
+      - Findings: none
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- I1: "Uninstall is deliberately not asserted here. It does not strip the overlay from any surface" — the comment closing `validate_sync_surface_overlay_scenario` in `scripts/validate_plugin.py`, which records the absence as deliberate and points at issue #50. Updated by: 1.1
+- I2: "version=5.22.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as `"version": "5.22.0"` in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I3: "`keel --uninstall` leaves the overlay block on every OpenSpec surface (#50)" — the 5.22.0 entry in `keel/CHANGELOG.md`. Discard reason: that entry records what was true at 5.22.0, which it still is; a changelog states what each release did, and editing a shipped entry to match later behavior would make the history unreadable as history.
+
+## Expectation Coverage
+
+- E1: Uninstalling Keel leaves no Keel instruction behind in a file OpenSpec owns, on any target. Covered by: 1.1
+- E2: The removal cannot damage the file it edits — the surrounding OpenSpec content is preserved exactly and the file is never deleted or emptied. Covered by: 1.1
+- E3: A surface added to the install side is cleaned by the uninstall side without anyone remembering to add it twice. Covered by: 1.1
+- E4: A dry run reports the writes it would make, and uninstalling twice is not an error. Covered by: 1.1
+- E5: A reader of the release notes learns that uninstall now cleans the OpenSpec surfaces, and what it deliberately does not restore. Covered by: 2.1

@@ -1188,6 +1188,70 @@ function mergeOpenSpecSurfaceOverlay(content, action) {
   return `${content}${separator}${overlay}`;
 }
 
+// The block plus the whitespace the merge above inserted in front of it, and
+// nothing else. Removing only the marked span leaves the separator behind, and
+// the file it is left in belongs to OpenSpec — so the match takes the newlines
+// immediately before the block and the one that closes it, and the replacement
+// puts a single newline back. A blank line anywhere else in the file is not
+// this code's business.
+const OPENSPEC_SURFACE_OVERLAY_REMOVE_RE =
+  /\n*<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?<!--\s*keel:openspec-surface-overlay:end\s*-->[ \t]*\n?/;
+
+function stripOpenSpecSurfaceOverlay(content) {
+  let next = content;
+  // A loop rather than one replace: the merge only ever writes one block, so a
+  // file carrying two is already unexpected, and leaving one of them behind is
+  // the outcome this is cheapest to rule out.
+  while (OPENSPEC_SURFACE_OVERLAY_RE.test(next)) {
+    next = next.replace(OPENSPEC_SURFACE_OVERLAY_REMOVE_RE, (match, offset) =>
+      offset === 0 ? "" : "\n"
+    );
+  }
+  return next;
+}
+
+function removeOpenSpecSurfaceOverlay(repo, target, options = {}) {
+  const counts = {
+    removed: 0,
+    absent: 0,
+    missing: 0,
+  };
+
+  for (const surface of openspecOverlaySurfacesForTarget(target, repo)) {
+    // `keel --install` without `--init` never creates the OpenSpec surfaces,
+    // so a repository can legitimately reach uninstall with none of them.
+    if (!fs.existsSync(surface.path)) {
+      counts.missing += 1;
+      continue;
+    }
+    const content = fs.readFileSync(surface.path, "utf8");
+    const next = stripOpenSpecSurfaceOverlay(content);
+    if (next === content) {
+      counts.absent += 1;
+      continue;
+    }
+    counts.removed += 1;
+    if (options.dryRun) {
+      process.stdout.write(
+        `keel: would remove OpenSpec ${surface.action} overlay from ${surface.path}\n`
+      );
+      continue;
+    }
+    fs.writeFileSync(surface.path, next, "utf8");
+  }
+
+  // Always reported, including `removed=0`: an uninstall that found nothing to
+  // clean and an uninstall that never looked leave the same tree behind, and
+  // the second one is the defect this exists to close.
+  process.stdout.write(
+    `keel: ${options.dryRun ? "would remove " : ""}OpenSpec ${overlayActionLabel()} `
+      + `overlay removed=${counts.removed} absent=${counts.absent} `
+      + `missing=${counts.missing}\n`
+  );
+
+  return { status: 0, ...counts };
+}
+
 function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
   const surfaces = openspecOverlaySurfacesForTarget(target, repo);
   const counts = {
@@ -2004,7 +2068,18 @@ function runAction(options) {
   }
 
   if (options.action === "clear" || options.action === "uninstall") {
-    return runPython(INSTALL_SCRIPT, installerArgs(options, ["--uninstall"]));
+    const uninstallStatus = runPython(
+      INSTALL_SCRIPT,
+      installerArgs(options, ["--uninstall"])
+    );
+    if (uninstallStatus !== 0) {
+      return uninstallStatus;
+    }
+    return removeOpenSpecSurfaceOverlay(
+      path.resolve(options.repo || process.cwd()),
+      options.target,
+      { dryRun: options.dryRun }
+    ).status;
   }
 
   if (options.action === "check") {
