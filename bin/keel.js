@@ -1303,7 +1303,7 @@ function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
 
   if (counts.refreshed > 0 || counts.current > 0) {
     process.stdout.write(
-      `keel: ${options.dryRun ? "would refresh " : ""}OpenSpec apply/archive `
+      `keel: ${options.dryRun ? "would refresh " : ""}OpenSpec ${overlayActionLabel()} `
         + `overlay refreshed=${counts.refreshed} current=${counts.current} `
         + `missing=${counts.missing}\n`
     );
