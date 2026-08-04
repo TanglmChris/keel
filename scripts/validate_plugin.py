@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.28.0"
-PROTOCOL_VERSION = "5.28.0"
+PACKAGE_VERSION = "5.29.0"
+PROTOCOL_VERSION = "5.29.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -21501,6 +21501,263 @@ def validate_decimal_runs_are_not_hash_shaped_scenario() -> int:
     return 0
 
 
+def _tasks_semantics_probe(raw: str):
+    """Install into `raw` and return `check(body) -> (state, errors)`.
+
+    Both scenarios below ask the same question of `keel --check` — which lines
+    of one active `tasks.md` it refuses — so they share the fixture rather than
+    each growing their own copy of it. The caller owns the temporary directory,
+    so a failed install is reported by the caller and cleaned up by its `with`.
+    """
+    repo = (Path(raw) / "repo").resolve()
+    repo.mkdir()
+    install = run_keel(repo, "--install")
+    if install.returncode != 0:
+        return None, (install.stderr or install.stdout).strip()
+
+    tasks_path = repo / "openspec/changes/reading-lines/tasks.md"
+
+    def check(body: str):
+        write_text(
+            tasks_path,
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+            "## Tasks\n\n"
+            f"{body}\n"
+            "## Workflow Notes\n\n- None.\n",
+        )
+        result = run_keel(repo, "--check")
+        if "keel state: ok" in result.stdout:
+            state = "ok"
+        elif "keel state: failed" in result.stdout:
+            state = "failed"
+        else:
+            state = "unreported"
+        errors = [
+            out for out in result.stdout.splitlines() if out.startswith("state-error")
+        ]
+        return state, errors
+
+    return check, None
+
+
+def validate_a_context_word_is_a_word_scenario() -> int:
+    """Issue #65 §1: `remaining` supplied the word `main`.
+
+    The context words that turn a hash-shaped token into a recorded commit
+    identifier were matched anywhere on the line, so `remaining`, `heading`,
+    `domain`, and `maintains` each supplied one. Four lines in this
+    repository's own history are refused this way, and every hex token on
+    them is a `sha256:` contract anchor rather than a commit identifier.
+
+    The boundary form is the owner's decision on #65 and keeps the inflections
+    an author actually writes. Dropping `committed` and `hashes` would have
+    been the quieter change and would have cost four real refusals.
+    """
+    label = "a-context-word-is-a-word"
+    with tempfile.TemporaryDirectory(prefix="keel-context-word-") as raw:
+        check, failure = _tasks_semantics_probe(raw)
+        if failure is not None:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report(failure)
+            return 1
+
+        # A word is not the words inside it. Each carries a hash-shaped token so
+        # that the host word is the only thing under test.
+        for host in ("remaining", "heading", "domain", "maintains"):
+            state, errors = check(
+                "- [x] A1 implementation\n"
+                f"  - Evidence:\n"
+                f"    - M1: pass — 0 anchors {host}, recorded at sha256:01b9e740ab.\n"
+            )
+            if state == "unreported":
+                report(f"{label}: keel --check reported no state at all on `{host}`.")
+                return 1
+            if state != "ok":
+                report(
+                    f"{label}: `{host}` was read as a context word. It contains "
+                    "one, which is not the same thing, and the token beside it "
+                    "here is a contract anchor. The author's only repair is to "
+                    "reword a line that was correct."
+                )
+                for error in errors:
+                    report(f"  {error}")
+                return 1
+
+        # The control. A check that passes because nothing is refused any more
+        # is indistinguishable from this one, so the inflections the owner
+        # decided to keep are asserted in the same repository.
+        for host in ("commit", "commits", "committed", "committing", "hashes"):
+            state, errors = check(
+                "- [x] A1 implementation\n"
+                f"  - Evidence:\n"
+                f"    - M1: pass — {host} a1b2c3d4e5f6 verified.\n"
+            )
+            if state == "unreported":
+                report(f"{label}: keel --check reported no state at all on `{host}`.")
+                return 1
+            if state != "failed":
+                report(
+                    f"{label}: an identifier beside `{host}` was accepted. That "
+                    "word names the act the rule exists to catch, and requiring "
+                    "a boundary must not stop it counting."
+                )
+                return 1
+            if not [error for error in errors if "tasks.md:" in error]:
+                report(f"{label}: the refusal on `{host}` named no line.")
+                return 1
+
+        # The Chinese words carry no boundary, because none is definable
+        # between two word characters. Asserted here rather than reasoned
+        # about: `\b提交\b` matches none of these.
+        for recorded in ("已提交", "未提交", "该任务尚未提交，等待评审"):
+            state, _ = check(
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                f"    - M1: {recorded}。\n"
+            )
+            if state == "unreported":
+                report(
+                    f"{label}: keel --check reported no state at all on "
+                    f"`{recorded}`. This is not a verdict about the fixture — "
+                    "the check did not reach the point of having one."
+                )
+                return 1
+            if state != "failed":
+                report(
+                    f"{label}: recorded state written as `{recorded}` was "
+                    "accepted. A word boundary around a Chinese context word "
+                    "disables it silently, which is why it does not carry one."
+                )
+                return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_covers_citation_is_not_a_record_scenario() -> int:
+    """Issue #65 §4: the rule refused a tasks.md that cited it.
+
+    A `Covers` entry names a requirement that must exist in a spec. When the
+    requirement is about the state this check forbids — dirty worktrees,
+    recorded identifiers — citing it by name reads to the check as recording
+    it. The repair available to the author is to rename the requirement, which
+    is what 5.19.0 did.
+
+    Eleven lines across four changes in this repository's history sit in this
+    shape, eight of them citing requirements published in `openspec/specs/`.
+    """
+    label = "a-covers-citation-is-not-a-record"
+    # Two requirement names published in this repository today. Neither is
+    # invented for the fixture; both are cited by archived changes.
+    cited = (
+        "keel-core-gates / Dirty-worktree attribution is conservative"
+        " / A path already dirty at task start is not attributed",
+        "keel-stateless-continuity / A recorded commit hash is recognized by"
+        " what makes it one / A decimal run is not a hash",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-covers-citation-") as raw:
+        check, failure = _tasks_semantics_probe(raw)
+        if failure is not None:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report(failure)
+            return 1
+
+        state, errors = check(
+            "- [x] A1 implementation\n"
+            "  - Covers:\n"
+            + "".join(f"    - {entry}\n" for entry in cited)
+            + "  - Touch:\n    - src/a.js\n"
+        )
+        if state == "unreported":
+            report(f"{label}: keel --check reported no state at all on a citation.")
+            return 1
+        if state != "ok":
+            report(
+                f"{label}: a Covers citation was read as a record of the state "
+                "it names. The entry is a reference to a requirement that has "
+                "to exist elsewhere, and the only repair open to the author is "
+                "to rename that requirement."
+            )
+            for error in errors:
+                report(f"  {error}")
+            return 1
+
+        # The control, and the boundary. The same wording outside the field is
+        # a statement, and is still refused — otherwise this scenario would
+        # pass just as well against a check that had stopped running.
+        state, errors = check(
+            "- [x] A1 implementation\n"
+            "  - Covers:\n"
+            + "".join(f"    - {entry}\n" for entry in cited)
+            + "  - Evidence:\n"
+            "    - M1: pass — the worktree was dirty when the task started.\n"
+        )
+        if state == "unreported":
+            report(
+                f"{label}: keel --check reported no state at all while reading "
+                "the wording outside the field."
+            )
+            return 1
+        if state != "failed":
+            report(
+                f"{label}: the same wording in an Evidence line was accepted. "
+                "The exemption is the Covers field, not the file that contains "
+                "one."
+            )
+            return 1
+        named = [error for error in errors if "tasks.md:" in error]
+        if not named:
+            report(f"{label}: the refusal outside the field named no line.")
+            return 1
+        # The citations are the two lines under the label, and each carries
+        # wording this rule refuses; naming either of them means the exemption
+        # did not hold while the Evidence line was being refused.
+        if any(f"tasks.md:{cited_line}:" in error
+               for error in named for cited_line in (11, 12)):
+            report(
+                f"{label}: the refusal named a citation line. The rule fired "
+                "correctly on the Evidence line and wrongly on the field, so "
+                "what is wrong is the field's bound."
+            )
+            for error in named:
+                report(f"  {error}")
+            return 1
+
+        # The bound ends where the next field begins. A `Covers` field that
+        # ran to the end of the task would swallow the Evidence line above and
+        # make that control vacuous, so the end of the field is asserted from
+        # the other side too.
+        state, _ = check(
+            "- [x] A1 implementation\n"
+            "  - Covers:\n"
+            f"    - {cited[0]}\n"
+            "  - Verify:\n"
+            "    - M1: the change is 已提交 and needs no further work.\n"
+        )
+        if state == "unreported":
+            report(
+                f"{label}: keel --check reported no state at all while reading "
+                "the field that follows a Covers field."
+            )
+            return 1
+        if state != "failed":
+            report(
+                f"{label}: a Verify line following a Covers field was exempted. "
+                "The field ends at the next field label."
+            )
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if "SCENARIOS" not in globals():
         report("validation-runner: the scenario registry is missing.")
@@ -22080,6 +22337,11 @@ SCENARIOS: tuple = (
     (
         "decimal-runs-are-not-hash-shaped",
         validate_decimal_runs_are_not_hash_shaped_scenario,
+    ),
+    ("a-context-word-is-a-word", validate_a_context_word_is_a_word_scenario),
+    (
+        "a-covers-citation-is-not-a-record",
+        validate_a_covers_citation_is_not_a_record_scenario,
     ),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
