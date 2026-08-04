@@ -349,11 +349,38 @@ function evidenceValue(task, label) {
   return match ? match[1] : "";
 }
 
+// A Review entry is the text the author wrote under its label, not its first
+// line. `parseTasks()` already gathers the whole Evidence body, so the
+// continuation lines arrive here; a line-anchored `(.*)` used to drop them
+// before any check saw them. That failed in both directions: a `Findings` whose
+// `Durable owner:` sat on the fourth line was refused with the owner present
+// and the path existing, and a `Findings` reading `none` above three lines of
+// real findings passed, because the check tested the word and never saw them
+// (issue #49).
+//
+// The entry ends at the next entry at the same or shallower indentation.
+// Without that bound `Findings` — always the last of the four — would run to
+// the end of Evidence and read `- Blocker:` as its own text, trading a
+// fail-closed defect for a fail-open one. A deeper-indented `- ` line is a
+// continuation, which is what makes a Findings written as a sub-list one entry.
+const REVIEW_SIBLING = /^(\s*)-\s*[^\s:][^:\n]*:/;
+
 function reviewValue(task, label) {
-  const match = field(task, "Evidence").match(
-    new RegExp(`^\\s*-\\s*${label}:\\s*(.*)$`, "im")
-  );
-  return match ? match[1].trim() : "";
+  const lines = field(task, "Evidence").split(/\r?\n/);
+  const opener = new RegExp(`^(\\s*)-\\s*${label}:\\s*(.*)$`, "i");
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(opener);
+    if (!match) continue;
+    const indent = match[1].length;
+    const value = [match[2]];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const sibling = lines[cursor].match(REVIEW_SIBLING);
+      if (sibling && sibling[1].length <= indent) break;
+      value.push(lines[cursor]);
+    }
+    return value.join("\n").trim();
+  }
+  return "";
 }
 
 // The durable-owner forms that are pure shape checks, shared by the Review
@@ -424,13 +451,15 @@ function durableOwnerVerdict(repo, value) {
 // same third slot since it shipped, where `Updated by:` names tasks of this
 // change.
 // The capture is the single token after the marker, not the rest of the line.
-// Findings is one line of free prose that normally holds several findings with
-// different dispositions, so a capture reaching to the newline swallows every
-// marker after it — a block recording one fix and one tracker-owned follow-up
-// was refused because the *follow-up's* URL was read as the *fix's* evidence.
-// Measured on this change's own task 1.3. The match is global because each
-// resolved claim owes its own evidence; checking only the first would let a
-// second one assert itself for free.
+// Findings is free prose that normally holds several findings with different
+// dispositions, so a capture reaching to the newline swallows every marker
+// after it — a block recording one fix and one tracker-owned follow-up was
+// refused because the *follow-up's* URL was read as the *fix's* evidence.
+// Measured on this change's own task 1.3. That block used to be one line and
+// may now wrap across several, which widens what a greedy capture would
+// swallow and changes nothing about why this one is narrow. The match is
+// global because each resolved claim owes its own evidence; checking only the
+// first would let a second one assert itself for free.
 const RESOLVED_HERE = /\bresolved here\s*:[ \t]*(\S*)/gi;
 
 // Resolution evidence is deliberately narrower than a durable owner. An

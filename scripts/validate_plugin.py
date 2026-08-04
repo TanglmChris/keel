@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.27.0"
-PROTOCOL_VERSION = "5.27.0"
+PACKAGE_VERSION = "5.28.0"
+PROTOCOL_VERSION = "5.28.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9439,12 +9439,13 @@ def validate_findings_resolved_here_scenario() -> int:
             return 1
 
         # A Findings block normally holds several findings with different
-        # dispositions, all in one line of free prose. The evidence taken from
-        # a marker is what follows *that* marker, not the rest of the line —
-        # otherwise the first `Resolved here:` swallows every disposition after
-        # it, and a block mixing a fix with a tracker-owned follow-up is
-        # refused on the follow-up's URL. Measured on this change's own task
-        # 1.3 before it was fixed.
+        # dispositions, written as free prose on one line or wrapped across
+        # several — `review-entry-extent` covers the wrapped shape. The
+        # evidence taken from a marker is what follows *that* marker, not the
+        # rest of the text — otherwise the first `Resolved here:` swallows
+        # every disposition after it, and a block mixing a fix with a
+        # tracker-owned follow-up is refused on the follow-up's URL. Measured
+        # on this change's own task 1.3 before it was fixed.
         mixed = complete(
             "the counter's own line arithmetic was wrong. Resolved here: M1. "
             "Second, nothing warned that the CLI was four minors old. "
@@ -9527,6 +9528,268 @@ def validate_findings_resolved_here_scenario() -> int:
         report("findings-resolved-here: the scenario registry does not include it.")
         return 1
     report("findings-resolved-here scenario passed.")
+    return 0
+
+
+# A task whose Review entries are supplied verbatim, so a fixture can wrap one
+# across lines. Everything outside the Review block is the complete, checked
+# shape `tracker_owner_tasks` uses; only the four entries and the sibling below
+# them vary.
+def review_extent_tasks(review: str, blocker: str = "none") -> str:
+    return (
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+        "## Expectation Coverage\n\n"
+        "- E1:\n"
+        "  - Covered by: 1.1\n\n"
+        "## 1. Work\n\n"
+        "- [x] 1.1 Complete behavior\n"
+        "  - Owner: keel-agent\n"
+        "  - Mode: implementation\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Commands:\n"
+        "    - M1: node test.js\n"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Coupling: none\n"
+        "  - Candidate Boundary:\n"
+        "    - One candidate.\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: passed\n"
+        "    - Review:\n"
+        f"{review}"
+        f"    - Blocker: {blocker}\n"
+        "  - Stop if:\n"
+        "    - Scope expands.\n"
+        "  - Report:\n"
+        "    - Summary\n"
+    )
+
+
+def validate_review_entry_extent_scenario() -> int:
+    """A Review entry is the text the author wrote under its label.
+
+    Issue #49's first supplement. `reviewValue()` matched each Review entry
+    with a line-anchored regex, so an entry that wrapped was judged by its
+    first line and every continuation line was discarded before any check saw
+    it. A `Findings` recording its `Durable owner:` on the fourth line was
+    refused with the owner present, the path existing, and the form correct.
+
+    The same truncation failed open, which #49 does not report: a `Findings`
+    reading `none` on its first line and recording an unowned finding below it
+    produced no problem at all, because the check tested `none` and never saw
+    the rest.
+
+    Both directions are driven through `keel gate task-complete` on real
+    repositories, and the widened read is bounded at the sibling entry so that
+    one entry cannot be satisfied by another's text.
+    """
+    label = "review-entry-extent"
+    owner_path = "openspec/changes/demo/tasks.md"
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-review-extent-", ignore_cleanup_errors=True
+    ) as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        def complete(review: str, blocker: str = "none") -> dict | None:
+            write_text(tasks, review_extent_tasks(review, blocker))
+            if not record_contract_anchor(repo, "demo"):
+                return None
+            result = run_keel(
+                repo, "gate", "task-complete", ".",
+                "--change", "demo", "--task", "1.1", "--json",
+            )
+            return json.loads(result.stdout) if result.stdout.strip() else {}
+
+        def codes(payload: dict) -> list[str]:
+            return sorted(
+                item.get("code", "") for item in payload.get("problems", [])
+            )
+
+        def owner_problems(payload: dict) -> list[str]:
+            return [
+                item.get("message", "")
+                for item in payload.get("problems", [])
+                if item.get("code") == "finding-owner"
+            ]
+
+        def readable(payload: dict | None, fixture: str) -> bool:
+            if payload is None:
+                report(
+                    f"{label} could not record a Contract anchor for {fixture}: "
+                    "task-start refused the fixture, so task-complete never ran "
+                    "against it."
+                )
+                return False
+            if not payload:
+                report(
+                    f"{label} got no JSON from task-complete for {fixture}, so "
+                    "there was no verdict to read rather than a verdict that "
+                    "was wrong."
+                )
+                return False
+            return True
+
+        def review_block(findings: str, status: str = "pass") -> str:
+            return (
+                f"      - Status: {status}\n"
+                "      - Acceptance check: reviewed\n"
+                "      - Scope check: reviewed\n"
+                f"{findings}"
+            )
+
+        # M1 — the reported defect. The same finding is written twice: wrapped
+        # across four indented lines with the owner on the last, and joined
+        # onto one line with no word changed. The pair is compared as well as
+        # pinned absolutely, because a comparison alone passes when both forms
+        # are refused identically.
+        wrapped_owner = (
+            "      - Findings: two behaviors of state sync turned up in "
+            "measurement.\n"
+            "        First, the watcher fires per property rather than once "
+            "per object.\n"
+            "        Second, a class-typed property does not update on the "
+            "child side.\n"
+            f"        Durable owner: {owner_path}\n"
+        )
+        joined_owner = (
+            "      - Findings: two behaviors of state sync turned up in "
+            "measurement. First, the watcher fires per property rather than "
+            "once per object. Second, a class-typed property does not update "
+            f"on the child side. Durable owner: {owner_path}\n"
+        )
+        forms = {
+            "wrapped": complete(review_block(wrapped_owner)),
+            "joined": complete(review_block(joined_owner)),
+        }
+        for form, payload in forms.items():
+            if not readable(payload, f"owner-{form}"):
+                return 1
+            stray = owner_problems(payload)
+            if stray:
+                report(
+                    f"{label} refused a durable owner the author recorded, with "
+                    f"the finding written {form}. The owner is named after "
+                    "`Durable owner:` and the path exists."
+                )
+                report(repr(stray))
+                return 1
+        if codes(forms["wrapped"]) != codes(forms["joined"]):
+            report(
+                f"{label} returned different problems for the same finding "
+                "depending on whether it wrapped."
+            )
+            report(f"wrapped={codes(forms['wrapped'])} joined={codes(forms['joined'])}")
+            return 1
+
+        # M2 — the silent half. `none` on the first line, a real finding under
+        # it. At 5.27.0 this produced no problem at all.
+        below_none = complete(
+            review_block(
+                "      - Findings: none\n"
+                "        Actually the retry path still drops the last error.\n"
+                "        Nobody owns this and no reason is given for dropping "
+                "it.\n"
+            )
+        )
+        if not readable(below_none, "finding-below-none"):
+            return 1
+        if not owner_problems(below_none):
+            report(
+                f"{label} accepted a finding written below a `none` first "
+                "line. The gate read the word `none` and not the finding under "
+                "it."
+            )
+            report(repr(codes(below_none)))
+            return 1
+
+        # M3 — the sibling bound. The wrapped `Findings` carries no disposition
+        # of its own; the `- Blocker:` entry below it does. Reading the entry
+        # whole must not let the sibling's text satisfy it.
+        absorbing = complete(
+            review_block(
+                "      - Findings: the helper rewrote its own baseline path.\n"
+                "        Nothing here names who owns it.\n"
+            ),
+            blocker=f"none. Durable owner: {owner_path}",
+        )
+        if not readable(absorbing, "sibling-bound"):
+            return 1
+        if not owner_problems(absorbing):
+            report(
+                f"{label} let a `Findings` with no disposition be satisfied by "
+                "the sibling entry below it. A widened read must still stop at "
+                "its sibling."
+            )
+            report(repr(codes(absorbing)))
+            return 1
+
+        # M4 — the unwrapped shape, which is what all 640 archived Review
+        # entries use. The expected message is written out rather than compared
+        # against another run of the same build, so a change that altered the
+        # text in both places would still fail here.
+        unwrapped = complete(
+            review_block("      - Findings: a finding with no disposition\n")
+        )
+        if not readable(unwrapped, "unwrapped"):
+            return 1
+        unwrapped_owner = owner_problems(unwrapped)
+        if len(unwrapped_owner) != 1:
+            report(
+                f"{label} did not produce exactly one `finding-owner` problem "
+                "for an unwrapped finding with no disposition."
+            )
+            report(repr(codes(unwrapped)))
+            return 1
+        for phrase in (
+            "Review Findings must be `none` or carry a disposition.",
+            "Resolved here:",
+            "Durable owner:",
+            "Discard reason:",
+            "keel/HANDOFF.md",
+        ):
+            if phrase not in unwrapped_owner[0]:
+                report(
+                    f"{label} the unwrapped refusal's message changed; "
+                    f"{phrase!r} is no longer in it. This change moves how much "
+                    "text is read, not what the gate says."
+                )
+                report(unwrapped_owner[0])
+                return 1
+        passing = complete(
+            review_block(f"      - Findings: still open. Durable owner: {owner_path}\n")
+        )
+        if not readable(passing, "unwrapped-owned"):
+            return 1
+        if owner_problems(passing):
+            report(
+                f"{label} refused an unwrapped finding that names an existing "
+                "path after `Durable owner:`."
+            )
+            report(repr(owner_problems(passing)))
+            return 1
+
+    if "review-entry-extent" not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
     return 0
 
 
@@ -21820,6 +22083,7 @@ SCENARIOS: tuple = (
     ),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
+    ("review-entry-extent", validate_review_entry_extent_scenario),
 )
 
 

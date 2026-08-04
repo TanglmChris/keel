@@ -1,0 +1,47 @@
+## Context
+
+`reviewValue()` (`src/core/gates.js:352-357`) extracts each of the four Review entries from the `Evidence` field with one line-anchored regex. `parseTasks()` has already gathered the whole field body — `field()` joins every line of it — so the block is present and complete by the time `reviewValue()` runs. The single line is not a limitation of what was parsed; it is a limitation of this one reader.
+
+This is the same boundary question 5.26.0 answered one level up. There, a change-level section's extent was cut short by a bound belonging to a different document shape, and the repair made the extent the text the author wrote. Here the unit is a Review entry rather than a section, and the discarded text is everything below line one.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- A Review entry's value is the text written under its label, wrapped or not.
+- The entry stops at its sibling, so widening the read cannot let one entry judge another's text.
+- Both failure directions close: the owner below line one is seen, and findings written below a `none` are no longer invisible.
+- The archive is proven unmoved by measurement rather than by argument.
+
+**Non-Goals:**
+
+- Changing what is accepted. Every disposition marker, owner form, `Status` token, concreteness rule, diagnostic code, and message string stays as it is. D3.
+- Reordering the `finding-owner` message so its imperative leads — #49 §2. D4.
+- Folding continuation lines in `Verify`, `Covers`, `Touch`, or any other field. Different mechanism, different reader. D5.
+- #49 §1 (`Covers` bare `D<n>` reported as `Missing`). An acceptance decision already escalated to the owner on the issue and still open.
+
+## Decisions
+
+- **F1** — reproduced 2026-08-04 at 5.27.0 on the current tree. A task whose Review `Findings` runs four indented lines, with `Durable owner: openspec/changes/demo/tasks.md` on the last, is refused by `node bin/keel.js gate task-complete --change demo --task 1.1` with `finding-owner`. The path exists and the marker is spelled correctly. *Basis: direct execution against a scratch repository.*
+- **F2** — the cause is the line, not the content. The same four lines joined into one, with no word changed, produce no `finding-owner` problem from the same command against the same repository. *Basis: the two runs, one edit apart.*
+- **F3** — the narrow read is one regex, and the data it discards is already in hand. `reviewValue()` matches `^\s*-\s*<label>:\s*(.*)$` with `im`; `(.*)` cannot cross a newline. `parseTasks()` (`src/core/task-contract.js:94-104`) appends every non-field line to the currently open field, and `field()` joins them with `\n`, so the continuation lines reach `reviewValue()` and are dropped there. *Basis: the source at 5.27.0.*
+- **F4** — the defect also fails **open**, which #49 does not report. A Review whose `Findings` reads `none` on its first line and then records two unowned findings on the two lines below produces no `finding-owner` problem at all: the check tests `/^none\.?$/i` against the word `none` and never sees the rest. A finding with no owner passes the gate whose subject matter is finding ownership. *Basis: direct execution, same scratch repository.*
+- **F5** — no archived verdict can move. Across every `tasks.md` under `openspec/changes`, 640 Review entries are declared and **0** are followed by a continuation line. Whatever the new bound returns for them is byte-identical to the first line, which is what they already return. *Basis: a scan of all `tasks.md` under `openspec/changes`, counting `- (Status|Acceptance check|Scope check|Findings):` lines whose successor is non-blank and not a new `- ` entry.*
+- **F6** — the general form of this question is already decided in this repository. 5.26.0 shipped as "a section is what the author wrote" (#71), repairing a reader that judged less text than the author wrote. Nothing in `openspec/specs/keel-core-gates/spec.md` states or implies that a Review entry is one line; the published requirements name the four entries and the forms their values may take, and say nothing about extent. *Basis: `1ffd24d`, and the spec text.*
+- **F7** — the diagnostic actively misdirects in this case. The `finding-owner` message closes with "Name a path after `Durable owner:` so it reads as the owner rather than a file the finding mentions." That sentence is true when the author wrote a path in passing, and false here — the author did name it after `Durable owner:`. #49 records the author checking the wording first, twice in one session, because the message is about wording. *Basis: the message string at `gates.js:820-828`, and the issue.*
+- **F8** — `Verify`'s entry splitting has the same symptom through a different mechanism and reproduces at 5.27.0. A continuation line under `- M1: …` is refused as `invalid-command-label`, because `fieldValues()` maps every line to its own entry. That is `#49`'s second supplement; it is not `reviewValue()` and no change here touches it. *Basis: direct execution against a scratch repository.*
+
+- **D1** — a Review entry's value is its label line plus every following line, ending at the next `- <Label>:` entry at the same or shallower indentation. The sibling bound is what keeps the widening honest: without it `Findings` — always the last of the four — would run to the end of `Evidence` and read `- Blocker:` and any trailing `M<n>` evidence as its own text, which trades a fail-closed defect for a fail-open one. *Basis: F1, F3, F4.*
+- **D2** — the bound is computed on the `Evidence` field's own lines, inside `reviewValue()`, and no caller changes. The four call sites pass a label and receive a string, exactly as before. Widening the reader in place keeps this a change to *how much is read* and structurally prevents it from becoming a change to what is checked. *Basis: F3, D3.*
+- **D3** — no accepted form, code, or message changes. Every difference in verdict must be attributable to text the gate previously could not see. This is what makes F5 a sufficient regression argument for the archive: with the vocabulary fixed and no wrapped entry in existence, there is nothing left for the change to move. *Basis: F5, F6.*
+- **D4** — #49 §2 (lead with the imperative) is **not** taken here. After D1, wrapping is no longer a way to fail this check, so the sentence F7 indicts stops being reachable by the cause that made it misleading; the remaining request is a prose preference on a message this change is otherwise required to leave untouched by D3. Changing it here would make the diff's one message edit indistinguishable from a behavior change under review. *Basis: F7, D3.*
+- **D5** — `Verify`, `Covers`, `Touch` and the rest keep their line-wise splitting. They read entry *lists*, where one line per entry is the meaning, not an accident; `reviewValue()` reads a single labelled value, where it is an accident. Folding continuation lines in `fieldValues()` would change every one of those readers at once, including `Touch`, which the write guard compiles. *Basis: F8.*
+- **D6** — verification drives `keel gate task-complete` on real repositories and asserts both directions plus the sibling bound: the wrapped owner passes, the wrapped-under-`none` finding is refused, and a wrapped `Findings` does not absorb the sibling entry below it. A unit test of the extractor would prove the half that was never in doubt. *Basis: F1, F4, D1.*
+- **D7** — the sibling-bound check is proven able to fail by mutation rather than by being watched to go green, since it passes both before and after the change. *Precedent applied: `an-assertion-that-never-failed-proves-nothing`.*
+- **D8** — the block read applies to all four Review entries, not to `Findings` alone, and the consequence for `Status` is stated rather than left to be discovered. A wrapped `Status: pass` is now judged on its whole text and therefore refused as outside the accepted vocabulary. That is the correct answer for a vocabulary field — text under `Status` is text the author wrote about the status, and silently discarding it is the defect this change exists to remove — but it is the one place where widening the read newly refuses something rather than newly accepting it. Exempting `Findings` alone would put a per-field special case exactly where D2 keeps a single reader, and would leave three entries judging text they did not read. F5 measures zero wrapped entries of any of the four across the repository's whole history, so nothing existing meets this edge. *Basis: F5, D1, D2.*
+
+## Hidden Knowledge / Assumptions
+
+- **A1** — a line indented deeper than its Review label and beginning with `-` is a continuation of that entry, not a new entry. A `Findings` block written as a sub-list is the case this serves. The sibling test is therefore indentation-based rather than "any `- ` line". *Basis: D1. Owner: this change — if wrong, a sub-list item is read as a sibling entry with an unrecognized label, which no check consumes, so the failure is a narrower read rather than a wrong one.*
+- **A2** — nothing outside this repository depends on a Review entry being truncated at its first line. No code, message, or spec text states the truncation, so it cannot have been relied on deliberately. *Basis: F6. Owner: this change.*
+- **A3** — the four Review entries are the only consumers of `reviewValue()`. If a fifth label is added later it inherits the block read, which is the intended behavior for any labelled value. *Basis: the call sites at `gates.js:762-766`. Owner: this change.*
