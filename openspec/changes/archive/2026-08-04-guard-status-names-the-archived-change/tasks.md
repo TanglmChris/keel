@@ -1,0 +1,134 @@
+# Tasks
+
+## 1. The surface that was skipped
+
+- [x] 1.1 Guard status separates a vanished change from a parse miss
+  - Covers:
+    - keel-touch-write-guard / A manifest whose change is gone is refused as stale / Guard status names the clear for an archived change
+    - keel-touch-write-guard / A manifest whose change is gone is refused as stale / Guard status is unchanged for a task missing from a live tasks.md
+    - F1 — the two states are byte-identical at 5.26.0
+    - F2 — the advice names two commands that cannot work
+    - F3 — the hook already tests the change directory
+    - F4 — one null from two causes
+    - F5 — nothing reads the problem code, one thing reads the status word
+    - F6 — the archived design recorded this surface as already correct
+    - D1 — test the same object the hook tests
+    - D2 — the status word stays drifted
+    - D3 — a distinct stale-manifest problem code
+    - D4 — a live change with no tasks.md keeps the old message
+    - D7 — drive the shipped CLI in both states
+    - A1 — a new problem code is additive
+    - A2 — mirror the hook's wording
+    - A3 — the regression cell is proven able to fail
+  - Read:
+    - src/core/guard.js
+    - src/core/task-contract.js
+    - plugins/keel/scripts/pretooluse-guard.js
+    - scripts/validate_plugin.py
+    - openspec/changes/guard-status-names-the-archived-change/design.md
+  - Touch:
+    - src/core/guard.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `keel guard status` against a manifest whose change directory has been archived reports the manifest as stale, names the directory `openspec/changes/demo` that is gone, and names `keel guard clear`. Measured through the shipped CLI on a scratch repository built the way F1 built it, not through a unit call, because the defect is what a reader sees.
+    - M2: the same command against a live change whose task id is absent no longer produces the same output as M1's state. Asserted as a difference in both the problem code and the message, so a fix that changed only prose while leaving one code for two states would fail it.
+    - M3 (regression): the parse-miss output is unchanged from 5.26.0 — status `drifted`, code `authority-drift`, and the message recorded verbatim in this scenario. Because that cell passes before and after, it is aimed at a deliberate mutation — the directory test inverted so every state takes the stale branch — which must turn it red rather than leave it green.
+    - M4 (regression): `npm test` passes with no failing scenario and no exception, so the hook's own `guard-stale-manifest` behavior and every other guard scenario are unchanged.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if the fix requires letting any write proceed that is denied today. Failing closed is F7's published stance and F8 kept it; this task changes what a surface says.
+    - Stop if the fix requires changing the `drifted` status word or any other status vocabulary. D2, and F5 is why it is not needed.
+    - Stop if the fix requires editing `keel guard start` or `keel gate task-start` messages. D5.
+    - Stop if the fix requires `guardStatus()` to read `openspec/changes/archive/` to name the archived directory. D6.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:cbd8f79bf252b68b5b634f7a3f63593737d0db0f7ebae893be84f81a0b710063
+    - M1: pass. The `guard-status-stale-manifest` scenario builds a repository, runs `guard start` on `demo#1.1`, relocates the change to `openspec/changes/archive/2026-08-04-demo`, and asserts on `guard status --json`: status still `drifted`, a problem carrying code `stale-manifest`, and a message containing `stale`, `openspec/changes/demo`, and `keel guard clear`. Confirmed independently through the shipped CLI on a scratch repository built the way the issue built it — `node bin/keel.js guard status` now reports `This manifest is stale: it guards demo#1.1, but openspec/changes/demo no longer exists, so the task it names cannot be reauthorized and its Touch list authorizes nothing. Run "keel guard clear", then start the task you are actually working on.` and `node bin/keel.js guard clear` then returns `Status: cleared`, so the named action is the one that works.
+    - M1.red: fail, at 5.26.0 with `src/core/guard.js` untouched. `guard-status-stale-manifest: M1 an archived change was not reported under its own problem code, so a --json reader cannot tell it from a parse miss. Codes: ['authority-drift']` — the shipped state, which is the defect #56 reports reproduced through the surface that reports it, not a mutation.
+    - M1.green: pass, after `guardStatus()` branched on the existence of `openspec/changes/CHANGE` before constructing the drift problem.
+    - M2: pass. The scenario compares the archived cell against the parse-miss cell on two axes and requires both to differ: the problem code list, and the message. The code comparison is what makes this more than a wording check — a repair that reworded one branch while leaving one code for two states passes a message comparison and fails this one.
+    - M2.red: fail, at 5.26.0. `guard-status-stale-manifest: M2 an archived change and a task id absent from a live tasks.md still share a problem code (['authority-drift']), so they are separable only by prose.` M2 sits behind M1 in one run, so reaching it at red required neutralizing M1's three assertions with a temporary `if False and ...`; all three were restored immediately and `grep -n "False and" scripts/validate_plugin.py` returns nothing.
+    - M2.green: pass, both cells. Measured outside the suite as well: the archived state and the parse-miss state, byte-identical at 5.26.0, now return different codes and different messages from the same command on the same repository.
+    - M3: pass, and proven able to fail rather than assumed. The parse-miss cell asserts status `drifted`, the problem code list exactly `['authority-drift']`, and the message equal to the 5.26.0 text recorded verbatim in the scenario as `PARSE_MISS_PROBLEM`. Because that cell passes before and after this change — the shape that also passes when the mechanism producing it is broken — two mutations were aimed at it. Inverting the directory test turned M1 red, `Codes: ['authority-drift']`, which is the control proving M1 is aimed at that test and not at something incidental. Forcing every state down the stale branch left M1 green and turned M3 red: `guard-status-stale-manifest: M3 the parse miss changed problem code. Expected ['authority-drift'], got ['stale-manifest']`. That is the mutation this cell exists to catch. Both reverted; `grep -n "false &&" src/core/guard.js` returns nothing and the diff is the one branch. *Precedent applied: `an-assertion-that-never-failed-proves-nothing`.*
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 135 scenarios.` — no failing scenario, no exception, none skipped. 134 before this change and 135 after: one scenario added. The hook's own behavior is unchanged, checked by name as well: `guard-stale-manifest scenario passed.` `assertion-shape-count` reports `passed: 75 sites, a bound on a shape and not a count of defects.` — unchanged at its recorded number, because every added assertion is a single condition carrying its own message.
+    - Review:
+      - Status: pass
+      - Acceptance check: the Acceptance is that a reader of `keel guard status` learns which of two states the manifest is in and what to do about it, so every check reads what the command prints on a real repository rather than calling `guardStatus()` directly — a unit test of the branch would have proved the half that was never in doubt. Three things are worth stating. First, the check that matters most is M3, not M1: M1's failure costs a reader one misdirected minute, while a regression in M3 would put a `keel guard clear` instruction in front of a live change that can genuinely be reauthorized, which is the same defect pointed the other way. That is why M3 carries the mutation and M1 carries only the reproduction. Second, M1 deliberately does not forbid the string `keel gate task-start` in the new message, only `reauthorize through` and `keel guard start`: naming `task-start` for the task the reader is *actually* starting is useful, and forbidding the command name rather than the instruction would have made the assertion measure spelling. Third, the fourth cell — a change directory present with no `tasks.md` — is not in the issue and is the cell that fails if the directory test is ever swapped for a tasks-file test; it pins D4 to a check rather than to a comment.
+      - Scope check: `git status --short` shows `src/core/guard.js` and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own untracked directory, which is the record-write layer. Both files were clean when the task started, so deterministic attribution covers every write. `keel guard status` reports the fingerprint unchanged from the one recorded at task-start, so no contract edit occurred. Three temporary mutations were made to obtain the red and control measurements above and all three are reverted, verified by grep rather than by memory. One qualification the gate cannot see: the two `if False and` edits to `scripts/validate_plugin.py` were applied through a shell heredoc rather than an editing tool, so the PreToolUse guard did not observe them. The file is inside Touch, so they were within authority and not drift, but the guard's check was bypassed for those two writes and this Review is their only evidence; every other write in this task went through the editing tools. The delta spec was edited once during authoring, before implementation, which drifted the capsule fingerprint and hard-stopped the guard — reauthorized through `keel gate task-start --record`, with no execution evidence to invalidate because none had been produced.
+      - Findings: three. First, and found by the checklist rather than by a gate: the scenario's `guard_status_payload()` helper returned an empty message both when `guard status` produced no readable output and when the payload simply carried no problems, so every downstream condition guarded two unrelated failures and would have reported the second. A run where the CLI crashed would have told the reader the status word was `None` rather than that the command never ran — the exact shape `assertion-shape-count` bounds, in a scenario whose whole subject is a diagnostic pointing at the wrong state. The helper now returns `None` for an unreadable run and reports the cause itself, with the cell name passed in so the message says which of the four it was. Resolved here: scripts/validate_plugin.py. Stated plainly: no cell exercises that path — reaching it means breaking the CLI — so this repair is proved by inspection and by the scenario still passing at 75 assertion sites, not by a check of its own. Second: this change leaves two copies of the same directory test, one in `src/core/guard.js` and one in `plugins/keel/scripts/pretooluse-guard.js`, which is the duplication that let 5.12.0 fix one surface and miss the other. Discard reason: the hook requires only node builtins so it can run before the package is installed, and extracting a shared module would spend that standalone property to save four lines; what keeps the two in agreement is now a published requirement naming both surfaces, which is the check a shared function would have replaced. Third: `keel guard start` and `keel gate task-start` still answer a manifest whose change is archived with `task demo#1.1 does not exist` and `missing OpenSpec tasks file`, neither of which names `keel guard clear`. Discard reason: this is D5, a decision recorded before implementation rather than work left over. Both messages are true and each names the specific thing it could not find; rewording two commands that are correct, to compensate for a third that was not, leaves three messages to keep in agreement — and after this change the surface a reader meets first does name the clear.
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [x] 2.1 Release 5.27.0
+  - Covers:
+    - E5 — a reader of the release notes learns that the 5.12.0 repair shipped on one surface and not its twin, and why the fail-closed cost stays
+    - I1, I2 — the wordings this change makes stale
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every shipped version marker names 5.27.0
+    - M2: `keel/CHANGELOG.md` carries a 5.27.0 entry naming the surface 5.12.0 left behind, what the reader was told to run instead, that the fail-closed cost is kept deliberately, and why the status word did not move
+    - M3: the spec delta is promoted into `openspec/specs/keel-touch-write-guard/spec.md`, `node bin/keel.js openspec validate guard-status-names-the-archived-change --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:913186829b3a6b8462b17128681e5b035ec8d3a35714baec8b3aa56b7b13976a
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.26.0 to 5.27.0 through `node scripts/bump_version.js 5.27.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`, the `AGENTS.md` title and its preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. The scenario reads every marker rather than sampling, so one left at 5.26.0 fails by path. Spot-confirmed in the file a session reads first: `AGENTS.md:1` is `# Keel v5.27.0 Agent Protocol` and `AGENTS.md:3` is a `keel:start` marker naming 5.27.0.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.27.0 - the other surface that answers the same question`. It names the surface 5.12.0 left behind and why the omission was invisible — the design that shipped that release recorded `keel guard status` as classifying the state correctly, which was true of the status word and taken as true of the message under it. It records what the old advice sent the reader to and what each of those two commands actually answers; that the archived case now carries its own problem code and that this is additive because nothing reads a guard problem code; that `drifted` deliberately did not move, since the classification was never the wrong part; that the fail-closed cost is kept on the owner's decision, with the reason an automatic expiry would make `openspec archive` a silent off switch; the third state the issue does not mention; and that the unchanged half is asserted by two mutations rather than assumed, quoting the comparison that went red.
+    - M3: pass. The delta is promoted: the requirement `A manifest whose change is gone is refused as stale` in `openspec/specs/keel-touch-write-guard/spec.md` now scopes the distinction to Keel rather than to the write guard alone, requires both surfaces to decide it by testing the same object, requires a distinct problem code, states the live-change-mid-authoring case, and carries the two new scenarios beside the two it already had. This is a MODIFIED requirement, so the promotion rewrites one published requirement in place and adds no other. `node bin/keel.js openspec validate guard-status-names-the-archived-change --strict` reports `Change 'guard-status-names-the-archived-change' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 135 scenarios.` — no failing scenario, no exception, none skipped. Run after the version bump and after the spec promotion, so it covers both.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check names the artifact a reader would open. M1 is the scenario that reads every version marker rather than spot-checking, which is what makes "every marker names 5.27.0" a measurement instead of a claim. M3 asserts the promotion through the two tools that consume the published store rather than by reading the file back, and records that this delta is MODIFIED rather than ADDED — the reason it rewrites a published requirement instead of appending, and the reason `published-specs-validate-strictly` is the check that matters here. M2 is the one prose check and it carries what a diff cannot: that this release exists because a fact recorded as verified in an archived design was verified about the wrong field. A reader who does not know that would read 5.12.0's entry and this one as the same repair done twice.
+      - Scope check: `git status --short` shows this task's twenty-two Touch entries plus `src/core/guard.js` from task 1.1, and this change's own directory, which is the record-write layer. `keel guard status` reports the fingerprint unchanged from the one recorded at 2.1's task-start, so no contract edit occurred. The limit here is the one every release task in this repository hits: `scripts/validate_plugin.py` was already dirty when 2.1 started, carrying 1.1's scenario, so the gate's deterministic attribution cannot speak to it and this Review is its scope evidence. 2.1's own write to that file is the two version constants `bump_version.js` reported changing, and M1 is what verifies them; 2.1 wrote nothing to `src/core/guard.js`, whose diff remains the single branch recorded under 1.1. Every write went through the editing tools or `scripts/bump_version.js`; no heredoc was used in this task.
+      - Findings: none
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- I1: "The write guard MUST distinguish a manifest pointing at a change directory that no longer exists from one whose task it merely cannot match inside a live `tasks.md`." — the requirement `A manifest whose change is gone is refused as stale` in `openspec/specs/keel-touch-write-guard/spec.md`. The sentence names one surface as the holder of a rule that two surfaces now implement, and a reader searching it to find out whether `keel guard status` is covered finds a scope that excludes it — which is how this defect survived 5.12.0. Updated by: 2.1
+- I2: "version=5.26.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as a `"version"` field in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I3: "`keel guard status` classifies the same state correctly, reporting `Status: drifted` and \"Guarded task … no longer resolves\"." — F6 of `openspec/changes/archive/2026-08-02-a-message-that-cannot-be-true/design.md`. Read as written it says this surface needed nothing, and that is why 5.12.0 stopped at the hook; what it actually measured was the status word, above an instruction it did not check. Discard reason: an archived design records what that change measured, and editing one to match a later finding makes the history unreadable as history. The 5.27.0 changelog entry names which half of the surface that release covered, and this change's F6 quotes the sentence in place.
+
+## Expectation Coverage
+
+- E1: `keel guard status` on a manifest whose change is gone names the action that actually resolves it. Covered by: 1.1
+- E2: The two states are separable by a machine reader, not only by prose. Covered by: 1.1
+- E3: The parse-miss state — message, code, status, and the outcome of every write — is unchanged. Covered by: 1.1
+- E4: Both surfaces decide "is the change gone?" by testing the same object, so the next repair cannot land in one and miss the other. Covered by: 1.1
+- E5: A reader of the release notes learns that the 5.12.0 repair shipped on one surface and not its twin, and why the fail-closed cost stays. Covered by: 2.1

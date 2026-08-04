@@ -265,12 +265,40 @@ function guardStatus(repo) {
   const problems = [];
   const loaded = loadTaskContract(repo, manifest.change, manifest.task);
   if (!loaded) {
-    problems.push({
-      code: "authority-drift",
-      message:
-        `Guarded task ${manifest.change}#${manifest.task} no longer resolves; `
-        + "reauthorize through `keel gate task-start` and `keel guard start`.",
-    });
+    // `loadTaskContract` returns null for two unrelated reasons — the tasks
+    // file is not there, or the task id is not in it — and only one of them
+    // has a reauthorization to perform. Telling the reader to reauthorize a
+    // change that has been archived sends them to `keel gate task-start`,
+    // which reports a missing tasks file, and to `keel guard start`, which
+    // reports that the task does not exist; neither names `keel guard clear`,
+    // which is the only action that resolves it.
+    //
+    // The change *directory* is the test, not the tasks file, and it is the
+    // same object `plugins/keel/scripts/pretooluse-guard.js` tests for the
+    // same question. Two surfaces deciding it by different means would
+    // eventually disagree about a state a reader is looking at from both. It
+    // also leaves a live change whose tasks.md is absent — mid-authoring — on
+    // the reauthorize path, where reauthorizing genuinely is the way out.
+    const changeDir = path.join(repo, "openspec", "changes", manifest.change);
+    problems.push(
+      fs.existsSync(changeDir)
+        ? {
+          code: "authority-drift",
+          message:
+            `Guarded task ${manifest.change}#${manifest.task} no longer `
+            + "resolves; reauthorize through `keel gate task-start` and "
+            + "`keel guard start`.",
+        }
+        : {
+          code: "stale-manifest",
+          message:
+            `This manifest is stale: it guards ${manifest.change}`
+            + `#${manifest.task}, but openspec/changes/${manifest.change} no `
+            + "longer exists, so the task it names cannot be reauthorized and "
+            + "its Touch list authorizes nothing. Run `keel guard clear`, then "
+            + "start the task you are actually working on.",
+        }
+    );
     const drifted = guardResult("status", "drifted", { manifest });
     drifted.problems = problems;
     return drifted;
