@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.30.0 - a command exists whether or not the help text says so
+
+`keel --help`'s `Usage:` block lists every top-level command the CLI dispatcher recognizes except one. `triage` has been recognized since 5.7.0, gained a second flag in 5.24.0 (`--issue`, beside `--labels`), and is documented in `README.md`'s `## Commands` block — the one place, and not the one reachable from the terminal. Found while implementing #62 and filed rather than folded in, since a missing help line and where an admission decision is recorded are different defects on the same surface. Reported as #77.
+
+- **`keel --help` now lists `keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]`**, in the position `README.md` already uses, plus a matching `Examples:` entry. (keel-unattended-triage, closes #77)
+- **Confirmed by grep, not assumed: `triage` was the only gap.** Of the eight dispatcher-recognized top-level commands (`context`, `capabilities`, `project`, `gate`, `guard`, `lenses`, `triage`, `openspec`), the other seven were already listed. This was one missing line, not a pattern needing a general mechanism — so the fix is a literal, matching how every other `HELP` line is written, rather than a new derivation.
+- **The `cli` scenario now asserts the line and each flag as three separate conditions** (line present, `--labels` present, `--issue` present), so a future regression names which one broke instead of one message covering all three. Splitting that check itself moved `assertion-shape-count`'s measured count from 75 to 76 sites at first — the initial version was one `if` guarding all three behind a single message — and splitting it into three single-cause `if` statements brought the count back to the recorded 75.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.30.0; the OpenSpec dependency pin stays `^1.4.1`.
+- No new dependency. No change to `keel triage`'s flags, behavior, admission logic, or exit codes — discoverability only. Validator at **138 registered scenarios**, none added: this change extended the existing `cli` scenario rather than adding one.
+
 ## 5.29.0 - a word inside a word is not the word
 
 `keel --check` scans every active `tasks.md` for state git already owns. Two of its rules read free prose, and both were matching text that was never a claim. `remaining` supplied the context word `main`; `heading` supplied `head`. And a `Covers` entry — a citation whose three segments must resolve to names that exist in a spec — was read as a sentence, so citing `keel-core-gates / Dirty-worktree attribution is conservative` was refused as recording a dirty worktree. Both halves reported as #65, whose material choices the owner decided on 2026-08-04.

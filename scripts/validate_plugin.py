@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.29.0"
-PROTOCOL_VERSION = "5.29.0"
+PACKAGE_VERSION = "5.30.0"
+PROTOCOL_VERSION = "5.30.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3078,6 +3078,21 @@ def validate_cli_scenario() -> int:
     if help_result.returncode != 0 or "Usage:" not in help_result.stdout:
         report("cli scenario expected keel --help to print usage.")
         report((help_result.stderr or help_result.stdout).strip())
+        return 1
+
+    usage_block = help_result.stdout.split("Usage:", 1)[1].split("\n\n", 1)[0]
+    triage_lines = [line for line in usage_block.splitlines() if "keel triage" in line]
+    if not triage_lines:
+        report("cli scenario expected keel --help Usage: block to list a `keel triage` line.")
+        report(usage_block.strip())
+        return 1
+    if "--labels" not in triage_lines[0]:
+        report("cli scenario expected the keel --help `keel triage` line to name --labels.")
+        report(triage_lines[0].strip())
+        return 1
+    if "--issue" not in triage_lines[0]:
+        report("cli scenario expected the keel --help `keel triage` line to name --issue.")
+        report(triage_lines[0].strip())
         return 1
 
     version_result = run_keel(ROOT, "--version")
