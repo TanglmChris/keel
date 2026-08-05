@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.26.0"
-PROTOCOL_VERSION = "5.26.0"
+PACKAGE_VERSION = "5.27.0"
+PROTOCOL_VERSION = "5.27.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -20340,6 +20340,202 @@ def validate_guard_stale_manifest_scenario() -> int:
     return 0
 
 
+# The message a reader is given when the state cannot be reauthorized.
+#
+# 5.26.0 recorded verbatim, so the parse-miss cell compares against the text as
+# it shipped rather than against whatever the code happens to produce.
+PARSE_MISS_PROBLEM = (
+    "Guarded task demo#1.1 no longer resolves; reauthorize through "
+    "`keel gate task-start` and `keel guard start`."
+)
+
+
+def guard_status_payload(repo: Path, cell: str) -> tuple[dict, str]:
+    """Return `guard status --json` as a payload plus its first problem message.
+
+    A run that produced nothing readable is reported here rather than handed
+    back as an empty payload. Otherwise one condition downstream would guard two
+    unrelated failures — the command did not run, and the status was wrong — and
+    every caller would report the second, sending the reader to a state that was
+    never observed. Returning `None` for the payload is what makes the two
+    distinguishable at the call site instead of at the reader.
+    """
+    result = run_keel(repo, "guard", "status", "--json")
+    if not result.stdout.strip():
+        report(
+            f"guard-status-stale-manifest: {cell} `guard status --json` "
+            f"produced no output (exit {result.returncode}). "
+            f"{(result.stderr or '').strip()!r}"
+        )
+        return None, ""
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        report(
+            f"guard-status-stale-manifest: {cell} `guard status --json` "
+            f"produced output that is not JSON ({error}): {result.stdout!r}"
+        )
+        return None, ""
+    problems = payload.get("problems", [])
+    return payload, (problems[0].get("message", "") if problems else "")
+
+
+def validate_guard_status_stale_manifest_scenario() -> int:
+    """`keel guard status` says which of two states the manifest is in.
+
+    `loadTaskContract` returns `null` when the tasks file is absent and when the
+    task id is not in it. `guardStatus` had one branch for both, so a manifest
+    whose change had been archived and a manifest whose task id was merely
+    renumbered produced byte-identical output — and the shared message told the
+    reader to reauthorize, which for the archived change is impossible:
+    `keel gate task-start` reports a missing tasks file and `keel guard start`
+    reports that the task does not exist. Neither names `keel guard clear`,
+    which is the only action that resolves it.
+
+    The write guard hook drew this line in 5.12.0 by testing the change
+    directory. This is the same test on the surface that describes the manifest
+    rather than the one that refuses a write. Measured at the start of this
+    change: both states returned `Guarded task demo#1.1 no longer resolves`.
+    """
+    with tempfile.TemporaryDirectory(
+        prefix="keel-guard-status-stale-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        change_dir = repo / "openspec/changes/demo"
+        write_text(change_dir / "tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+
+        started = run_keel(
+            repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if started.returncode != 0:
+            report("guard-status-stale-manifest: guard start failed.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+
+        # Relocated to where `openspec archive` moves it, for the reason the
+        # guard-stale-manifest scenario records: what is under test is the
+        # answer once the change is gone, not the archiver.
+        archived_dir = repo / "openspec/changes/archive/2026-08-04-demo"
+        archived_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(change_dir), str(archived_dir))
+
+        # M1 — the archived state names the directory that is gone and the
+        # action that resolves it.
+        stale, stale_message = guard_status_payload(repo, "M1")
+        if stale is None:
+            return 1
+        if stale.get("status") != "drifted":
+            report(
+                "guard-status-stale-manifest: M1 expected the archived state to "
+                f"stay classified as drifted, got {stale.get('status')!r}."
+            )
+            return 1
+        stale_codes = [item.get("code") for item in stale.get("problems", [])]
+        if "stale-manifest" not in stale_codes:
+            report(
+                "guard-status-stale-manifest: M1 an archived change was not "
+                "reported under its own problem code, so a --json reader cannot "
+                f"tell it from a parse miss. Codes: {stale_codes!r}"
+            )
+            return 1
+        for needle in ("stale", "openspec/changes/demo", "keel guard clear"):
+            if needle not in stale_message:
+                report(
+                    "guard-status-stale-manifest: M1 the message must report the "
+                    f"manifest as stale and name what resolves it; {needle!r} is "
+                    f"missing from: {stale_message!r}"
+                )
+                return 1
+        # The advice that could not be followed. `keel gate task-start` may
+        # still be named for the task the reader is actually starting — what
+        # must be gone is the instruction to reauthorize the vanished one.
+        for forbidden in ("reauthorize through", "keel guard start"):
+            if forbidden in stale_message:
+                report(
+                    "guard-status-stale-manifest: M1 the message still sends the "
+                    f"reader to reauthorize a change that is not there; "
+                    f"{forbidden!r} is in: {stale_message!r}"
+                )
+                return 1
+
+        # M3 — the parse miss is untouched. A live change whose task id is
+        # absent is not a fact about the repository, it is a read the guard
+        # must not guess about, and its answer is the 5.26.0 answer verbatim.
+        change_dir.mkdir(parents=True, exist_ok=True)
+        write_text(
+            change_dir / "tasks.md",
+            guard_task_fixture().replace("1.1", "9.9"),
+        )
+        miss, miss_message = guard_status_payload(repo, "M3")
+        if miss is None:
+            return 1
+        if miss.get("status") != "drifted":
+            report(
+                "guard-status-stale-manifest: M3 the parse miss changed status "
+                f"from drifted to {miss.get('status')!r}."
+            )
+            return 1
+        miss_codes = [item.get("code") for item in miss.get("problems", [])]
+        if miss_codes != ["authority-drift"]:
+            report(
+                "guard-status-stale-manifest: M3 the parse miss changed problem "
+                f"code. Expected ['authority-drift'], got {miss_codes!r}"
+            )
+            return 1
+        if miss_message != PARSE_MISS_PROBLEM:
+            report(
+                "guard-status-stale-manifest: M3 the parse-miss message changed "
+                f"from the 5.26.0 text.\nwas:  {PARSE_MISS_PROBLEM!r}\nnow:  "
+                f"{miss_message!r}"
+            )
+            return 1
+
+        # M2 — the two states no longer answer the same. Asserted on both the
+        # code and the message: a repair that reworded one branch while leaving
+        # one code for two states would pass a message comparison alone.
+        if stale_codes == miss_codes:
+            report(
+                "guard-status-stale-manifest: M2 an archived change and a task "
+                "id absent from a live tasks.md still share a problem code "
+                f"({stale_codes!r}), so they are separable only by prose."
+            )
+            return 1
+        if stale_message == miss_message:
+            report(
+                "guard-status-stale-manifest: M2 the two states still produce "
+                f"one message: {stale_message!r}"
+            )
+            return 1
+
+        # D4 — a third state: the change directory is there and its tasks file
+        # is not. That is a live change mid-authoring, where reauthorizing after
+        # writing the tasks file is genuinely the way out, so it keeps the
+        # parse-miss message. This is what testing the directory rather than the
+        # tasks file buys, and it is the cell that fails if the two are swapped.
+        (change_dir / "tasks.md").unlink()
+        authoring, authoring_message = guard_status_payload(repo, "D4")
+        if authoring is None:
+            return 1
+        if authoring_message != PARSE_MISS_PROBLEM:
+            report(
+                "guard-status-stale-manifest: D4 a live change whose tasks.md "
+                "is absent was reported as a stale manifest; the change is "
+                f"still there and can be reauthorized. Got: {authoring_message!r}"
+            )
+            return 1
+
+    if "guard-status-stale-manifest" not in {name for name, _ in SCENARIOS}:
+        report(
+            "guard-status-stale-manifest: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("guard-status-stale-manifest scenario passed.")
+    return 0
+
+
 # The one-message-many-failures shape, counted rather than forbidden.
 #
 # Issue #43 records it caught by `keel-review-checklist` in three consecutive
@@ -21537,6 +21733,10 @@ SCENARIOS: tuple = (
     ("tracker-durable-owner", validate_tracker_durable_owner_scenario),
     ("findings-resolved-here", validate_findings_resolved_here_scenario),
     ("guard-stale-manifest", validate_guard_stale_manifest_scenario),
+    (
+        "guard-status-stale-manifest",
+        validate_guard_status_stale_manifest_scenario,
+    ),
     ("assertion-shape-count", validate_assertion_shape_count_scenario),
     ("guard-manifest-ignored", validate_guard_manifest_ignored_scenario),
     (
