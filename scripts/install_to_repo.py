@@ -129,7 +129,20 @@ TASKS_COMMIT_STATUS_PATTERNS = (
 # verbatim inside the lookahead, so the token that matches is the token that
 # always matched, minus the all-decimal ones.
 _HASH_SHAPED_TOKEN = r"\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b"
-_HASH_CONTEXT_WORD = r"(?:commit|提交|合入|master|main|HEAD|hash|哈希)"
+# A context word has to be a word. Matched anywhere on the line, `main` was
+# supplied by `remaining`, `domain`, and `maintains`, and `head` by `heading`
+# — and the tokens sitting beside those words in this repository's own
+# history are `sha256:` contract anchors, not commit identifiers (#65).
+# The inflections are spelled out rather than left to a prefix match: they are
+# the words an author writes about the act this rule exists to catch, and the
+# stricter list that drops `committed` and `hashes` would cost real refusals.
+# The Chinese words carry no boundary because none is definable between two
+# word characters — `\b提交\b` matches neither `已提交` nor `未提交`, which are
+# exactly what the wording rule is for.
+_HASH_CONTEXT_WORD = (
+    r"(?:\b(?:commits?|committed|committing|master|main|HEAD|hash(?:es)?)\b"
+    r"|提交|合入|哈希)"
+)
 TASKS_CONTEXTUAL_HASH_RE = re.compile(
     rf"(?i){_HASH_CONTEXT_WORD}.*{_HASH_SHAPED_TOKEN}|"
     rf"{_HASH_SHAPED_TOKEN}.*{_HASH_CONTEXT_WORD}"
@@ -662,6 +675,35 @@ def is_tasks_rule_line(line: str) -> bool:
     )
 
 
+# The task contract compiler's own field bound, from `parseTasks()` in
+# `src/core/task-contract.js`: a field starts at a two-space `- Name:` line and
+# holds every line until the next one. Keeping the two readers on one rule is
+# what stops a line being a Covers entry for the compiler and prose for this
+# check.
+TASKS_FIELD_LABEL_RE = re.compile(r"^ {2}- ([A-Za-z][A-Za-z /-]+):")
+
+
+def covers_field_lines(content: str) -> set[int]:
+    """1-based line numbers inside a `Covers` field.
+
+    A Covers entry is a citation — its segments must resolve to a requirement
+    or scenario that exists in a spec — so naming a requirement about dirty
+    worktrees or commit identifiers is not recording one. Read as prose, those
+    citations left an author no repair but to rename the requirement, which is
+    what 5.19.0 did and what #65 reports. Every citation is written on a line
+    below the label, so the exempt region is the field and not the label line.
+    """
+    inside = False
+    lines: set[int] = set()
+    for number, line in enumerate(content.splitlines(), start=1):
+        label = TASKS_FIELD_LABEL_RE.match(line)
+        if label is not None:
+            inside = label.group(1) == "Covers"
+        if inside:
+            lines.add(number)
+    return lines
+
+
 def check_tasks_semantics(repo: Path) -> list[str]:
     changes_root = repo / OPENSPEC_ROOT / "changes"
     if not changes_root.is_dir():
@@ -682,8 +724,9 @@ def check_tasks_semantics(repo: Path) -> list[str]:
                 line = line_number_for_offset(content, match.start())
                 errors.append(f"{relative}:{line}: {message}")
 
+        cited = covers_field_lines(content)
         for line_number, line in enumerate(content.splitlines(), start=1):
-            if is_tasks_rule_line(line):
+            if is_tasks_rule_line(line) or line_number in cited:
                 continue
             for pattern, message in TASKS_COMMIT_STATUS_PATTERNS:
                 if pattern.search(line):
