@@ -1,7 +1,4 @@
-## Purpose
-
-Define how a repository declares which work may start without asking, how that declaration is evaluated without network access, what an unattended run may and may not do, and why admission is a declaration rather than an inference.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: A repository declares which work may start without asking
 
@@ -76,6 +73,8 @@ unattended run MUST NOT widen it.
 - **AND THEN** the reader can tell an unadmitted issue from an undeclared policy, and can tell a
   repository that declared only labels from one that declared only numbers
 
+## ADDED Requirements
+
 ### Requirement: A triage declaration Keel cannot fully read admits nothing
 
 A `triage:` block containing anything Keel does not recognize MUST admit nothing at all, and the
@@ -113,60 +112,3 @@ repository declaring neither source MUST be reported as declaring none.
 - **WHEN** a repository's `triage:` block cannot be fully read
 - **THEN** `keel --doctor` reports that no issue starts work unattended
 - **AND THEN** it names what could not be read, rather than reporting the surface as undeclared
-
-### Requirement: Triage evaluation performs no network access
-
-Keel MUST evaluate a triage policy against issue attributes supplied to it, and MUST NOT fetch an
-issue, contact a forge, or perform any network access. The evaluation MUST be local, deterministic,
-and repeatable from the same inputs.
-
-#### Scenario: Attributes are supplied, not fetched
-- **WHEN** `keel triage` is invoked with an issue's labels
-- **THEN** Keel evaluates the declared policy against exactly those labels
-- **AND THEN** no network call is made, and the command succeeds with no reachable network
-
-#### Scenario: The same inputs give the same answer
-- **WHEN** the same declaration and the same issue attributes are evaluated twice
-- **THEN** both runs return the same verdict and the same reason
-
-### Requirement: Admission starts work and decides nothing that follows
-
-An admitted issue MUST enter authoring and implementation under every existing gate. Keel MUST NOT
-treat admission as authority over acceptance, scope, design, evidence, review, or any material
-decision reached later.
-
-#### Scenario: Later gates are unaffected by admission
-- **WHEN** an issue is admitted and work on it begins
-- **THEN** expectation alignment, `task-start`, `task-complete`, `change-close`, and the write guard
-  behave exactly as they do for work that was never triaged
-- **AND THEN** a material decision encountered during that work still stops for the owner
-
-#### Scenario: Stopping at a material decision is the expected outcome
-- **WHEN** an unattended run reaches a decision the owner must make
-- **THEN** the run stops and reports where it stopped and why
-- **AND THEN** the stop is reported as the designed boundary rather than as a failure
-
-### Requirement: An unattended run may open a pull request and may not merge
-
-Keel MUST state that an unattended run may triage, author, implement, verify, and open a pull
-request, and MUST NOT merge one. Merging MUST remain a human act regardless of any declaration.
-
-#### Scenario: The boundary is stated where a run can read it
-- **WHEN** the unattended-run protocol is inspected
-- **THEN** it states that opening a pull request is permitted and merging is not
-- **AND THEN** no configuration key grants a merge
-
-#### Scenario: Standing authorization does not imply merge
-- **WHEN** a repository standing-authorizes `push` and declares a triage policy
-- **THEN** an unattended run may push and open a pull request
-- **AND THEN** it still may not merge, because no declaration in Keel authorizes one
-
-### Requirement: Keel ships no scheduler
-
-Keel MUST NOT provide, imply, or claim a scheduling capability. Documentation and command output
-MUST attribute the loop to the host runtime rather than to Keel.
-
-#### Scenario: Scheduling is attributed to the host
-- **WHEN** the unattended-run documentation is inspected
-- **THEN** it states that scheduling is a host capability such as `/loop` or cron
-- **AND THEN** no Keel command starts, stops, or registers a recurring run

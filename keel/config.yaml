@@ -58,16 +58,36 @@ authorize:
 # path that is not there must behave exactly as no declaration.
 precedents: ../decision-precedents
 
-# triage (optional): the issue labels that admit work into an unattended run.
-# Evaluate with `keel triage --labels <labels>`, passing what `gh` returned —
-# Keel never fetches the issue, because a check that reaches the network trades
-# the local, offline, deterministic evaluation that makes its answer worth
-# trusting. An absent or empty block admits nothing, which is the default.
+# triage (optional): what admits work into an unattended run. Two sources,
+# either sufficient on its own — the labels an issue carries, and the issue
+# numbers listed here:
 #
-# A label is the unit deliberately: a human applies one to a specific issue, so
-# the policy authorizes a class curated one issue at a time rather than a guess
-# about which issues look easy. Keel cannot verify that a human applied it; if
-# automation can label issues, this declaration is broader than it appears.
+#   triage:
+#     labels:
+#       - auto
+#     issues:
+#       - 62
+#
+# A bare list written directly under `triage:` still means labels, unchanged.
+#
+# Evaluate with `keel triage --labels <labels> --issue <n>`, passing what `gh`
+# returned — Keel never fetches the issue, because a check that reaches the
+# network trades the local, offline, deterministic evaluation that makes its
+# answer worth trusting. At least one of the two is required; supplying neither
+# is asking for a fetch. An absent or empty block admits nothing, which is the
+# default, and a block Keel cannot fully read admits nothing either, naming the
+# entry that failed rather than granting the rest of the list.
+#
+# The unit is one issue, deliberately: a human applies a label, or types a
+# number, for one specific issue, so the policy authorizes a class curated one
+# issue at a time rather than a guess about which issues look easy. The two
+# differ only in where the decision is written down. A label writes it on the
+# issue, where the reporter sees an operational switch mixed into the
+# vocabulary they were asked to classify with, and where Keel cannot verify a
+# human applied it — if your automation can label issues, that source is
+# broader than it appears. An issue number writes it here, in a file only a
+# committer can change, that appears in a diff and can be narrowed one entry
+# at a time.
 #
 # What this does NOT do: admission answers "may this begin" and nothing after
 # it. Alignment still escalates material choices, every gate still runs, and the
@@ -75,8 +95,10 @@ precedents: ../decision-precedents
 # may open a pull request and may not merge one, and no key here changes that.
 # Admission comes from this declaration and never from a precedent.
 #
-# Declared 2026-07-29 by the owner. `auto` is applied to an issue by hand, one
-# issue at a time; nothing else admits work here.
+# Declared 2026-07-29 by the owner, and left in the bare-list form on purpose:
+# the repository that ships the compatibility is the one that demonstrates it.
+# `auto` is applied to an issue by hand, one issue at a time; nothing else
+# admits work here.
 
 triage:
   - auto

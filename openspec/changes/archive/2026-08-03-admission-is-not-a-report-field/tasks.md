@@ -1,0 +1,161 @@
+# Tasks
+
+## 1. Move the decision into the repository
+
+- [x] 1.1 Admit by a declared issue number, beside the label
+  - Covers:
+    - keel-unattended-triage / A repository declares which work may start without asking / A declared issue number admits an issue
+    - keel-unattended-triage / A repository declares which work may start without asking / A declaration written before the second source existed is unchanged
+    - keel-unattended-triage / A repository declares which work may start without asking / Either source admits alone
+    - keel-unattended-triage / A repository declares which work may start without asking / A refusal names the policy it failed
+    - keel-unattended-triage / A triage declaration Keel cannot fully read admits nothing / An unreadable entry refuses the whole policy
+    - keel-unattended-triage / A triage declaration Keel cannot fully read admits nothing / The unreadable refusal is not the undeclared refusal
+    - keel-unattended-triage / The triage surface reports every declared source / Doctor names both sources
+    - keel-unattended-triage / The triage surface reports every declared source / Doctor reports an unreadable declaration as declaring nothing
+    - D1 — the second source lives in keel/config.yaml, not a new file
+    - D2 — one level of nesting, and a bare list still means labels
+    - D3 — an issues entry is a bare positive integer
+    - D4 — a block Keel cannot fully read admits nothing and names what failed
+    - D5 — `--issue` beside `--labels`, at least one required
+    - D6 — the reason names the source that admitted
+    - D7 — the JSON keys are additive
+    - D8 — this repository declares no issue numbers and keeps the flat form
+    - F4 — the reader already reads one level of nesting for `delegation:`
+    - F5 — an unreadable declaration fails closed, by existing precedent in the same file
+    - F6 — four shipped surfaces teach the flat form
+    - A1 — a number refers to the repository the config belongs to
+    - A2 — both sources may be declared, and either admits alone
+  - Read:
+    - src/core/config.js
+    - bin/keel.js
+    - keel/config.yaml
+    - openspec/specs/keel-unattended-triage/spec.md
+    - openspec/changes/admission-is-not-a-report-field/design.md
+  - Touch:
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - keel/config.yaml
+    - AGENTS.md
+    - README.md
+    - src/skills/keel-align-expectations/SKILL.md
+    - plugins/keel/skills/keel-align-expectations/SKILL.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: a declared issue number admits, through the shipped CLI. On a temporary repository declaring `triage:` with `issues:` holding a number and no matching label, `keel triage --issue <n> --labels bug --json` returns `admit`, and the reason names the number and the repository's own declaration rather than a label. The same repository refuses a different number.
+    - M2: the flat form is unchanged. A repository declaring the bare list `triage:\n  - auto` admits `--labels auto` and refuses `--labels bug`, with the same verdict, the same source, and the same reason text as at 5.23.0 — and `--issue 62` against it is refused, so no entry in that list was read as a number.
+    - M3: an unreadable declaration admits nothing and says which part failed. A repository declaring `issues:` with `#62`, one declaring an unknown sub-key, and one mixing a bare list with sub-keys each refuse an issue that matches an entry Keel *did* read, and each refusal names the offending entry and is distinguishable in wording from the undeclared-policy refusal.
+    - M4: `keel --doctor` names every declared source. A repository declaring both reports the labels and the numbers on its triage line; one declaring only issues names only those; one whose block is unreadable reports that no issue starts work unattended and names what could not be read.
+    - M5: the four surfaces state the second source. `keel/config.yaml`, `AGENTS.md`, `README.md`, and both copies of the alignment skill say admission may be declared as a label or as an issue number in the repository's own file, and no longer say a label is the unit; the two skill copies stay byte-identical.
+    - M6 (regression): `triage-declaration` and `unattended-boundary` stay green, so the offline evaluation, the empty and absent policies, the `--doctor` surface, and the five boundary phrases are unaffected.
+    - M7 (regression): `npm test` passes with no failing scenario and no exception.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if any existing declaration changes what it admits. A bare list that stops meaning labels, or a bare token that starts meaning a number, is an authorization boundary moving in repositories nobody edited, and that trade is the owner's.
+    - Stop if reading the nested form needs a parsing dependency. The format is ours and the reader is line-oriented by decision; a library here is a commitment this change is not authorized to make.
+    - Stop if admission would come from anything other than a declared label or a declared number.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:53c78f083d3c301076bb03b8f1725238e28f4e91a012249b6537fd6bbfeb28f6
+    - M1: pass. New scenario `triage-admits-from-the-repository` in `scripts/validate_plugin.py`, run as `node scripts/run_python.js scripts/validate_plugin.py --scenario triage-admits-from-the-repository`. A temporary repository declaring `issues: [62, 58]` and no labels admits `--issue 62 --labels bug`, with `sources == ["issue"]` and a reason naming both `62` and `keel/config.yaml`; `--issue 61` against the same repository is refused. Every check drives the shipped CLI end to end and reads its JSON, not the functions behind it.
+    - M1.red: fail. `M1 a declared issue number did not admit: None` — no JSON at all, because at 5.23.0 `keel triage` rejects `--issue` as an unknown argument. This is the shipped state rather than a mutation. That message is also the review finding below: it was the *right* red for the wrong stated reason, and the `triage` helper now reports "printed no JSON (exit N)" itself, so a run that never produced a verdict is no longer reported as a verdict that came back wrong.
+    - M1.green: pass, after `readTriagePolicy` learned the nested form, `triageIssue` took the number, and `bin/keel.js` parsed and validated `--issue`.
+    - M2: pass. The bare list `triage:\n  - auto` admits `--labels auto,bug` and refuses `--labels bug`, and both reasons are compared against the 5.23.0 strings **character for character** rather than by keyword, so a reworded refusal fails here. `--issue 62` against that same repository is refused, which is the assertion that no bare token was reclassified as a number. A repository declaring both sources is then admitted by each one alone, and an issue matching neither is refused with all four of `bug`, `7`, `auto`, `62` named.
+    - M2.red: fail. `M2 the bare list stopped admitting its labels:` … `'status': 'refuse', 'unreadable': ['auto']`. Not a mutation: the first implementation read only the nested form, so every repository that had ever declared `triage:` — including this one — silently stopped admitting anything. This is the failure the task's first Stop Rule names, caught by the check written for it.
+    - M2.green: pass, after entries appearing before any sub-key were collected as the bare list and read as labels, and a block mixing both shapes was made unreadable rather than guessed at.
+    - M3: pass. Four unreadable declarations — `issues: '#62'`, an unknown sub-key `authors:`, a bare list mixed with `issues:`, and the flow style `triage: { issues: [62] }` copied from #62's own text — each refuse an issue that matches something Keel *did* read, each name the offending entry, each say they could not read it, and each differ in wording from the undeclared-policy refusal. `--issue '#62'` is refused at the CLI with the same spelling rule the file uses, and `keel triage` with neither attribute exits non-zero.
+    - M3.red: fail, under a deliberate mutation, because M3 passed on its first execution — the fail-closed return was written in the same edit as M1's reader, so the check had never been red. `readTriagePolicy`'s final refusal was changed to return the readable half (`return { labels, issues, unreadable: [] }`), aimed at exactly the behavior M3 guards. Result: `M3 the hash declaration admitted on the half Keel could read:` … `'status': 'admit', 'matched': ['auto']` — the declaration whose `'#62'` Keel could not read admitted the issue anyway, on the label beside it. The mutation was reverted and M3 returned to green in the same session. *Precedent applied: `an-assertion-that-never-failed-proves-nothing`.*
+    - M3.green: pass, with the fail-closed return restored.
+    - M4: pass. `keel --doctor` on a repository declaring both sources reports `triage: ok` naming `auto` and `62`; on an issues-only repository it names `62` and the word `labelled` does not appear, so a source with nothing under it is not reported as a policy; on the unreadable repository it does not report `triage: ok` and does name `#62`.
+    - M4.red: fail. `M4 doctor omits the declared 62 source, so the surface under-reports what may start work:` with the doctor output, which read `issues labelled auto may start work unattended` — the one command asked "what may start work here" answered with half the policy.
+    - M4.green: pass, after `printTriageSurface` named each declared source and reported an unreadable declaration as `triage: unreadable` rather than as `none`.
+    - M5: pass. `keel/config.yaml`, `AGENTS.md`, `README.md`, and both copies of the alignment skill each state the issue-number source, none still carries the phrase `A label is the unit`, and the two skill copies are byte-identical. Phrases are matched against whitespace-collapsed content, so the assertion is about wording and not line layout.
+    - M5.red: fail. `M5 config does not state the issue-number source: …/keel/config.yaml` — the shipped surfaces still taught that a label is the only unit.
+    - M5.green: pass, after all four surfaces were rewritten to state both sources and where each writes the decision down.
+    - M6: pass. `triage-declaration` and `unattended-boundary` both report `scenario passed.` — the offline evaluation and its no-network guard, the absent and empty policies, the pre-existing `--doctor` lines, and the five unattended-boundary phrases are unaffected by the second source.
+    - M7: pass. `npm test` reports `validation --all passed: baseline plus 133 scenarios.` — no failing scenario, no exception, none skipped. 132 at 5.23.0, one added.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check runs the shipped `keel` binary against real temporary repositories and reads what it printed, so what is proven is the behavior an owner would get. The two directions that matter are independent: M1 proves the new source admits, and M2 proves the old one is untouched — an implementation that replaced labels with numbers passes M1 and fails M2, which is exactly what happened during implementation. M2's reason comparison is character-for-character rather than keyword-based, because "still admits" and "still admits for the same stated reason" are different claims and only the second one tells an owner their policy did not quietly change shape. M3 covers the direction where this change could widen admission without anyone declaring it, and its red came from a mutation aimed at the fail-closed return rather than from a check that had never failed. M4 is the surface that answers "what may run here" in one line, asserted to name each declared source and to name none that is undeclared. M5 asserts the surfaces state the second source rather than asserting that they changed.
+      - Scope check: `git status --short` shows `AGENTS.md`, `README.md`, `bin/keel.js`, `keel/config.yaml`, `scripts/validate_plugin.py`, `src/core/config.js`, and both copies of `keel-align-expectations/SKILL.md` — the Touch list exactly — plus this change's own directory, which is the record-write layer. The guard fingerprint at completion is unchanged from the one recorded at task-start, so no contract edit occurred. One honest note on how a write was made: the distributed skill copy was produced with `cp` from the canonical one rather than through the editing tools, so the write guard did not see it. The path is declared in Touch and the diff confirms it landed there, but the guard's check was skipped for that one write and `git status` is its scope evidence.
+      - Findings: three. First: every call site checked `verdict is None or verdict.get("status") != expected`, one condition guarding two unrelated failures — the command not running at all, and the command returning the wrong verdict — under one message. M1's own red is the proof it misleads: `did not admit: None` describes a verdict, and what had happened was that `keel triage` rejected `--issue` as an unknown argument and printed nothing. The `triage` helper now reports the no-JSON case itself, naming the exit status and stderr, so the two failures are reported distinctly. Resolved here: M6 and M7, the runs in which the corrected scenario and `assertion-shape-count` are green. Second: `keel --help` lists no `keel triage` line at all, so `--issue` is exactly as discoverable as `--labels` was — through `README.md` only. It predates this change, and folding a help-surface fix in would make this task's acceptance about two things. Durable owner: https://github.com/TanglmChris/keel/issues/77. Third: `readTriagePolicy` now returns three fields where it returned one, and the two other callers were checked rather than assumed — `printTriageSurface` in `bin/keel.js`, updated here, and `triageIssue` itself; `grep -rn "readTriagePolicy" src bin` finds no third. Resolved here: M6, in which `triage-declaration` exercises the doctor surface and the evaluation against the unchanged flat form.
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [x] 2.1 Release 5.24.0
+  - Covers:
+    - E6 — a reader of the release notes learns admission can be declared in the repository, that labels still work, and that this repository declared no numbers
+    - I1, I2, I3, I4, I5 — the wordings this change makes stale
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-unattended-triage/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every version marker names 5.24.0
+    - M2: `keel/CHANGELOG.md` carries a 5.24.0 entry naming what the second source is, where it is declared, that every existing declaration keeps its meaning, that an unreadable block admits nothing, and that this repository declared no issue numbers itself
+    - M3: the spec delta is promoted into `openspec/specs/`, `node bin/keel.js openspec validate admission-is-not-a-report-field --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:e3365ad2a32685a7dc5a98f504f9cf603a6fd362238fa1d3f4a440e60743a41d
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.23.0 to 5.24.0 via `node scripts/bump_version.js 5.24.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks, the twelve `keel:openspec-surface-overlay` markers, the AGENTS.md title and preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants. The scenario reads every marker rather than sampling, so one left at 5.23.0 fails by path.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.24.0 - admission is not a field on someone else's report`. It names the second source and where it is declared, the stance #62 explicitly did not overturn, the character-for-character compatibility assertion and the implementation failure that earned it, the four unreadable declarations and the mutation that proved the fail-closed check fires, the `--doctor` wording for each case, that this repository declared no issue numbers and kept the bare-list form on purpose, and #77 as the adjacent defect found and filed rather than folded in.
+    - M3: pass. The delta is promoted — the modified requirement `A repository declares which work may start without asking` now carries both sources and its four new scenarios, and `A triage declaration Keel cannot fully read admits nothing` and `The triage surface reports every declared source` sit after it in `openspec/specs/keel-unattended-triage/spec.md`. `node bin/keel.js openspec validate admission-is-not-a-report-field --strict` reports `Change 'admission-is-not-a-report-field' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 133 scenarios.` — no failing scenario, no exception, none skipped.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check names the artifact a reader would open. M1 is the scenario that reads every version marker rather than a spot check. M3 asserts the promotion through the two tools that consume the published store — the change validator and the strict store scenario — rather than by reading the file back, and it is the check that would catch a MODIFIED requirement promoted as a duplicate rather than as a replacement. M2 is the one prose check, and what it asserts is what a reader cannot reconstruct from the diff: which stance the change deliberately left standing, and the two reds that were not free — the compatibility failure that happened during implementation, and the mutation that had to be aimed at a check which passed on its first run.
+      - Scope check: `git status --short` shows the twenty-eight paths of tasks 1.1 and 2.1 and nothing else, plus this change's own directory, which is the record-write layer. Note the gate's limit here: `AGENTS.md` and `scripts/validate_plugin.py` were already dirty when 2.1 started, so deterministic attribution cannot speak to them and this Review is their scope evidence — 2.1's own writes to both are what `bump_version.js` reported changing, the `keel:start` marker and the two version constants, and M1 is what verifies them.
+      - Findings: none
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- I1: "A label is the unit deliberately: a human applies one to a specific issue, so the policy authorizes a class curated one issue at a time rather than a guess about which issues look easy." — the `triage` comment in `keel/config.yaml`. The same claim is written as "A label is the unit because a human applies one to a specific issue" in the `readTriagePolicy` comment in `src/core/config.js`, and as "A **label** is the unit on purpose." in `README.md`. The reasoning survives; "the unit" naming labels alone does not. Updated by: 1.1
+- I2: "an issue carrying a label declared under `triage:` in `keel/config.yaml`" — the first bullet of `## Unattended runs` in `AGENTS.md`, and "an issue carrying a label listed under `triage:` in `keel/config.yaml`, evaluated with `keel triage --labels <labels>`" in `src/skills/keel-align-expectations/SKILL.md` and its distributed copy under `plugins/`. Updated by: 1.1
+- I3: "naming the issue labels that admit an issue into the pipeline without asking the owner" — the requirement text in `openspec/specs/keel-unattended-triage/spec.md`. Updated by: 2.1
+- I4: "keel triage --labels <l1,l2> [--json]" — the `## Commands` block in `README.md`. The flag is no longer the only input and is no longer mandatory. Updated by: 1.1
+- I5: "triage:             # issue labels that admit work; absent means nothing does" — the worked YAML example under `### Unattended runs` in `README.md`. Updated by: 1.1
+- I6: "version=5.23.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as `"version": "5.23.0"` in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I7: "`triage:` 用 issue 标签作为准入单位" and the shipped changelog entries describing triage as label-only. Discard reason: the issue body is the report that produced this change and is answered by it rather than edited; the changelog entries record what each release did, and editing a shipped entry to match later behavior would make the history unreadable as history.
+
+## Expectation Coverage
+
+- E1: The owner can record "this work may run unattended" somewhere a reporter never sees, in a file only a committer can change. Covered by: 1.1
+- E2: Every repository already declaring labels keeps its exact behavior, with no migration and no entry changing meaning. Covered by: 1.1
+- E3: Admission remains a declaration curated one issue at a time, with no inference added anywhere. Covered by: 1.1
+- E4: A declaration Keel cannot fully read admits nothing and names the part it could not read, distinguishably from an absent one. Covered by: 1.1
+- E5: "What may start work here without asking" stays answerable from one command as the number of sources grows. Covered by: 1.1
+- E6: A reader of the release notes learns admission can be declared in the repository, that labels still work, and that this repository declared no numbers itself. Covered by: 2.1

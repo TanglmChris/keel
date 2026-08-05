@@ -198,21 +198,40 @@ The last thing a loop needs is permission to *start*. Declare which issues may b
 being asked about:
 
 ```yaml
-triage:             # issue labels that admit work; absent means nothing does
-  - auto
+triage:             # either source admits; absent means nothing does
+  labels:           # labels the issue carries
+    - auto
+  issues:           # issue numbers, declared here rather than on the issue
+    - 62
 ```
 
+A bare list directly under `triage:` still means labels, so a declaration written before the second
+source existed keeps its exact meaning.
+
 ```bash
-gh issue view 42 --json labels --jq '[.labels[].name]|join(",")' | xargs keel triage --labels
+gh issue view 42 --json labels,number \
+  --jq '"--labels \([.labels[].name]|join(",")) --issue \(.number)"' \
+  | xargs keel triage
 ```
 
 **Keel never fetches the issue.** You pass what `gh` returned, and the evaluation stays local,
 offline and deterministic — the same properties that make every other Keel answer worth trusting.
+At least one of `--labels` / `--issue` is required; supplying neither is asking for a fetch. A
+`triage:` block Keel cannot fully read admits nothing at all and names the entry that failed —
+granting the readable half would grant the entries beside your typo.
 
-A **label** is the unit on purpose. A person applies one to one issue, so the policy admits a class
-you curate one issue at a time — not a guess about which issues look easy, which is exactly the
-judgement that should not be automated. Keel cannot check that a human applied the label; if your
-automation can label issues, this declaration is wider than it looks.
+**One issue is the unit, in both sources.** A person applies a label, or types a number, for one
+specific issue, so the policy admits a class you curate one issue at a time — not a guess about
+which issues look easy, which is exactly the judgement that should not be automated.
+
+They differ in **where your decision is written down**, which is why both exist:
+
+- A **label** records it on the issue. In a repository whose issues come from other people, that
+  means an operations switch sits in the vocabulary you asked reporters to classify with, visible
+  and editable by whoever filed it. Keel also cannot check that a human applied it; if your
+  automation can label issues, that source is wider than it looks.
+- An **issue number** records it in your own file. The reporter never sees it, only a committer can
+  change it, it shows up in a diff, and you can revoke one entry without touching the rest.
 
 **Admission answers "may this begin" and nothing after it.** Alignment still escalates every
 material choice, every gate still runs, and the write guard still binds. In particular:
@@ -324,8 +343,8 @@ keel lenses list
 keel lenses add <name> [--force]
 
 # Unattended triage — may this issue start work without asking?
-# Keel never fetches the issue; pass what gh returned.
-keel triage --labels <l1,l2> [--json]
+# Keel never fetches the issue; pass what gh returned. At least one of the two.
+keel triage [--labels <l1,l2>] [--issue <n>] [--json]
 
 # Install / maintenance
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]

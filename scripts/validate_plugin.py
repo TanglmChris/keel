@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.23.0"
-PROTOCOL_VERSION = "5.23.0"
+PACKAGE_VERSION = "5.24.0"
+PROTOCOL_VERSION = "5.24.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -14683,6 +14683,259 @@ def validate_triage_declaration_scenario() -> int:
     return 0
 
 
+def validate_triage_admits_from_the_repository_scenario() -> int:
+    """The owner's decision belongs in the owner's file, not on the reporter's issue.
+
+    A label records "this may run unattended" in a field the person who filed
+    the issue can see, in the vocabulary they were asked to file under. The
+    second source moves that decision into keel/config.yaml without giving it
+    up to inference: a number is applied by hand to one issue, exactly as a
+    label is. Reported as #62.
+    """
+
+    def declare(repo: Path, body: str) -> None:
+        (repo / "keel").mkdir(parents=True, exist_ok=True)
+        (repo / "keel" / "config.yaml").write_text(
+            f"fast_check: echo check\n{body}", encoding="utf-8"
+        )
+
+    def triage(repo: Path, *args: str) -> dict | None:
+        result = run_keel(repo, "triage", ".", *args, "--json")
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            # Reported here rather than at the call site. "did not admit" and
+            # "did not run" are two different diagnoses, and a caller checking
+            # `verdict is None or verdict["status"] != "admit"` would send the
+            # reader looking for a verdict in a run that produced none.
+            report(
+                f"keel triage {' '.join(args)} printed no JSON "
+                f"(exit {result.returncode}): "
+                f"{(result.stderr or result.stdout).strip()}"
+            )
+            return None
+
+    def make(root: Path, name: str, body: str) -> Path:
+        repo = root / name
+        repo.mkdir()
+        declare(repo, body)
+        return repo
+
+    nested = "triage:\n  labels:\n    - auto\n  issues:\n    - 62\n"
+
+    with tempfile.TemporaryDirectory(prefix="keel-triage-repo-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — a number listed in the repository's own file admits, and says so.
+        numbers = make(root, "numbers", "triage:\n  issues:\n    - 62\n    - 58\n")
+        admitted = triage(numbers, "--issue", "62", "--labels", "bug")
+        if admitted is None or admitted.get("status") != "admit":
+            report(f"M1 a declared issue number did not admit: {admitted}")
+            return 1
+        reason = admitted.get("reason") or ""
+        if "62" not in reason or "keel/config.yaml" not in reason:
+            report(
+                "M1 the admission does not name the number and the file that "
+                f"lists it, so a reader cannot tell which source answered: {reason}"
+            )
+            return 1
+        if admitted.get("sources") != ["issue"]:
+            report(f"M1 the admitting source is not reported as the issue: {admitted}")
+            return 1
+        refused = triage(numbers, "--issue", "61", "--labels", "bug")
+        if refused is None or refused.get("status") != "refuse":
+            report(f"M1 an unlisted number was admitted: {refused}")
+            return 1
+
+        # M2 — the flat form is what every installed repository has. Its
+        # entries keep their exact meaning, down to the reason text, and none
+        # of them is read as a number.
+        flat = make(root, "flat", "triage:\n  - auto\n")
+        legacy_admit = triage(flat, "--labels", "auto,bug")
+        if legacy_admit is None or legacy_admit.get("status") != "admit":
+            report(f"M2 the bare list stopped admitting its labels: {legacy_admit}")
+            return 1
+        expected_admit = (
+            "admitted by declared label auto; admission starts work and decides "
+            "nothing after it — every later gate still applies and a material "
+            "decision still stops for the owner."
+        )
+        if (legacy_admit.get("reason") or "") != expected_admit:
+            report(
+                "M2 the bare list's admission reason changed from the 5.23.0 "
+                f"text: {legacy_admit.get('reason')!r}"
+            )
+            return 1
+        if legacy_admit.get("sources") != ["label"]:
+            report(f"M2 the bare list's admitting source is not the label: {legacy_admit}")
+            return 1
+        legacy_refuse = triage(flat, "--labels", "bug")
+        expected_refuse = "the issue carries bug and this repository accepts auto."
+        if legacy_refuse is None or legacy_refuse.get("status") != "refuse":
+            report(f"M2 the bare list admitted an undeclared label: {legacy_refuse}")
+            return 1
+        if (legacy_refuse.get("reason") or "") != expected_refuse:
+            report(
+                "M2 the bare list's refusal reason changed from the 5.23.0 "
+                f"text: {legacy_refuse.get('reason')!r}"
+            )
+            return 1
+        # The entry is the label `auto`, not the number 62 — a bare token must
+        # not have been reclassified, because that would move an authorization
+        # boundary in a repository nobody edited.
+        by_number = triage(flat, "--issue", "62", "--labels", "bug")
+        if by_number is None or by_number.get("status") != "refuse":
+            report(f"M2 a bare list entry was read as an issue number: {by_number}")
+            return 1
+
+        # M2 — and either source admits alone when both are declared.
+        both = make(root, "both", nested)
+        for args, source in (
+            (("--labels", "auto"), "label"),
+            (("--issue", "62"), "issue"),
+        ):
+            verdict = triage(both, *args)
+            if verdict is None or verdict.get("status") != "admit":
+                report(f"M2 the {source} source did not admit alone: {verdict}")
+                return 1
+        neither = triage(both, "--labels", "bug", "--issue", "7")
+        if neither is None or neither.get("status") != "refuse":
+            report(f"M2 an issue matching neither source was admitted: {neither}")
+            return 1
+        neither_reason = neither.get("reason") or ""
+        for needle in ("bug", "7", "auto", "62"):
+            if needle not in neither_reason:
+                report(
+                    "M2 the refusal must name what the issue carried and both "
+                    f"halves of what is accepted; missing {needle}: {neither_reason}"
+                )
+                return 1
+
+        # M3 — a declaration Keel cannot fully read admits nothing, including
+        # the half it did read, and names the part that failed.
+        unreadable = {
+            "hash": ("triage:\n  issues:\n    - '#62'\n  labels:\n    - auto\n", "#62"),
+            "unknown-key": (
+                "triage:\n  authors:\n    - someone\n  labels:\n    - auto\n",
+                "authors",
+            ),
+            "mixed": ("triage:\n  - auto\n  issues:\n    - 62\n", "auto"),
+            "inline": ("triage: { issues: [62] }\n", "issues"),
+        }
+        undeclared = make(root, "undeclared", "")
+        undeclared_reason = (triage(undeclared, "--labels", "auto") or {}).get(
+            "reason"
+        ) or ""
+        for name, (body, needle) in unreadable.items():
+            repo = make(root, name, body)
+            # Every fixture above carries something Keel *did* read — the label
+            # `auto`, or the number 62. A partial read would admit here.
+            verdict = triage(repo, "--labels", "auto", "--issue", "62")
+            if verdict is None or verdict.get("status") != "refuse":
+                report(
+                    f"M3 the {name} declaration admitted on the half Keel could "
+                    f"read: {verdict}"
+                )
+                return 1
+            reason = verdict.get("reason") or ""
+            if needle not in reason:
+                report(
+                    f"M3 the {name} refusal does not name the entry it could not "
+                    f"read ({needle}): {reason}"
+                )
+                return 1
+            if reason == undeclared_reason:
+                report(
+                    f"M3 the {name} refusal is word for word the undeclared-policy "
+                    "refusal, so a broken declaration reads as an absent one."
+                )
+                return 1
+            if "could not" not in reason.lower():
+                report(f"M3 the {name} refusal does not say it could not read: {reason}")
+                return 1
+
+        # M3 — and the CLI refuses the same spelling it refuses in the file,
+        # and refuses to answer with no issue attributes at all.
+        hashed = run_keel(numbers, "triage", ".", "--issue", "#62")
+        if hashed.returncode == 0:
+            report("M3 --issue accepted a number Keel refuses in the declaration.")
+            return 1
+        empty = run_keel(numbers, "triage", ".")
+        if empty.returncode == 0:
+            report("M3 triage answered with neither labels nor an issue number.")
+            return 1
+
+        # M4 — what may start work here is answerable from one command.
+        doctor_both = run_keel(both, "--doctor").stdout
+        if "Unattended triage:" not in doctor_both or "triage: ok" not in doctor_both:
+            report(f"M4 doctor does not report a declared triage surface:\n{doctor_both}")
+            return 1
+        for needle in ("auto", "62"):
+            if needle not in doctor_both:
+                report(
+                    f"M4 doctor omits the declared {needle} source, so the surface "
+                    f"under-reports what may start work:\n{doctor_both}"
+                )
+                return 1
+        doctor_numbers = run_keel(numbers, "--doctor").stdout
+        if "triage: ok" not in doctor_numbers or "62" not in doctor_numbers:
+            report(f"M4 doctor does not report an issues-only policy:\n{doctor_numbers}")
+            return 1
+        if "labelled" in doctor_numbers:
+            report(
+                "M4 doctor names labels for a repository that declared none:\n"
+                f"{doctor_numbers}"
+            )
+            return 1
+        doctor_broken = run_keel(root / "hash", "--doctor").stdout
+        if "triage: ok" in doctor_broken:
+            report(
+                "M4 doctor reports an unreadable declaration as a working policy:\n"
+                f"{doctor_broken}"
+            )
+            return 1
+        if "#62" not in doctor_broken:
+            report(
+                "M4 doctor does not name what it could not read, so the owner "
+                f"cannot tell a broken declaration from an absent one:\n{doctor_broken}"
+            )
+            return 1
+
+    # M5 — the surfaces an owner reads must state the second source. Phrases,
+    # not keywords: "issue number" appearing anywhere would satisfy a keyword
+    # check while the page still teaches that a label is the only unit.
+    surfaces = {
+        "config": ROOT / "keel/config.yaml",
+        "protocol": ROOT / "AGENTS.md",
+        "readme": ROOT / "README.md",
+        "canonical skill": ROOT / "src/skills/keel-align-expectations/SKILL.md",
+        "distributed skill": ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md",
+    }
+    stale = "A label is the unit"
+    for label, path in surfaces.items():
+        if not path.is_file():
+            report(f"M5 missing surface: {path}")
+            return 1
+        content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        if "issue number" not in content:
+            report(f"M5 {label} does not state the issue-number source: {path}")
+            return 1
+        if stale in content:
+            report(
+                f"M5 {label} still says {stale!r}, which stopped being true when "
+                f"a second source was declared: {path}"
+            )
+            return 1
+    canonical = surfaces["canonical skill"]
+    distributed = surfaces["distributed skill"]
+    if canonical.read_bytes() != distributed.read_bytes():
+        report("M5 the canonical and distributed skills diverged.")
+        return 1
+
+    report("triage-admits-from-the-repository scenario passed.")
+    return 0
+
+
 def validate_delegation_declaration_scenario() -> int:
     """Who runs a task is a declaration, never an inference from its size.
 
@@ -20789,6 +21042,10 @@ SCENARIOS: tuple = (
     ("precedent-never-weakens", validate_precedent_never_weakens_scenario),
     ("precedent-rules", validate_precedent_rules_scenario),
     ("triage-declaration", validate_triage_declaration_scenario),
+    (
+        "triage-admits-from-the-repository",
+        validate_triage_admits_from_the_repository_scenario,
+    ),
     ("delegation-declaration", validate_delegation_declaration_scenario),
     ("delegation-inheritance", validate_delegation_inheritance_scenario),
     ("native-capability-scope", validate_native_capability_scope_scenario),
