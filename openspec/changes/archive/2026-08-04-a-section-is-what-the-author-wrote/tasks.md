@@ -1,0 +1,145 @@
+# Tasks
+
+## 1. The boundary
+
+- [x] 1.1 A change-level section ends where the tasks begin, in both readers
+  - Covers:
+    - keel-task-capsule / A change-level section ends at the next heading or the next task / A section above the task list is read as written
+    - keel-task-capsule / A change-level section ends at the next heading or the next task / A task's own Covers entries are not section entries
+    - keel-task-capsule / A change-level section ends at the next heading or the next task / An entry a task body appeared to close is still refused
+    - keel-task-capsule / A change-level section ends at the next heading or the next task / Both change-level sections share the boundary
+    - keel-task-capsule / A change-level section ends at the next heading or the next task / The tail position is unchanged
+    - D1 — one shared `sectionBody()` for both readers
+    - D2 — position becomes irrelevant rather than required
+    - D3 — the entry patterns are left alone
+    - D4 — the task half is the parsed task list, not a second checkbox pattern
+    - D5 — the heading half stays `/^##\s+/m`, which is the owner's decision
+    - D6 — four cells per section, driven through the gates on real repositories
+    - D7 — the tail cells are proven able to fail by mutation
+    - F1 — the false positive reproduces at 5.25.0
+    - F2 — the silent false negative reproduces at 5.25.0, and #71 does not report it
+    - F3 — the two slices are character-identical
+    - F6 — no archived change flips verdict under the new boundary
+    - F7 — both readers already receive the parsed task array
+    - F8 — the owner decided the heading half on the issue
+    - A1 — no tasks.md nests a task checkbox inside a section entry
+    - A3 — a fixture passing only because of the swallow is repaired at the assertion
+  - Read:
+    - src/core/gates.js
+    - src/core/task-contract.js
+    - scripts/validate_plugin.py
+    - openspec/specs/keel-task-capsule/spec.md
+    - openspec/changes/a-section-is-what-the-author-wrote/design.md
+  - Touch:
+    - src/core/gates.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: the false positive is gone, measured the way #71 measured it. On one scratch repository with `## Expectation Coverage` above the task list and every `E<n>` closed by `Covered by:`, `keel gate change-close --action archive` reports no `expectation-closure` problem, and the identical file with the section moved to the tail reports the same verdict and the same problem set. The comparison is against the other position rather than against a remembered list, so a change that broke both positions equally cannot pass it.
+    - M2: the silent false negative is gone. On a scratch repository where a change-level section sits above a `repo-action` task whose `Touch` is a bare `- none`, an entry that closes nothing is refused and the diagnostic names it. Asserted for both readers: `change-close` for an unclosed `E<n>`, and `task-start` for an unclosed `I<n>` — the second is the cell that returned `pass` at 5.25.0.
+    - M3: a task's own `Covers` entries are not section entries. With `## Expectation Coverage` above tasks that declare `- E1:`/`- E2:` under their `Covers`, no problem names an `E<n>` the section closes, and the count of problems is what the tail position produces rather than merely smaller.
+    - M4 (regression): the tail position is unchanged, and the check that says so is proven able to fail. The section-in-tail cells are compared against the recorded pre-change verdicts for the same inputs, and the comparison is aimed at a mutation — the boundary made to end at the first task unconditionally — which must turn the tail cells red rather than leave them green on two empty problem sets agreeing.
+    - M5 (regression): `npm test` passes with no failing scenario and no exception, so no existing fixture was passing because its section absorbed the task list.
+    - M6 (regression): `assertion-shape-count` passes at its recorded number, so the added assertions did not put several failures behind one message.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if the fix requires changing what closes an entry, or any diagnostic code or message text. This change moves the boundary; it does not renegotiate the vocabulary.
+    - Stop if the fix requires tightening the `E<n>`/`I<n>` entry patterns to demand a particular indentation. That is #71's other candidate and D3 declined it; taking it here would be a second mechanism doing one job.
+    - Stop if any tail-position verdict has to change to make an above-position cell pass. The tail is the shape every archived change uses, and moving it is the owner's call.
+    - Stop if making the boundary work requires editing `parseTasks()` or the heading pattern in `src/core/task-contract.js`. That is D5 and the owner decided it on the issue.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6806f4546a01355e9dcf280ff817dd1d07c90efffe4e74067c8bc27a347bc0c7
+    - M1: pass. The `section-boundary` scenario's first cell builds one repository twice — `## Expectation Coverage` closing `E1` and `E2` by `Covered by: 1.1`, above the task list and in the tail, nothing else different — and asserts three things: no `expectation-closure` problem in either position, identical sorted problem sets across the pair, and `pass` for the tail. The third exists so the pair comparison is not comparing two failures. Confirmed independently through the shipped CLI on the scratch repository built from the issue's own listing: `node bin/keel.js gate change-close . --change demo --action archive` now reports zero `lacks behavior coverage` lines in both positions, where the above-position run reported two.
+    - M1.red: fail, at 5.25.0 with the two slices untouched. `section-boundary reported an expectation the section closes as unclosed, with the section above the task list. The entries it judged are the task's own Covers lines.` followed by both messages — `E1 lacks behavior coverage, durable owner, or discard rationale.` and the same for `E2`, each closed by `Covered by: 1.1` two lines above the task. This is the shipped state rather than a mutation: it is the defect #71 reports, reproduced through the gate.
+    - M1.green: pass, after both `invalidationProblems()` and `expectationProblems()` replaced their four identical slicing lines with `sectionBody(content, heading, tasks)`.
+    - M2: pass. Both readers refuse an entry that closes nothing when a task below carries a bare `- none`. Cell 2 drives `change-close` against `## Expectation Coverage` declaring an unclosed `E3` above a `repo-action` task whose `Touch` is `- none`, and requires an `expectation-closure` message naming `E3` in both positions. Cell 4 drives `task-start` against the same shape for `## Invalidates` and an unclosed `I1`, requiring `invalidation-closure` naming `I1`. Each also compares the two positions' problem sets. The `- None.` early return is what both cells are aimed at: it tests the whole section body, so any matching line the section swallowed closed the declaration.
+    - M2.red: fail, at 5.25.0, in both cells and in both readers — and the failures are silences, not wrong answers. Cell 2: `section-boundary accepted an expectation that closes nothing, with the section above the task list.` and the reported problem list was `[]`. Cell 4: the same message for the invalidation, problem list `[]`, and `keel gate task-start --change demo --task 1.1` returned **`pass`** — the whole declaration read as `- None.` because a task field said `none`. Confirmed separately outside the suite on a scratch repository: `inv-above` returned `pass` and `inv-tail`, byte-identical apart from where the section sits, returned `fail` with `invalidation-closure`. This half is not in #71; it was found by reading the code the issue points at.
+    - M2.green: pass, both cells, both positions. `inv-above` and `inv-tail` now both return `fail` with `invalidation-closure`.
+    - M3: pass. The pair comparison in cell 1 asserts the full sorted `(code, message)` list is equal across positions, so the above position must produce exactly what the tail produces rather than merely fewer problems — a fix that suppressed the two spurious entries without reading the right ones would still fail it. The `- E1:`/`- E2:` lines the task declares under its `Covers` are inside a task body and are therefore no longer inside the section.
+    - M3.red: fail, at 5.25.0, with cell 1's absolute assertion neutralized so the comparison could be reached: `section-boundary returned different problems for identical section content depending on where the section sits.` — the above position reported the two `expectation-closure` entries and the tail reported `[]`. The neutralization was a temporary `if False and …` on the preceding guard, reverted immediately; `grep -n "False and" scripts/validate_plugin.py` returns nothing.
+    - M3.green: pass, with both positions reporting `[]`.
+    - M4: pass, and proven able to fail rather than assumed. The tail cells pass before and after this change, which is exactly the shape that also passes when the mechanism producing both sides is broken, so the boundary was mutated to end at the first task **unconditionally** — dropping the `task.line > headingLine` guard, so a tail-position section ends before its own heading and reads as empty. The scenario went red naming the tail fixture: `section-boundary could not record a Contract anchor for coverage-closed-tail: task-start refused the fixture, so change-close never ran against it.` The tail red surfaces through the anchor-recording step rather than through the coverage assertion, because `record_contract_anchor` runs `task-start`, which reads `## Invalidates` — that step is the same boundary under test, not unrelated plumbing, and the message says which of the two it was rather than leaving the reader to guess. The same mutation run against the whole suite failed six scenarios — `task-body-ends-at-heading`, `contract-anchor-is-compared`, `task-shape-warning`, `tasks-template-red-green-example`, `declared-paths-are-read-whole`, `section-boundary` — so the tail position is watched well beyond this one scenario. Mutation reverted; `git diff src/core/gates.js` shows only the helper and the four replaced lines. *Precedent applied: `an-assertion-that-never-failed-proves-nothing`.*
+    - M5: pass. `npm test` reports `validation --all passed: baseline plus 134 scenarios.` — no failing scenario, no exception, none skipped. 133 before and 134 after: this change adds one scenario. No existing fixture was passing because its section absorbed the task list, which A3 flagged as the thing only a full run could surface; the two nearest neighbours were checked by name as well and `task-body-ends-at-heading`, `expectation-completion-gates`, and `task-start-invalidation` each report `scenario passed.`
+    - M6: pass. `assertion-shape-count` reports `passed: 75 sites, a bound on a shape and not a count of defects.` — unchanged at its recorded number, because every added assertion is a single condition carrying its own message.
+    - Review:
+      - Status: pass
+      - Acceptance check: the Acceptance is that a section's extent is the section the author wrote, and every check measures it the way an author would meet it — through `keel gate change-close` and `keel gate task-start` on real repositories, comparing one file against itself with only the section's position moved. Nothing here asserts the shape of `sectionBody()`; a unit test of the slice would have proved the half that was never in doubt. Two things are worth stating plainly. First, the pair comparison alone is not the proof: it passes when both positions are broken identically, so each cell also pins its position absolutely — no closure problem where everything is closed, a named closure problem where nothing is. Second, the half that mattered most is the one #71 does not report. The loud failure costs an author minutes; the silent one at M2.red let `keel gate task-start` return `pass` for a change that declared an invalidation and closed it with nothing, which is the gate's own subject matter failing open. That cell is the reason D1 fixed both readers instead of the one the issue names.
+      - Scope check: `git status --short` shows `src/core/gates.js` and `scripts/validate_plugin.py` — the Touch list exactly — plus this change's own untracked directory, which is the record-write layer. Both files were clean when the task started, so deterministic attribution covers every write. `keel guard status` reports the fingerprint unchanged from the one recorded at task-start, so no contract edit occurred. Every write went through the editing tools; no heredoc was used, so the write guard saw each one. Four temporary mutations in `scripts/validate_plugin.py` and two in `src/core/gates.js` were made to obtain the red and control measurements above and all six are reverted — `grep -n "False and"` returns nothing, and the `gates.js` diff is the helper plus the four replaced slice lines.
+      - Findings: three. First, and found by the checklist rather than by a gate: the scenario's own `close()` helper returned an empty payload both when `task-start` refused a fixture and when the gate printed nothing, and every caller reported the first cause. A run that failed for the second reason would have sent the reader to the anchor step, which had no problem in it — the exact shape `assertion-shape-count` counts, in a scenario written to prevent a diagnostic from pointing at the wrong place. The two are now distinct values behind one `readable()` helper with a message each, and M4's recorded red is the message in its final wording rather than the one it replaced. Resolved here: M4. Second: the shipped tasks template and both schema copies place `## Invalidates` and `## Expectation Coverage` in the tail by example while stating no rule, and the archive follows that example in 49 of 49 files, so a reader may still infer a position rule that does not exist. Discard reason: this is the question #71 closes with, and D2 answered it by cancelling the rule rather than writing one down; adding "position is free" to the templates would document the absence of a rule, which is the option D2 declined, and after this change the example carries no consequence for a reader who follows it or one who does not. Third: `## Invalidates` is read only by `task-start` and `## Expectation Coverage` only by `change-close`, so a malformed coverage section is not reported until the close, long after the tasks it names have run. The asymmetry predates this boundary and is untouched by it. Discard reason: the two sections answer different questions at different times by design, and moving either check to the other gate would change when a change may start — an acceptance boundary this task's Stop Rules forbid it from moving.
+
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [x] 2.1 Release 5.26.0
+  - Covers:
+    - E5 — a reader of the release notes learns that the boundary failed in two directions, that position is now irrelevant rather than documented, and why the heading half was left alone
+    - I1, I2 — the wordings this change makes stale
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-task-capsule/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every shipped version marker names 5.26.0
+    - M2: `keel/CHANGELOG.md` carries a 5.26.0 entry naming both failure directions, the position rule that was never written down, that position is now irrelevant rather than documented, and why the heading half of the boundary was deliberately not unified
+    - M3: the spec delta is promoted into `openspec/specs/keel-task-capsule/spec.md`, `node bin/keel.js openspec validate a-section-is-what-the-author-wrote --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:731ac368b4285fc9155e6209d66ff59f63e75586c9c6da23d4677ffa75fde2b0
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.25.0 to 5.26.0 through `node scripts/bump_version.js 5.26.0` — the package and lockfile, both plugin manifests, the three `keel:start` blocks in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`, the `AGENTS.md` title and its preflight line, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`. The scenario reads every marker rather than sampling, so one left at 5.25.0 fails by path. Spot-confirmed in the file a reader meets first: `AGENTS.md:1` is `# Keel v5.26.0 Agent Protocol` and `AGENTS.md:3` is `<!-- keel:start version=5.26.0 -->`.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.26.0 - a section is what the author wrote`. It names both failure directions and keeps them apart — the loud one, where a closed `E1` was reported unclosed because the entries judged were the task's own `Covers` lines, and the quiet one, where a `repo-action` task's `Touch` of `- none` closed an entire `## Invalidates` declaration and `task-start` returned `pass`. It records that the position which avoided all of it was written down nowhere and was followed in 49 of 49 archived changes as a habit; that D2 makes position irrelevant rather than documented, and why requiring the tail would have refused a layout nothing ever called wrong; that the heading half was deliberately not unified, with the measurement that decided it — a tail section truncating at an indented `##` line and dropping an unclosed `I2` — and that this was the owner's call; and that the tail is asserted by mutation rather than argued, because a cell that passes before and after also passes when the mechanism is broken.
+    - M3: pass. The delta is promoted: `A change-level section ends at the next heading or the next task` and its five scenarios now sit at the end of `openspec/specs/keel-task-capsule/spec.md`, beside the task-body boundary they mirror. It is an ADDED requirement, so the promotion is an append and no published requirement was rewritten. `node bin/keel.js openspec validate a-section-is-what-the-author-wrote --strict` reports `Change 'a-section-is-what-the-author-wrote' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 134 scenarios.` — no failing scenario, no exception, none skipped. 133 before this change and 134 after: one scenario added, `section-boundary`.
+    - Review:
+      - Status: pass
+      - Acceptance check: each check names the artifact a reader would open. M1 is the scenario that reads every version marker rather than spot-checking, which is what makes "every marker names 5.26.0" a measurement instead of a claim, and the two `AGENTS.md` lines are quoted because they are the ones a session reads aloud at start. M3 asserts the promotion through the two tools that consume the published store rather than by reading the file back, and records that an ADDED requirement appends rather than replaces — the reason no existing requirement needed re-validation. M2 is the one prose check, and it carries what the diff cannot: that this defect had two directions with opposite signs, that the silent one is the worse and is not in the issue, and that the heading half was left alone on a measurement rather than an oversight. A future reader who does not know that last part would read `/^##\s+/m` beside `/^\s*##\s/` as an inconsistency and unify them, which is the change this release exists as the second attempt at.
+      - Scope check: `git status --short` shows twenty-three paths — this task's twenty-two Touch entries plus `src/core/gates.js` from task 1.1 — and this change's own directory, which is the record-write layer. `keel guard status` reports the fingerprint unchanged from the one recorded at 2.1's task-start, so no contract edit occurred. The gate's limit here is the one every release task in this repository hits: `scripts/validate_plugin.py` was already dirty when 2.1 started, carrying 1.1's scenario, so deterministic attribution cannot speak to it and this Review is its scope evidence. 2.1's own write to that file is the two version constants `bump_version.js` reported changing, and M1 is what verifies them; 2.1 wrote nothing to `src/core/gates.js`, whose diff remains the helper and four replaced lines recorded under 1.1. Every write went through the editing tools or `scripts/bump_version.js`; no heredoc was used.
+      - Findings: none
+    - Blocker: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- I1: "Every consumer of a task's extent MUST use that same boundary rather than recomputing one." — the requirement `A task body ends at the next task or the next heading` in `openspec/specs/keel-task-capsule/spec.md`. The sentence has stood since that boundary shipped while two consumers in `src/core/gates.js` recomputed one, so a reader who searched it found a rule the code did not keep, and a reader who searches it after this change finds a rule whose heading half is deliberately spelled differently in the section readers. It needs the new requirement beside it to be read correctly. Updated by: 2.1
+- I2: "version=5.25.0" — grep it and you find the `keel:start` managed block in `AGENTS.md`, `CLAUDE.md`, and `assets/bootstrap/AGENTS.md`, plus the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`; the same version is written as a `"version"` field in `package.json`, `package-lock.json`, and both plugin manifests, in the AGENTS.md title and its preflight line, and in the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants of `scripts/validate_plugin.py`. Updated by: 2.1
+- I3: "Fixed in the release after 5.3.7: a task body now ends at the next `##` heading." — the 5.3.7 entry in `keel/CHANGELOG.md`, and the neighbouring "5.3.3's fingerprint claim holds ... but its \"stays outside every task body\" does not". Both read as though the whole overlap between tasks and change-level sections was settled there. One half was: a section no longer becomes a task's field. The other half — a task no longer becomes a section's entry — is this change, two months later. Discard reason: a shipped changelog entry records what that release did, and editing one to match later behavior makes the history unreadable as history. The 5.26.0 entry names which half the earlier one closed.
+
+## Expectation Coverage
+
+- E1: A closed entry is never reported unclosed because of where its section sits in the file. Covered by: 1.1
+- E2: A declaration is never silently satisfied by a line that belongs to a task. Covered by: 1.1
+- E3: The tail position — the shape all 49 archived changes use — returns exactly the verdicts it returned before. Covered by: 1.1
+- E4: Both readers share one computation, so the next repair to this boundary cannot land in one and miss the other. Covered by: 1.1
+- E5: A reader of the release notes learns that this boundary failed in two directions, that section position is now irrelevant rather than documented, and why the heading half was left alone. Covered by: 2.1

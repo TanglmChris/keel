@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.25.0"
-PROTOCOL_VERSION = "5.25.0"
+PACKAGE_VERSION = "5.26.0"
+PROTOCOL_VERSION = "5.26.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4149,6 +4149,319 @@ def validate_task_start_invalidation_scenario() -> int:
 
         if not codes(payload):
             report(f"{label} reported a failure with no problem code.")
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# A task for the section-boundary fixtures. Two shapes matter and nothing else
+# does: `covers` puts `- E<n>:` lines inside a task body, which a section that
+# ran over the task list read as its own entries, and `repo_action` gives the
+# task a `Touch` of a bare `- none`, which such a section read as its `- None.`
+# and closed itself with. Every other field is the cheapest legitimate value.
+def section_boundary_task(
+    task_id: str,
+    *,
+    checked: bool,
+    covers: tuple[str, ...] = ("E1: the task owns its file",),
+    repo_action: bool = False,
+) -> str:
+    covers_lines = "".join(f"    - {item}\n" for item in covers)
+    touch = "    - none\n" if repo_action else "    - src/example.js\n"
+    mode = "repo-action" if repo_action else "implementation"
+    return (
+        f"- [{'x' if checked else ' '}] {task_id} Section boundary fixture\n"
+        "  - Owner: claude\n"
+        f"  - Mode: {mode}\n"
+        "  - Covers:\n"
+        f"{covers_lines}"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        f"{touch}"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js reports the public behavior passing\n"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js reported 4 passing and 0 failing\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: the public behavior was exercised\n"
+        "      - Scope check: only the declared file changed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+        "  - Stop if:\n"
+        "    - Requires files outside Touch.\n"
+    )
+
+
+# The same file with the section above the task list and in the tail. Nothing
+# else differs between the two, which is what makes the pair a measurement of
+# position rather than of content.
+def section_boundary_tasks_md(*, section: str, task: str, position: str) -> str:
+    if position == "above":
+        return "# Tasks\n\n" + section + "\n" + task
+    return "# Tasks\n\n" + task + "\n" + section
+
+
+def section_boundary_repo(root: Path, name: str, content: str) -> Path:
+    repo = root / name
+    change = repo / "openspec/changes/demo"
+    write_text(change / "tasks.md", content)
+    write_text(change / "proposal.md", "# Proposal\n")
+    write_text(change / "design.md", "## Context\n\nfixture\n")
+    write_text(change / "specs/demo/spec.md", "## ADDED Requirements\n")
+    return repo
+
+
+def validate_section_boundary_scenario() -> int:
+    """A change-level section is bounded by the tasks, not only by headings.
+
+    Regression for issue #71 and for the silent half the issue does not report.
+    Both readers of a change-level section sliced to the next `## ` heading, so
+    a section that was not the file's last one ran over the task list: the
+    `- E<n>:` lines a task declares under `Covers` were judged as coverage
+    entries and reported unclosed, and a `repo-action` task's `Touch` of a bare
+    `- none` was read as the section's `- None.` and closed a declaration that
+    closed nothing.
+
+    Every cell is a pair — the identical section above the task list and in the
+    tail — asserted both absolutely and against each other. The absolute half
+    matters: a comparison alone passes when both positions are broken the same
+    way.
+    """
+    label = "section-boundary"
+
+    def problems_of(payload: dict) -> list[tuple[str, str]]:
+        return sorted(
+            (item.get("code", ""), item.get("message", ""))
+            for item in payload.get("problems", [])
+        )
+
+    def closure_problems(payload: dict, code: str) -> list[str]:
+        return [
+            item.get("message", "")
+            for item in payload.get("problems", [])
+            if item.get("code") == code
+        ]
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-section-boundary-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+
+        # `None` and `{}` are kept apart on purpose. A fixture task-start
+        # refused and a gate that printed nothing are different failures, and a
+        # message naming one of them while the other happened sends the reader
+        # to a place with no problem in it.
+        def close(name: str, content: str) -> dict | None:
+            repo = section_boundary_repo(tmp, name, content)
+            # A checked task with no recorded anchor fails the close for a
+            # reason that has nothing to do with this boundary, and that noise
+            # would land in both halves of every pair.
+            if not record_contract_anchor(repo, "demo", "1.1"):
+                return None
+            result = run_keel(
+                repo, "gate", "change-close", ".",
+                "--change", "demo", "--action", "archive", "--json",
+            )
+            return json.loads(result.stdout) if result.stdout.strip() else {}
+
+        def start(name: str, content: str) -> dict:
+            repo = section_boundary_repo(tmp, name, content)
+            result = run_keel(
+                repo, "gate", "task-start", ".",
+                "--change", "demo", "--task", "1.1", "--no-guard", "--json",
+            )
+            return json.loads(result.stdout) if result.stdout.strip() else {}
+
+        def readable(payload: dict | None, fixture: str, gate: str) -> bool:
+            if payload is None:
+                report(
+                    f"{label} could not record a Contract anchor for {fixture}: "
+                    "task-start refused the fixture, so change-close never ran "
+                    "against it."
+                )
+                return False
+            if not payload:
+                report(
+                    f"{label} got no JSON from {gate} for {fixture}, so there "
+                    "was no verdict to read rather than a verdict that was "
+                    "wrong."
+                )
+                return False
+            return True
+
+        # Cell 1: `## Expectation Coverage` closes every entry it declares, and
+        # the task below it declares `- E1:`/`- E2:` under its own `Covers`.
+        # Nothing here is unclosed in either position.
+        closed_coverage = (
+            "## Invalidates\n\n- None.\n\n"
+            "## Expectation Coverage\n\n"
+            "- E1: The task owns its file. Covered by: 1.1\n"
+            "- E2: The task proves it. Covered by: 1.1\n"
+        )
+        closed_task = section_boundary_task(
+            "1.1",
+            checked=True,
+            covers=("E1: The task owns its file.", "E2: The task proves it."),
+        )
+        closed = {
+            position: close(
+                f"coverage-closed-{position}",
+                section_boundary_tasks_md(
+                    section=closed_coverage, task=closed_task, position=position
+                ),
+            )
+            for position in ("above", "tail")
+        }
+        for position, payload in closed.items():
+            if not readable(payload, f"coverage-closed-{position}", "change-close"):
+                return 1
+            stray = closure_problems(payload, "expectation-closure")
+            if stray:
+                report(
+                    f"{label} reported an expectation the section closes as "
+                    f"unclosed, with the section {position} the task list. The "
+                    "entries it judged are the task's own Covers lines."
+                )
+                report(repr(stray))
+                return 1
+        if problems_of(closed["above"]) != problems_of(closed["tail"]):
+            report(
+                f"{label} returned different problems for identical section "
+                "content depending on where the section sits."
+            )
+            report(repr(problems_of(closed["above"])))
+            report(repr(problems_of(closed["tail"])))
+            return 1
+        if closed["tail"].get("status") != "pass":
+            report(
+                f"{label} refused a fixture whose only expectations are closed; "
+                "the pair comparison above would then be comparing two failures."
+            )
+            report(repr(closed["tail"].get("problems")))
+            return 1
+
+        # Cell 2: the silent half. The entry closes nothing, and the task below
+        # is a `repo-action` whose `Touch` is a bare `- none`.
+        open_coverage = (
+            "## Invalidates\n\n- None.\n\n"
+            "## Expectation Coverage\n\n"
+            "- E3: Nothing closes this one.\n"
+        )
+        none_task = section_boundary_task("1.1", checked=True, repo_action=True)
+        unclosed = {
+            position: close(
+                f"coverage-open-{position}",
+                section_boundary_tasks_md(
+                    section=open_coverage, task=none_task, position=position
+                ),
+            )
+            for position in ("above", "tail")
+        }
+        for position, payload in unclosed.items():
+            if not readable(payload, f"coverage-open-{position}", "change-close"):
+                return 1
+            named = [
+                message
+                for message in closure_problems(payload, "expectation-closure")
+                if "E3" in message
+            ]
+            if not named:
+                report(
+                    f"{label} accepted an expectation that closes nothing, with "
+                    f"the section {position} the task list. A task field of "
+                    "`none` is not the section's `- None.`."
+                )
+                report(repr(payload.get("problems")))
+                return 1
+        if problems_of(unclosed["above"]) != problems_of(unclosed["tail"]):
+            report(
+                f"{label} returned different problems for an identical unclosed "
+                "section depending on where the section sits."
+            )
+            report(repr(problems_of(unclosed["above"])))
+            report(repr(problems_of(unclosed["tail"])))
+            return 1
+
+        # Cell 3: the other reader. `## Invalidates` is read by task-start, and
+        # holds the character-identical slice.
+        closed_invalidates = (
+            "## Invalidates\n\n"
+            '- I1: "the wording that is now wrong" — README.md. Updated by: 1.1\n'
+        )
+        start_task = section_boundary_task("1.1", checked=False)
+        started = {
+            position: start(
+                f"invalidates-closed-{position}",
+                section_boundary_tasks_md(
+                    section=closed_invalidates, task=start_task, position=position
+                ),
+            )
+            for position in ("above", "tail")
+        }
+        for position, payload in started.items():
+            if not readable(payload, f"invalidates-closed-{position}", "task-start"):
+                return 1
+            if payload.get("status") != "pass":
+                report(
+                    f"{label} refused a closed invalidation declaration with "
+                    f"the section {position} the task list."
+                )
+                report(repr(payload.get("problems")))
+                return 1
+
+        # Cell 4: the silent half of the other reader. This is the cell that
+        # returned `pass` before the boundary gained its task half.
+        open_invalidates = (
+            "## Invalidates\n\n"
+            '- I1: "the wording that is now wrong" — README.md.\n'
+        )
+        open_start_task = section_boundary_task(
+            "1.1", checked=False, repo_action=True
+        )
+        unstarted = {
+            position: start(
+                f"invalidates-open-{position}",
+                section_boundary_tasks_md(
+                    section=open_invalidates, task=open_start_task, position=position
+                ),
+            )
+            for position in ("above", "tail")
+        }
+        for position, payload in unstarted.items():
+            if not readable(payload, f"invalidates-open-{position}", "task-start"):
+                return 1
+            named = [
+                message
+                for message in closure_problems(payload, "invalidation-closure")
+                if "I1" in message
+            ]
+            if not named:
+                report(
+                    f"{label} accepted an invalidation that closes nothing, "
+                    f"with the section {position} the task list. A task field "
+                    "of `none` is not the section's `- None.`."
+                )
+                report(repr(payload.get("problems")))
+                return 1
+        if problems_of(unstarted["above"]) != problems_of(unstarted["tail"]):
+            report(
+                f"{label} returned different problems for an identical unclosed "
+                "invalidation depending on where the section sits."
+            )
+            report(repr(problems_of(unstarted["above"])))
+            report(repr(problems_of(unstarted["tail"])))
             return 1
 
     report(f"{label} scenario passed.")
@@ -21306,6 +21619,7 @@ SCENARIOS: tuple = (
         validate_decimal_runs_are_not_hash_shaped_scenario,
     ),
     ("validation-runner", validate_validation_runner_scenario),
+    ("section-boundary", validate_section_boundary_scenario),
 )
 
 

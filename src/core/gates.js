@@ -895,6 +895,41 @@ function taskComplete(repo, options) {
   );
 }
 
+// The body of a change-level section — `## Invalidates`, `## Expectation
+// Coverage` — ending at the next `##` heading or at the next task, whichever
+// comes first. The heading half alone is the right bound for a document made of
+// headings, and a tasks file is not one: its dominant structure is a list, so a
+// section that is not the file's last one ran over the whole task list and read
+// what the tasks had declared. An `E<n>` line under a task's `Covers` was
+// judged as a coverage entry and reported unclosed; a `repo-action` task's
+// `Touch` of a bare `- none` was read as the section's `- None.` and closed a
+// declaration that closed nothing. The first failed loudly and named an entry
+// that was fine, the second failed silently, and which one an author met
+// depended only on where they had put the section — a position no template,
+// diagnostic, or document has ever stated.
+//
+// The task half is the task list already parsed for this file rather than a
+// second checkbox pattern, so it cannot drift from the boundary `parseTasks()`
+// applies to a task's own body. The heading half stays as it was: the two
+// spellings are not interchangeable, and unifying them truncates a tail-position
+// section at an indented `##` line inside its own body, which is this same
+// defect pointed the other way.
+function sectionBody(content, headingOffset, tasks) {
+  const lines = content.split(/\r?\n/);
+  const headingLine = content.slice(0, headingOffset).split(/\r?\n/).length - 1;
+  let end = lines.length;
+  for (const task of tasks) {
+    if (task.line > headingLine && task.line < end) end = task.line;
+  }
+  for (let cursor = headingLine + 1; cursor < end; cursor += 1) {
+    if (/^##\s+/.test(lines[cursor])) {
+      end = cursor;
+      break;
+    }
+  }
+  return lines.slice(headingLine + 1, end).join("\n");
+}
+
 // Follow-up Ownership governs work a change left undone. This is the opposite
 // shape: statements left standing by work the change completed. It is asked at
 // task-start rather than change-close because the whole value is that the
@@ -919,10 +954,7 @@ function invalidationProblems(repo, content, tasks) {
       ),
     ];
   }
-  const bodyStart = content.indexOf("\n", heading);
-  const remainder = bodyStart < 0 ? "" : content.slice(bodyStart + 1);
-  const nextHeading = remainder.search(/^##\s+/m);
-  const section = nextHeading < 0 ? remainder : remainder.slice(0, nextHeading);
+  const section = sectionBody(content, heading, tasks);
   if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
   const entries = [
     ...section.matchAll(
@@ -1022,10 +1054,7 @@ function expectationProblems(repo, content, tasks) {
       ),
     ];
   }
-  const bodyStart = content.indexOf("\n", heading);
-  const remainder = bodyStart < 0 ? "" : content.slice(bodyStart + 1);
-  const nextHeading = remainder.search(/^##\s+/m);
-  const section = nextHeading < 0 ? remainder : remainder.slice(0, nextHeading);
+  const section = sectionBody(content, heading, tasks);
   if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
   const entries = [
     ...section.matchAll(
