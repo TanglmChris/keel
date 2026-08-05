@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.24.0"
-PROTOCOL_VERSION = "5.24.0"
+PACKAGE_VERSION = "5.25.0"
+PROTOCOL_VERSION = "5.25.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2526,6 +2526,19 @@ def validate_sync_surface_overlay_scenario() -> int:
     return 0
 
 
+def overlay_action_label(text: str, pattern: str) -> str | None:
+    """The action list a summary line names, or None when the line is absent.
+
+    `\\S*` rather than `\\S+` on purpose: a label that derived to nothing leaves
+    two spaces where the actions belong, and matching it is what lets an empty
+    label be reported as empty instead of as a missing line.
+    """
+    match = re.search(pattern, text)
+    if match is None:
+        return None
+    return match.group(1)
+
+
 def validate_openspec_surface_overlay_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-overlay-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -2549,6 +2562,61 @@ def validate_openspec_surface_overlay_scenario() -> int:
             report("openspec-surface-overlay scenario Claude doctor missed overlay health.")
             report((claude_doctor.stderr or claude_doctor.stdout).strip())
             return 1
+
+        # Every direction that reports the overlay names the actions it covers,
+        # and all of them describe one surface list. They are compared against
+        # each other rather than against a literal repeated here: the doctor
+        # label is already pinned above, so an action joining the managed set
+        # moves all three lines together or fails on this comparison. A third
+        # copy of the string is what produced the defect this guards.
+        #
+        # The refresh line was the copy nobody was watching. Measured 2026-08-03
+        # on one repository, back to back: `--init` reported `apply/archive`
+        # while `--uninstall` reported `apply/archive/sync` (issue #75).
+        #
+        # Absence is checked before agreement, and separately, because two
+        # labels that were never found also agree.
+        claude_uninstall = run_keel(claude_repo, "--uninstall", "--target", "claude")
+        if claude_uninstall.returncode != 0:
+            report("openspec-surface-overlay scenario Claude uninstall failed:")
+            report((claude_uninstall.stderr or claude_uninstall.stdout).strip())
+            return 1
+        summaries = {
+            "refresh": overlay_action_label(
+                claude_init.stdout, r"OpenSpec (\S*) overlay refreshed="
+            ),
+            "doctor": overlay_action_label(
+                claude_doctor.stdout, r"Keel (\S*) overlay:"
+            ),
+            "removal": overlay_action_label(
+                claude_uninstall.stdout, r"OpenSpec (\S*) overlay removed="
+            ),
+        }
+        for direction, printed in summaries.items():
+            if printed is None:
+                report(
+                    f"openspec-surface-overlay scenario found no {direction} "
+                    "overlay summary at all, so there was no label to compare "
+                    "rather than a label that disagreed."
+                )
+                return 1
+            if not printed:
+                report(
+                    f"openspec-surface-overlay scenario read an empty action "
+                    f"label from the {direction} summary; a label that derives "
+                    "to nothing reports no actions at all."
+                )
+                return 1
+        for direction in ("refresh", "removal"):
+            if summaries[direction] != summaries["doctor"]:
+                report(
+                    "openspec-surface-overlay scenario overlay summaries "
+                    f"disagree: {direction} names {summaries[direction]!r} and "
+                    f"doctor names {summaries['doctor']!r}. They describe the "
+                    "same managed surface list, so one of them is written "
+                    "beside the action set instead of derived from it."
+                )
+                return 1
 
         codex_repo = tmp / "codex"
         codex_repo.mkdir()
