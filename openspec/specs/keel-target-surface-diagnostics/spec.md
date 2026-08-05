@@ -112,13 +112,13 @@ Keel MUST NOT report a continuity or gate capability as automated or enforced wi
 
 ### Requirement: Missing Keel overlays are visible
 
-Keel doctor MUST distinguish missing apply/archive overlay markers from unsupported hook gates and missing OpenSpec command files.
+Keel doctor MUST distinguish missing apply/archive/sync overlay markers from unsupported hook gates and missing OpenSpec command files.
 
 #### Scenario: Missing overlay marker is reported
 
-- **WHEN** an apply/archive OpenSpec file exists without the Keel overlay marker
+- **WHEN** an apply/archive/sync OpenSpec file exists without the Keel overlay marker
 - **AND WHEN** `keel --doctor --target <target>` runs
-- **THEN** the report marks the Keel apply/archive overlay as missing
+- **THEN** the report marks the Keel apply/archive/sync overlay as missing
 - **AND THEN** the report tells the user to run `keel --init --target <target>` or `keel --install --target <target>` to refresh the overlay
 
 ### Requirement: Native plugin diagnostics are behavior-probed
