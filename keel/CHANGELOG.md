@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.32.0 - a pointer replaces a duplicate
+
+`#55` measured the `keel-align-expectations` skill's injection footprint and found its `## Unattended runs` section (1,581 characters, 19% of the skill) is a near-verbatim second copy of `AGENTS.md`'s own `## Unattended runs` section (1,457 characters), read twice per session in any repository that has both files. Owner decision (2026-08-05, `dasauto#18`): leave a one-line pointer instead of keeping the skill fully self-contained.
+
+- **The skill's `## Unattended runs` section is now a pointer, not a restatement.** Both the canonical skill (`src/skills/keel-align-expectations/SKILL.md`) and its plugin-distributed copy shrink from 8,364 to 7,152 characters, staying byte-identical. `AGENTS.md`'s own section is unchanged — it is the surface the pointer names, and nothing about its content or loading behavior moves. (keel-unattended-triage, #55)
+- **Two deterministic validators pinned the duplication and are now updated, not removed.** `validate_unattended_boundary_scenario` and the M5 block inside `validate_triage_admits_from_the_repository_scenario` required five boundary phrases and the issue-number phrase inside both skill copies as well as `AGENTS.md`. Both still require the full phrase sets against `AGENTS.md`, unchanged; the skill copies are now checked for a pointer marker (`states no separate copy`) instead.
+- **Two new scenarios record that a secondary surface may point instead of repeat.** `keel-unattended-triage`'s "A repository declares which work may start without asking" and "An unattended run may open a pull request and may not merge" requirements each gain a "A secondary surface points instead of repeating" scenario, naming the skill as the example and requiring the protocol's own statement to remain complete.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.32.0; the OpenSpec dependency pin stays `^1.4.1`.
+- No new dependency. No change to `AGENTS.md`'s content, admission/gate/write-guard behavior, or any code path that reads the skill at runtime — a documentation-surface consolidation. Validator at **138 registered scenarios**, none added: the two updated functions are existing scenarios with relaxed requirements on two files, not new checks.
+
 ## 5.31.0 - a third action joined the code, not the prose
 
 `#75` fixed the last literal copy of `apply/archive` in code: `refreshOpenSpecSurfaceOverlay`'s summary line now reads `overlayActionLabel()`, which has named `apply/archive/sync` since `sync` joined the managed set in 5.22.0. Published spec prose was never revisited. `#79` grepped `openspec/specs/` and found nine lines still saying `apply/archive`.

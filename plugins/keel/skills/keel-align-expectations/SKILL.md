@@ -73,28 +73,10 @@ write guard are untouched by anything in the store.
 
 ## Unattended runs
 
-Work enters an unattended run only by the repository's declared triage policy in
-`keel/config.yaml`, which `triage:` may declare from either of two sources: a label the issue
-carries, or the issue number listed under `issues:`. Both are curated one issue at a time; the
-number keeps the owner's decision out of a field the issue's reporter reads. Evaluate with
-`keel triage --labels <labels> --issue <n>`, passing at least one of them. Pass what `gh` returned;
-Keel never fetches the issue. A `triage:` block Keel cannot fully read admits nothing and names the
-entry that failed. Admission comes from that declaration and
-never from a precedent, however much triage history the store accumulates: whether an issue becomes
-work is a materiality decision, and a precedent may not move one out of that list.
-
-Admission answers "may this begin" and decides nothing after it. Alignment still escalates material
-choices, the gates still run, and the write guard still binds.
-
-An unattended run may triage, author, implement, verify, push where `authorize:` permits, and
-**open a pull request**. It **may not merge** one — merging is where an unreviewed decision becomes
-the project's history, and no declaration in Keel authorizes it.
-
-Stopping at a decision the user must make is the **designed boundary rather than a failure**.
-Report where the run stopped and why. Do not widen the triage policy to stop it happening.
-
-**Keel schedules nothing.** `/loop`, cron, and CI triggers belong to the host runtime; Keel's part
-is making each step decidable with authority.
+The admission rule, what admission does and does not authorize, the open-a-pull-request/no-merge
+boundary, and that Keel schedules nothing are stated once, in this repository's `AGENTS.md`, under
+its own `## Unattended runs` section. Read the boundary there — this skill states no separate copy,
+so the two surfaces cannot drift against each other.
 
 ## Domain lenses
 
