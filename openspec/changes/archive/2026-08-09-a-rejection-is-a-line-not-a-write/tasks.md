@@ -2,7 +2,7 @@
 
 ## 1. The entry
 
-- [ ] 1.1 A rejection becomes a Reauthorizations entry the author writes, not a gate write
+- [x] 1.1 A rejection becomes a Reauthorizations entry the author writes, not a gate write
   - Covers:
     - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / An absent entry needs nothing
     - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / A bare none needs nothing
@@ -47,17 +47,17 @@
     - Stop if any format or vocabulary beyond concreteness is imposed on the entry's content — a required gate name, problem code, or template shape. Non-Goals.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:7dc3505d75c4f1ea40afd7eb94e423d1a92eb523c70656bcd72292c2eec290f1
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - M1: pass. The `reauthorizations-shape` scenario (`scripts/validate_plugin.py`) starts a scratch task once with clean Evidence, records its Contract anchor, then edits only the `Reauthorizations` line before calling `keel gate task-complete` directly — restarting instead would trip the pre-existing, unrelated `missing-field: Evidence` check that already refuses any unfilled `<slot>` token anywhere in the Evidence block, before the new label-specific check is ever reached. An unfilled token on the label line (`Reauthorizations: <what was rejected>`) and one on a continuation line two lines below the label (`<the tracker issue>`) are both refused with `reauthorizations-shape`, and each refusal names the exact token it found. `node scripts/run_python.js scripts/validate_plugin.py --scenario reauthorizations-shape` reports `reauthorizations-shape scenario passed.`
+    - M1.red: fail, with `if (false && reauthorizationsToken)` substituted into the check in `src/core/gates.js` so it never fires. The scenario reported that it accepted the unfilled angle-bracket slot on the Reauthorizations label line, with problem codes `['missing-field']` — the generic Evidence check still catches it, but the label-specific `reauthorizations-shape` code this M1 asserts on is gone. Reverted; `diff` against the recorded green implementation reports the file identical.
+    - M1.green: pass, with the mutation reverted. Confirmed independently on the shipped CLI: `node bin/keel.js gate task-complete --change demo --task 1.1 --json` against a scratch repo built the same way reports one `reauthorizations-shape` problem naming `<what was rejected>`, alongside the pre-existing `missing-field: Evidence` problem the same unfilled token also trips — the new check does not replace the generic one, it names the specific field.
+    - M2: pass. An absent `Reauthorizations` entry, a bare `Reauthorizations: none`, and a concrete multi-line record wrapped across three indented lines all produce no `reauthorizations-shape` problem; the wrapped form and the same text joined onto one line produce identical sorted problem-code lists.
+    - M3: pass, and proven able to fail rather than assumed. The wrapped concrete record from M2 produces no `reauthorizations-shape` problem, so presence alone does not block completion; on the same scratch repository, a concrete `Blocker` entry (`Blocker: a real blocker is recorded here`) does fail completion, with `blocker` in the returned problem codes — proving the comparison fixture is capable of failing, so `Reauthorizations` passing next to it is not vacuous.
+    - M4: pass. `npm test` (`node scripts/run_python.js scripts/validate_plugin.py --all`) reports `validation --all passed: baseline plus 139 scenarios.` with no failing scenario and no exception. `git diff scripts/validate_plugin.py` shows exactly one line added to the `SCENARIOS` tuple — `("reauthorizations-shape", validate_reauthorizations_shape_scenario)` — so the count moved by exactly one against `origin/main` (138).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: reviewed. Every scenario in `specs/keel-core-gates/spec.md` for this requirement is exercised by `reauthorizations-shape` and passes: absent/none/pending need nothing (M2), a wrapped concrete record is accepted whole and agrees with its joined form (M2), an unfilled slot is refused naming the token including on a continuation line (M1), and a concrete record does not block completion unlike a concrete Blocker (M3). No gate writes the entry on any outcome — `completionChecks()` only reads it via `reviewValue()`, and `taskStart`/the guard manifest are untouched by this change, keeping `keel-core-gates:231` intact per F1/F3.
+      - Scope check: reviewed. Touch was `src/core/gates.js`, `src/core/task-contract.js`, both `tasks.md` templates, and `scripts/validate_plugin.py`; `git status --short` shows only those five files plus this task's own tasks.md, and `git diff --stat` confirms no file outside Touch changed. `unfilledToken` gained an export in `task-contract.js` per the proposal's Impact list; `reviewValue()`, `REVIEW_SIBLING`, `field()`, `fieldValues()`, and `parseTasks()` are unchanged (D2, Stop Rules).
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
   - Stop if:
@@ -65,7 +65,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release the next version
+- [x] 2.1 Release the next version
   - Covers:
     - E6 — a reader of the release notes learns why this does not reopen keel-core-gates:231, and that presence of the entry does not block completion
   - Read:
@@ -105,16 +105,16 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - M4: pending
+    - Contract: keel-task-capsule/v1 sha256:f69b02828998f6b7b748a3f5635b7a7cfafdf66e983dd56329f3bdcdadaca1fd
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` Every marker moved from 5.32.0 to 5.33.0 through `node scripts/bump_version.js 5.33.0` — the package and lockfile, both plugin manifests, the `keel:start` blocks in `AGENTS.md`/`CLAUDE.md`/`assets/bootstrap/AGENTS.md`, the twelve `keel:openspec-surface-overlay` markers under `.claude/` and `.codex/`, the `AGENTS.md` title, and the `PACKAGE_VERSION`/`PROTOCOL_VERSION` constants in `scripts/validate_plugin.py`.
+    - M2: pass. `keel/CHANGELOG.md` carries `## 5.33.0 - a rejection is a line, not a write`, naming issue #70, the reasoning that ruled out a gate-side write (the 458-replay measurement against `keel-core-gates:231`), the owner's choice of the author-recorded entry (R2) over the gate write (R3), and that a concrete `Reauthorizations` entry does not block completion the way `Blocker` does.
+    - M3: pass. The delta requirement "A rejection becomes a Reauthorizations entry the author writes, not a gate write" and its five scenarios are appended to `openspec/specs/keel-core-gates/spec.md`, an ADDED requirement so nothing published was rewritten. `node bin/keel.js openspec validate a-rejection-is-a-line-not-a-write --strict` reports `Change 'a-rejection-is-a-line-not-a-write' is valid`, and `published-specs-validate-strictly` reports `21 published specs validate strictly against openspec 1.6.0` against the store now holding it.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 139 scenarios.` with no failing scenario and no exception.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: reviewed. E6 requires a reader of the release notes to learn why this does not reopen `keel-core-gates:231` and that presence does not block completion; the CHANGELOG entry states both directly, and the spec promotion carries the same "MUST NOT by itself fail or block" language into the published store a future reader consults.
+      - Scope check: reviewed. `git diff --stat` against the state before this task shows only the bump script's own touched set plus `keel/CHANGELOG.md` and `openspec/specs/keel-core-gates/spec.md`, all declared in Touch. No file outside Touch changed.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
   - Stop if:

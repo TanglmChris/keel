@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.32.0"
-PROTOCOL_VERSION = "5.32.0"
+PACKAGE_VERSION = "5.33.0"
+PROTOCOL_VERSION = "5.33.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9872,6 +9872,8 @@ def validate_reauthorizations_shape_scenario() -> int:
     does.
     """
     label = "reauthorizations-shape"
+    baseline_reauthorizations = "    - Reauthorizations: none\n"
+    baseline_blocker = "    - Blocker: none\n"
 
     with tempfile.TemporaryDirectory(
         prefix="keel-reauthorizations-shape-", ignore_cleanup_errors=True
@@ -9884,10 +9886,33 @@ def validate_reauthorizations_shape_scenario() -> int:
             "## ADDED Requirements\n",
         )
 
-        def complete(reauthorizations: str, blocker: str = "none") -> dict | None:
-            write_text(tasks, reauthorizations_tasks(reauthorizations, blocker))
-            if not record_contract_anchor(repo, "demo"):
-                return None
+        # Started once, with clean Evidence, and every variant below edits
+        # only the Reauthorizations/Blocker lines and calls task-complete
+        # directly rather than restarting. Two things make restarting wrong
+        # here: Evidence is not part of the compiled capsule that task-start
+        # fingerprints, so editing only these lines cannot drift it; and
+        # task-start separately enforces its own blanket "Evidence must be
+        # concrete" check across the whole field regardless of which label an
+        # unfilled `<slot>` sits under, so planting one for M1 and then
+        # restarting would be refused there before task-complete's more
+        # specific `reauthorizations-shape` ever saw it.
+        write_text(tasks, reauthorizations_tasks(baseline_reauthorizations))
+        if not record_contract_anchor(repo, "demo"):
+            report(f"{label} could not record a Contract anchor for the baseline fixture.")
+            return 1
+        baseline = tasks.read_text(encoding="utf-8")
+        if baseline_reauthorizations not in baseline or baseline_blocker not in baseline:
+            report(
+                f"{label} lost track of the baseline Reauthorizations/Blocker "
+                "lines after task-start recorded the Contract anchor."
+            )
+            return 1
+
+        def complete(reauthorizations: str, blocker: str = "none") -> dict:
+            text = baseline.replace(baseline_reauthorizations, reauthorizations, 1)
+            if blocker != "none":
+                text = text.replace(baseline_blocker, f"    - Blocker: {blocker}\n", 1)
+            write_text(tasks, text)
             result = run_keel(
                 repo, "gate", "task-complete", ".",
                 "--change", "demo", "--task", "1.1", "--json",
@@ -9906,14 +9931,7 @@ def validate_reauthorizations_shape_scenario() -> int:
                 if item.get("code") == "reauthorizations-shape"
             ]
 
-        def readable(payload: dict | None, fixture: str) -> bool:
-            if payload is None:
-                report(
-                    f"{label} could not record a Contract anchor for {fixture}: "
-                    "task-start refused the fixture, so task-complete never ran "
-                    "against it."
-                )
-                return False
+        def readable(payload: dict, fixture: str) -> bool:
             if not payload:
                 report(
                     f"{label} got no JSON from task-complete for {fixture}, so "
@@ -22627,6 +22645,7 @@ SCENARIOS: tuple = (
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),
+    ("reauthorizations-shape", validate_reauthorizations_shape_scenario),
 )
 
 

@@ -50,6 +50,7 @@
       - Scope check: pending
       - Findings: pending
     - Blocker: none
+    - Reauthorizations: none
 
 <!-- Exceptional boundaries are declared only when they differ from defaults:
      - Mode: diagnose-only or repo-action (both with `Touch: none`), or plan-first.
@@ -87,6 +88,7 @@
       - Scope check: pending
       - Findings: pending
     - Blocker: none
+    - Reauthorizations: none
 
 ## 3. <!-- Task Group Name -->
 
@@ -117,6 +119,7 @@
       - Scope check: pending
       - Findings: pending
     - Blocker: none
+    - Reauthorizations: none
 
 ## Invalidates
 
