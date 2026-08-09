@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.31.0"
-PROTOCOL_VERSION = "5.31.0"
+PACKAGE_VERSION = "5.32.0"
+PROTOCOL_VERSION = "5.32.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -15562,16 +15562,18 @@ def validate_triage_admits_from_the_repository_scenario() -> int:
 
     # M5 — the surfaces an owner reads must state the second source. Phrases,
     # not keywords: "issue number" appearing anywhere would satisfy a keyword
-    # check while the page still teaches that a label is the only unit.
-    surfaces = {
+    # check while the page still teaches that a label is the only unit. The
+    # alignment skill points at the protocol's own statement instead of
+    # repeating it (keel-unattended-triage's "A secondary surface points
+    # instead of repeating" scenario), so only the three full surfaces below
+    # are held to the phrase itself; the skill copies are held to the pointer.
+    full_surfaces = {
         "config": ROOT / "keel/config.yaml",
         "protocol": ROOT / "AGENTS.md",
         "readme": ROOT / "README.md",
-        "canonical skill": ROOT / "src/skills/keel-align-expectations/SKILL.md",
-        "distributed skill": ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md",
     }
     stale = "A label is the unit"
-    for label, path in surfaces.items():
+    for label, path in full_surfaces.items():
         if not path.is_file():
             report(f"M5 missing surface: {path}")
             return 1
@@ -15585,8 +15587,20 @@ def validate_triage_admits_from_the_repository_scenario() -> int:
                 f"a second source was declared: {path}"
             )
             return 1
-    canonical = surfaces["canonical skill"]
-    distributed = surfaces["distributed skill"]
+
+    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+    for label, path in (("canonical skill", canonical), ("distributed skill", distributed)):
+        if not path.is_file():
+            report(f"M5 missing surface: {path}")
+            return 1
+        content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        if "AGENTS.md" not in content or "states no separate copy" not in content:
+            report(
+                f"M5 {label} does not point to the protocol's issue-number "
+                f"statement: {path}"
+            )
+            return 1
     if canonical.read_bytes() != distributed.read_bytes():
         report("M5 the canonical and distributed skills diverged.")
         return 1
@@ -16692,7 +16706,11 @@ def validate_unattended_boundary_scenario() -> int:
     """The boundary must be readable where an unattended run will read it.
 
     Phrases, not keywords: "unattended" appearing somewhere would satisfy a
-    keyword check while stating none of what a run may and may not do.
+    keyword check while stating none of what a run may and may not do. The
+    alignment skill points at the protocol's own statement instead of
+    repeating it (keel-unattended-triage's "A secondary surface points
+    instead of repeating" scenario), so only the protocol is held to the
+    full phrase set; the skill copies are held to the pointer instead.
     """
 
     required = [
@@ -16706,22 +16724,35 @@ def validate_unattended_boundary_scenario() -> int:
         # Admission comes from a declaration, never from accumulated history.
         "never from a precedent",
     ]
+    pointer_required = [
+        "AGENTS.md",
+        "Unattended runs",
+        "states no separate copy",
+    ]
     canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
     distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
     protocol = ROOT / "AGENTS.md"
 
+    if not protocol.is_file():
+        report(f"unattended-boundary: missing protocol: {protocol}")
+        return 1
+    # Collapse whitespace: these are multi-word phrases in hard-wrapped
+    # prose, so raw matching would assert the line layout, not the wording.
+    protocol_content = re.sub(r"\s+", " ", protocol.read_text(encoding="utf-8"))
+    for phrase in required:
+        if phrase not in protocol_content:
+            report(f"unattended-boundary: protocol omits: {phrase}")
+            return 1
+
     for label, path in (
-        ("protocol", protocol),
         ("canonical skill", canonical),
         ("distributed skill", distributed),
     ):
         if not path.is_file():
             report(f"unattended-boundary: missing {label}: {path}")
             return 1
-        # Collapse whitespace: these are multi-word phrases in hard-wrapped
-        # prose, so raw matching would assert the line layout, not the wording.
         content = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
-        for phrase in required:
+        for phrase in pointer_required:
             if phrase not in content:
                 report(f"unattended-boundary: {label} omits: {phrase}")
                 return 1

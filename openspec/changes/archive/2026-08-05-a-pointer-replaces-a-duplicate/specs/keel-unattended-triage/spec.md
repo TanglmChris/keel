@@ -1,7 +1,4 @@
-## Purpose
-
-Define how a repository declares which work may start without asking, how that declaration is evaluated without network access, what an unattended run may and may not do, and why admission is a declaration rather than an inference.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: A repository declares which work may start without asking
 
@@ -80,91 +77,12 @@ both in full.
   repository that declared only labels from one that declared only numbers
 
 #### Scenario: A secondary surface points instead of repeating
+
 - **WHEN** a surface other than `keel/config.yaml` and the unattended-run protocol, such as the
   `keel-align-expectations` skill, needs to state how the two admission sources work
 - **THEN** it may point to the protocol's own statement instead of restating it
 - **AND THEN** `keel/config.yaml`'s comments and the protocol's own statement remain complete, so
   the pointer has a stable target
-
-### Requirement: A triage declaration Keel cannot fully read admits nothing
-
-A `triage:` block containing anything Keel does not recognize MUST admit nothing at all, and the
-refusal MUST name the entries it could not read. Admitting the readable half would grant the entries
-beside a typo while their author believes they granted the typo too — the same reason an
-unrecognized `authorize:` action and an unrecognized `delegation:` tier already authorize nothing.
-
-An `issues:` entry MUST be a bare positive integer. Any other spelling of a number, including one
-written with a leading `#`, MUST be reported by name with the accepted form rather than guessed at.
-
-#### Scenario: An unreadable entry refuses the whole policy
-- **WHEN** `triage:` declares an `issues:` entry that is not a bare number, or a sub-key that is
-  neither `labels:` nor `issues:`, or mixes a bare list with sub-keys
-- **THEN** no issue is admitted, including one that matches an entry Keel did read
-- **AND THEN** the refusal names the entry it could not read and the forms it accepts
-
-#### Scenario: The unreadable refusal is not the undeclared refusal
-- **WHEN** an unreadable declaration refuses an issue
-- **THEN** the reason states that the declaration could not be read, distinct from the reason given
-  when a repository has declared no policy at all
-- **AND THEN** the owner can tell a broken declaration from an absent one without reading the file
-
-### Requirement: The triage surface reports every declared source
-
-`keel --doctor` MUST report the triage surface naming each declared source, so that "what may start
-work here without asking" is answerable from one command rather than by reading the config file. A
-repository declaring neither source MUST be reported as declaring none.
-
-#### Scenario: Doctor names both sources
-- **WHEN** a repository declares accepted labels and listed issue numbers
-- **THEN** `keel --doctor` reports the triage surface naming the labels and the numbers
-- **AND THEN** a repository declaring only one of the two names only that one
-
-#### Scenario: Doctor reports an unreadable declaration as declaring nothing
-- **WHEN** a repository's `triage:` block cannot be fully read
-- **THEN** `keel --doctor` reports that no issue starts work unattended
-- **AND THEN** it names what could not be read, rather than reporting the surface as undeclared
-
-### Requirement: The triage command is discoverable from `--help`
-
-`keel --help` MUST list `keel triage` in its `Usage:` block, naming both `--labels` and `--issue`,
-so that the command's flags are discoverable from the terminal and not only from `README.md`.
-
-#### Scenario: Help lists the triage command
-- **WHEN** a user runs `keel --help`
-- **THEN** the `Usage:` block includes a `keel triage` line
-- **AND THEN** that line names both `--labels` and `--issue`
-
-### Requirement: Triage evaluation performs no network access
-
-Keel MUST evaluate a triage policy against issue attributes supplied to it, and MUST NOT fetch an
-issue, contact a forge, or perform any network access. The evaluation MUST be local, deterministic,
-and repeatable from the same inputs.
-
-#### Scenario: Attributes are supplied, not fetched
-- **WHEN** `keel triage` is invoked with an issue's labels
-- **THEN** Keel evaluates the declared policy against exactly those labels
-- **AND THEN** no network call is made, and the command succeeds with no reachable network
-
-#### Scenario: The same inputs give the same answer
-- **WHEN** the same declaration and the same issue attributes are evaluated twice
-- **THEN** both runs return the same verdict and the same reason
-
-### Requirement: Admission starts work and decides nothing that follows
-
-An admitted issue MUST enter authoring and implementation under every existing gate. Keel MUST NOT
-treat admission as authority over acceptance, scope, design, evidence, review, or any material
-decision reached later.
-
-#### Scenario: Later gates are unaffected by admission
-- **WHEN** an issue is admitted and work on it begins
-- **THEN** expectation alignment, `task-start`, `task-complete`, `change-close`, and the write guard
-  behave exactly as they do for work that was never triaged
-- **AND THEN** a material decision encountered during that work still stops for the owner
-
-#### Scenario: Stopping at a material decision is the expected outcome
-- **WHEN** an unattended run reaches a decision the owner must make
-- **THEN** the run stops and reports where it stopped and why
-- **AND THEN** the stop is reported as the designed boundary rather than as a failure
 
 ### Requirement: An unattended run may open a pull request and may not merge
 
@@ -174,29 +92,22 @@ secondary surface MAY point to that statement instead of repeating its exact wor
 statement itself remains fully stated at the surface being pointed to.
 
 #### Scenario: The boundary is stated where a run can read it
+
 - **WHEN** the unattended-run protocol is inspected
 - **THEN** it states that opening a pull request is permitted and merging is not
 - **AND THEN** no configuration key grants a merge
 
 #### Scenario: Standing authorization does not imply merge
+
 - **WHEN** a repository standing-authorizes `push` and declares a triage policy
 - **THEN** an unattended run may push and open a pull request
 - **AND THEN** it still may not merge, because no declaration in Keel authorizes one
 
 #### Scenario: A secondary surface points instead of repeating
+
 - **WHEN** a surface other than the unattended-run protocol itself, such as the
   `keel-align-expectations` skill, needs to state this boundary
 - **THEN** it may point to the protocol's own statement instead of restating its phrases
 - **AND THEN** the protocol's own statement remains complete, so the pointer has a stable target
   and removing that target would surface as a missing statement there, not a silently absent
   boundary
-
-### Requirement: Keel ships no scheduler
-
-Keel MUST NOT provide, imply, or claim a scheduling capability. Documentation and command output
-MUST attribute the loop to the host runtime rather than to Keel.
-
-#### Scenario: Scheduling is attributed to the host
-- **WHEN** the unattended-run documentation is inspected
-- **THEN** it states that scheduling is a host capability such as `/loop` or cron
-- **AND THEN** no Keel command starts, stops, or registers a recurring run
