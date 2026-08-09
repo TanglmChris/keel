@@ -31,15 +31,15 @@ Keel MUST replace an existing managed overlay block instead of duplicating it, a
 
 #### Scenario: Install refreshes an existing overlay
 
-- **WHEN** an initialized target has an apply/archive OpenSpec file with an outdated Keel overlay block
+- **WHEN** an initialized target has an apply/archive/sync OpenSpec file with an outdated Keel overlay block
 - **AND WHEN** `keel --install --target <target>` runs
 - **THEN** the file contains exactly one current Keel overlay block
 - **AND THEN** other OpenSpec-generated content remains present
 
 #### Scenario: Install skips missing OpenSpec files
 
-- **WHEN** `keel --install --target <target>` runs before OpenSpec has generated apply/archive files
-- **THEN** Keel does not create placeholder OpenSpec apply/archive files
+- **WHEN** `keel --install --target <target>` runs before OpenSpec has generated apply/archive/sync files
+- **THEN** Keel does not create placeholder OpenSpec apply/archive/sync files
 - **AND THEN** `keel --doctor --target <target>` reports the missing overlay or missing surface with remediation
 
 ### Requirement: Apply surface enforces Keel task ownership
@@ -118,7 +118,7 @@ The existing apply overlay MUST require the current agent to stop and return to 
 - **AND THEN** it does not invoke a product interview unnecessarily
 
 ### Requirement: Thin CLI owns OpenSpec initialization and overlays only
-After native plugin migration, `keel --init/--install` MUST use official OpenSpec 1.5.0 to initialize or refresh action skills/commands, install Keel schema and managed authoring/apply/archive overlays, and merge minimal bootstrap guidance. It MUST NOT copy Keel plugin skills, hooks, adapters, or full protocol assets into target-specific project trees.
+After native plugin migration, `keel --init/--install` MUST use official OpenSpec 1.5.0 to initialize or refresh action skills/commands, install Keel schema and managed authoring/apply/archive/sync overlays, and merge minimal bootstrap guidance. It MUST NOT copy Keel plugin skills, hooks, adapters, or full protocol assets into target-specific project trees.
 
 #### Scenario: Codex init uses plugin plus official OpenSpec
 - **WHEN** a Codex project with the Keel plugin runs `keel --init --target codex`
