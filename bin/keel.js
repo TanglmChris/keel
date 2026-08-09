@@ -97,6 +97,7 @@ Usage:
   keel gate task-start|task-complete|change-close [repo] [--change name] [--task id] [--action sync|archive] [--base git-ref] [--no-guard] [--record] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
   keel lenses list|add [name] [repo] [--force]
+  keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -134,6 +135,8 @@ Examples:
   keel lenses list
   keel lenses add web
   keel lenses add web --force
+  keel triage --labels auto
+  keel triage --issue 42
   keel --init
   keel --install
   keel --install --target codex
