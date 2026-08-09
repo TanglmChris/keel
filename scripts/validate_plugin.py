@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.33.0"
-PROTOCOL_VERSION = "5.33.0"
+PACKAGE_VERSION = "5.34.0"
+PROTOCOL_VERSION = "5.34.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9774,7 +9774,8 @@ def validate_review_entry_extent_scenario() -> int:
             report(repr(codes(unwrapped)))
             return 1
         for phrase in (
-            "Review Findings must be `none` or carry a disposition.",
+            "Review Findings must be `none` or carry a disposition — name a "
+            "path after `Durable owner:`",
             "Resolved here:",
             "Durable owner:",
             "Discard reason:",
@@ -11191,6 +11192,38 @@ def validate_core_gates_scenario() -> int:
                 "finding-owner error did not enumerate the accepted forms."
             )
             report((handoff_owner.stderr or handoff_owner.stdout).strip())
+            return 1
+
+        # The accepted-forms enumeration is a menu; the one actionable
+        # instruction inside it (name a path after `Durable owner:`) must lead
+        # the message, not close it, so a reader who forgot to name a path
+        # reads what to do before reading the menu. Three single-cause checks,
+        # not one compound condition — issue #43 exists to catch exactly that
+        # shape.
+        finding_owner_lower = finding_owner_message.lower()
+        instruction_at = finding_owner_lower.find(
+            "name a path after `durable owner:`"
+        )
+        if instruction_at < 0:
+            report(
+                "core-gates scenario: the finding-owner message dropped its "
+                "actionable instruction (\"name a path after `Durable "
+                "owner:`\")."
+            )
+            return 1
+        resolved_here_at = finding_owner_lower.find("`resolved here:`")
+        if resolved_here_at < 0:
+            report(
+                "core-gates scenario: the finding-owner message dropped its "
+                "`Resolved here:` disposition form."
+            )
+            return 1
+        if instruction_at > resolved_here_at:
+            report(
+                "core-gates scenario: the finding-owner message states its "
+                "actionable instruction after the `Resolved here:` form "
+                "instead of before it."
+            )
             return 1
 
         write_text(

@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.34.0 - the instruction leads the menu
+
+`#49` (section 2) measured that the `finding-owner` diagnostic — produced by `keel gate task-complete` when a Review `Findings` value carries no recognized disposition — stated its one actionable instruction ("Name a path after `Durable owner:` so it reads as the owner rather than a file the finding mentions") as its *last* sentence, after a three-way enumeration of the accepted forms (`Resolved here:`, `Durable owner:`, `Discard reason:`/`Discard rationale:`). An author who forgot to name a path — the reported failure mode — read the enumeration first and the instruction last, when the instruction was the only sentence that said what to do. Confirmed still current at 5.33.0 before this release.
+
+Two prior unattended runs on this issue (2026-08-02, 2026-08-04) each independently declined to move it — not because moving it is a material decision, but because both were mid-diff on an unrelated behavior fix and judged that editing this string in the same diff would mix a message edit with a behavior change. This release is the isolated diff those runs deferred: no other message, no accepted or refused verdict, and no code path changed.
+
+- **The `finding-owner` message states its actionable instruction immediately after its opening sentence, before enumerating the three disposition forms**, instead of after them. Every word of the message is unchanged; only its position moved.
+- `openspec/specs/keel-core-gates/spec.md`'s "A finding resolved in its own task is recorded as resolved" Requirement gains a sentence pinning the order, and a new Scenario proving it, alongside its three unchanged existing Scenarios.
+- The `core-gates` validation scenario gains three single-cause order assertions on the `finding_owner_message` capture it already built, plus an update to a pre-existing pinned-literal fixture (`review-entry-extent`'s unwrapped-message check) that quoted the sentence's old trailing position.
+- `#49` section 1 (bare `D<n>` Covers references reported `Missing` when present but unparsed) is a separate, unresolved material decision escalated twice to the owner and is untouched by this release.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.34.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.33.0 - a rejection is a line, not a write
 
 `#70` measured that "a gate never false-stops" has no ongoing check: the archive under `openspec/changes/archive/` is filtered by the very gates it would need to audit, so it only ever holds what passed. A false stop today leaves no trace — the author is refused, assumes the refusal is correct, edits the contract into the shape the gate accepts, and the archived artifact is the edited version, indistinguishable from one that was never rejected. An unattended run has no one to notice this happening.
