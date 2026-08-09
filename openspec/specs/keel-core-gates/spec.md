@@ -62,7 +62,7 @@ Keel MUST NOT claim that deterministic gate structure proves product intent, beh
 
 Keel MUST NOT attribute dirty paths to a selected task unless a trustworthy comparison base exists. A base supplied by the caller is one; a dirty-path set Keel itself recorded when the task started is another, and `keel gate task-complete` MUST use that recorded set when the caller supplies no base, refusing a path that is dirty now, was not dirty when the task started, and lies outside the selected task's Touch. When no base is supplied and no set was recorded, scope attribution remains semantic review evidence, because an absent record is not a record that nothing was dirty. An explicitly supplied base MUST take precedence over the recorded set, since the two answer different questions and the caller asked the broader one.
 
-A path that was already dirty when the task started is not attributed to that task even if the task modified it again, and the requirement text MUST say so, so a reader learns the limit from the specification rather than from a write that was never reported. The disposable guard manifest `keel/guard.json` — the one artifact the gate contract itself permits a gate to write — MUST NOT be attributed as an outside-Touch scope failure, and changed paths under the selected change's own `openspec/changes/<change>/` directory — the authoring artifacts the gate is completing against — MUST NOT be attributed as outside-Touch scope failures either. A changed path that a **completed** task of the same change declares in its own Touch MUST NOT be attributed to the selected task, and that exclusion MUST be reported rather than applied silently, because a base comparison cannot establish which task wrote a path. A renamed path reported by the worktree as a single `old -> new` entry MUST be attributed as its two independent endpoints, so a rename whose old and new paths are both in Touch is not a false outside-Touch failure.
+A path that was already dirty when the task started is exempt from attribution only while its content stays the one recorded at task start; the requirement text MUST say so, so a reader learns the limit from the specification rather than from a write that was never reported. A path whose content changed since task start MUST be attributed even though the path itself was already dirty, because the comparison Keel MUST make is content, not name — a bare path is not what the task changed, its content is. The disposable guard manifest `keel/guard.json` — the one artifact the gate contract itself permits a gate to write — MUST NOT be attributed as an outside-Touch scope failure, and changed paths under the selected change's own `openspec/changes/<change>/` directory — the authoring artifacts the gate is completing against — MUST NOT be attributed as outside-Touch scope failures either. A changed path that a **completed** task of the same change declares in its own Touch MUST NOT be attributed to the selected task, and that exclusion MUST be reported rather than applied silently, because a base comparison cannot establish which task wrote a path. A renamed path reported by the worktree as a single `old -> new` entry MUST be attributed as its two independent endpoints, so a rename whose old and new paths are both in Touch is not a false outside-Touch failure.
 
 #### Scenario: Dirty worktree without base or record needs review
 - **WHEN** task completion runs in a dirty worktree with no explicit trustworthy base and no recorded task-start dirty set
@@ -76,9 +76,13 @@ A path that was already dirty when the task started is not attributed to that ta
 - **AND THEN** the refusal does not require the caller to have supplied a comparison base
 
 #### Scenario: A path already dirty at task start is not attributed
-- **WHEN** a path outside Touch was already dirty when the task started
+- **WHEN** a path outside Touch was already dirty when the task started and its content at completion still matches the content recorded then
 - **THEN** completion does not attribute it to the selected task
-- **AND THEN** the outcome is the same whether or not the task modified that path again
+
+#### Scenario: A path already dirty at task start whose content changed is attributed
+- **WHEN** a path outside Touch was already dirty when the task started, and its content at completion no longer matches the content recorded then
+- **THEN** completion attributes it to the selected task as outside Touch
+- **AND THEN** this holds regardless of whether the path is currently dirty for the same reason it was dirty at task start or a different one — only the content comparison decides
 
 #### Scenario: An explicit base takes precedence over the recorded set
 - **WHEN** task completion runs with an explicit trustworthy base and a recorded task-start dirty set both available
@@ -127,7 +131,8 @@ A path that was already dirty when the task started is not attributed to that ta
 
 #### Scenario: Keel stores no baseline
 - **WHEN** `task-start` completes
-- **THEN** Keel does not persist a diff snapshot, hash set, or execution baseline for later completion
+- **THEN** Keel does not persist a diff snapshot or an execution baseline for later completion
+- **AND THEN** the one hash set it does persist is the per-path content signature this same requirement's dirty-at-task-start exemption depends on, scoped to that attribution and nothing broader
 
 ### Requirement: All gate stages consume one normalized task contract
 Keel Core MUST parse and compile a selected task once through the shared task-capsule module. `context`, `task-start`, `task-complete`, `change-close`, projection, adapters, and validators MUST consume that normalized result and MUST NOT derive independent field defaults or task completion rules.

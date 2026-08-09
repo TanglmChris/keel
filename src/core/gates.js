@@ -15,7 +15,7 @@ const {
   parseTasks,
   unfilledToken,
 } = require("./task-contract");
-const { gitPaths, readManifest, startGuard } = require("./guard");
+const { contentSignature, gitPaths, readManifest, startGuard } = require("./guard");
 
 const GATE_STAGES = new Set(["task-start", "task-complete", "change-close"]);
 
@@ -550,6 +550,9 @@ function findingOwnerIsDurable(repo, findings) {
 // what a manifest written before this field, a cleared guard, or a
 // `--no-guard` start all produce. Reading null as empty would attribute the
 // whole worktree to the task and fail every completion in a dirty repository.
+// Each entry is `{ path, sha256 }`, the content signature `contentSignature`
+// read at that same moment — the record of *what* was dirty, not only that a
+// path was.
 function recordedBaseline(repo, change, task) {
   const loaded = readManifest(repo);
   if (loaded.state !== "ok") return null;
@@ -638,20 +641,27 @@ function scopeEvidence(
   }
 
   if (!base) {
-    // Dirty now and not dirty when the task started. This answers "did this
-    // task write it", which is the question the boundary actually asks; it
-    // does not answer "which task wrote it", which is why the completed-
-    // sibling exclusion below still applies and still reports itself.
+    // Dirty now and not dirty when the task started, or dirty now with
+    // content that no longer matches what was there at task start. Either
+    // answers "did this task write it", which is the question the boundary
+    // actually asks; it does not answer "which task wrote it", which is why
+    // the completed-sibling exclusion below still applies and still reports
+    // itself.
     //
-    // A path already dirty at task start is subtracted even if the task also
-    // modified it. That is the price of a baseline that is not a commit, and
-    // it buys the far larger class this exists to avoid: failing every
-    // completion in a worktree that was dirty before the task began.
-    const startedDirty = new Set(baseline);
+    // A path already dirty at task start is exempt only while its content
+    // stays the one recorded then — recording a hash instead of only a name
+    // is what lets that hold without falling back to subtracting the whole
+    // path, which exempted every later write to it, not just the one that
+    // predated the task (#72).
+    const unchangedSinceStart = new Set(
+      baseline
+        .filter((entry) => contentSignature(repo, entry.path) === entry.sha256)
+        .map((entry) => entry.path)
+    );
     return attributeChanged(
       repo,
       task,
-      dirtyPaths.filter((item) => !startedDirty.has(item)),
+      dirtyPaths.filter((item) => !unchangedSinceStart.has(item)),
       contract,
       change,
       tasks

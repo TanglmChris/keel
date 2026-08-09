@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.34.0"
-PROTOCOL_VERSION = "5.34.0"
+PACKAGE_VERSION = "5.35.0"
+PROTOCOL_VERSION = "5.35.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -7054,6 +7054,14 @@ def validate_default_completion_attributes_writes_scenario() -> int:
     dirty then answers "did this task write it" without asking Git to answer
     "which task wrote it", which is the question it cannot answer in a
     half-finished change.
+
+    Issue #72: recording only the path, not its content, meant a path already
+    dirty at task start was exempt for the rest of the task's life, even after
+    the task wrote it again — the common case, since most tasks in this
+    repository start on a tree a prior task already legitimately touched. M2
+    proves the fix: a dirty-at-start path the task modifies again is
+    attributed, while M1's own dirty-at-start path (never touched again) stays
+    exempt.
     """
     label = "default-completion-attributes-writes"
 
@@ -7149,6 +7157,34 @@ def validate_default_completion_attributes_writes_scenario() -> int:
                 "started was attributed to the task. The recorded set is not "
                 "being subtracted, so an unrelated dirty worktree fails the "
                 "gate."
+            )
+            return 1
+
+        # M2 — issue #72: a path already dirty at task start is exempt only
+        # while its content stays the one recorded then. A task that goes on
+        # to modify that same path has written it, and the boundary M1 proved
+        # above must still catch that write instead of exempting it forever
+        # because it happened to be dirty at the start too.
+        write_text(
+            repo / "src/already-dirty.js", "// touched again by the task\n"
+        )
+        payload = gate()
+        problems = outside(payload)
+        if not any("src/already-dirty.js" in message for message in problems):
+            report(
+                f"{label} M2 a path already dirty at task start, then "
+                "modified again by the task, was not attributed. Recording "
+                "only the path (not its content) at task start exempts every "
+                "later write to it, not just the one that predates the task."
+            )
+            report(f"  status={payload.get('status')!r}")
+            for warning in payload.get("warnings", []):
+                report(f"  warning: {warning}")
+            return 1
+        if payload.get("status") != "fail":
+            report(
+                f"{label} M2 the gate named the re-touched path but did not "
+                f"fail; got status {payload.get('status')!r}."
             )
             return 1
 
