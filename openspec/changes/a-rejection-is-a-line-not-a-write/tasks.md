@@ -1,0 +1,134 @@
+# Tasks
+
+## 1. The entry
+
+- [ ] 1.1 A rejection becomes a Reauthorizations entry the author writes, not a gate write
+  - Covers:
+    - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / An absent entry needs nothing
+    - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / A bare none needs nothing
+    - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / A wrapped concrete record is accepted whole
+    - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / An unfilled slot is refused
+    - keel-core-gates / A rejection becomes a Reauthorizations entry the author writes, not a gate write / A concrete record does not block completion
+    - F1 — keel-core-gates:231 is unconditional: a failing or needs-review outcome MUST NOT write project state
+    - F3 — the owner chose R2 over R3: the author records the entry, the gate adds no write
+    - F4 — Blocker's existing check fails the gate whenever it is concrete; Reauthorizations needs the opposite
+    - D1 — concreteness is validated with the same unfilledToken() rule missing-field already applies
+    - D2 — the entry is read with reviewValue(), unmodified, reusing its sibling-bound extent
+    - D3 — the check is additive-only: absent and none are accepted identically, only an abandoned `placeholder` is refused
+    - D5 — both template copies gain the entry after Blocker, with no effect on task-start
+    - A1 — no existing tasks.md declares this label today
+    - A2 — reviewValue()'s extent generalizes to a flat-prose or flat-list label with no nesting of its own
+  - Read:
+    - src/core/gates.js
+    - src/core/task-contract.js
+    - scripts/validate_plugin.py
+    - openspec/changes/a-rejection-is-a-line-not-a-write/design.md
+    - openspec/changes/a-rejection-is-a-line-not-a-write/specs/keel-core-gates/spec.md
+    - openspec/changes/archive/2026-08-04-a-review-field-is-what-the-author-wrote/design.md
+  - Touch:
+    - src/core/gates.js
+    - src/core/task-contract.js
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: an unfilled `<slot>` token in a `Reauthorizations` entry is refused with `reauthorizations-shape`, naming the token — including when the token sits on a continuation line below the label rather than on the label line itself, so the check cannot be satisfied by a reader that only looks at the first line. Driven through `keel gate task-complete` on a scratch repository.
+    - M2 (regression): an absent `Reauthorizations` entry, a bare `none`, and a concrete multi-line record all produce no `reauthorizations-shape` problem, and the wrapped and joined forms of the same concrete text produce the same verdict.
+    - M3 (regression): a concrete `Reauthorizations` entry does not by itself fail `task-complete`, unlike a concrete `Blocker` entry compared on the same repository — proven able to fail by a mutation that makes the new check push a problem unconditionally, which must turn this check red.
+    - M4 (regression): `npm test` passes with no failing scenario and no exception, and the scenario count moves by exactly one.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if the fix requires changing `reviewValue()`, `REVIEW_SIBLING`, `field()`, `fieldValues()`, or `parseTasks()`. D2.
+    - Stop if `Reauthorizations` presence is made to block completion the way `Blocker` does. F4.
+    - Stop if the field is made required on every task, or its absence is made to produce a problem. D3.
+    - Stop if any format or vocabulary beyond concreteness is imposed on the entry's content — a required gate name, problem code, or template shape. Non-Goals.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7dc3505d75c4f1ea40afd7eb94e423d1a92eb523c70656bcd72292c2eec290f1
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## 2. Close
+
+- [ ] 2.1 Release the next version
+  - Covers:
+    - E6 — a reader of the release notes learns why this does not reopen keel-core-gates:231, and that presence of the entry does not block completion
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - package-lock.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - scripts/validate_plugin.py
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-core-gates/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes, so every shipped version marker names the new version
+    - M2: `keel/CHANGELOG.md` carries an entry naming the false-stop measurability problem (#70), the R2/R3 choice and why R3 was not taken, and that presence of a `Reauthorizations` entry does not block completion
+    - M3: the spec delta is promoted into `openspec/specs/keel-core-gates/spec.md`, `node bin/keel.js openspec validate a-rejection-is-a-line-not-a-write --strict` passes, and `published-specs-validate-strictly` passes against the promoted store
+    - M4: `npm test` passes with no failing scenario and no exception
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - M4: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - Requires files outside Touch.
+
+## Invalidates
+
+- None.
+
+## Expectation Coverage
+
+- E1: A task author can record what a gate rejected without the gate writing anything on the failing outcome that produced the rejection. Covered by: 1.1
+- E2: `task-complete` validates only the entry's concreteness, never whether a rejection factually occurred, and never requires the entry or a matching count. Covered by: 1.1
+- E3: A `Reauthorizations` entry that wraps across lines is read whole, including an unfilled token on a continuation line. Covered by: 1.1
+- E4: Every existing task, none of which declare this field, keeps passing `task-complete` unchanged. Covered by: 1.1
+- E5: A concrete `Reauthorizations` entry does not block completion, unlike a concrete `Blocker`. Covered by: 1.1
+- E6: A reader of the release notes learns why this does not reopen `keel-core-gates:231`, and that presence of the entry does not block completion. Covered by: 2.1
