@@ -13,6 +13,7 @@ const {
   isConcrete,
   isPassingReviewStatus,
   parseTasks,
+  unfilledToken,
 } = require("./task-contract");
 const { gitPaths, readManifest, startGuard } = require("./guard");
 
@@ -782,6 +783,23 @@ function completionChecks(repo, task, contract = null) {
   const blocker = evidenceValue(task, "Blocker");
   if (isConcrete(blocker)) {
     problems.push(problem("blocker", `Task records a blocker: ${blocker}`));
+  }
+
+  // Reauthorizations (#70) is a log, not a stop condition: absent, `none`, and
+  // concrete text all pass. Only an abandoned `<slot>` token — real content
+  // the author started and never finished — is refused, the same distinction
+  // `unfilledToken()` already draws for every other field that uses it.
+  const reauthorizationsToken = unfilledToken(reviewValue(task, "Reauthorizations"));
+  if (reauthorizationsToken) {
+    problems.push(
+      problem(
+        "reauthorizations-shape",
+        `Reauthorizations carries the unfilled slot \`${reauthorizationsToken}\`, `
+          + "so it is not concrete. Replace that slot with the value it stands "
+          + "for, or fence it in inline code when it is literal text rather "
+          + "than a slot left to fill."
+      )
+    );
   }
 
   const reviewFields = {

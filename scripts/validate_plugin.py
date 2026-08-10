@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.32.0"
-PROTOCOL_VERSION = "5.32.0"
+PACKAGE_VERSION = "5.33.0"
+PROTOCOL_VERSION = "5.33.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9802,6 +9802,259 @@ def validate_review_entry_extent_scenario() -> int:
             return 1
 
     if "review-entry-extent" not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# A task whose Reauthorizations entry is supplied verbatim, so a fixture can
+# leave it out entirely, wrap it, or plant an unfilled token on either the
+# label line or a continuation line. Everything else is the complete, checked
+# shape `review_extent_tasks` uses; only the Reauthorizations line (or its
+# absence) and Blocker vary.
+def reauthorizations_tasks(reauthorizations: str, blocker: str = "none") -> str:
+    return (
+        "# Tasks\n\n## Invalidates\n\n- None.\n\n"
+        "## Expectation Coverage\n\n"
+        "- E1:\n"
+        "  - Covered by: 1.1\n\n"
+        "## 1. Work\n\n"
+        "- [x] 1.1 Complete behavior\n"
+        "  - Owner: keel-agent\n"
+        "  - Mode: implementation\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Commands:\n"
+        "    - M1: node test.js\n"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Coupling: none\n"
+        "  - Candidate Boundary:\n"
+        "    - One candidate.\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: passed\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        f"    - Blocker: {blocker}\n"
+        f"{reauthorizations}"
+        "  - Stop if:\n"
+        "    - Scope expands.\n"
+        "  - Report:\n"
+        "    - Summary\n"
+    )
+
+
+def validate_reauthorizations_shape_scenario() -> int:
+    """A rejection becomes a Reauthorizations entry the author writes (#70).
+
+    The owner chose R2 over R3 on issue #70: the task author records what a
+    gate rejected themselves, in a new `Reauthorizations` Evidence entry; the
+    gate adds no write of its own and validates only the entry's shape. This
+    drives that shape check through `keel gate task-complete` on real
+    repositories: absence and `none` need nothing, a concrete record — wrapped
+    or joined — is accepted, an unfilled `<slot>` token is refused even when it
+    only appears on a continuation line the label line itself does not carry,
+    and a concrete record never blocks completion the way a concrete `Blocker`
+    does.
+    """
+    label = "reauthorizations-shape"
+    baseline_reauthorizations = "    - Reauthorizations: none\n"
+    baseline_blocker = "    - Blocker: none\n"
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-reauthorizations-shape-", ignore_cleanup_errors=True
+    ) as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        # Started once, with clean Evidence, and every variant below edits
+        # only the Reauthorizations/Blocker lines and calls task-complete
+        # directly rather than restarting. Two things make restarting wrong
+        # here: Evidence is not part of the compiled capsule that task-start
+        # fingerprints, so editing only these lines cannot drift it; and
+        # task-start separately enforces its own blanket "Evidence must be
+        # concrete" check across the whole field regardless of which label an
+        # unfilled `<slot>` sits under, so planting one for M1 and then
+        # restarting would be refused there before task-complete's more
+        # specific `reauthorizations-shape` ever saw it.
+        write_text(tasks, reauthorizations_tasks(baseline_reauthorizations))
+        if not record_contract_anchor(repo, "demo"):
+            report(f"{label} could not record a Contract anchor for the baseline fixture.")
+            return 1
+        baseline = tasks.read_text(encoding="utf-8")
+        if baseline_reauthorizations not in baseline or baseline_blocker not in baseline:
+            report(
+                f"{label} lost track of the baseline Reauthorizations/Blocker "
+                "lines after task-start recorded the Contract anchor."
+            )
+            return 1
+
+        def complete(reauthorizations: str, blocker: str = "none") -> dict:
+            text = baseline.replace(baseline_reauthorizations, reauthorizations, 1)
+            if blocker != "none":
+                text = text.replace(baseline_blocker, f"    - Blocker: {blocker}\n", 1)
+            write_text(tasks, text)
+            result = run_keel(
+                repo, "gate", "task-complete", ".",
+                "--change", "demo", "--task", "1.1", "--json",
+            )
+            return json.loads(result.stdout) if result.stdout.strip() else {}
+
+        def codes(payload: dict) -> list[str]:
+            return sorted(
+                item.get("code", "") for item in payload.get("problems", [])
+            )
+
+        def shape_problems(payload: dict) -> list[str]:
+            return [
+                item.get("message", "")
+                for item in payload.get("problems", [])
+                if item.get("code") == "reauthorizations-shape"
+            ]
+
+        def readable(payload: dict, fixture: str) -> bool:
+            if not payload:
+                report(
+                    f"{label} got no JSON from task-complete for {fixture}, so "
+                    "there was no verdict to read rather than a verdict that "
+                    "was wrong."
+                )
+                return False
+            return True
+
+        # M1 — the core new behavior, in both places an unfilled token can
+        # hide: on the label line itself, and on a continuation line a
+        # first-line-only reader would never see.
+        on_label_line = complete("    - Reauthorizations: <what was rejected>\n")
+        if not readable(on_label_line, "unfilled-on-label-line"):
+            return 1
+        if not shape_problems(on_label_line):
+            report(
+                f"{label} accepted an unfilled `<slot>` token written on the "
+                "Reauthorizations label line itself."
+            )
+            report(repr(codes(on_label_line)))
+            return 1
+        if "<what was rejected>" not in shape_problems(on_label_line)[0]:
+            report(f"{label} refused the unfilled token but did not name it.")
+            report(shape_problems(on_label_line)[0])
+            return 1
+
+        on_continuation = complete(
+            "    - Reauthorizations:\n"
+            "      - task-complete refused finding-owner on 2026-08-05; added\n"
+            "        a Durable owner naming <the tracker issue>.\n"
+        )
+        if not readable(on_continuation, "unfilled-on-continuation-line"):
+            return 1
+        if not shape_problems(on_continuation):
+            report(
+                f"{label} accepted an unfilled `<slot>` token written on a "
+                "continuation line below the Reauthorizations label. A reader "
+                "that only looks at the first line would miss it."
+            )
+            report(repr(codes(on_continuation)))
+            return 1
+        if "<the tracker issue>" not in shape_problems(on_continuation)[0]:
+            report(
+                f"{label} refused the continuation-line token but did not "
+                "name it."
+            )
+            report(shape_problems(on_continuation)[0])
+            return 1
+
+        # M2 (regression) — no false positives: absent, none, and a wrapped
+        # concrete record all pass, and wrapped/joined forms of the same
+        # concrete text agree.
+        absent = complete("")
+        if not readable(absent, "absent"):
+            return 1
+        if shape_problems(absent):
+            report(
+                f"{label} refused a task that declares no Reauthorizations "
+                "entry at all."
+            )
+            report(repr(shape_problems(absent)))
+            return 1
+
+        bare_none = complete("    - Reauthorizations: none\n")
+        if not readable(bare_none, "bare-none"):
+            return 1
+        if shape_problems(bare_none):
+            report(f"{label} refused a bare `Reauthorizations: none`.")
+            report(repr(shape_problems(bare_none)))
+            return 1
+
+        wrapped_concrete = complete(
+            "    - Reauthorizations:\n"
+            "      - task-complete refused outside-touch on src/helper.js on\n"
+            "        2026-08-05; the file belonged to this task and Touch was\n"
+            "        missing it, so it was added.\n"
+        )
+        joined_concrete = complete(
+            "    - Reauthorizations: task-complete refused outside-touch on "
+            "src/helper.js on 2026-08-05; the file belonged to this task and "
+            "Touch was missing it, so it was added.\n"
+        )
+        if not readable(wrapped_concrete, "wrapped-concrete"):
+            return 1
+        if not readable(joined_concrete, "joined-concrete"):
+            return 1
+        if shape_problems(wrapped_concrete):
+            report(f"{label} refused a concrete, wrapped Reauthorizations record.")
+            report(repr(shape_problems(wrapped_concrete)))
+            return 1
+        if codes(wrapped_concrete) != codes(joined_concrete):
+            report(
+                f"{label} returned different problems for the same concrete "
+                "record depending on whether it wrapped."
+            )
+            report(
+                f"wrapped={codes(wrapped_concrete)} joined={codes(joined_concrete)}"
+            )
+            return 1
+
+        # M3 (regression) — presence does not block completion, unlike
+        # Blocker. Proven able to fail: a concrete Blocker on the same
+        # repository does fail it, so the comparison is not vacuous.
+        if codes(wrapped_concrete):
+            report(
+                f"{label} a concrete Reauthorizations record produced a "
+                "problem — presence alone must not fail completion."
+            )
+            report(repr(codes(wrapped_concrete)))
+            return 1
+        concrete_blocker = complete("", blocker="a real blocker is recorded here")
+        if not readable(concrete_blocker, "concrete-blocker"):
+            return 1
+        if "blocker" not in codes(concrete_blocker):
+            report(
+                f"{label} the comparison fixture proves nothing: a concrete "
+                "Blocker on this repository did not fail completion either."
+            )
+            report(repr(codes(concrete_blocker)))
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
         return 1
     report(f"{label} scenario passed.")
@@ -22392,6 +22645,7 @@ SCENARIOS: tuple = (
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),
+    ("reauthorizations-shape", validate_reauthorizations_shape_scenario),
 )
 
 

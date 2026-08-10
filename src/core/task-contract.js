@@ -1110,4 +1110,5 @@ module.exports = {
   loadTaskContract,
   parseTasks,
   taskStartContractProblems,
+  unfilledToken,
 };
