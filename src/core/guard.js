@@ -59,6 +59,20 @@ function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
+// The content a dirty path held at the moment it was read, or `null` when
+// nothing could be read — a deleted path, mid-rename, or one that never
+// existed. `null` is a signature like any other: it round-trips through the
+// same equality check a real hash does, so a path that stays absent compares
+// equal and one that gets created or deleted compares unequal, with no
+// special case for either direction.
+function contentSignature(repo, relative) {
+  try {
+    return sha256(fs.readFileSync(path.join(repo, relative)));
+  } catch {
+    return null;
+  }
+}
+
 function guardResult(subcommand, status, extra = {}) {
   return {
     schemaVersion: 1,
@@ -161,13 +175,25 @@ function readManifest(repo) {
   // written by a Keel that omits it, are both valid; what they are not is
   // evidence that nothing was dirty. The consumer distinguishes absent from
   // empty, so an empty list means "nothing was dirty" and an absent one means
-  // "nobody looked".
+  // "nobody looked". Each entry carries the path's content signature, not
+  // just its name, so completion can tell "still the content recorded at
+  // task start" from "dirty again for a different reason" — `sha256` is
+  // `null` for a path that had nothing to read.
   if (
     manifest.startedDirty !== undefined
     && (!Array.isArray(manifest.startedDirty)
-      || manifest.startedDirty.some((item) => typeof item !== "string"))
+      || manifest.startedDirty.some(
+        (item) =>
+          !item
+          || typeof item.path !== "string"
+          || !item.path
+          || (item.sha256 !== null
+            && !/^[0-9a-f]{64}$/.test(String(item.sha256 || "")))
+      ))
   ) {
-    shapeErrors.push("startedDirty must be a string list when present");
+    shapeErrors.push(
+      "startedDirty must be a list of hashed dirty paths when present"
+    );
   }
   if (shapeErrors.length > 0) {
     return {
@@ -231,8 +257,14 @@ function startGuard(repo, options) {
 
   const paths = authorityPaths(repo, options.change, loaded.contract);
   // Read before the manifest is written, so the manifest is never in its own
-  // record and cannot be attributed to the task it authorizes.
-  const startedDirty = gitPaths(repo);
+  // record and cannot be attributed to the task it authorizes. Each dirty
+  // path is hashed at this same moment, so a later comparison can tell
+  // whether the task changed it again rather than only whether it stayed
+  // dirty.
+  const startedDirty = gitPaths(repo).map((relative) => ({
+    path: relative,
+    sha256: contentSignature(repo, relative),
+  }));
   const manifest = {
     schema: MANIFEST_SCHEMA,
     change: options.change,
@@ -382,6 +414,7 @@ module.exports = {
   GuardInputError,
   MANIFEST_SCHEMA,
   clearGuard,
+  contentSignature,
   gitPaths,
   guardStatus,
   readManifest,
