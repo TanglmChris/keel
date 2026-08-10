@@ -864,14 +864,14 @@ function completionChecks(repo, task, contract = null) {
       problems.push(
         problem(
           "finding-owner",
-          "Review Findings must be `none` or carry a disposition. A finding "
-            + "fixed in this task is `Resolved here:` naming an `M<n>` check "
-            + "this task declares or a repo-relative path that exists; one "
-            + "someone must still do is `Durable owner:` naming "
+          "Review Findings must be `none` or carry a disposition — name a "
+            + "path after `Durable owner:` so it reads as the owner rather "
+            + "than a file the finding mentions. A finding fixed in this "
+            + "task is `Resolved here:` naming an `M<n>` check this task "
+            + "declares or a repo-relative path that exists; one someone "
+            + "must still do is `Durable owner:` naming "
             + `${DURABLE_OWNER_FORMS}; one deliberately not being done is a `
-            + "`Discard reason:`/`Discard rationale:` prefix. Name a path after "
-            + "`Durable owner:` so it reads as the owner rather than a file the "
-            + "finding mentions."
+            + "`Discard reason:`/`Discard rationale:` prefix."
         )
       );
     }

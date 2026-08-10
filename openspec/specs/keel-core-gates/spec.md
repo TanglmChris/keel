@@ -443,6 +443,8 @@ The resolved disposition MUST carry evidence. Keel MUST accept an `M<n>` check l
 
 Every form accepted before this requirement MUST still be accepted, and `keel/HANDOFF.md` MUST still be refused in all of them.
 
+The `finding-owner` diagnostic MUST state its actionable instruction — name a path after `Durable owner:` — immediately after its opening sentence, before it enumerates the three accepted disposition forms. A reader who has forgotten to name a path is looking for what to do, and a menu of three forms read before the one instruction that applies to all of them makes the reader parse the menu to find it.
+
 #### Scenario: A finding fixed in the task passes without a discard reason
 - **WHEN** Review `Findings` records a finding as resolved in this task and names an `M<n>` check of the same task as the evidence
 - **THEN** `task-complete` accepts it without requiring a durable owner or a discard reason
@@ -457,6 +459,11 @@ Every form accepted before this requirement MUST still be accepted, and `keel/HA
 - **WHEN** `task-complete` produces `finding-owner` for a Findings value carrying no recognized disposition
 - **THEN** the message names the resolved-here form and its evidence requirement alongside the durable-owner and discard forms
 - **AND THEN** it still directs a path to be named after `Durable owner:` so it reads as the owner rather than a file the finding mentions
+
+#### Scenario: The actionable instruction leads the diagnostic
+- **WHEN** `task-complete` produces `finding-owner` for a Findings value carrying no recognized disposition
+- **THEN** the sentence directing a path to be named after `Durable owner:` appears before the sentence naming the `Resolved here:` form
+- **AND THEN** the three disposition forms named in the prior scenario are unchanged in content, only in position relative to the instruction
 
 ### Requirement: Two tasks shaped like one behavior are named at task-start
 
