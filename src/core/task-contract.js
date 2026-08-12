@@ -693,6 +693,26 @@ function criticalAuthority(repo, change, reference) {
     ),
   ];
   if (matches.length !== 1) {
+    // Zero matches is ambiguous: the identifier may never appear in design.md,
+    // or it may appear in some other shape (bulleted, bold) that the strict
+    // regex above does not accept. A whole-word scan tells those apart so the
+    // message sends the author to the actual defect — a shape fix, not a
+    // statement that already exists — instead of collapsing both into "Missing".
+    if (
+      matches.length === 0
+      && new RegExp(`\\b${reference}\\b`).test(content)
+    ) {
+      return {
+        diagnostic: {
+          code: "unresolved-covers",
+          message:
+            `Unparsed Covers critical statement: ${reference}. It appears in `
+            + "design.md but not in the required shape — write it starting "
+            + `the line as \`${reference} — one-line statement\` (no leading `
+            + "`-`, `**`, or other decoration) so it can be resolved.",
+        },
+      };
+    }
     return {
       diagnostic: {
         code: matches.length > 1 ? "ambiguous-covers" : "unresolved-covers",

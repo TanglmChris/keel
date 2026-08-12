@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.37.0"
-PROTOCOL_VERSION = "5.37.0"
+PACKAGE_VERSION = "5.38.0"
+PROTOCOL_VERSION = "5.38.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1608,6 +1608,118 @@ def validate_expectation_slice_gates_scenario() -> int:
             return 1
 
     report("expectation-slice-gates scenario passed.")
+    return 0
+
+
+def validate_unparsed_covers_critical_statement_scenario() -> int:
+    """Issue #49 item 1: a critical-statement Covers reference must be told apart
+    as missing (the identifier never appears in design.md) from unparsed (the
+    identifier appears but not in the exact resolvable shape), instead of both
+    collapsing into the same "Missing" message.
+    """
+    task = task_capsule_compact_fixture().replace(
+        "    - E1: Public behavior passes.\n",
+        "    - D2\n",
+    )
+
+    def covers_message(repo: Path) -> tuple[int, str]:
+        write_text(repo / "openspec/changes/demo/tasks.md", task)
+        result = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        problems = json.loads(result.stdout).get("problems", [])
+        message = next(
+            (
+                item.get("message", "")
+                for item in problems
+                if item.get("code") == "unresolved-covers"
+            ),
+            "",
+        )
+        return result.returncode, message
+
+    with tempfile.TemporaryDirectory(prefix="keel-unparsed-covers-missing-") as raw:
+        repo = Path(raw)
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Decisions\n\nD1 — Unrelated decision. Basis: fixture authority.\n",
+        )
+        returncode, message = covers_message(repo)
+        if returncode == 0 or not message.startswith(
+            "Missing Covers critical statement: D2."
+        ):
+            report(
+                "unparsed-covers-critical-statement: an identifier absent from "
+                f"design.md must still report Missing, got: {message!r}"
+            )
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-unparsed-covers-unparsed-") as raw:
+        repo = Path(raw)
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Decisions\n\n"
+            "- **D2** — Keep one shared parser. Basis: fixture authority.\n",
+        )
+        returncode, message = covers_message(repo)
+        if returncode == 0:
+            report(
+                "unparsed-covers-critical-statement: a present-but-mis-shaped D2 "
+                "must still fail task-start."
+            )
+            return 1
+        if not message.startswith("Unparsed Covers critical statement: D2."):
+            report(
+                "unparsed-covers-critical-statement: a present-but-mis-shaped D2 "
+                f"must report Unparsed, got: {message!r}"
+            )
+            return 1
+        if "D2 — one-line statement" not in message:
+            report(
+                "unparsed-covers-critical-statement: the Unparsed message must "
+                f"name the required shape, got: {message!r}"
+            )
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-unparsed-covers-resolved-") as raw:
+        repo = Path(raw)
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Decisions\n\nD2 — Keep one shared parser. Basis: fixture authority.\n",
+        )
+        write_text(repo / "openspec/changes/demo/tasks.md", task)
+        result = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+        if result.returncode != 0:
+            report(
+                "unparsed-covers-critical-statement: a correctly-shaped D2 must "
+                f"still resolve. {(result.stderr or result.stdout).strip()}"
+            )
+            return 1
+        authority = (
+            json.loads(result.stdout)
+            .get("contract", {})
+            .get("capsule", {})
+            .get("authority", [])
+        )
+        if not any(
+            item.get("reference") == "D2" and item.get("kind") == "critical-statement"
+            for item in authority
+        ):
+            report(
+                "unparsed-covers-critical-statement: correctly-shaped D2 did not "
+                "resolve as critical-statement authority."
+            )
+            return 1
+
+    if "unparsed-covers-critical-statement" not in {name for name, _ in SCENARIOS}:
+        report(
+            "unparsed-covers-critical-statement: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("unparsed-covers-critical-statement scenario passed.")
     return 0
 
 
@@ -22592,6 +22704,10 @@ SCENARIOS: tuple = (
     ("target-surface", validate_target_surface_scenario),
     ("thin-native-install", validate_thin_native_install_scenario),
     ("expectation-slice-gates", validate_expectation_slice_gates_scenario),
+    (
+        "unparsed-covers-critical-statement",
+        validate_unparsed_covers_critical_statement_scenario,
+    ),
     ("expectation-completion-gates", validate_expectation_completion_gates_scenario),
     ("authoring-continuity", validate_authoring_continuity_scenario),
     ("domain-lenses", validate_domain_lenses_scenario),
