@@ -1,6 +1,6 @@
-# Keel v5.38.0 Agent Protocol
+# Keel v5.39.0 Agent Protocol
 
-<!-- keel:start version=5.38.0 -->
+<!-- keel:start version=5.39.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -67,6 +67,7 @@
 ## verification discipline
 - A task's `Commands` MUST verify the observable behavior named in its `Acceptance`, exercised through the public interface, not compile/build success and not the shape of data structures or signatures. A behavioral task needs behavior assertions or an explicit smoke step. Author `Commands` to this bar when writing tasks.md.
 - Drive test-first layers with `keel-tdd-or-test-first`: red-green in vertical slices (one test, one implementation), never horizontal (all tests, then all code). Mock only at system boundaries; never mock your own modules. `Verify` names one supported strategy (vertical-tdd, regression-first, characterization, snapshot-characterization, rendered-behavior, evidence-first); an unsupported strategy fails task-start, and red-green strategies record concrete per-label `.red`/`.green` Evidence — in addition to the bare `M<n>` Evidence, not instead of it — that `keel gate task-complete` enforces. An `M<n>` may carry a comma-separated tag set (`fast`, `full`, `regression`) after its label; `regression` marks a check asserting that something already green stays green, which has no honest red and is therefore exempt from `.red`/`.green` while still needing its bare Evidence. A red-green strategy must keep at least one check untagged, or task-start refuses it as `regression-only-strategy`.
+- A `(regression)`-tagged check's bare Evidence may instead read `deferred to C<n>`, pointing at a check that runs once for the whole change rather than once per task — a full regression suite three tasks would otherwise each pay for separately. `C<n>` is declared once, in an optional `## Change Verify` section (`Strategy:` plus one `C<n>: <check>` line per check), with its result recorded in a matching `## Change Evidence` section. Neither section is needed unless some task's Evidence defers to one; `keel gate task-complete` requires only that the reference resolves, and `keel gate change-close` requires every declared `C<n>` to carry concrete `## Change Evidence` before the change closes.
 - Default discipline by layer: deterministic/reproducible outputs keep byte or snapshot characterization tests and are not downgraded; boundary contracts and pure logic are test-first with `Commands` asserting behavior at the public interface; interactive/UI surfaces test behavior through the real rendered interface with no self-mocks and vertical slices, strict red-green optional by cost.
 - `keel-review-checklist` additionally checks that each behavioral task's `Commands` actually verify its `Acceptance` behavior (not build-only, not shape-only); record a follow-up or add the missing gate when they do not.
 - When a selected task needs tests, assertions, lint, TBs, or behavior proof before implementation, invoke `keel-tdd-or-test-first` before writing the implementation.
@@ -91,7 +92,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.38.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.39.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions
