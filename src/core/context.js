@@ -11,6 +11,7 @@ const {
   field,
   parseTasks,
 } = require("./task-contract");
+const { readStandingAuthorization } = require("./config");
 
 const NEXT_ACTIONS = new Set([
   "discuss",
@@ -506,6 +507,14 @@ function resolveContext(repo, options) {
     context = handoff ? resolveHandoff(repo, handoff) : inferContext(repo);
   }
   context.warnings.push(...gitWarnings(repo));
+  // A broken `authorize:` declaration is otherwise reported only by
+  // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
+  // session that runs `keel context` first (per `AGENTS.md`) learns the
+  // declaration authorizes nothing without a separate call (#93).
+  const authorization = readStandingAuthorization(repo);
+  if (authorization.unknown.length > 0) {
+    context.warnings.push(authorization.message);
+  }
   // Set here rather than by the caller, so every consumer of the projection —
   // text, JSON, and any host reading it — carries the version without having
   // to know to add it.

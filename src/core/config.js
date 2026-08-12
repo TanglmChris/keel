@@ -151,6 +151,23 @@ function readTriagePolicy(repo) {
   return { labels, issues, unreadable };
 }
 
+// `change-close --action sync|archive` prints `sync` beside `archive`, and a
+// reader who copies from that help text into `authorize:` reasonably copies
+// both — but only `archive` is a name this vocabulary accepts (#93). Naming
+// that confusion only when `sync` is the entry present keeps every other
+// unrecognized name (a genuine typo) unchanged.
+function standingAuthorizationUnknownMessage(unknown) {
+  const base = `keel/config.yaml declares unrecognized ${
+    unknown.length === 1 ? "action" : "actions"
+  }: ${unknown.join(", ")}; accepted names are `
+    + `${STANDING_AUTHORIZATION_ACTIONS.join(", ")}. The whole declaration `
+    + "authorizes nothing until it is corrected.";
+  if (!unknown.includes("sync")) return base;
+  return `${base} \`sync\` is a value of \`change-close --action\`, not a `
+    + "name `authorize:` accepts; declare `archive` if you mean to authorize "
+    + "the gate that runs it.";
+}
+
 function readStandingAuthorization(repo) {
   const declared = [];
   const unknown = [];
@@ -161,8 +178,14 @@ function readStandingAuthorization(repo) {
   // Fail closed. A declaration Keel cannot fully read authorizes nothing,
   // because the alternative is granting the entries beside a typo while the
   // author believes they granted the typo too.
-  if (unknown.length > 0) return { declared: [], unknown };
-  return { declared, unknown };
+  if (unknown.length > 0) {
+    return {
+      declared: [],
+      unknown,
+      message: standingAuthorizationUnknownMessage(unknown),
+    };
+  }
+  return { declared, unknown, message: null };
 }
 
 // A nested block of `name: value` entries under one top-level key. Delegation
