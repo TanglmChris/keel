@@ -108,6 +108,12 @@ Keel MUST report the write-guard surface per target from observed evidence, MUST
 - **THEN** the guard capability reports manual with the reason
 - **AND THEN** no unverified native enforcement claim is made
 
+#### Scenario: Standing warnings may be reworded for brevity without dropping an idea
+- **WHEN** the durability and enforcement-boundary warning strings a guard result carries are edited for brevity
+- **THEN** the result still states that the manifest is a disposable pointer and not durable authority, that OpenSpec and Git remain that authority, and that selection never derives from the manifest
+- **AND THEN** the result still states that the reported status describes the manifest only, that enforcement is a runtime-hook fact Keel cannot observe, and that a written manifest is not evidence a write was checked
+- **AND THEN** no wording asserts that enforcement is active, that enforcement is live, or that writes are guarded
+
 ### Requirement: Write guard activation defaults to a passing task-start and stays task-scoped and fingerprinted
 
 On the Claude target, a passing `keel gate task-start` MUST write the `keel-write-guard/v1` manifest for the selected task by default, binding it to that task's capsule fingerprint, normalized Touch list, and authority content hashes. The caller MUST be able to opt out with `--no-guard`, and `keel guard start` MUST remain available for explicit activation. The manifest MUST remain a disposable enforcement pointer and MUST NOT act as selection, continuity, or completion authority.

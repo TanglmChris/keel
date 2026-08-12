@@ -82,17 +82,17 @@ function guardResult(subcommand, status, extra = {}) {
     manifestPath: "keel/guard.json",
     problems: [],
     warnings: [
-      "The guard manifest is a disposable enforcement pointer; OpenSpec and "
-        + "Git remain the only durable authority and selection never derives "
+      "The guard manifest is a disposable enforcement pointer, not durable "
+        + "authority — OpenSpec and Git are, and selection never derives "
         + "from it.",
       // The status describes a file Keel wrote. Whether anything reads that
       // file is a target-side fact: enforcement runs as a runtime hook the
       // host loads, and a host that loaded different plugins keeps them for
       // the life of its session. Reporting `started` as though it were a probe
       // result is the same inference `--doctor` already refuses to make.
-      "This status describes the manifest only. Enforcement runs as a runtime "
-        + "hook in the host, which Keel cannot observe from the repository, so "
-        + "a written manifest is not evidence that any write was checked.",
+      "This describes the manifest only. Enforcement runs as a runtime hook "
+        + "Keel cannot observe, so a written manifest proves no write was "
+        + "checked.",
     ],
     ...extra,
   };
