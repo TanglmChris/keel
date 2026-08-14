@@ -741,7 +741,7 @@ function attributeChanged(repo, task, changedList, contract, change, tasks) {
   };
 }
 
-function completionChecks(repo, task, contract = null) {
+function completionChecks(repo, task, contract = null, changeVerify = null) {
   const problems = [];
   const commands = contract
     ? contract.capsule.verification.commands.map((item) => item.label)
@@ -787,6 +787,43 @@ function completionChecks(repo, task, contract = null) {
             )
           );
         }
+      }
+    }
+  }
+  // A `(regression)` check's bare Evidence may defer to a change-level `C<n>`
+  // check instead of recording its own result (issue #95). The regression
+  // flag comes from the compiled contract, the same source the exemption
+  // above already trusts, so this cannot disagree with what `(regression)`
+  // itself decided. Resolution only — whether the reference is declared, not
+  // whether it has run yet — because at task-complete time it legitimately
+  // may not have; `changeVerifyProblems` requires it answered by close.
+  if (contract) {
+    const declaredLabels = new Set(
+      (changeVerify ? changeVerify.checks : []).map((entry) => entry.label)
+    );
+    for (const entry of contract.capsule.verification.commands) {
+      const deferred = deferredChangeCheck(evidenceValue(task, entry.label));
+      if (!deferred) continue;
+      if (!entry.regression) {
+        problems.push(
+          problem(
+            "deferred-evidence-not-regression",
+            `${entry.label} Evidence defers to ${deferred}, but ${entry.label} `
+              + "is not tagged `(regression)`; only a `(regression)`-tagged "
+              + "check may defer to a change-level check."
+          )
+        );
+        continue;
+      }
+      if (!declaredLabels.has(deferred)) {
+        problems.push(
+          problem(
+            "deferred-check-unresolved",
+            `${entry.label} defers to ${deferred}, but tasks.md's \`## `
+              + `Change Verify\` does not declare it. Declare it there, or `
+              + `record concrete Evidence for ${entry.label} directly.`
+          )
+        );
       }
     }
   }
@@ -912,7 +949,8 @@ function taskComplete(repo, options) {
   }
   const contract = compileTaskContract(repo, selection.change, task);
   const usableContract = contract.diagnostics.length === 0 ? contract : null;
-  const checks = completionChecks(repo, task, usableContract);
+  const changeVerify = changeVerifyChecks(selection.content, selection.tasks);
+  const checks = completionChecks(repo, task, usableContract, changeVerify);
   checks.problems.push(...contract.diagnostics);
   const missingAnchor = missingAnchorProblem(selection, task);
   if (missingAnchor) {
@@ -985,6 +1023,96 @@ function sectionBody(content, headingOffset, tasks) {
     }
   }
   return lines.slice(headingLine + 1, end).join("\n");
+}
+
+// A `(regression)` check's bare Evidence may point at a change-level check
+// instead of recording its own result — issue #95. `deferred to C<n>` is
+// matched at the front of the value, the same way `Resolved here:`/`Durable
+// owner:` prefixes are read elsewhere in this file, so a real result that
+// happens to mention "deferred" mid-sentence is not misread as one.
+function deferredChangeCheck(value) {
+  const match = String(value || "").trim().match(/^deferred to (C[1-9]\d*)\b/i);
+  return match ? match[1] : null;
+}
+
+// `## Change Verify` is a change-level section a `(regression)` check's
+// Evidence can defer to — a check that only needs to run once for the whole
+// change instead of once per task. Parsed the same way as `## Invalidates`/
+// `## Expectation Coverage`: located by heading, bounded by `sectionBody()`.
+// Absent by default; a change that no task defers in never needs it.
+function changeVerifyChecks(content, tasks) {
+  const heading = content.search(/^## Change Verify\s*$/m);
+  if (heading < 0) return null;
+  const section = sectionBody(content, heading, tasks);
+  const strategyEntry = section.match(/^\s*-\s*Strategy:\s*(.*)$/im);
+  const checks = [
+    ...section.matchAll(/^\s*-\s*(C[1-9]\d*):\s*(.*)$/gim),
+  ].map((match) => ({ label: match[1], check: match[2].trim() }));
+  return {
+    strategy: strategyEntry ? strategyEntry[1].trim() : "",
+    checks,
+  };
+}
+
+// The `## Change Evidence` counterpart to `changeVerifyChecks` — one `C<n>:`
+// result per declared check, read the same way a task's own `M<n>` Evidence
+// already is.
+function changeEvidenceValue(content, tasks, label) {
+  const heading = content.search(/^## Change Evidence\s*$/m);
+  if (heading < 0) return "";
+  const section = sectionBody(content, heading, tasks);
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = section.match(new RegExp(`^\\s*-\\s*${escaped}:\\s*(.*)$`, "im"));
+  return match ? match[1].trim() : "";
+}
+
+// `change-close`-only: `## Change Verify`'s own shape, and completeness of
+// `## Change Evidence` for every check it declares — whether or not any task
+// actually defers to it, because a declared check still owes its own result.
+// Per-task resolution (does a deferred reference resolve at all) runs inside
+// `completionChecks`, shared by `task-complete` and this loop's own call to
+// it, so it is not repeated here.
+function changeVerifyProblems(content, tasks) {
+  const changeVerify = changeVerifyChecks(content, tasks);
+  if (!changeVerify) return [];
+  const problems = [];
+  const labels = changeVerify.checks.map((entry) => entry.label);
+  const expected = labels.map((_, index) => `C${index + 1}`);
+  if (labels.length === 0 || !isConcrete(changeVerify.strategy)) {
+    problems.push(
+      problem(
+        "change-verify-shape",
+        "`## Change Verify` requires a concrete `Strategy:` line and at "
+          + "least one `C<n>:` check."
+      )
+    );
+  } else if (labels.some((label, index) => label !== expected[index])) {
+    problems.push(
+      problem(
+        "change-verify-shape",
+        "`## Change Verify` labels must be contiguous and ordered: "
+          + `expected ${expected.join(", ")}; found ${labels.join(", ")}.`
+      )
+    );
+  }
+  for (const entry of changeVerify.checks) {
+    if (!isConcrete(entry.check)) {
+      problems.push(
+        problem("change-verify-shape", `${entry.label} must define a concrete check.`)
+      );
+    }
+  }
+  for (const entry of changeVerify.checks) {
+    if (!isConcrete(changeEvidenceValue(content, tasks, entry.label))) {
+      problems.push(
+        problem(
+          "change-evidence-missing",
+          `Missing concrete \`## Change Evidence\` for ${entry.label}.`
+        )
+      );
+    }
+  }
+  return problems;
 }
 
 // Follow-up Ownership governs work a change left undone. This is the opposite
@@ -1203,6 +1331,7 @@ function changeClose(repo, options) {
   const problems = [];
   const reviewProblems = [];
   const contracts = [];
+  const changeVerify = changeVerifyChecks(selection.content, selection.tasks);
   if (selection.tasks.length === 0) {
     problems.push(problem("missing-tasks", "Change has no executable tasks."));
   }
@@ -1248,7 +1377,8 @@ function changeClose(repo, options) {
     const checks = completionChecks(
       repo,
       task,
-      contract.diagnostics.length === 0 ? contract : null
+      contract.diagnostics.length === 0 ? contract : null,
+      changeVerify
     );
     problems.push(
       ...checks.problems.map((item) =>
@@ -1262,6 +1392,7 @@ function changeClose(repo, options) {
     );
   }
   problems.push(...expectationProblems(repo, selection.content, selection.tasks));
+  problems.push(...changeVerifyProblems(selection.content, selection.tasks));
 
   const changePath = path.dirname(selection.tasksPath);
   if (!hasDeltaSpec(changePath)) {

@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.38.0"
-PROTOCOL_VERSION = "5.38.0"
+PACKAGE_VERSION = "5.39.0"
+PROTOCOL_VERSION = "5.39.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5176,6 +5176,279 @@ def validate_regression_check_tag_scenario() -> int:
         if not tagged or tagged.get("regression") is not True:
             report(f"{label} did not record the regression tag in the capsule.")
             report(json.dumps(payload.get("contract", {}), indent=2))
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def change_verify_task(
+    task_id: str,
+    *,
+    checked: bool,
+    commands: tuple[str, ...],
+    evidence: tuple[str, ...],
+) -> str:
+    command_lines = "".join(f"    - {item}\n" for item in commands)
+    evidence_lines = "".join(f"    - {item}\n" for item in evidence)
+    return (
+        f"- [{'x' if checked else ' '}] {task_id} Change verify fixture\n"
+        "  - Owner: claude\n"
+        "  - Mode: implementation\n"
+        "  - Covers:\n"
+        "    - E1: the task proves its own behavior\n"
+        "  - Read:\n"
+        "    - README.md\n"
+        "  - Touch:\n"
+        "    - src/example.js\n"
+        "  - Verify:\n"
+        "    - Strategy: vertical-tdd\n"
+        f"{command_lines}"
+        "  - Acceptance:\n"
+        "    - Public behavior passes.\n"
+        "  - Autonomy boundary:\n"
+        "    - Default: hard-stop\n"
+        "    - Pre-authorized fallback: none\n"
+        "  - Stop Rules:\n"
+        "    - Stop on failure.\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        f"{evidence_lines}"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: behavior proven.\n"
+        "      - Scope check: writes stayed inside Touch.\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+        "  - Stop if:\n"
+        "    - Requires files outside Touch.\n"
+    )
+
+
+def change_verify_deferred_evidence_repo(root: Path, name: str) -> Path:
+    repo = root / name
+    write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+    write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+    write_text(repo / "openspec/changes/demo/specs/demo/spec.md", "## ADDED Requirements\n")
+    return repo
+
+
+def validate_change_verify_deferred_evidence_scenario() -> int:
+    """A `(regression)`-tagged check may defer its bare Evidence to a
+    change-level `C<n>` check, run once for the whole change instead of once
+    per task. Issue #95: a full regression suite that only needs to run once
+    had no place to live in `tasks.md`, so authors either paid to repeat it on
+    every task or gave the middle tasks no safety net at all.
+    """
+    label = "change-verify-deferred-evidence"
+
+    change_verify_c1 = (
+        "## Change Verify\n\n"
+        "- Strategy: regression-first\n"
+        "- C1: the full three-layer suite is 0 failed\n\n"
+    )
+    change_evidence_c1_pending = "## Change Evidence\n\n- C1: pending\n\n"
+    change_evidence_c1_pass = (
+        "## Change Evidence\n\n- C1: pass. Full suite ran clean at 142/142.\n\n"
+    )
+    tagged_commands = (
+        "M1: behavior reaches the public interface",
+        "M2 (regression): the full suite stays green",
+    )
+    deferred_evidence = (
+        "M1: behavior exercised.",
+        "M1.red: failed before the implementation.",
+        "M1.green: passed after.",
+        "M2: deferred to C1",
+    )
+
+    def tasks_md(
+        *,
+        change_verify: str = "",
+        change_evidence: str = "",
+        commands: tuple[str, ...] = tagged_commands,
+        evidence: tuple[str, ...],
+        checked: bool = True,
+    ) -> str:
+        sections = (
+            "## Invalidates\n\n- None.\n\n"
+            "## Expectation Coverage\n\n"
+            "- E1: the task proves its own behavior. Covered by: 1.1\n\n"
+            + change_verify
+            + change_evidence
+        )
+        return "# Tasks\n\n" + sections + change_verify_task(
+            "1.1", checked=checked, commands=commands, evidence=evidence
+        )
+
+    with tempfile.TemporaryDirectory(
+        prefix="keel-change-verify-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+        repo = change_verify_deferred_evidence_repo(tmp, "repo")
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+
+        def codes(payload: dict) -> set[str]:
+            return {item.get("code") for item in payload.get("problems", [])}
+
+        def complete(fixture: str) -> dict:
+            write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return json.loads(result.stdout)
+
+        def close(fixture: str) -> dict:
+            write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "change-close", "--change", "demo", "--action", "sync", "--json"
+            )
+            return json.loads(result.stdout)
+
+        # (a) A `(regression)`-tagged check deferring to a declared C1 passes
+        # task-complete with no C1 result required yet — the change has not
+        # closed, so the deferred check may legitimately not have run.
+        payload = complete(tasks_md(change_verify=change_verify_c1, evidence=deferred_evidence))
+        if payload.get("status") != "pass":
+            report(f"{label} refused a regression check deferring to a declared change-level check.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # (b) An untagged check deferring to C1 fails: only a
+        # `(regression)`-tagged check may defer.
+        payload = complete(
+            tasks_md(
+                change_verify=change_verify_c1,
+                commands=(
+                    "M1: behavior reaches the public interface",
+                    "M2: the full suite stays green",
+                ),
+                evidence=(
+                    "M1: behavior exercised.",
+                    "M1.red: failed before the implementation.",
+                    "M1.green: passed after.",
+                    "M2: deferred to C1",
+                    "M2.red: n/a",
+                    "M2.green: n/a",
+                ),
+            )
+        )
+        if (
+            payload.get("status") != "fail"
+            or "deferred-evidence-not-regression" not in codes(payload)
+        ):
+            report(f"{label} let an untagged check defer to a change-level check.")
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # (c) A `(regression)`-tagged check deferring to an undeclared C9
+        # fails: the reference must resolve.
+        payload = complete(
+            tasks_md(
+                change_verify=change_verify_c1,
+                evidence=(
+                    "M1: behavior exercised.",
+                    "M1.red: failed before the implementation.",
+                    "M1.green: passed after.",
+                    "M2: deferred to C9",
+                ),
+            )
+        )
+        if payload.get("status") != "fail" or "deferred-check-unresolved" not in codes(payload):
+            report(f"{label} accepted a deferral to a change-level check that was never declared.")
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # (d) change-close fails the same way when a task defers but
+        # `## Change Verify` does not exist at all.
+        payload = close(tasks_md(evidence=deferred_evidence))
+        if payload.get("status") != "fail" or "deferred-check-unresolved" not in codes(payload):
+            report(f"{label} closed a change whose deferred check has no Change Verify section.")
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # (e) change-close fails when C1 is declared but Change Evidence has
+        # no concrete entry for it — the check has to actually run once.
+        payload = close(
+            tasks_md(
+                change_verify=change_verify_c1,
+                change_evidence=change_evidence_c1_pending,
+                evidence=deferred_evidence,
+            )
+        )
+        if payload.get("status") != "fail" or "change-evidence-missing" not in codes(payload):
+            report(f"{label} closed a change whose declared C1 has no concrete Change Evidence.")
+            report(json.dumps(payload, indent=2))
+            return 1
+
+        # (f) change-close passes once Change Evidence carries concrete
+        # evidence for every declared C<n>.
+        payload = close(
+            tasks_md(
+                change_verify=change_verify_c1,
+                change_evidence=change_evidence_c1_pass,
+                evidence=deferred_evidence,
+            )
+        )
+        if payload.get("status") != "pass":
+            report(f"{label} refused a fully resolved deferred change-level check at close.")
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # (g) A change no task defers in reports nothing about either
+        # section, whether present or absent — the feature costs nothing to a
+        # change that never uses it, and a declared-but-unused section is
+        # still held to its own shape.
+        undeferred_evidence = (
+            "M1: behavior exercised.",
+            "M1.red: failed before the implementation.",
+            "M1.green: passed after.",
+            "M2: existing suite still green.",
+        )
+        without_sections = close(tasks_md(evidence=undeferred_evidence))
+        with_unused_sections = close(
+            tasks_md(
+                change_verify=change_verify_c1,
+                change_evidence=change_evidence_c1_pass,
+                evidence=undeferred_evidence,
+            )
+        )
+        for payload in (without_sections, with_unused_sections):
+            stray = [
+                item
+                for item in payload.get("problems", [])
+                if item.get("code", "").startswith("change-verify")
+                or item.get("code", "").startswith("change-evidence")
+                or item.get("code", "").startswith("deferred-")
+            ]
+            if stray:
+                report(
+                    f"{label} reported a Change Verify/Evidence problem for a "
+                    "change nothing defers to."
+                )
+                report(json.dumps(stray, indent=2))
+                return 1
+
+        # (h) Non-contiguous C<n> labels fail change-close: the section is
+        # held to the same label discipline `M<n>` already is.
+        broken_change_verify = (
+            "## Change Verify\n\n"
+            "- Strategy: regression-first\n"
+            "- C1: the full three-layer suite is 0 failed\n"
+            "- C3: the byte baseline stays identical\n\n"
+        )
+        payload = close(
+            tasks_md(
+                change_verify=broken_change_verify,
+                change_evidence="## Change Evidence\n\n- C1: pass.\n- C3: pass.\n\n",
+                evidence=deferred_evidence,
+            )
+        )
+        if payload.get("status") != "fail" or "change-verify-shape" not in codes(payload):
+            report(f"{label} accepted non-contiguous Change Verify labels.")
+            report(json.dumps(payload, indent=2))
             return 1
 
     report(f"{label} scenario passed.")
@@ -21427,7 +21700,15 @@ def validate_guard_status_stale_manifest_scenario() -> int:
 # lowered, because a number that only checks for rises becomes false the first
 # time someone fixes a site — and a false number is what this whole change is
 # about. Fixing sites is expected. Lowering this constant is one line.
-OR_GUARDED_ASSERTION_SITES = 75
+#
+# Raised 75 -> 80 by `change-verify-deferred-evidence` (issue #95): five sites,
+# each `payload.get("status") != "fail" or "<code>" not in codes(payload)`
+# guarding one `report(...)`, the same already-accepted gate-result-assertion
+# shape as `regression-check-tag`'s own site above. The message covers both
+# operands (the gate did not fail the way the fixture requires, whichever half
+# was wrong), and every site prints the full problem payload alongside it, so
+# a reader is never left with only the sentence.
+OR_GUARDED_ASSERTION_SITES = 80
 
 
 def or_guarded_assertion_sites(source: str) -> list[int]:
@@ -22964,6 +23245,10 @@ SCENARIOS: tuple = (
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),
     ("reauthorizations-shape", validate_reauthorizations_shape_scenario),
+    (
+        "change-verify-deferred-evidence",
+        validate_change_verify_deferred_evidence_scenario,
+    ),
 )
 
 
