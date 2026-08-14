@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.36.0"
-PROTOCOL_VERSION = "5.36.0"
+PACKAGE_VERSION = "5.37.0"
+PROTOCOL_VERSION = "5.37.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -10288,6 +10288,38 @@ def validate_guard_status_is_not_enforcement_scenario() -> int:
         )
         return 1
     report("guard-status-is-not-enforcement scenario passed.")
+    return 0
+
+
+def validate_guard_warnings_are_concise_scenario() -> int:
+    """Issue #92 item 1: shorten the two standing guard warnings.
+
+    The owner authorized shortening wording, not removing content: every
+    idea `guard-status-is-not-enforcement` checks for must still resolve, but
+    the combined text must drop below the byte counts `#92` measured before
+    this fix (398 for `guard status`, 397 for `guard clear`, on a fresh
+    directory with no manifest).
+    """
+    baseline = {"status": 398, "clear": 397}
+    with tempfile.TemporaryDirectory(prefix="keel-guard-concise-") as raw:
+        project = Path(raw)
+        for label, before in baseline.items():
+            result = run_keel(project, "guard", label)
+            out = result.stdout or ""
+            if len(out) >= before:
+                report(
+                    f"guard-warnings-are-concise: keel guard {label} is "
+                    f"{len(out)} chars, not shorter than the {before}-char "
+                    "baseline #92 measured before the wording was shortened."
+                )
+                return 1
+    if "guard-warnings-are-concise" not in {name for name, _ in SCENARIOS}:
+        report(
+            "guard-warnings-are-concise: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("guard-warnings-are-concise scenario passed.")
     return 0
 
 
@@ -22727,6 +22759,10 @@ SCENARIOS: tuple = (
     (
         "guard-status-is-not-enforcement",
         validate_guard_status_is_not_enforcement_scenario,
+    ),
+    (
+        "guard-warnings-are-concise",
+        validate_guard_warnings_are_concise_scenario,
     ),
     ("source-repo-cli-resolution", validate_source_repo_cli_resolution_scenario),
     ("task-contract-core", validate_task_contract_core_scenario),

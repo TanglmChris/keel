@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.37.0 - shorter guard warnings
+
+- `keel guard status`/`clear`/`start` disclaimers get shorter (closes issue #92 item 1): the two standing warnings `guardResult` attaches to every guard result carried ~300 chars of boilerplate on every call. The owner authorized shortening the wording while keeping `openspec/specs/keel-touch-write-guard/spec.md:89`'s MUST satisfied — the disclaimer stays in the default output; nothing moved to `--verbose` or became first-call-only. Measured on a fresh directory with no manifest: `keel guard status` drops from 398 to 334 chars, `keel guard clear` from 397 to 333, while every idea the pre-existing `guard-status-is-not-enforcement` scenario checks for (disposable/not-durable-authority, selection independence, manifest-only status, runtime-hook/cannot-observe, not-evidence-of-a-checked-write) still holds, verified by a new `guard-warnings-are-concise` scenario. `#92` item 2 (the `keel-align-expectations` injection-surface restructuring) remains undecided — the owner did not authorize it as Full-mode work in the same decision. (keel-touch-write-guard)
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.37.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.36.0 - a value is not a name
 
 `#93` measured that `keel/config.yaml`'s `authorize:` vocabulary (`commit`, `push`, `release`, `archive`) does not include `sync`, while `keel gate change-close --action sync|archive` accepts `sync` as a value beside `archive`. A reader who copies from `--help` reasonably copies both into `authorize:`, and the declaration then fails closed exactly as designed — except the failure was reported only by `keel --doctor`, an explicitly-invoked diagnostic; `keel context`, the command a session runs first per `AGENTS.md`, said nothing about it. The issue's own repro shows the same broken declaration sitting uncaught for eight days.
