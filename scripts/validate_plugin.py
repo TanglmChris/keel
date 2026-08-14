@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.35.0"
-PROTOCOL_VERSION = "5.35.0"
+PACKAGE_VERSION = "5.36.0"
+PROTOCOL_VERSION = "5.36.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -15258,6 +15258,99 @@ def validate_standing_authorization_declaration_scenario() -> int:
     return 0
 
 
+def validate_standing_authorization_sync_confusion_scenario() -> int:
+    """`sync` is a `change-close --action` value, not an `authorize:` name (#93).
+
+    A reader who copies `sync` from `change-close --action sync|archive` into
+    `authorize:` gets the generic unrecognized-action message, which never says
+    why `sync` in particular is wrong or what to write instead — and the
+    failure was reported only by `keel --doctor`, an explicitly-invoked
+    diagnostic, not by `keel context`, the command a session runs first.
+    """
+    label = "standing-authorization-sync-confusion"
+    with tempfile.TemporaryDirectory(prefix="keel-authorize-sync-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — `sync` gets a sentence naming the `change-close --action`
+        # confusion and pointing at `archive`; an unrelated typo does not.
+        sync_repo = root / "sync"
+        sync_repo.mkdir()
+        write_authorize_config(sync_repo, "authorize:\n  - sync\n")
+        doctor = run_keel(sync_repo, "--doctor")
+        combined = doctor.stdout + doctor.stderr
+        for needle in ("change-close --action", "declare `archive`"):
+            if needle not in combined:
+                report(
+                    f"{label} M1 the doctor message does not name the sync "
+                    f"confusion: {needle!r}."
+                )
+                report(combined)
+                return 1
+
+        typo_repo = root / "typo"
+        typo_repo.mkdir()
+        write_authorize_config(typo_repo, "authorize:\n  - deploy\n")
+        typo_doctor = run_keel(typo_repo, "--doctor")
+        typo_combined = typo_doctor.stdout + typo_doctor.stderr
+        if "deploy" not in typo_combined:
+            report(f"{label} M1 the typo repo's own offending entry went unreported.")
+            report(typo_combined)
+            return 1
+        if "change-close --action" in typo_combined:
+            report(
+                f"{label} M1 a genuine typo (`deploy`) still received the "
+                "sync-specific sentence."
+            )
+            report(typo_combined)
+            return 1
+
+        # M2 — the same broken declaration surfaces in `keel context`'s
+        # warnings, and does not disturb status or nextAction, exactly as an
+        # uncommitted git path is reported without changing selection.
+        context = json.loads(run_keel(sync_repo, "context", "--json").stdout)
+        warnings = " ".join(context.get("warnings", []))
+        if "change-close --action" not in warnings or "sync" not in warnings:
+            report(
+                f"{label} M2 `keel context` did not report the broken "
+                "authorize: declaration."
+            )
+            report(f"  warnings: {context.get('warnings')!r}")
+            return 1
+        if context.get("status") != "idle":
+            report(f"{label} M2 the broken declaration changed context's status: {context.get('status')!r}")
+            return 1
+        if context.get("nextAction", {}).get("kind") != "none":
+            report(
+                "{} M2 the broken declaration changed context's nextAction: {!r}".format(
+                    label, context.get("nextAction")
+                )
+            )
+            return 1
+
+        typo_context = json.loads(run_keel(typo_repo, "context", "--json").stdout)
+        typo_warnings = " ".join(typo_context.get("warnings", []))
+        if "deploy" not in typo_warnings:
+            report(
+                f"{label} M2 `keel context` did not report the typo repo's "
+                "broken authorize: declaration at all."
+            )
+            report(f"  warnings: {typo_context.get('warnings')!r}")
+            return 1
+        if "change-close --action" in typo_warnings:
+            report(
+                f"{label} M2 a genuine typo (`deploy`) still received the "
+                "sync-specific sentence inside `keel context`'s warning."
+            )
+            report(f"  warnings: {typo_context.get('warnings')!r}")
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def standing_authorization_task(boundary: str = "") -> str:
     return (
         "- [ ] 1.1 Behavior\n"
@@ -22491,6 +22584,10 @@ SCENARIOS: tuple = (
     (
         "standing-authorization-declaration",
         validate_standing_authorization_declaration_scenario,
+    ),
+    (
+        "standing-authorization-sync-confusion",
+        validate_standing_authorization_sync_confusion_scenario,
     ),
     (
         "standing-authorization-inheritance",

@@ -1630,17 +1630,9 @@ function gitConfigHooksPath(repo) {
 
 function printStandingAuthorizationSurface(repo) {
   process.stdout.write("\nStanding authorization:\n");
-  const { declared, unknown } = readStandingAuthorization(repo);
+  const { declared, unknown, message } = readStandingAuthorization(repo);
   if (unknown.length > 0) {
-    printDoctorLine(
-      "authorize",
-      "failed",
-      `keel/config.yaml declares unrecognized ${
-        unknown.length === 1 ? "action" : "actions"
-      }: ${unknown.join(", ")}; accepted names are `
-        + `${STANDING_AUTHORIZATION_ACTIONS.join(", ")}. The whole declaration `
-        + "authorizes nothing until it is corrected"
-    );
+    printDoctorLine("authorize", "failed", message);
     return false;
   }
   printDoctorLine(
