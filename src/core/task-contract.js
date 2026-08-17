@@ -687,9 +687,16 @@ function criticalAuthority(repo, change, reference) {
     };
   }
   const content = fs.readFileSync(designPath, "utf8");
+  // Accepted line shapes: an optional CommonMark list bullet, the identifier
+  // bare or wrapped in balanced `**`, then the dash and statement. Authors
+  // overwhelmingly write the bulleted and bold shapes (issue #49).
   const matches = [
     ...content.matchAll(
-      new RegExp(`^\\s*${reference}\\s*[—-]\\s*(.+?)\\s*$`, "gmi")
+      new RegExp(
+        `^\\s*(?:[-*+]\\s+)?(?:\\*\\*${reference}\\*\\*|${reference})`
+        + `\\s*[—-]\\s*(.+?)\\s*$`,
+        "gmi"
+      )
     ),
   ];
   if (matches.length !== 1) {
@@ -707,9 +714,11 @@ function criticalAuthority(repo, change, reference) {
           code: "unresolved-covers",
           message:
             `Unparsed Covers critical statement: ${reference}. It appears in `
-            + "design.md but not in the required shape — write it starting "
-            + `the line as \`${reference} — one-line statement\` (no leading `
-            + "`-`, `**`, or other decoration) so it can be resolved.",
+            + "design.md but not in an accepted line shape — write it as a "
+            + "line opening with the identifier and a dash, "
+            + `\`${reference} — one-line statement\`, optionally as a list `
+            + `bullet (\`- ${reference} — …\`) and/or with the identifier `
+            + `bold (\`**${reference}** — …\`).`,
         },
       };
     }
@@ -758,7 +767,17 @@ function resolveAuthority(repo, change, task) {
   }
   const entries = [...seen].sort();
   for (const entry of entries) {
-    const critical = criticalAuthority(repo, change, entry);
+    // A critical-statement reference may open its entry with a trailing
+    // annotation after a dash (`D2 — note`); the identifier resolves and the
+    // annotation stays annotation — design.md owns the statement text. The
+    // boundary after the identifier is whitespace or an em dash so that free
+    // text like `D2-compatible` does not become a reference.
+    const annotated = entry.match(/^([DFAQ]\d+)(?=\s|—)\s*[—-]\s*.+$/);
+    const critical = criticalAuthority(
+      repo,
+      change,
+      annotated ? annotated[1] : entry
+    );
     if (critical) {
       if (critical.diagnostic) diagnostics.push(critical.diagnostic);
       if (critical.authority) authority.push(critical.authority);
