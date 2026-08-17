@@ -1,6 +1,6 @@
-# Keel v5.40.0 Agent Protocol
+# Keel v5.41.0 Agent Protocol
 
-<!-- keel:start version=5.40.0 -->
+<!-- keel:start version=5.41.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -42,7 +42,7 @@
 ## Execution boundary
 - Execute implementation, diagnostics, verification, and recovery inside the current agent session. Keep scope expansion, acceptance changes, product fallback, and rollback decisions explicit in the conversation.
 - Preserve the current checkout on verification failure or context pressure. Continue from the evidence, record a blocker, or explicitly roll back to last-green only when the user or selected task authorizes it.
-- A task without a pre-authorized Autonomy boundary defaults to hard-stop, except for an action the repository standing-authorizes in `keel/config.yaml`; a task that authors its own boundary keeps it, and the capsule names the declaration as the source of any entry it supplied. A standing authorization removes the confirmation, never the gate, the evidence, or the Review, and it is not a trigger to perform the action. A bounded fallback is valid only when the task states its exact reversible limit and required evidence.
+- A task without a pre-authorized Autonomy boundary defaults to hard-stop, except for an action the repository standing-authorizes in `keel/config.yaml`; a task that authors its own boundary keeps it, and the capsule names the declaration as the source of any entry it supplied. A standing authorization removes the confirmation, never the gate, the evidence, or the Review, and it is not a trigger to perform the action. A standing `continuation` authorization covers exactly the boundary between a durably complete task and the next unchecked task of the same change, inside a change whose `tasks.md` the owner approved — the next task still starts through `keel gate task-start` with its own recorded fingerprint, a stop with its own trigger still stops, and no repository action rides along with it. A bounded fallback is valid only when the task states its exact reversible limit and required evidence.
 
 ## Completion gates
 - Run `keel gate task-start`, `keel gate task-complete`, and `keel gate change-close` for the shared deterministic structural gates; they are local, model-free, write-bounded — on Claude a passing `task-start` writes the disposable write-guard manifest by default (`--no-guard` opts out) and no other gate outcome writes project state — and return `pass`, `fail`, or `needs-review`. task-start returns the compiled capsule and fingerprint and also refuses a change that has not declared what it invalidates; record the fingerprint in the task's Evidence `Contract` line before implementation — `task-complete` refuses a task that recorded none, because a task with no anchor has nothing to compare against — and resume, projection, completion, and the change close recompile and compare it; drift hard-stops until explicit reauthorization returns to authoring and clears stale execution evidence. A well-formed digest is not an anchor: what is compared is the value, and `change-close` also refuses a checked task that recorded none. That comparison holds while its change is live; once the change is archived the anchor is a historical record, and the gates refuse an archived change rather than recompiling one. Without `--task`, `task-complete` selects the first unchecked task but refuses when that task has recorded no fingerprint, because a task that has not started is not the task you are completing; `task-start` keeps the plain default.
@@ -92,7 +92,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.40.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.41.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions

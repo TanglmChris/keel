@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.40.0"
-PROTOCOL_VERSION = "5.40.0"
+PACKAGE_VERSION = "5.41.0"
+PROTOCOL_VERSION = "5.41.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -15802,7 +15802,13 @@ def validate_verification_layering_docs_scenario() -> int:
     return 0
 
 
-STANDING_AUTHORIZATION_ACTIONS = ("commit", "push", "release", "archive")
+STANDING_AUTHORIZATION_ACTIONS = (
+    "commit",
+    "push",
+    "release",
+    "archive",
+    "continuation",
+)
 
 
 def write_authorize_config(repo: Path, body: str) -> None:
@@ -15834,7 +15840,11 @@ def validate_standing_authorization_declaration_scenario() -> int:
                 report(f"standing-authorization: declared action not reported: {needle}")
                 report(out)
                 return 1
-        for needle in ("release: not authorized", "archive: not authorized"):
+        for needle in (
+            "release: not authorized",
+            "archive: not authorized",
+            "continuation: not authorized",
+        ):
             if needle not in out:
                 report(f"standing-authorization: undeclared action not reported: {needle}")
                 report(out)
@@ -18282,7 +18292,8 @@ def validate_standing_authorization_never_weakens_scenario() -> int:
         write_gate_fixture(authorizing, tasks)
         write_authorize_config(
             authorizing,
-            "authorize:\n  - commit\n  - push\n  - release\n  - archive\n",
+            "authorize:\n  - commit\n  - push\n  - release\n  - archive\n"
+            "  - continuation\n",
         )
         silent = root / f"{name}-silent"
         silent.mkdir()
@@ -18380,6 +18391,260 @@ def validate_standing_authorization_never_weakens_scenario() -> int:
             return 1
 
     report("standing-authorization-never-weakens scenario passed.")
+    return 0
+
+
+def validate_continuation_authorization_scenario() -> int:
+    """`continuation` gives the between-task approval a durable home (#94).
+
+    The fifth vocabulary name has the same nature as the four before it:
+    declared, it authorizes and an inheriting capsule names its source;
+    undeclared, it authorizes nothing; and the declaration stays inert to
+    every gate result and to continuity selection — it removes a
+    confirmation, never a proof, and it never selects the next task itself.
+    """
+    label = "continuation-authorization"
+
+    complete_task = (
+        "- [ ] 1.1 Behavior\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - M1: node test.js proves the public behavior\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: node test.js printed ok\n"
+        "    - Review:\n"
+        "      - Status: pass\n"
+        "      - Acceptance check: reviewed\n"
+        "      - Scope check: reviewed\n"
+        "      - Findings: none\n"
+        "    - Blocker: none\n"
+    )
+
+    def gate_result(repo: Path, stage: str) -> dict | None:
+        result = run_keel(
+            repo, "gate", stage, "--change", "demo", "--task", "1.1", "--json"
+        )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+        return {
+            "status": payload.get("status"),
+            "problems": sorted(
+                (problem.get("code", ""), problem.get("message", ""))
+                for problem in payload.get("problems") or []
+            ),
+        }
+
+    with tempfile.TemporaryDirectory(prefix="keel-continuation-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        # M1 — declared alone, `continuation` is authorized and no repository
+        # action rides along with it: commit, push, release, and archive each
+        # still require their own name.
+        declared = root / "declared"
+        declared.mkdir()
+        write_authorize_config(declared, "authorize:\n  - continuation\n")
+        result = run_keel(declared, "--doctor")
+        if result.returncode != 0:
+            report(f"{label}: a continuation-only declaration was refused.")
+            report(result.stdout + result.stderr)
+            return 1
+        if "continuation: authorized" not in result.stdout:
+            report(f"{label}: a declared continuation was not reported authorized.")
+            report(result.stdout)
+            return 1
+        for needle in (
+            "commit: not authorized",
+            "push: not authorized",
+            "release: not authorized",
+            "archive: not authorized",
+        ):
+            if needle not in result.stdout:
+                report(f"{label}: undeclared action not reported: {needle}")
+                report(result.stdout)
+                return 1
+
+        # M1 — undeclared, it is reported beside the four exactly as any
+        # unlisted action is.
+        four = root / "four"
+        four.mkdir()
+        write_authorize_config(
+            four, "authorize:\n  - commit\n  - push\n  - release\n  - archive\n"
+        )
+        out = run_keel(four, "--doctor").stdout
+        if "continuation: not authorized" not in out:
+            report(f"{label}: an undeclared continuation was not reported.")
+            report(out)
+            return 1
+
+        # M1 — a task that authored no boundary inherits it, the capsule names
+        # the declaration as its source, and undeclared actions keep the
+        # hard-stop default.
+        write_gate_fixture(declared, standing_authorization_task())
+        autonomy = standing_authorization_autonomy(declared)
+        if autonomy is None:
+            report(f"{label}: task-start returned no capsule autonomy.")
+            return 1
+        inherited = [entry for entry in autonomy if "continuation" in entry]
+        if not inherited:
+            report(
+                f"{label}: continuation did not reach the capsule autonomy: "
+                f"{autonomy}"
+            )
+            return 1
+        if not any("keel/config.yaml" in entry for entry in inherited):
+            report(
+                f"{label}: the inherited entry does not name its source: "
+                f"{autonomy}"
+            )
+            return 1
+        if not any(entry.startswith("Default: hard-stop") for entry in autonomy):
+            report(
+                f"{label}: undeclared actions lost the hard-stop default: "
+                f"{autonomy}"
+            )
+            return 1
+
+        # M1 — inert to gates and selection: against an otherwise identical
+        # silent repository, gate results and continuity are equal. The
+        # capsule check above is the positive control — the declaration
+        # demonstrably reached the capsule, so equality is not trivially true.
+        inert_declared = root / "inert-declared"
+        inert_declared.mkdir()
+        write_gate_fixture(inert_declared, complete_task)
+        write_authorize_config(inert_declared, "authorize:\n  - continuation\n")
+        inert_silent = root / "inert-silent"
+        inert_silent.mkdir()
+        write_gate_fixture(inert_silent, complete_task)
+        if any(
+            "keel/config.yaml" in entry
+            for entry in standing_authorization_autonomy(inert_silent) or []
+        ):
+            report(f"{label}: the silent fixture declared something.")
+            return 1
+        for repo in (inert_declared, inert_silent):
+            if gate_result(repo, "task-start") is None:
+                report(f"{label}: task-start produced no JSON.")
+                return 1
+        declared_result = gate_result(inert_declared, "task-complete")
+        silent_result = gate_result(inert_silent, "task-complete")
+        if declared_result is None or silent_result is None:
+            report(f"{label}: task-complete produced no JSON.")
+            return 1
+        if declared_result != silent_result:
+            report(
+                f"{label}: the declaration changed a gate result: "
+                f"{declared_result} != {silent_result}"
+            )
+            return 1
+
+        def continuity(repo: Path) -> dict | None:
+            result = run_keel(repo, "context", "--json")
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return None
+            return {
+                "status": payload.get("status"),
+                "selection": payload.get("selection"),
+                "nextAction": payload.get("nextAction"),
+            }
+
+        declared_context = continuity(inert_declared)
+        silent_context = continuity(inert_silent)
+        if declared_context is None or silent_context is None:
+            report(f"{label}: keel context produced no JSON.")
+            return 1
+        if declared_context != silent_context:
+            report(
+                f"{label}: the declaration changed continuity selection: "
+                f"{declared_context} != {silent_context}"
+            )
+            return 1
+
+    report("continuation-authorization scenario passed.")
+    return 0
+
+
+def validate_continuation_docs_scenario() -> int:
+    """Every text an agent reads at the between-task boundary names the word (#94).
+
+    The declaration only works if the boundary's readers know it exists: the
+    goal skill's stop rule is what an agent obeys at the boundary, the README
+    and the config comment are where an owner learns the vocabulary, and the
+    resident protocol is what the enforcing agent holds in context.
+    """
+    label = "continuation-docs"
+
+    src_skill = (
+        ROOT / "src/skills/keel-run-single-task-goal/SKILL.md"
+    ).read_text(encoding="utf-8")
+    plugin_skill = (
+        ROOT / "plugins/keel/skills/keel-run-single-task-goal/SKILL.md"
+    ).read_text(encoding="utf-8")
+    if src_skill != plugin_skill:
+        report(f"{label}: the src/ and plugins/ skill copies diverge.")
+        return 1
+
+    step7 = next(
+        (line for line in plugin_skill.splitlines() if line.startswith("7. ")), ""
+    )
+    if not step7.startswith("7. Stop."):
+        report(f"{label}: the goal skill lost its stop step: {step7!r}")
+        return 1
+    for needle in (
+        "standing `continuation` authorization",
+        "keel/config.yaml",
+        "next unchecked task of the same change",
+        "its own recorded fingerprint",
+        "no hidden scheduler",
+    ):
+        if needle not in step7:
+            report(f"{label}: the stop rule lacks: {needle}")
+            report(step7)
+            return 1
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for needle in (
+        "accepted names: commit, push, release, archive, continuation",
+        "next unchecked task of the same change",
+        "the stop that re-asks for an approval already given",
+        "The five names above are the whole vocabulary.",
+    ):
+        if needle not in readme:
+            report(f"{label}: README.md lacks: {needle}")
+            return 1
+
+    config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
+    if "commit, push, release, archive,\n# continuation" not in config_text:
+        report(
+            f"{label}: keel/config.yaml's comment does not name the five-name "
+            "vocabulary."
+        )
+        return 1
+
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    parts = agents.split("## Execution boundary", 1)
+    if len(parts) != 2:
+        report(f"{label}: AGENTS.md lost its Execution boundary section.")
+        return 1
+    section = parts[1].split("\n## ", 1)[0]
+    for needle in (
+        "standing `continuation` authorization",
+        "next unchecked task of the same change",
+        "its own recorded fingerprint",
+    ):
+        if needle not in section:
+            report(f"{label}: AGENTS.md Execution boundary lacks: {needle}")
+            return 1
+
+    report("continuation-docs scenario passed.")
     return 0
 
 
@@ -23280,6 +23545,11 @@ SCENARIOS: tuple = (
         "standing-authorization-never-weakens",
         validate_standing_authorization_never_weakens_scenario,
     ),
+    (
+        "continuation-authorization",
+        validate_continuation_authorization_scenario,
+    ),
+    ("continuation-docs", validate_continuation_docs_scenario),
     (
         "precedent-store-declaration",
         validate_precedent_store_declaration_scenario,
