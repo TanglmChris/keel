@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.39.0"
-PROTOCOL_VERSION = "5.39.0"
+PACKAGE_VERSION = "5.40.0"
+PROTOCOL_VERSION = "5.40.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1656,10 +1656,12 @@ def validate_unparsed_covers_critical_statement_scenario() -> int:
 
     with tempfile.TemporaryDirectory(prefix="keel-unparsed-covers-unparsed-") as raw:
         repo = Path(raw)
+        # A colon after the identifier stays outside the accepted shapes now
+        # that bullet and bold wrapping resolve (issue #49, owner-decided).
         write_text(
             repo / "openspec/changes/demo/design.md",
             "## Decisions\n\n"
-            "- **D2** — Keep one shared parser. Basis: fixture authority.\n",
+            "D2: Keep one shared parser. Basis: fixture authority.\n",
         )
         returncode, message = covers_message(repo)
         if returncode == 0:
@@ -1720,6 +1722,250 @@ def validate_unparsed_covers_critical_statement_scenario() -> int:
         )
         return 1
     report("unparsed-covers-critical-statement scenario passed.")
+    return 0
+
+
+def validate_widened_critical_statement_shapes_scenario() -> int:
+    """Issue #49 Section 1, owner-decided 2026-08-17: criticalAuthority() must
+    resolve a design.md critical-statement line in the shapes authors actually
+    write — bulleted, bold-wrapped, or both — not only the bare line shape,
+    while a reference matching more than one line still fails as duplicated and
+    a still-unaccepted shape reports Unparsed naming the accepted shapes.
+    """
+    task = task_capsule_compact_fixture().replace(
+        "    - E1: Public behavior passes.\n",
+        "    - D2\n",
+    )
+
+    def start(repo: Path) -> subprocess.CompletedProcess[str]:
+        write_text(repo / "openspec/changes/demo/tasks.md", task)
+        return run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+
+    accepted_shapes = [
+        "- D2 — Keep one shared parser.",
+        "**D2** — Keep one shared parser.",
+        "- **D2** — Keep one shared parser.",
+        "* D2 — Keep one shared parser.",
+        "+ D2 — Keep one shared parser.",
+    ]
+    for shape in accepted_shapes:
+        with tempfile.TemporaryDirectory(prefix="keel-widened-shape-") as raw:
+            repo = Path(raw)
+            write_text(
+                repo / "openspec/changes/demo/design.md",
+                f"## Decisions\n\n{shape}\n",
+            )
+            result = start(repo)
+            if result.returncode != 0:
+                report(
+                    f"widened-critical-statement-shapes: the shape {shape!r} "
+                    f"must resolve, got exit {result.returncode}: "
+                    f"{(result.stderr or result.stdout).strip()}"
+                )
+                return 1
+            authority = (
+                json.loads(result.stdout)
+                .get("contract", {})
+                .get("capsule", {})
+                .get("authority", [])
+            )
+            if not any(
+                item.get("reference") == "D2"
+                and item.get("kind") == "critical-statement"
+                and item.get("text") == "Keep one shared parser."
+                for item in authority
+            ):
+                report(
+                    f"widened-critical-statement-shapes: the shape {shape!r} "
+                    "must resolve as critical-statement authority carrying the "
+                    "statement text."
+                )
+                return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-widened-duplicate-") as raw:
+        repo = Path(raw)
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Decisions\n\nD2 — Keep one shared parser.\n\n"
+            "- D2 — Keep one shared parser.\n",
+        )
+        result = start(repo)
+        problems = json.loads(result.stdout).get("problems", [])
+        if result.returncode == 0 or not any(
+            item.get("code") == "ambiguous-covers"
+            and item.get("message", "").startswith(
+                "Duplicated Covers critical statement: D2."
+            )
+            for item in problems
+        ):
+            report(
+                "widened-critical-statement-shapes: the same identifier in "
+                "two accepted shapes must fail as duplicated."
+            )
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-widened-unparsed-") as raw:
+        repo = Path(raw)
+        write_text(
+            repo / "openspec/changes/demo/design.md",
+            "## Decisions\n\nD2: Keep one shared parser.\n",
+        )
+        result = start(repo)
+        problems = json.loads(result.stdout).get("problems", [])
+        message = next(
+            (
+                item.get("message", "")
+                for item in problems
+                if item.get("code") == "unresolved-covers"
+            ),
+            "",
+        )
+        if result.returncode == 0 or not message.startswith(
+            "Unparsed Covers critical statement: D2."
+        ):
+            report(
+                "widened-critical-statement-shapes: a colon line must still "
+                f"report Unparsed, got: {message!r}"
+            )
+            return 1
+        if "- D2 — " not in message or "**D2** — " not in message:
+            report(
+                "widened-critical-statement-shapes: the Unparsed message must "
+                f"name the bulleted and bold shapes as accepted, got: {message!r}"
+            )
+            return 1
+
+    if "widened-critical-statement-shapes" not in {name for name, _ in SCENARIOS}:
+        report(
+            "widened-critical-statement-shapes: the scenario registry does not "
+            "include it."
+        )
+        return 1
+    report("widened-critical-statement-shapes scenario passed.")
+    return 0
+
+
+def validate_covers_annotation_entry_scenario() -> int:
+    """Issue #49 Section 1's fail-open half, owner-decided 2026-08-17: a Covers
+    entry that opens with a critical-statement identifier and a dash
+    (`D2 — note`) must resolve as that critical statement — failing loudly when
+    the identifier is missing from design.md — instead of silently degrading to
+    an unlinked legacy-task-reference, while colon-form entries and hyphenated
+    free text stay free-text references.
+    """
+    design_with_d2 = "## Decisions\n\nD2 — Keep one shared parser.\n"
+
+    def start_with_covers(
+        repo: Path, covers_entry: str, design: str
+    ) -> subprocess.CompletedProcess[str]:
+        write_text(repo / "openspec/changes/demo/design.md", design)
+        write_text(
+            repo / "openspec/changes/demo/tasks.md",
+            task_capsule_compact_fixture().replace(
+                "    - E1: Public behavior passes.\n",
+                f"    - {covers_entry}\n",
+            ),
+        )
+        return run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+        )
+
+    def authority_of(result: subprocess.CompletedProcess[str]) -> list:
+        return (
+            json.loads(result.stdout)
+            .get("contract", {})
+            .get("capsule", {})
+            .get("authority", [])
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-covers-annotation-") as raw:
+        repo = Path(raw)
+        result = start_with_covers(repo, "D2 — an annotation", design_with_d2)
+        if result.returncode != 0:
+            report(
+                "covers-annotation-entry: `D2 — an annotation` with a resolvable "
+                f"D2 must pass, got exit {result.returncode}: "
+                f"{(result.stderr or result.stdout).strip()}"
+            )
+            return 1
+        authority = authority_of(result)
+        if not any(
+            item.get("reference") == "D2"
+            and item.get("kind") == "critical-statement"
+            and item.get("text") == "Keep one shared parser."
+            for item in authority
+        ):
+            report(
+                "covers-annotation-entry: `D2 — an annotation` must resolve as "
+                "critical-statement authority carrying the design.md statement "
+                f"text, got: {authority!r}"
+            )
+            return 1
+        if any("an annotation" in str(item.get("text", "")) for item in authority):
+            report(
+                "covers-annotation-entry: the annotation must not become "
+                "authority text; design.md owns the statement."
+            )
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-covers-annotation-missing-") as raw:
+        repo = Path(raw)
+        result = start_with_covers(
+            repo,
+            "D2 — an annotation",
+            "## Decisions\n\nD1 — Unrelated decision. Basis: fixture authority.\n",
+        )
+        problems = json.loads(result.stdout).get("problems", [])
+        message = next(
+            (
+                item.get("message", "")
+                for item in problems
+                if item.get("code") == "unresolved-covers"
+            ),
+            "",
+        )
+        if result.returncode == 0 or not message.startswith(
+            "Missing Covers critical statement: D2."
+        ):
+            report(
+                "covers-annotation-entry: `D2 — an annotation` with no D2 in "
+                "design.md must fail as Missing instead of passing as an "
+                f"unlinked reference, got exit {result.returncode}: {message!r}"
+            )
+            return 1
+
+    for covers_entry in ("E1: Public behavior passes.", "D2-compatible fixture text"):
+        with tempfile.TemporaryDirectory(prefix="keel-covers-annotation-free-") as raw:
+            repo = Path(raw)
+            result = start_with_covers(repo, covers_entry, design_with_d2)
+            if result.returncode != 0:
+                report(
+                    f"covers-annotation-entry: {covers_entry!r} must stay a "
+                    "passing free-text reference, got exit "
+                    f"{result.returncode}: "
+                    f"{(result.stderr or result.stdout).strip()}"
+                )
+                return 1
+            authority = authority_of(result)
+            if not any(
+                item.get("kind") == "legacy-task-reference" for item in authority
+            ) or any(
+                item.get("kind") == "critical-statement" for item in authority
+            ):
+                report(
+                    f"covers-annotation-entry: {covers_entry!r} must remain a "
+                    f"legacy-task-reference, got: {authority!r}"
+                )
+                return 1
+
+    if "covers-annotation-entry" not in {name for name, _ in SCENARIOS}:
+        report(
+            "covers-annotation-entry: the scenario registry does not include it."
+        )
+        return 1
+    report("covers-annotation-entry scenario passed.")
     return 0
 
 
@@ -22988,6 +23234,14 @@ SCENARIOS: tuple = (
     (
         "unparsed-covers-critical-statement",
         validate_unparsed_covers_critical_statement_scenario,
+    ),
+    (
+        "widened-critical-statement-shapes",
+        validate_widened_critical_statement_shapes_scenario,
+    ),
+    (
+        "covers-annotation-entry",
+        validate_covers_annotation_entry_scenario,
     ),
     ("expectation-completion-gates", validate_expectation_completion_gates_scenario),
     ("authoring-continuity", validate_authoring_continuity_scenario),
