@@ -50,7 +50,7 @@ If any of these hold, stop and use the normal manual Keel loop.
 4. Surface every command result and gate outcome in the transcript before any success claim.
 5. Pass the current agent's Review, then `keel gate task-complete`.
 6. The current agent durably checks the task checkbox.
-7. Stop. Continuing to another task requires a new explicit user instruction and a new start fingerprint; there is no hidden scheduler or automatic next-task selection.
+7. Stop. Continuing to another task requires a new explicit user instruction and a new start fingerprint; a standing `continuation` authorization in `keel/config.yaml` is the durable form of that instruction, covering only the next unchecked task of the same change in its approved `tasks.md` order. Each next task still passes `keel gate task-start` with its own recorded fingerprint, and there is still no hidden scheduler or automatic next-task selection — the declaration removes the confirmation, never the selection, the gates, or the evidence.
 
 Resume reconstructs the goal from OpenSpec and Git only. Fingerprint drift, checkout divergence, a completed authorization, or missing authorization hard-stops before any product write; pass `--expected-fingerprint` and `--expected-owner` to assert the recorded authorization.
 

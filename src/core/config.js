@@ -7,7 +7,13 @@ const path = require("path");
 // closed so an entry outside it can be reported by name: a free-form grant
 // cannot tell a typo from a decision, and silently dropping one leaves the
 // author believing they authorized something they did not.
-const STANDING_AUTHORIZATION_ACTIONS = ["commit", "push", "release", "archive"];
+const STANDING_AUTHORIZATION_ACTIONS = [
+  "commit",
+  "push",
+  "release",
+  "archive",
+  "continuation",
+];
 
 // The closed vocabulary of capability tiers a repository may declare for a
 // delegated task. The names describe the capability the work requires, never

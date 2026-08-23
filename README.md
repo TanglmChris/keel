@@ -132,7 +132,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, release, archive
+authorize:          # accepted names: commit, push, release, archive, continuation
   - commit
   - push
 ```
@@ -141,6 +141,16 @@ A task that authors no `Autonomy boundary:` inherits the declaration, and the co
 names `keel/config.yaml` as that entry's source so an inherited authorization is never mistaken
 for one the task decided. A task that authors its own boundary keeps it.
 
+`continuation`, the fifth name, is the between-task one: it covers exactly the boundary between a
+durably complete task and the next unchecked task of the same change, inside a change whose
+`tasks.md` you approved — the stop that re-asks for an approval already given. It removes only that
+confirmation: the next task still starts through `keel gate task-start` with its own recorded
+fingerprint, every gate, evidence requirement, semantic Review, and the write guard run unchanged,
+and a stop with its own trigger — a blocker, fingerprint drift, an out-of-scope need, an unresolved
+question — still stops. It authorizes no repository action and schedules nothing. On an older Keel
+whose vocabulary predates the word, the entry is unrecognized and the whole declaration authorizes
+nothing until corrected — fail-closed, never a silent grant.
+
 Three things the declaration is not:
 
 - **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
@@ -148,7 +158,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The four names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The five names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 

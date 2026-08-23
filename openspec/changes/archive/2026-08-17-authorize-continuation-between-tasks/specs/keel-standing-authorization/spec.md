@@ -1,7 +1,4 @@
-## Purpose
-
-Define how a repository declares standing authorization for named repository actions, how a task inherits or overrides it, what it can never authorize, and how the authorization source is reported.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: A repository declares standing authorization in a closed vocabulary
 
@@ -49,52 +46,7 @@ diagnostic call.
 - **AND THEN** `keel context`'s `status` and `nextAction` are unchanged by the broken declaration,
   exactly as an uncommitted git path is reported without changing selection
 
-### Requirement: A task inherits standing authorization only where it authored none
-
-Keel MUST apply a standing authorization as the default a task did not author. A task that
-declares its own `Autonomy boundary:` MUST keep that boundary unchanged, and a standing
-authorization MUST NOT override, widen, or narrow it.
-
-#### Scenario: A task without an authored boundary inherits the declaration
-- **WHEN** a task declares no `Autonomy boundary:` and the repository authorizes `commit`
-- **THEN** the compiled capsule resolves `commit` as authorized instead of `Default: hard-stop`
-- **AND THEN** actions the repository did not declare still resolve to hard-stop
-
-#### Scenario: An authored boundary wins over the declaration
-- **WHEN** a task declares an explicit `Autonomy boundary:` and the repository declares an
-  `authorize:` block
-- **THEN** the compiled capsule carries the task's authored boundary
-- **AND THEN** the repository declaration does not alter it
-
-#### Scenario: The capsule names where an authorization came from
-- **WHEN** a capsule carries an authorization inherited from the repository declaration
-- **THEN** the capsule and the gate result identify the repository declaration as its source
-- **AND THEN** a reader can distinguish an inherited authorization from a task-authored one
-
-### Requirement: Standing authorization covers the action and never its proof
-
-Keel MUST NOT let a standing authorization weaken, skip, or make conditional any gate, evidence
-requirement, semantic Review, or write guard. A standing authorization MUST authorize only the
-decision to proceed with a named action once its own checks have passed.
-
-#### Scenario: A failing gate still stops a declared action
-- **WHEN** `push` is standing-authorized and the task's completion gate returns `fail` or
-  `needs-review`
-- **THEN** the gate result is unchanged by the declaration
-- **AND THEN** the action does not proceed on the strength of the authorization
-
-#### Scenario: A declaration does not suppress reporting
-- **WHEN** an action proceeds under a standing authorization
-- **THEN** its command evidence, gate result, and Review are recorded exactly as they would be
-  without the declaration
-- **AND THEN** the declaration removes the confirmation, not the record
-
-#### Scenario: A declaration is not a trigger
-- **WHEN** an action is standing-authorized but the workflow has not reached the point where that
-  action occurs
-- **THEN** Keel does not initiate the action
-- **AND THEN** no scheduler, backlog selection, or next-task inference is implied by the
-  authorization
+## ADDED Requirements
 
 ### Requirement: A continuation authorization covers one approved between-task boundary
 

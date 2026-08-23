@@ -16,15 +16,22 @@
 #   fast_check: npm test -- --fast
 #
 # authorize (optional): standing authorization for repository actions. The
-# accepted names are the whole vocabulary — commit, push, release, archive —
-# and an unrecognized entry is reported with the accepted names rather than
-# silently granted or silently dropped, so the declaration authorizes nothing
-# until it is corrected. An absent or empty block authorizes nothing, which is
-# the default and leaves behavior exactly as it was before the block existed.
+# accepted names are the whole vocabulary — commit, push, release, archive,
+# continuation — and an unrecognized entry is reported with the accepted names
+# rather than silently granted or silently dropped, so the declaration
+# authorizes nothing until it is corrected. An absent or empty block authorizes
+# nothing, which is the default and leaves behavior exactly as it was before
+# the block existed.
 #
 # A task that authors no `Autonomy boundary:` inherits what is declared here,
 # and the compiled capsule names this file as that entry's source. A task that
 # authors its own boundary keeps it; the declaration never overrides one.
+#
+# `continuation` is the between-task name: it covers exactly the boundary
+# between a durably complete task and the next unchecked task of the same
+# change, inside a change whose tasks.md the owner approved, and nothing else.
+# The next task still starts through its own gate with its own fingerprint,
+# and no repository action rides along with it.
 #
 # What this does NOT do: it removes the confirmation, never the proof. Every
 # gate, evidence requirement, semantic Review, and the write guard run exactly
