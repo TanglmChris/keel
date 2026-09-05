@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.44.0"
-PROTOCOL_VERSION = "5.44.0"
+PACKAGE_VERSION = "5.45.0"
+PROTOCOL_VERSION = "5.45.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5260,6 +5260,288 @@ def validate_the_spec_names_the_managed_set_scenario() -> int:
             "not refuse."
         )
         return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_an_invalidates_phrase_may_wrap_scenario() -> int:
+    """Issue #108: the quoted phrase had to fit on one line.
+
+    An `## Invalidates` entry carries a quotation, a location, and a closure,
+    and wraps as often as it needs to. The phrase test was
+    `/"[^"\\n]{3,}"/`, so a quotation that ran past the end of a line was
+    reported as `names where to look but not what to look for` — when it named
+    exactly that, and the only repair was to reflow the text.
+
+    The corpus looked clean for the wrong reason: 42 of this repository's 194
+    archived entries span more than one line and none carries a wrapped
+    quotation, because the gate refused every one that did. Five entries in a
+    single session were shortened to fit.
+
+    The bound is the entry, set by the section parser, so a quotation cannot
+    reach past its own entry — asserted below by refusing a second, unquoted
+    entry while the wrapped one is accepted.
+    """
+    label = "an-invalidates-phrase-may-wrap"
+
+    with tempfile.TemporaryDirectory(prefix="keel-wrapped-phrase-") as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+
+        def start(section: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture().replace(
+                    "## Invalidates\n\n- None.\n\n", section
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def problems(payload: dict) -> str:
+            return " ".join(
+                item.get("code", "") + ": " + item.get("message", "")
+                for item in payload.get("problems", [])
+            )
+
+        wrapped = (
+            '## Invalidates\n\n'
+            '- I1: "the wording that is now wrong and runs on\n'
+            '  past the end of this line" — somewhere in the repo.\n'
+            '  Updated by: 1.1\n\n'
+        )
+        payload = start(wrapped)
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: an entry whose quotation wraps was refused. It named "
+                "the wording a reader would search for; what it did not do was "
+                "fit on one line, and reflowing text is not a repair."
+            )
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # The requirement itself is unchanged: an entry with no quotation
+        # anywhere in its body is still refused.
+        unquoted = (
+            '## Invalidates\n\n'
+            '- I1: the wording that is now wrong and runs on\n'
+            '  past the end of this line — somewhere in the repo.\n'
+            '  Updated by: 1.1\n\n'
+        )
+        payload = start(unquoted)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: an entry carrying no quotation at all was accepted. "
+                "Reading the phrase across lines must widen where the quotation "
+                "may sit, not remove the requirement to write one."
+            )
+            return 1
+        if "invalidation-phrase" not in problems(payload):
+            report(
+                f"{label}: the unquoted entry was refused for some other reason, "
+                "so this assertion proves nothing about the phrase check. Got: "
+                + problems(payload)
+            )
+            return 1
+
+        # The bound is the entry. A wrapped quotation in I1 must not satisfy an
+        # unquoted I2 sitting below it.
+        mixed = (
+            '## Invalidates\n\n'
+            '- I1: "the wording that is now wrong and runs on\n'
+            '  past the end of this line" — somewhere in the repo.\n'
+            '  Updated by: 1.1\n'
+            '- I2: some other statement — elsewhere in the repo.\n'
+            '  Updated by: 1.1\n\n'
+        )
+        payload = start(mixed)
+        text = problems(payload)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: an unquoted entry below a wrapped one was accepted. "
+                "The quotation is bounded by its own entry; if it reaches the "
+                "next one, every entry after a quoted one passes for free."
+            )
+            return 1
+        if "I2" not in text:
+            report(
+                f"{label}: the run failed, but not for I2 — so this assertion "
+                "proves nothing about the entry bound. The unquoted entry is "
+                "the one that must be named. Got: " + text
+            )
+            return 1
+        if "I1" in text:
+            report(
+                f"{label}: the wrapped entry was reported alongside the unquoted "
+                "one. It carries its quotation and must not be named."
+            )
+            report(text)
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_root_file_is_a_path_scenario() -> int:
+    """Issue #107: a file at the repository root had no separator to find.
+
+    `declaredPath()` located a path by finding a run of non-whitespace holding
+    a path separator. Nine files sit at this repository's root and every one of
+    them is a legitimate owner, so `Durable owner: AGENTS.md` was refused with
+    `it names neither a check nor a path` — for a path whose file exists. The
+    way past it was `./AGENTS.md`, which is a concession to the extractor
+    rather than a path anyone meant.
+
+    The boundary is what keeps this from becoming worse than the defect: a bare
+    word must stay unrecognized, or `Durable owner: pending` would be reported
+    as a file that does not exist and send the author to create one.
+    """
+    label = "a-root-file-is-a-path"
+
+    with tempfile.TemporaryDirectory(prefix="keel-root-file-") as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+        write_text(repo / "AGENTS.md", "# Agents\n")
+
+        def completion(findings: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: behavior proven through the public CLI.\n",
+                )
+                .replace(
+                    "      - Scope check: pending\n",
+                    "      - Scope check: writes stayed inside Touch.\n",
+                )
+                .replace("      - Findings: pending\n", f"      - Findings: {findings}\n")
+            )
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def messages(payload: dict) -> str:
+            return " ".join(
+                item.get("message", "") for item in payload.get("problems", [])
+            )
+
+        accepted = (
+            ("a root file as a durable owner", "still open. Durable owner: AGENTS.md"),
+            ("a root file as resolution evidence", "repaired. Resolved here: AGENTS.md"),
+            ("the same file spelled with ./", "still open. Durable owner: ./AGENTS.md"),
+            (
+                "a root file ending a sentence",
+                "still open. Durable owner: AGENTS.md.",
+            ),
+        )
+        for description, findings in accepted:
+            payload = completion(findings)
+            if payload.get("status") != "pass":
+                report(
+                    f"{label}: {description} was refused. The file exists at the "
+                    "repository root; requiring a separator refuses a path the "
+                    "author may name and leaves them only a notation to change."
+                )
+                report(json.dumps(payload.get("problems", []), indent=2))
+                return 1
+
+        # Existence still decides.
+        payload = completion("still open. Durable owner: NOT-THERE.md")
+        if payload.get("status") == "pass":
+            report(f"{label}: a root file that does not exist was accepted.")
+            return 1
+
+        # And where the gate names a missing path, it names a root file the
+        # same way. `Findings` reports the generic owner refusal for every
+        # unusable owner and always has; `## Invalidates` is the reader that
+        # names the file, so the naming is asserted there rather than claimed
+        # of a reader that never did it.
+        def invalidates(closure: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture().replace(
+                    "## Invalidates\n\n- None.\n\n",
+                    '## Invalidates\n\n- I1: "the wording that is now wrong" '
+                    f"— somewhere in the repo. {closure}\n\n",
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        payload = invalidates("Durable owner: AGENTS.md")
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: a root file was refused as an invalidation owner. "
+                "One extractor serves every reader, so a form accepted in one "
+                "must be accepted in all."
+            )
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        payload = invalidates("Durable owner: NOT-THERE.md")
+        text = messages(payload)
+        if payload.get("status") == "pass":
+            report(f"{label}: a missing root file closed an invalidation entry.")
+            return 1
+        if "NOT-THERE.md" not in text:
+            report(
+                f"{label}: the refusal for a missing root file did not name it. "
+                "A path is the one form a gate can check, and naming what it "
+                f"looked for is what makes the refusal repairable. Got: {text}"
+            )
+            return 1
+
+        # The boundary: a value with no path shape stays unrecognized, so the
+        # author is not sent to create a file named `pending`.
+        for description, findings in (
+            ("a bare word", "still open. Durable owner: pending"),
+            ("a version string", "still open. Durable owner: 5.44.0"),
+        ):
+            payload = completion(findings)
+            text = messages(payload)
+            if payload.get("status") == "pass":
+                report(f"{label}: {description} was accepted as a durable owner.")
+                return 1
+            if "does not exist" in text:
+                report(
+                    f"{label}: {description} was reported as a file that does "
+                    "not exist. It is not a path, and saying it is missing "
+                    "sends the author to create it. Got: " + text
+                )
+                return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -24361,6 +24643,11 @@ SCENARIOS: tuple = (
     (
         "an-owner-outlives-the-change",
         validate_an_owner_outlives_the_change_scenario,
+    ),
+    ("a-root-file-is-a-path", validate_a_root_file_is_a_path_scenario),
+    (
+        "an-invalidates-phrase-may-wrap",
+        validate_an_invalidates_phrase_may_wrap_scenario,
     ),
     (
         "the-spec-names-the-managed-set",
