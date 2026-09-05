@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.43.0"
-PROTOCOL_VERSION = "5.43.0"
+PACKAGE_VERSION = "5.44.0"
+PROTOCOL_VERSION = "5.44.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5108,6 +5108,162 @@ def validate_authoring_surface_owner_and_tags_scenario() -> int:
             report(f"{label} schema copies diverge: {local} vs {packaged}")
             return 1
 
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_the_spec_names_the_managed_set_scenario() -> int:
+    """Issue #86: the spec's summary named two of the four actions it covers.
+
+    `propose` and `sync` joined the managed set as new requirements appended to
+    the overlay spec, and the `## Purpose` and the requirement that says which
+    actions carry an overlay were never rewritten — so the top of the file
+    disagreed with the requirements below it.
+
+    The Purpose line survived issue #79's sweep for a structural reason:
+    OpenSpec's delta operations are Requirement-scoped, so no change can carry
+    a Purpose edit, and the line is written once when the capability is
+    created. It is therefore the location most likely to drift and the one
+    least likely to be noticed, which is why it is checked by name here.
+
+    Two named locations, not a scan. Three statements in the published specs
+    name a proper subset of the managed set and are correct — the doctor's
+    command-surface label, which excludes the authoring action on purpose;
+    `sync/archive decisions`, which names what the current agent owns; and
+    `authoring/apply/archive/sync`, which spells `propose` as authoring. A
+    check that refused those would cost more than the drift it catches.
+    """
+    label = "the-spec-names-the-managed-set"
+
+    source = (ROOT / "bin" / "keel.js").read_text(encoding="utf-8")
+    declaration = re.search(
+        r"const OPENSPEC_OVERLAY_ACTIONS = \[([^\]]*)\];", source
+    )
+    if declaration is None:
+        report(
+            f"{label}: bin/keel.js declares no OPENSPEC_OVERLAY_ACTIONS, so the "
+            "check has no managed set to compare against. Restating the set "
+            "here would be the same defect one layer out."
+        )
+        return 1
+    managed = re.findall(r'"([a-z]+)"', declaration.group(1))
+    if not managed:
+        report(f"{label}: OPENSPEC_OVERLAY_ACTIONS parsed to an empty set.")
+        return 1
+
+    spec_path = ROOT / "openspec/specs/keel-openspec-surface-overlay/spec.md"
+    REQUIREMENT = "### Requirement: Keel overlays every action in the managed set"
+
+    def locations(text: str) -> tuple[str, str] | None:
+        purpose = re.search(r"^## Purpose\s*\n+(.+?)\n", text, re.M)
+        if purpose is None:
+            return None
+        start = text.find(REQUIREMENT)
+        if start < 0:
+            return None
+        end = text.find("\n### Requirement:", start + len(REQUIREMENT))
+        body = text[start : end if end > 0 else len(text)]
+        return purpose.group(1), body
+
+    # Two distinct failures, kept apart on purpose: a location the check
+    # cannot find is not a location that names the wrong thing, and reporting
+    # the second when the first happened sends the reader to a paragraph with
+    # nothing wrong in it.
+    NOT_FOUND = "__not-found__"
+
+    def missing(text: str) -> list[tuple[str, list[str]]]:
+        found = locations(text)
+        if found is None:
+            return [(NOT_FOUND, list(managed))]
+        purpose, body = found
+        gaps = []
+        for name, region in (("## Purpose", purpose), (REQUIREMENT, body)):
+            absent = [
+                action for action in managed
+                if not re.search(rf"\b{action}\b", region)
+            ]
+            if absent:
+                gaps.append((name, absent))
+        return gaps
+
+    published = spec_path.read_text(encoding="utf-8")
+    gaps = missing(published)
+    if gaps:
+        for name, absent in gaps:
+            if name == NOT_FOUND:
+                report(
+                    f"{label}: keel-openspec-surface-overlay has no `## Purpose` "
+                    f"line or no `{REQUIREMENT}` heading, so this check found "
+                    "nothing to compare against the managed set. Nothing about "
+                    "the action names is being reported here — the location is "
+                    "what is missing."
+                )
+                continue
+            report(
+                f"{label}: the `{name}` of keel-openspec-surface-overlay does "
+                f"not name {', '.join(absent)}, which bin/keel.js manages an "
+                "overlay for. The file's summary and the requirements under it "
+                "disagree, and a reader takes the summary."
+            )
+        return 1
+
+    # The check fails on a drifted copy, and names the location that drifted.
+    drifted = published.replace(
+        REQUIREMENT, "### Requirement: Keel overlays apply and archive surfaces", 1
+    )
+    if missing(drifted) == []:
+        report(
+            f"{label}: a copy whose requirement heading is gone was reported "
+            "clean. A check that cannot find what it looks for must fail, not "
+            "pass — a vacuous pass is how the drift got here."
+        )
+        return 1
+
+    for action in managed:
+        reduced = published
+        found = locations(published)
+        assert found is not None
+        purpose_line = found[0]
+        reduced = reduced.replace(
+            purpose_line, re.sub(rf"\b{action}\b[,/ ]*", "", purpose_line), 1
+        )
+        gaps = missing(reduced)
+        if not any(name == "## Purpose" and action in absent for name, absent in gaps):
+            report(
+                f"{label}: the Purpose line with `{action}` removed was not "
+                "reported. Each managed action is checked on its own, so an "
+                "action that joins the set later is not covered by the others."
+            )
+            return 1
+
+    # The three subset spellings that are correct stay correct: the check is
+    # two named locations in one file, not a scan for action words.
+    diagnostics = (
+        ROOT / "openspec/specs/keel-target-surface-diagnostics/spec.md"
+    ).read_text(encoding="utf-8")
+    for correct in (
+        "apply/archive/sync overlay markers",
+        "it names sync alongside apply and archive",
+    ):
+        if correct not in diagnostics:
+            report(
+                f"{label}: the diagnostics spec no longer carries the correct "
+                f"subset spelling `{correct}`. This scenario asserts the check "
+                "leaves it alone; if the wording moved, the assertion has to "
+                "move with it rather than be dropped."
+            )
+            return 1
+    if "sync/archive decisions" not in published:
+        report(
+            f"{label}: the overlay spec no longer carries `sync/archive "
+            "decisions`, the third correct subset spelling this check must "
+            "not refuse."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
     report(f"{label} scenario passed.")
     return 0
 
@@ -24205,6 +24361,10 @@ SCENARIOS: tuple = (
     (
         "an-owner-outlives-the-change",
         validate_an_owner_outlives_the_change_scenario,
+    ),
+    (
+        "the-spec-names-the-managed-set",
+        validate_the_spec_names_the_managed_set_scenario,
     ),
     ("a-context-word-is-a-word", validate_a_context_word_is_a_word_scenario),
     (
