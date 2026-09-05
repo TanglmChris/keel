@@ -417,9 +417,23 @@ const DURABLE_OWNER_FORMS =
 // swallows it and the gate looks for a file that cannot exist.
 const DECLARED_PATH_TRAILING = /[.,;:!?)\]}"'\u2019\u201d\u3002\uff0c\u3001\uff1b\uff1a\uff01\uff1f\uff09\u3011\u300b\u300d\u300f]+$/;
 
-// A declared path is a run of non-whitespace holding a separator. What ends a
-// path is whitespace; what a path is *made of* is the filesystem's business,
-// and answering the first question with the second is what refused
+// A file at the repository root carries no separator, and nine of them sit at
+// this repository's root — `AGENTS.md`, `README.md`, `package.json` among them
+// — every one a legitimate owner. Requiring a separator refused them with "it
+// names neither a check nor a path", for a path whose file exists, and left
+// the author only `./AGENTS.md`: a concession to this function rather than a
+// path anyone meant (issue #107).
+//
+// The shape is a trailing extension beginning with a letter. That is what
+// keeps a bare word unrecognized — `Durable owner: pending` reported as a
+// missing file would send the author to create one — and what keeps a version
+// string out, since `5.44.0` would otherwise read as `44` with extension `0`,
+// and authors write versions in prose beside an owner.
+const ROOT_FILE_NAME = /^[^\s`]+\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+
+// A declared path is a run of non-whitespace. What ends a path is whitespace;
+// what a path is *made of* is the filesystem's business, and answering the
+// first question with the second is what refused
 // `notes/note-006-转岗最难的不是流程/note.md` by reporting that
 // `notes/note-006-` does not exist — a path nobody wrote (issue #60). It is the
 // same class as #40 on the worktree-reading side, which survived because that
@@ -435,8 +449,15 @@ function declaredPath(value) {
   const quoted = text.match(/`([^`\n]*\/[^`\n]*)`/);
   if (quoted) return quoted[1].trim() || null;
   const bare = text.match(/[^\s`]+\/[^\s`]+/);
-  if (!bare) return null;
-  return bare[0].replace(DECLARED_PATH_TRAILING, "") || null;
+  if (bare) return bare[0].replace(DECLARED_PATH_TRAILING, "") || null;
+  // The separator form is tried first and is unchanged, so nothing that
+  // resolves today resolves differently. The trim runs before the shape is
+  // judged, so a root file ending a sentence is still a root file.
+  for (const token of text.split(/\s+/)) {
+    const trimmed = token.replace(DECLARED_PATH_TRAILING, "");
+    if (trimmed && ROOT_FILE_NAME.test(trimmed)) return trimmed;
+  }
+  return null;
 }
 
 // A path inside the selected change's own directory exists now and cannot
@@ -1225,7 +1246,15 @@ function invalidationProblems(repo, content, tasks, change) {
   const problems = [];
   for (const entry of entries) {
     const [, id, body] = entry;
-    if (!/"[^"\n]{3,}"/.test(body)) {
+    // The quotation is read across the entry, not one line of it. An entry
+    // carries a quotation, a location, and a closure, and wraps as often as it
+    // needs to — 42 of this repository's 194 archived entries span more than
+    // one line. Requiring the quotation to fit on one refused entries that had
+    // named exactly what was asked for, and offered no repair but reflowing
+    // the text (issue #108). The bound is the entry: `entries` above splits on
+    // the next `I<n>`, so a quotation cannot reach past its own. `Findings` in
+    // this same file is already read as wrapping.
+    if (!/"[^"]{3,}"/.test(body)) {
       problems.push(
         problem(
           "invalidation-phrase",

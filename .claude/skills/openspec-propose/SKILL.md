@@ -113,7 +113,7 @@ After completing all artifacts, summarize:
 - If a change with that name already exists, ask if user wants to continue it or create a new one
 - Verify each artifact file exists after writing before proceeding to next
 
-<!-- keel:openspec-surface-overlay version=5.44.0 -->
+<!-- keel:openspec-surface-overlay version=5.45.0 -->
 ## Keel Authoring Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
