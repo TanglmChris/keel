@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.45.0"
-PROTOCOL_VERSION = "5.45.0"
+PACKAGE_VERSION = "5.46.0"
+PROTOCOL_VERSION = "5.46.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5052,7 +5052,10 @@ def validate_authoring_surface_owner_and_tags_scenario() -> int:
             return 1
         created = run_openspec(repo, "new", "change", "surface-probe")
         if created is None:
-            report(f"{label} skipped: the openspec CLI is not on PATH.")
+            report(
+                f"{label} skipped: the openspec CLI could not be found. "
+                "Searched " + ", then ".join(OPENSPEC_SEARCH_ORDER) + "."
+            )
             return 3
         if created.returncode != 0:
             report(f"{label} could not scaffold a change to read the instruction.")
@@ -5391,6 +5394,184 @@ def validate_an_invalidates_phrase_may_wrap_scenario() -> int:
             )
             report(text)
             return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_the_tarball_is_the_repository_scenario() -> int:
+    """Issue #110: what ships depended on the packer's working tree.
+
+    `files` names `scripts/`, and declaring a `files` array means `.gitignore`
+    stops filtering inside it — while `__pycache__` is not on npm's default
+    exclusion list. Packing one commit twice: 41 files on a clean checkout, 43
+    after anyone has run the Python in `scripts/`.
+
+    The assertion is that every packed file is tracked by Git. That states the
+    requirement directly and cannot be satisfied by a machine's leftovers; a
+    recomputed list of expected files would have to reimplement npm's inclusion
+    rules and would drift from them.
+    """
+    label = "the-tarball-is-the-repository"
+
+    npm = shutil.which("npm")
+    if npm is None:
+        report(f"{label} skipped: npm is not on PATH, and it is what packs.")
+        return 3
+
+    # Reproduce the state the issue reports before asserting anything, so the
+    # check runs against a tree that has the residue rather than one that
+    # happens not to.
+    residue = ROOT / "scripts" / "__pycache__" / "keel-pack-probe.pyc"
+    created_dir = not residue.parent.exists()
+    residue.parent.mkdir(parents=True, exist_ok=True)
+    residue.write_bytes(b"probe\n")
+    try:
+        packed = subprocess.run(
+            [npm, "pack", "--dry-run", "--json"],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        if packed.returncode != 0:
+            report(f"{label}: npm pack --dry-run failed.")
+            report((packed.stderr or packed.stdout).strip())
+            return 1
+        try:
+            files = [item["path"] for item in json.loads(packed.stdout)[0]["files"]]
+        except (ValueError, KeyError, IndexError):
+            report(f"{label}: could not read the file list from npm pack --json.")
+            report((packed.stdout or "").strip()[:400])
+            return 1
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        )
+        if tracked.returncode != 0:
+            report(f"{label}: git ls-files failed, so tracked state is unknown.")
+            return 1
+        known = {
+            name for name in tracked.stdout.decode("utf-8").split("\0") if name
+        }
+
+        untracked = sorted(path for path in files if path not in known)
+        if untracked:
+            report(
+                f"{label}: {len(untracked)} packed file(s) are not tracked by "
+                "Git, so what ships depends on the machine that packs it "
+                "rather than on the repository:"
+            )
+            for path in untracked:
+                report(f"  {path}")
+            return 1
+        if not files:
+            report(f"{label}: npm pack reported no files, so nothing was checked.")
+            return 1
+    finally:
+        residue.unlink(missing_ok=True)
+        if created_dir:
+            try:
+                residue.parent.rmdir()
+            except OSError:
+                pass
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed: {len(files)} packed files, all tracked.")
+    return 0
+
+
+def validate_a_declared_dependency_is_resolved_scenario() -> int:
+    """Issue #105: the suite looked for its own dependency only on PATH.
+
+    `@fission-ai/openspec` is declared in `package.json` and lands at
+    `node_modules/.bin/openspec`. npm scripts see that directory; a Python
+    subprocess started by `node scripts/run_python.js` does not. So on a
+    checkout that had only run `npm install`, `--all` reported
+    `validation --all failed for: compact-task-authoring` while the schema it
+    was said to be unable to resolve resolved perfectly.
+
+    The second half is that scenario's own condition: an unresolvable CLI and a
+    CLI that ran and refused shared one message, so the reader was sent to a
+    subject with nothing wrong with it.
+    """
+    label = "a-declared-dependency-is-resolved"
+
+    # `no openspec on PATH`, and nothing else removed. Emptying PATH outright
+    # would also remove `node`, and the openspec shim needs it — the scenario
+    # would then be asserting that a shell without an interpreter fails.
+    without = dict(os.environ)
+    without["PATH"] = os.pathsep.join(
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and not (Path(entry) / "openspec").exists()
+    )
+    if shutil.which("openspec", path=without["PATH"]) is not None:
+        report(
+            f"{label}: could not build a PATH without openspec on it, so the "
+            "reproduction cannot be set up."
+        )
+        return 1
+    resolved = run_openspec(ROOT, "--version", env=without)
+    if resolved is None:
+        report(
+            f"{label}: with no `openspec` on PATH the runner resolved nothing, "
+            "but this package declares it as a dependency and installs it at "
+            "node_modules/.bin. A tool the repository ships is not a tool the "
+            "host has to provide."
+        )
+        return 1
+    if resolved.returncode != 0 or not re.search(r"\d+\.\d+\.\d+", resolved.stdout):
+        report(
+            f"{label}: the resolved openspec did not report a version. "
+            f"exit={resolved.returncode} out={(resolved.stdout or '').strip()!r}"
+        )
+        return 1
+
+    # And it is the declared one, not whatever a host happens to carry.
+    declared = ROOT / "node_modules" / ".bin" / "openspec"
+    if not declared.exists():
+        report(
+            f"{label}: {declared} is absent, so this scenario cannot tell a "
+            "resolved dependency from a lucky PATH entry. Run `npm install`."
+        )
+        return 3
+
+    # The two failures carry their own messages. Asserted on the emitted text
+    # of the scenario that had them fused, not on the source.
+    fused = (ROOT / "scripts" / "validate_plugin.py").read_text(encoding="utf-8")
+    marker = 'label = "compact-task-authoring"'
+    start = fused.find(marker)
+    if start < 0:
+        report(f"{label}: compact-task-authoring is gone, so its branch cannot be read.")
+        return 1
+    body = fused[start : start + 3000]
+    for needle, why in (
+        ("could not be found", "the unresolvable branch must say the tool was not found"),
+        ("searched", "the unresolvable branch must name where it looked"),
+        ("return 3", "an unresolvable tool reports the skip contract, not a failure"),
+    ):
+        if needle not in body:
+            report(f"{label}: {why}; `{needle}` is absent from its branch.")
+            return 1
+    if re.search(r"if which is None or which\.returncode", body):
+        report(
+            f"{label}: compact-task-authoring still guards two distinct "
+            "failures behind one condition. A tool that was never found and a "
+            "tool that ran and refused are different facts, and reporting the "
+            "first message when the second happened names the wrong cause."
+        )
+        return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -9637,7 +9818,10 @@ def validate_spec_template_validates_scenario() -> int:
         )
         return 1
     if run_openspec(ROOT, "--version") is None:
-        report("spec-template-validates skipped: the openspec CLI is not on PATH.")
+        report(
+            "spec-template-validates skipped: the openspec CLI could not be "
+            "found. Searched " + ", then ".join(OPENSPEC_SEARCH_ORDER) + "."
+        )
         return 0
 
     filled = fill_template_slots(shipped.read_text(encoding="utf-8"))
@@ -13591,13 +13775,42 @@ SUPPORTED_VERIFICATION_STRATEGIES = (
 )
 
 
-def run_openspec(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
-    executable = shutil.which("openspec")
+# `@fission-ai/openspec` is this package's own declared dependency, and
+# `npm install` puts an executable at `node_modules/.bin/openspec`. npm scripts
+# see that directory on PATH; a Python subprocess started by
+# `node scripts/run_python.js` does not — so a checkout that had installed
+# everything it declares reported `validation --all failed for:
+# compact-task-authoring` while the schema it could supposedly not resolve
+# resolved perfectly (issue #105).
+#
+# The declared dependency wins over PATH. It is the version this repository is
+# tested against; a global install that happens to be on PATH is a different
+# version answering for it.
+OPENSPEC_SEARCH_ORDER = (
+    "the package's own node_modules/.bin",
+    "PATH",
+)
+
+
+def resolve_openspec(env: dict[str, str] | None = None) -> str | None:
+    local = ROOT / "node_modules" / ".bin" / "openspec"
+    if local.is_file():
+        return str(local)
+    return shutil.which("openspec", path=(env or os.environ).get("PATH"))
+
+
+def run_openspec(
+    cwd: Path,
+    *args: str,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str] | None:
+    executable = resolve_openspec(env)
     if executable is None:
         return None
     return subprocess.run(
         [executable, *args],
         cwd=cwd,
+        env=env,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -15094,10 +15307,22 @@ def validate_compact_task_authoring_scenario() -> int:
     local_root = ROOT / "openspec" / "schemas" / OPENSPEC_SCHEMA_NAME
 
     which = run_openspec(ROOT, "schema", "which", OPENSPEC_SCHEMA_NAME, "--json")
-    if which is None or which.returncode != 0:
-        report("compact-task-authoring could not resolve the schema through OpenSpec.")
-        if which is not None:
-            report((which.stderr or which.stdout).strip())
+    # Two distinct facts, kept apart. A CLI that was never found says nothing
+    # about the schema, and reporting the schema as unresolvable sends the
+    # reader to a subject with nothing wrong with it (issue #105).
+    if which is None:
+        report(
+            "compact-task-authoring skipped: the openspec CLI could not be "
+            "found. Searched " + ", then ".join(OPENSPEC_SEARCH_ORDER)
+            + ". Run `npm install` to provide the declared dependency."
+        )
+        return 3
+    if which.returncode != 0:
+        report(
+            "compact-task-authoring could not resolve the schema through "
+            "OpenSpec. The CLI ran and refused:"
+        )
+        report((which.stderr or which.stdout).strip())
         return 1
     which_payload = json.loads(which.stdout[which.stdout.index("{"):])
     resolved = Path(which_payload.get("path", ""))
@@ -24645,6 +24870,14 @@ SCENARIOS: tuple = (
         validate_an_owner_outlives_the_change_scenario,
     ),
     ("a-root-file-is-a-path", validate_a_root_file_is_a_path_scenario),
+    (
+        "a-declared-dependency-is-resolved",
+        validate_a_declared_dependency_is_resolved_scenario,
+    ),
+    (
+        "the-tarball-is-the-repository",
+        validate_the_tarball_is_the_repository_scenario,
+    ),
     (
         "an-invalidates-phrase-may-wrap",
         validate_an_invalidates_phrase_may_wrap_scenario,
