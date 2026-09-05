@@ -112,7 +112,7 @@ TASKS_COMMIT_STATUS_PATTERNS = (
         "remove dirty/uncommitted state from tasks.md; keep durable work state in OpenSpec and use HANDOFF only as an explicit pointer override",
     ),
     (
-        re.compile(r"(?:未提交|待提交|已提交|尚未提交|未合入|待合入|已合入|合入\s*(?:master|main))"),
+        re.compile(r"(?:未合入|待合入|已合入|合入\s*(?:master|main))"),
         "remove commit or merge state from tasks.md; git log is the source of truth",
     ),
     (
@@ -120,6 +120,28 @@ TASKS_COMMIT_STATUS_PATTERNS = (
         "remove branch merge state from tasks.md; git log is the source of truth",
     ),
 )
+# 合入 names the git act and has no other reading, so it is refused on its own
+# above. 提交 is an ordinary transitive verb — 提交资料, 提交审核, 提交申请 — and
+# matching it bare refused an Evidence line about a third-party review queue
+# while accepting the same sentence in English (#103). A check whose verdict
+# depends on which language the author wrote in is not checking what it claims
+# to, so this family is refused only where the line says the subject is git.
+TASKS_SUBMISSION_STATE_RE = re.compile(r"(?:未提交|待提交|已提交|尚未提交)")
+# The words that name git or a git object. Deliberately not `_HASH_CONTEXT_WORD`:
+# that list holds 提交 and 合入 themselves, because its job is to let a state word
+# supply context to a hash-shaped token, and reusing it here would let 已提交
+# supply its own context and change nothing. The ASCII words carry boundaries for
+# the reason #65 established; the Chinese ones cannot and do not.
+TASKS_GIT_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:git|commits?|committed|committing|master|main|HEAD|branch(?:es)?"
+    r"|PR|merges?|merged)\b"
+    r"|分支|仓库|代码库|代码|合入|工作区|暂存"
+)
+TASKS_SUBMISSION_MESSAGE = (
+    "remove commit or merge state from tasks.md; git log is the source of truth"
+)
+
+
 # A commit identifier is hexadecimal, and `a`-`f` are the only reason those
 # letters appear in one. A run of decimal digits alone is a phone number, a
 # timestamp, an order number, or a port — evidence prose, not state git owns.
@@ -137,8 +159,10 @@ _HASH_SHAPED_TOKEN = r"\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b"
 # the words an author writes about the act this rule exists to catch, and the
 # stricter list that drops `committed` and `hashes` would cost real refusals.
 # The Chinese words carry no boundary because none is definable between two
-# word characters — `\b提交\b` matches neither `已提交` nor `未提交`, which are
-# exactly what the wording rule is for.
+# word characters — `\b提交\b` matches neither `已提交` nor `未提交`. What that
+# buys is this rule: a state word beside a hash-shaped token still supplies the
+# context that makes the token an identifier. The wording rule above no longer
+# rests on it, because 提交 needs a git word of its own (#103).
 _HASH_CONTEXT_WORD = (
     r"(?:\b(?:commits?|committed|committing|master|main|HEAD|hash(?:es)?)\b"
     r"|提交|合入|哈希)"
@@ -704,6 +728,37 @@ def covers_field_lines(content: str) -> set[int]:
     return lines
 
 
+# What an author quotes is content they cite, not a claim they make. Evidence
+# prose quotes the command that ran, the output it printed, the branch base it
+# ran against, and the name of the requirement under change — and every one of
+# those carries exactly the words these rules refuse. `withoutInlineCode()` in
+# `src/core/task-contract.js` settled this shape for the field reader; the two
+# reports that reached this reader (#65 items 2 and 4) are the same shape
+# arriving late.
+#
+# The ASCII single quote is deliberately absent. It is an apostrophe far more
+# often than a quotation mark, and a span opened by `doesn't` would silence the
+# remainder of the line — a rule that stops running without saying so, which is
+# the failure no fixture catches by accident.
+QUOTED_SPAN_RE = re.compile(
+    r"`[^`\n]*`"
+    r"|\"[^\"\n]*\""
+    r"|\u201c[^\u201d\n]*\u201d"
+    r"|\u300c[^\u300d\n]*\u300d"
+    r"|\u300a[^\u300b\n]*\u300b"
+)
+FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+
+
+def without_quoted_spans(line: str) -> str:
+    """Blank out the quoted spans of a line, leaving its length reading intact.
+
+    The replacement is a space rather than nothing so two tokens either side of
+    a span cannot be joined into a third word that neither of them was.
+    """
+    return QUOTED_SPAN_RE.sub(" ", line)
+
+
 def check_tasks_semantics(repo: Path) -> list[str]:
     changes_root = repo / OPENSPEC_ROOT / "changes"
     if not changes_root.is_dir():
@@ -725,12 +780,27 @@ def check_tasks_semantics(repo: Path) -> list[str]:
                 errors.append(f"{relative}:{line}: {message}")
 
         cited = covers_field_lines(content)
+        fenced = False
         for line_number, line in enumerate(content.splitlines(), start=1):
-            if is_tasks_rule_line(line) or line_number in cited:
+            # A fenced block is one long quoted span, and its own delimiter
+            # lines carry no prose. Tracking the state here rather than
+            # pre-stripping the file keeps every reported line number the
+            # line number the author sees.
+            if FENCE_RE.match(line):
+                fenced = not fenced
                 continue
+            if fenced or is_tasks_rule_line(line) or line_number in cited:
+                continue
+            line = without_quoted_spans(line)
             for pattern, message in TASKS_COMMIT_STATUS_PATTERNS:
                 if pattern.search(line):
                     errors.append(f"{relative}:{line_number}: {message}")
+            if TASKS_SUBMISSION_STATE_RE.search(line) and TASKS_GIT_CONTEXT_RE.search(
+                line
+            ):
+                errors.append(
+                    f"{relative}:{line_number}: {TASKS_SUBMISSION_MESSAGE}"
+                )
             if TASKS_CONTEXTUAL_HASH_RE.search(line):
                 errors.append(
                     f"{relative}:{line_number}: remove contextual commit hash from tasks.md; git log is the source of truth"
