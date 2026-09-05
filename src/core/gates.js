@@ -244,7 +244,7 @@ function taskStart(repo, options) {
   const compiled = compileTaskContract(repo, selection.change, task);
   const problems = [
     ...compiled.diagnostics,
-    ...invalidationProblems(repo, selection.content, selection.tasks),
+    ...invalidationProblems(repo, selection.content, selection.tasks, selection.change),
   ];
   // Recording the current fingerprint is idempotent: --record replaces the
   // selected task's Contract anchor whatever it holds, so reauthorizing a task
@@ -394,11 +394,21 @@ const TRACKER_REFERENCE = /\bhttps?:\/\/\S/i;
 
 // The owner forms, stated once so every refusal that lists them agrees with
 // every other and with what the checks below actually accept.
+//
+// What each form is worth is part of the sentence, because a list of accepted
+// spellings reads as a list of verified guarantees. A path is checked for
+// existence at the moment it is cited and never again; a tracker reference is
+// accepted on its shape, because a gate that fetched one would stop being
+// local and offline, which is the property its verdict rests on. Leaving that
+// unsaid is how an author comes to believe a check ran that did not (#100).
 const DURABLE_OWNER_FORMS =
   "an absolute `https://…` tracker reference, or any repo-relative path that "
-  + "exists — `keel/archive/…`, an `openspec/changes/…` artifact, or the "
-  + "repository's own ledger; `keel/HANDOFF.md` is a pointer override rather "
-  + "than an owner";
+  + "exists and outlives this change — an archived `openspec/changes/archive/…` "
+  + "artifact, `keel/archive/…`, or the repository's own ledger; "
+  + "`keel/HANDOFF.md` is a pointer override rather than an owner. A path is "
+  + "checked for existence when it is cited and is not re-checked afterwards, "
+  + "and a tracker reference is accepted on its shape because a gate runs "
+  + "offline and never fetches one";
 
 // Trailing punctuation a declared path can abut in prose. ASCII sentence marks
 // and their CJK counterparts both belong here: once the extractor stops
@@ -429,18 +439,53 @@ function declaredPath(value) {
   return bare[0].replace(DECLARED_PATH_TRAILING, "") || null;
 }
 
+// A path inside the selected change's own directory exists now and cannot
+// exist later: archiving moves `openspec/changes/<name>/` under
+// `openspec/changes/archive/`, so the one guarantee the gate offers expires in
+// the next step of the workflow that accepted it. Measured in this repository,
+// 10 declarations name such a path and all 10 are dead; the field report
+// measured 35 of 36 (issue #100). Existence is necessary and not sufficient —
+// the same line `keel/HANDOFF.md` already sits on.
+//
+// The rule is the directory, not the file: every file under it moves together,
+// and naming `design.md` would refuse one spelling of one instance. And it is
+// *this* change's directory, not change directories in general — the protocol
+// names a new OpenSpec change as a legitimate owner of deferred work, and no
+// measured pointer has that shape.
+function insideOwnChangeDirectory(candidate, change) {
+  if (!change || !candidate) return false;
+  const prefix = `openspec/changes/${change}/`;
+  return String(candidate).replace(/^\.\//, "").startsWith(prefix);
+}
+
 // Classify a declared `Durable owner:` value. A gate runs without network, so a
 // URL is accepted on shape alone; a path is the one form it can actually check,
-// and checking it is stricter than the prefix whitelist this replaced.
-function durableOwnerVerdict(repo, value) {
+// and checking it is stricter than the prefix whitelist this replaced — for as
+// long as the path outlives the change, which `insideOwnChangeDirectory` is
+// there to decide.
+function durableOwnerVerdict(repo, value, change) {
   const owner = String(value || "").trim();
   if (!owner) return { ok: false, reason: "unrecognized" };
   if (/keel\/HANDOFF\.md/i.test(owner)) return { ok: false, reason: "handoff" };
   if (TRACKER_REFERENCE.test(owner)) return { ok: true };
   const candidate = declaredPath(owner);
   if (!candidate) return { ok: false, reason: "unrecognized" };
+  if (insideOwnChangeDirectory(candidate, change)) {
+    return { ok: false, reason: "transient", path: candidate };
+  }
   if (fs.existsSync(path.join(repo, candidate))) return { ok: true };
   return { ok: false, reason: "missing", path: candidate };
+}
+
+// The one sentence every transient refusal makes, so the three consumers say
+// it the same way. It names the cause (the directory moves) rather than the
+// symptom, because the author cannot repair a spelling problem they do not
+// have.
+function transientOwnerMessage(candidate) {
+  return `\`${candidate}\` is inside this change's own directory, which moves `
+    + "to `openspec/changes/archive/` when the change is archived — the file "
+    + "exists now and the pointer is guaranteed to break. Name something that "
+    + `outlives the change: ${DURABLE_OWNER_FORMS}.`;
 }
 
 // A finding has three dispositions and the gate recognized two. One found and
@@ -469,7 +514,7 @@ const RESOLVED_HERE = /\bresolved here\s*:[ \t]*(\S*)/gi;
 // it or the artifact that shows it. A bare marker is refused because a
 // disposition that asserts its own conclusion would be a way out of the other
 // two, and the third state would decay into the easiest exit.
-function resolutionEvidenceVerdict(repo, value, commands) {
+function resolutionEvidenceVerdict(repo, value, commands, change) {
   const evidence = String(value || "").trim();
   if (!evidence) return { ok: false, reason: "empty" };
   // The tracker form is tested before the path form: a URL contains something
@@ -484,6 +529,12 @@ function resolutionEvidenceVerdict(repo, value, commands) {
   }
   const candidate = declaredPath(evidence);
   if (!candidate) return { ok: false, reason: "unrecognized" };
+  // Resolution evidence is a file like any other and moves with the directory
+  // holding it, so it earns the same verdict rather than a second answer to
+  // the same question.
+  if (insideOwnChangeDirectory(candidate, change)) {
+    return { ok: false, reason: "transient", path: candidate };
+  }
   if (fs.existsSync(path.join(repo, candidate))) return { ok: true };
   return { ok: false, reason: "missing", path: candidate };
 }
@@ -504,13 +555,16 @@ function resolutionEvidenceMessage(verdict) {
   if (verdict.reason === "unknown-check") {
     return `${lead}${verdict.label} is not a check this task declares.${tail}`;
   }
+  if (verdict.reason === "transient") {
+    return `${lead}${transientOwnerMessage(verdict.path)}${tail}`;
+  }
   if (verdict.reason === "missing") {
     return `${lead}\`${verdict.path}\` does not exist.${tail}`;
   }
   return `${lead}it names neither a check nor a path.${tail}`;
 }
 
-function findingOwnerIsDurable(repo, findings) {
+function findingOwnerIsDurable(repo, findings, change) {
   if (/keel\/HANDOFF\.md/i.test(findings)) return false;
   if (/\b(?:explicit\s+)?discard (?:reason|rationale)\s*:/i.test(findings)) {
     return true;
@@ -520,11 +574,17 @@ function findingOwnerIsDurable(repo, findings) {
   // prose, and a finding that merely mentions the source file it concerns has
   // not thereby given that finding an owner.
   const declared = findings.match(/Durable owner:\s*(\S[^\n]*)/i);
-  if (declared) return durableOwnerVerdict(repo, declared[1]).ok;
+  if (declared) return durableOwnerVerdict(repo, declared[1], change).ok;
   const artifact = findings.match(
     /\b(openspec\/changes\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:proposal|design|tasks)\.md)(?:#\d+(?:\.\d+)*)?/i
   );
-  if (artifact && fs.existsSync(path.join(repo, artifact[1]))) return true;
+  if (
+    artifact
+    && !insideOwnChangeDirectory(artifact[1], change)
+    && fs.existsSync(path.join(repo, artifact[1]))
+  ) {
+    return true;
+  }
   // Same extractor, scoped to the archive prefix: the segment after
   // `keel/archive/` is a path like any other and was equally ASCII-bound.
   const archive = findings.match(/keel\/archive\/[^\s`]*/i);
@@ -741,7 +801,7 @@ function attributeChanged(repo, task, changedList, contract, change, tasks) {
   };
 }
 
-function completionChecks(repo, task, contract = null, changeVerify = null) {
+function completionChecks(repo, task, contract = null, changeVerify = null, change = null) {
   const problems = [];
   const commands = contract
     ? contract.capsule.verification.commands.map((item) => item.label)
@@ -900,14 +960,14 @@ function completionChecks(repo, task, contract = null, changeVerify = null) {
     const resolved = [...reviewFields.Findings.matchAll(RESOLVED_HERE)];
     if (resolved.length > 0) {
       for (const claim of resolved) {
-        const verdict = resolutionEvidenceVerdict(repo, claim[1], commands);
+        const verdict = resolutionEvidenceVerdict(repo, claim[1], commands, change);
         if (verdict.ok) continue;
         problems.push(
           problem("finding-resolution-evidence", resolutionEvidenceMessage(verdict))
         );
         break;
       }
-    } else if (!findingOwnerIsDurable(repo, reviewFields.Findings)) {
+    } else if (!findingOwnerIsDurable(repo, reviewFields.Findings, change)) {
       problems.push(
         problem(
           "finding-owner",
@@ -950,7 +1010,13 @@ function taskComplete(repo, options) {
   const contract = compileTaskContract(repo, selection.change, task);
   const usableContract = contract.diagnostics.length === 0 ? contract : null;
   const changeVerify = changeVerifyChecks(selection.content, selection.tasks);
-  const checks = completionChecks(repo, task, usableContract, changeVerify);
+  const checks = completionChecks(
+    repo,
+    task,
+    usableContract,
+    changeVerify,
+    selection.change
+  );
   checks.problems.push(...contract.diagnostics);
   const missingAnchor = missingAnchorProblem(selection, task);
   if (missingAnchor) {
@@ -1125,7 +1191,7 @@ function changeVerifyProblems(content, tasks) {
 // the author was not already holding in mind, so a list of remembered files
 // reproduces the failure; a searchable phrase is what turns the declaration
 // into a grep. What the phrase says is the agent's judgment, not the gate's.
-function invalidationProblems(repo, content, tasks) {
+function invalidationProblems(repo, content, tasks, change) {
   const heading = content.search(/^## Invalidates\s*$/m);
   if (heading < 0) {
     return [
@@ -1173,7 +1239,7 @@ function invalidationProblems(repo, content, tasks) {
     const updated = body.match(/Updated by:\s*([0-9.,\s-]+)/i);
     const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
     const verdict = declaredOwner
-      ? durableOwnerVerdict(repo, declaredOwner[1])
+      ? durableOwnerVerdict(repo, declaredOwner[1], change)
       : { ok: false, reason: "absent" };
     const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
     if (!updated && !verdict.ok && !discarded) {
@@ -1183,6 +1249,13 @@ function invalidationProblems(repo, content, tasks) {
             "invalidation-owner-missing",
             `${id} names \`${verdict.path}\` as its durable owner, but no such `
               + "file exists in this repository."
+          )
+        );
+      } else if (verdict.reason === "transient") {
+        problems.push(
+          problem(
+            "invalidation-owner-transient",
+            `${id} names ${transientOwnerMessage(verdict.path)}`
           )
         );
       } else if (verdict.reason === "handoff") {
@@ -1227,7 +1300,7 @@ function invalidationProblems(repo, content, tasks) {
   return problems;
 }
 
-function expectationProblems(repo, content, tasks) {
+function expectationProblems(repo, content, tasks, change) {
   const heading = content.search(/^## Expectation Coverage\s*$/m);
   if (heading < 0) {
     return [
@@ -1263,7 +1336,7 @@ function expectationProblems(repo, content, tasks) {
     const covered = body.match(/Covered by:\s*([0-9.,\s-]+)/i);
     const declaredOwner = body.match(/Durable owner:\s*(\S[^\n]*)/i);
     const verdict = declaredOwner
-      ? durableOwnerVerdict(repo, declaredOwner[1])
+      ? durableOwnerVerdict(repo, declaredOwner[1], change)
       : { ok: false, reason: "absent" };
     const discarded = /Discard(?:ed)? (?:reason|rationale):\s*\S/i.test(body);
     if (!covered && !verdict.ok && !discarded) {
@@ -1273,6 +1346,13 @@ function expectationProblems(repo, content, tasks) {
             "expectation-owner-missing",
             `${id} names \`${verdict.path}\` as its durable owner, but no such `
               + "file exists in this repository."
+          )
+        );
+      } else if (verdict.reason === "transient") {
+        problems.push(
+          problem(
+            "expectation-owner-transient",
+            `${id} names ${transientOwnerMessage(verdict.path)}`
           )
         );
       } else {
@@ -1378,7 +1458,8 @@ function changeClose(repo, options) {
       repo,
       task,
       contract.diagnostics.length === 0 ? contract : null,
-      changeVerify
+      changeVerify,
+      selection.change
     );
     problems.push(
       ...checks.problems.map((item) =>
@@ -1391,7 +1472,9 @@ function changeClose(repo, options) {
       )
     );
   }
-  problems.push(...expectationProblems(repo, selection.content, selection.tasks));
+  problems.push(
+    ...expectationProblems(repo, selection.content, selection.tasks, selection.change)
+  );
   problems.push(...changeVerifyProblems(selection.content, selection.tasks));
 
   const changePath = path.dirname(selection.tasksPath);
