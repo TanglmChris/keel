@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.41.0"
-PROTOCOL_VERSION = "5.41.0"
+PACKAGE_VERSION = "5.42.0"
+PROTOCOL_VERSION = "5.42.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -22781,8 +22781,11 @@ def validate_decimal_runs_are_not_hash_shaped_scenario() -> int:
     )
     # The other half of the requirement: what the rule exists to refuse.
     refused_token = "- M4: pass —— 合入前的 commit a1b2c3d4e5f6 已验证。\n"
-    # Wording alone, carrying no hash-shaped token at all.
-    refused_wording = "- M5: 该任务**未提交**，等待评审。\n"
+    # Wording alone, carrying no hash-shaped token at all. The line names 分支
+    # because 提交 on its own is an ordinary verb and no longer refused (#103);
+    # what this fixture is for is the absence of a token, not the absence of
+    # context.
+    refused_wording = "- M5: 该分支**未提交**，等待评审。\n"
 
     def state_of(check) -> str:
         if "keel state: ok" in check.stdout:
@@ -23005,12 +23008,17 @@ def validate_a_context_word_is_a_word_scenario() -> int:
 
         # The Chinese words carry no boundary, because none is definable
         # between two word characters. Asserted here rather than reasoned
-        # about: `\b提交\b` matches none of these.
-        for recorded in ("已提交", "未提交", "该任务尚未提交，等待评审"):
+        # about: `\b提交\b` matches none of these. What the absence buys is
+        # the context supply below — each line holds a hash-shaped token and
+        # no other context word, so the Chinese word is the only thing that
+        # can make the token an identifier. The wording rule no longer rests
+        # on this: 提交 alone is an ordinary verb and needs a git word of its
+        # own, which `a-submission-is-not-a-commit` covers.
+        for recorded in ("已提交", "未提交", "该任务尚未提交"):
             state, _ = check(
                 "- [x] A1 implementation\n"
                 "  - Evidence:\n"
-                f"    - M1: {recorded}。\n"
+                f"    - M1: {recorded} a1b2c3d4e5f6。\n"
             )
             if state == "unreported":
                 report(
@@ -23021,11 +23029,239 @@ def validate_a_context_word_is_a_word_scenario() -> int:
                 return 1
             if state != "failed":
                 report(
-                    f"{label}: recorded state written as `{recorded}` was "
-                    "accepted. A word boundary around a Chinese context word "
-                    "disables it silently, which is why it does not carry one."
+                    f"{label}: an identifier beside `{recorded}` was accepted. "
+                    "A word boundary around a Chinese context word disables it "
+                    "silently, which is why it does not carry one."
                 )
                 return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_submission_is_not_a_commit_scenario() -> int:
+    """Issue #103: a general Chinese verb was read as a git word.
+
+    \u63d0\u4ea4 is an ordinary transitive verb — \u63d0\u4ea4\u8d44\u6599, \u63d0\u4ea4\u5ba1\u6838, \u63d0\u4ea4\u7533\u8bf7. Matched bare, it
+    refused an Evidence line recording that a user had submitted paperwork to
+    a third-party review queue, while the same fact written in English passed
+    untouched. A check whose verdict depends on which language the author
+    wrote in is not checking what it claims to.
+
+    \u5408\u5165 is the other half and stays bare: it names the git act and has no
+    ordinary-prose reading, so requiring context for it would buy nothing.
+    """
+    label = "a-submission-is-not-a-commit"
+
+    with tempfile.TemporaryDirectory(prefix="keel-submission-") as raw:
+        check, failure = _tasks_semantics_probe(raw)
+        if failure is not None:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report(failure)
+            return 1
+
+        def evidence(text: str) -> str:
+            return (
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                f"    - M1: {text}\n"
+            )
+
+        # The report's own line, and its English translation. Neither says
+        # anything about this repository's git state, and the check must not
+        # split them.
+        accepted = (
+            (
+                "the reported line",
+                "\u6536\u5de5\u72b6\u6001\u4e00\u5e76\u767b\u8bb0\uff1a\u7528\u6237\u5f53\u5929**\u5df2\u63d0\u4ea4**\u80fd\u586b\u7684\u5546\u6237\u4e0e\u7ed3\u7b97\u8d44\u6599\u3002",
+            ),
+            (
+                "its English translation",
+                "the user has submitted the merchant paperwork for review.",
+            ),
+            (
+                "a submission to a review queue",
+                "\u8868\u5355**\u5df2\u63d0\u4ea4**\uff0c\u5f00\u53d1\u8005\u8d26\u6237\u5904\u4e8e\u5ba1\u6838\u4e2d\u3002",
+            ),
+        )
+        for description, text in accepted:
+            state, errors = check(evidence(text))
+            if state == "unreported":
+                report(
+                    f"{label}: keel --check reported no state at all on "
+                    f"{description}."
+                )
+                return 1
+            if state != "ok":
+                report(
+                    f"{label}: {description} was refused as recorded commit "
+                    "state. Nothing on that line names git, and the same "
+                    "sentence in English is accepted — so what the check "
+                    "measured was the language, not the claim."
+                )
+                for error in errors:
+                    report(f"  {error}")
+                return 1
+
+        # What the rule exists to catch, kept refused. Each of these carries a
+        # git word, so the subject of the verb is not in doubt.
+        refused = (
+            ("beside a branch name", "1.2 \u7684\u6539\u52a8**\u5df2\u63d0\u4ea4**\u5230 main\u3002"),
+            ("beside \u5206\u652f", "\u8be5\u5206\u652f\u7684\u6539\u52a8**\u5c1a\u672a\u63d0\u4ea4**\uff0c\u7b49\u5f85\u8bc4\u5ba1\u3002"),
+            ("beside \u4ee3\u7801", "\u4ee3\u7801**\u5df2\u63d0\u4ea4**\uff0c\u6587\u6863\u672a\u52a8\u3002"),
+            ("\u5408\u5165 alone", "\u8fd9\u4e00\u6ce2**\u672a\u5408\u5165**\uff0c\u4e0b\u5468\u518d\u8bf4\u3002"),
+            ("\u5df2\u5408\u5165 alone", "\u8be5\u6539\u52a8**\u5df2\u5408\u5165**\u3002"),
+        )
+        for description, text in refused:
+            state, errors = check(evidence(text))
+            if state == "unreported":
+                report(
+                    f"{label}: keel --check reported no state at all on a "
+                    f"line {description}."
+                )
+                return 1
+            if state != "failed":
+                report(
+                    f"{label}: recorded state {description} was accepted. "
+                    "Requiring context must narrow which lines are read, not "
+                    "which words the rule knows."
+                )
+                return 1
+            if not [error for error in errors if "tasks.md:" in error]:
+                report(f"{label}: the refusal {description} named no line.")
+                return 1
+
+        # The contextual-identifier rule is untouched: a Chinese state word
+        # still supplies context to a hash-shaped token, with no other context
+        # word on the line.
+        state, _ = check(evidence("\u5df2\u63d0\u4ea4 a1b2c3d4e5f6 \u5f85\u9a8c\u3002"))
+        if state != "failed":
+            report(
+                f"{label}: a hash-shaped token beside a Chinese state word "
+                "was accepted. This change bounds the wording rule, not the "
+                "contextual-identifier rule."
+            )
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_quoted_span_is_not_a_claim_scenario() -> int:
+    """Issue #65 §2 and §4: quoted material was read as an assertion.
+
+    Evidence prose quotes what it is evidence of — the command that ran, the
+    output it printed, the branch base it ran against, the name of the
+    requirement under change. `withoutInlineCode()` in
+    `src/core/task-contract.js` already settled that shape for the field
+    reader; this check never had it, so a Scope check recording that it ran
+    `git status --short` was refused for the word inside the backticks.
+
+    The boundary matters as much as the exemption: quoting one token must not
+    exempt the sentence around it, or the rule becomes optional.
+    """
+    label = "a-quoted-span-is-not-a-claim"
+
+    with tempfile.TemporaryDirectory(prefix="keel-quoted-span-") as raw:
+        check, failure = _tasks_semantics_probe(raw)
+        if failure is not None:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report(failure)
+            return 1
+
+        # Each of these carries its whole match inside a quoted span. Nothing
+        # outside the quotes on any of these lines is a claim about this
+        # repository's git state.
+        quoted = (
+            (
+                "inline code holding quoted output",
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                "    - M1.red: fail, as required. The runner printed "
+                "`fatal: you have uncommitted changes`.\n",
+            ),
+            (
+                "inline code holding an identifier and its context word",
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                "    - M1: pass. The fixture repository reported "
+                "`HEAD is at 3f2a9bc` before the run.\n",
+            ),
+            (
+                "a fenced block holding output",
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                "    - M1: pass. The runner printed:\n"
+                "      ```\n"
+                "      HEAD is at 3f2a9bc, working tree uncommitted\n"
+                "      ```\n",
+            ),
+            (
+                "a quotation span holding a requirement name",
+                "- [x] A1 implementation\n"
+                "  - Evidence:\n"
+                "    - M1: pass. This task renames \u201cA recorded commit "
+                "hash is recognized by what makes it one\u201d.\n",
+            ),
+        )
+        for description, body in quoted:
+            state, errors = check(body)
+            if state == "unreported":
+                report(
+                    f"{label}: keel --check reported no state at all on "
+                    f"{description}. This is not a verdict about the fixture — "
+                    "the check did not reach the point of having one."
+                )
+                return 1
+            if state != "ok":
+                report(
+                    f"{label}: {description} was read as a claim. A quoted "
+                    "span is content the author cites, and the only repair "
+                    "open to them is to stop quoting it accurately."
+                )
+                for error in errors:
+                    report(f"  {error}")
+                return 1
+
+        # The boundary. Quoting one token exempts that token and nothing else.
+        state, errors = check(
+            "- [x] A1 implementation\n"
+            "  - Evidence:\n"
+            "    - M1: verified against `3f2a9bc`, but the work is still "
+            "uncommitted.\n"
+        )
+        if state != "failed":
+            report(
+                f"{label}: wording outside a quoted span was exempted. The "
+                "span is what stops being read, not the line holding it."
+            )
+            return 1
+        if not [error for error in errors if "tasks.md:" in error]:
+            report(f"{label}: the refusal outside the span named no line.")
+            return 1
+
+        # An apostrophe is not a quotation delimiter. Treating it as one would
+        # silence the remainder of any line carrying a contraction, which is
+        # the failure mode that is invisible rather than wrong.
+        state, errors = check(
+            "- [x] A1 implementation\n"
+            "  - Evidence:\n"
+            "    - M1: the guard doesn't fire here, and the worktree is "
+            "uncommitted.\n"
+        )
+        if state != "failed":
+            report(
+                f"{label}: a contraction opened a quotation span and silenced "
+                "the rest of the line. The ASCII single quote is an "
+                "apostrophe far more often than it is a quotation mark."
+            )
+            return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -23133,7 +23369,7 @@ def validate_a_covers_citation_is_not_a_record_scenario() -> int:
             "  - Covers:\n"
             f"    - {cited[0]}\n"
             "  - Verify:\n"
-            "    - M1: the change is 已提交 and needs no further work.\n"
+            "    - M1: the change is 已合入 and needs no further work.\n"
         )
         if state == "unreported":
             report(
@@ -23761,6 +23997,14 @@ SCENARIOS: tuple = (
         validate_decimal_runs_are_not_hash_shaped_scenario,
     ),
     ("a-context-word-is-a-word", validate_a_context_word_is_a_word_scenario),
+    (
+        "a-quoted-span-is-not-a-claim",
+        validate_a_quoted_span_is_not_a_claim_scenario,
+    ),
+    (
+        "a-submission-is-not-a-commit",
+        validate_a_submission_is_not_a_commit_scenario,
+    ),
     (
         "a-covers-citation-is-not-a-record",
         validate_a_covers_citation_is_not_a_record_scenario,
