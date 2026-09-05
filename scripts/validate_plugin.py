@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.42.0"
-PROTOCOL_VERSION = "5.42.0"
+PACKAGE_VERSION = "5.43.0"
+PROTOCOL_VERSION = "5.43.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5112,6 +5112,203 @@ def validate_authoring_surface_owner_and_tags_scenario() -> int:
     return 0
 
 
+def validate_an_owner_outlives_the_change_scenario() -> int:
+    """Issue #100: the existence check expires at archive.
+
+    `openspec archive` moves `openspec/changes/<name>/` under
+    `openspec/changes/archive/`, so a `Durable owner:` naming the change's own
+    `design.md` is true when the gate reads it and false one workflow step
+    later. Measured in this repository: 10 declarations name a path inside a
+    live change directory, all 10 are dead, and all 10 point at the change that
+    wrote them. A pointer that must break is worse than none — the Review reads
+    as closed while the trail ends halfway.
+
+    A path into a *different* live change stays accepted: the protocol names a
+    new OpenSpec change as a legitimate owner of deferred work, and no measured
+    pointer has that shape.
+    """
+    label = "an-owner-outlives-the-change"
+
+    with tempfile.TemporaryDirectory(prefix="keel-owner-outlives-") as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+        # The other live change, and an archived path. Both exist; only one of
+        # them is the directory the selected change is about to move.
+        write_text(repo / "openspec/changes/other/design.md", "## Context\n\nother\n")
+        write_text(repo / "keel/archive/notes/2026-09-05-example.md", "note\n")
+
+        SELF = "openspec/changes/demo/design.md"
+        OTHER = "openspec/changes/other/design.md"
+        ARCHIVED = "keel/archive/notes/2026-09-05-example.md"
+        TRACKER = "https://github.com/TanglmChris/keel/issues/100"
+
+        def start(section: str) -> dict:
+            fixture = task_contract_fixture()
+            if section.startswith("## Invalidates"):
+                fixture = fixture.replace("## Invalidates\n\n- None.\n\n", section)
+            else:
+                fixture = fixture + "\n" + section
+            write_text(tasks_path, fixture)
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def invalidates(closure: str) -> dict:
+            return start(
+                '## Invalidates\n\n- I1: "the wording that is now wrong" '
+                f"— somewhere in the repo. {closure}\n\n"
+            )
+
+        # `## Expectation Coverage` is read by change-close, not task-start, so
+        # this fixture closes the change rather than starting a task. Mirrors
+        # the `durable-owner-vocabulary` scenario's own closing fixture.
+        def expectation(closure: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: proven.\n",
+                )
+                .replace(
+                    "      - Scope check: pending\n",
+                    "      - Scope check: inside Touch.\n",
+                )
+                .replace("      - Findings: pending\n", "      - Findings: none\n")
+                + f"\n## Expectation Coverage\n\n- E1: the expectation. {closure}\n",
+            )
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "change-close", "--change", "demo", "--action",
+                "sync", "--json",
+            )
+            return json.loads(result.stdout)
+
+        def completion(findings: str) -> dict:
+            fixture = (
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: behavior proven through the public CLI.\n",
+                )
+                .replace(
+                    "      - Scope check: pending\n",
+                    "      - Scope check: writes stayed inside Touch.\n",
+                )
+                .replace("      - Findings: pending\n", f"      - Findings: {findings}\n")
+            )
+            write_text(tasks_path, fixture)
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def messages(payload: dict) -> str:
+            return " ".join(
+                item.get("message", "") for item in payload.get("problems", [])
+            )
+
+        # The self-pointer is refused wherever an owner closes an entry, and
+        # the refusal says why rather than reporting a spelling problem.
+        refusals = (
+            ("an Invalidates entry", invalidates(f"Durable owner: {SELF}")),
+            ("an Expectation Coverage entry", expectation(f"Durable owner: {SELF}")),
+            (
+                "a Review finding",
+                completion(f"the rule needs a second look. Durable owner: {SELF}"),
+            ),
+            (
+                "a Resolved here claim",
+                completion(f"the rule was repaired. Resolved here: {SELF}"),
+            ),
+        )
+        for description, payload in refusals:
+            if payload.get("status") == "pass":
+                report(
+                    f"{label}: a path inside the selected change's own directory "
+                    f"closed {description}. That directory moves when the change "
+                    "is archived, so the check was true only until the next step "
+                    "of the workflow that accepted it."
+                )
+                return 1
+            text = messages(payload)
+            if "archiv" not in text.lower():
+                report(
+                    f"{label}: the refusal for {description} does not say the "
+                    "directory moves when the change is archived, so it reads as "
+                    "a spelling problem the author cannot repair. Got: "
+                    f"{text or '(none)'}"
+                )
+                return 1
+
+        # A different live change is a legitimate owner and stays one, as do
+        # the forms that already worked.
+        accepted = (
+            ("another live change closing an Invalidates entry",
+             invalidates(f"Durable owner: {OTHER}")),
+            ("another live change closing an Expectation Coverage entry",
+             expectation(f"Durable owner: {OTHER}")),
+            ("another live change owning a finding",
+             completion(f"still open. Durable owner: {OTHER}")),
+            ("resolution evidence in another live change",
+             completion(f"repaired. Resolved here: {OTHER}")),
+            ("an archived path owning a finding",
+             completion(f"still open. Durable owner: {ARCHIVED}")),
+            ("a tracker reference owning a finding",
+             completion(f"still open. Durable owner: {TRACKER}")),
+        )
+        for description, payload in accepted:
+            if payload.get("status") != "pass":
+                report(
+                    f"{label}: {description} was refused. The rule is about the "
+                    "directory this change is about to move, not about change "
+                    "directories in general."
+                )
+                report(json.dumps(payload.get("problems", []), indent=2))
+                return 1
+
+        # Every refusal that lists the forms says what checking each is worth.
+        for description, payload in (
+            ("an Invalidates refusal", invalidates("no closure at all")),
+            ("an Expectation Coverage refusal", expectation("no closure at all")),
+            ("a Findings refusal", completion("a narrative finding with no marker")),
+        ):
+            text = messages(payload)
+            for expected in (
+                "checked for existence when it is cited",
+                "never fetches",
+            ):
+                if expected not in text:
+                    report(
+                        f"{label}: {description} does not say what the accepted "
+                        f"forms are worth — missing: {expected}. An author who "
+                        "cannot see what was checked infers that it was."
+                    )
+                    report(text or "(none)")
+                    return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_durable_owner_vocabulary_scenario() -> int:
     label = "durable-owner-vocabulary"
 
@@ -5249,14 +5446,18 @@ def validate_durable_owner_vocabulary_scenario() -> int:
                 report(messages)
                 return 1
 
-        # M3 — every previously accepted form still closes.
+        # M3 — every previously accepted form still closes. The change artifact
+        # names another live change: a path inside `demo`'s own directory is
+        # refused now, because that directory moves when `demo` is archived.
         for closure in (
-            "Durable owner: openspec/changes/demo/proposal.md",
+            "Durable owner: openspec/changes/other-change/proposal.md",
             "Durable owner: keel/archive/notes/2026-07-28-example.md",
             "Durable owner: https://github.com/TanglmChris/keel/issues/20",
             "Discard reason: it stands as written.",
         ):
-            write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+            write_text(
+                repo / "openspec/changes/other-change/proposal.md", "# Proposal\n"
+            )
             payload = invalidation_start(closure)
             if payload.get("status") != "pass":
                 report(f"{label} dropped a previously accepted form: {closure}")
@@ -10277,7 +10478,11 @@ def validate_review_entry_extent_scenario() -> int:
     one entry cannot be satisfied by another's text.
     """
     label = "review-entry-extent"
-    owner_path = "openspec/changes/demo/tasks.md"
+    # Outside the selected change's own directory on purpose: a path under
+    # `openspec/changes/demo/` is refused as a durable owner because that
+    # directory moves at archive, and this scenario is about how far a wrapped
+    # Findings entry extends, not about which owner forms are accepted.
+    owner_path = "openspec/FOLLOWUP.md"
 
     with tempfile.TemporaryDirectory(
         prefix="keel-review-extent-", ignore_cleanup_errors=True
@@ -10285,6 +10490,7 @@ def validate_review_entry_extent_scenario() -> int:
         repo = Path(raw)
         tasks = repo / "openspec/changes/demo/tasks.md"
         write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / owner_path, "# Follow-ups\n")
         write_text(
             repo / "openspec/changes/demo/specs/demo/spec.md",
             "## ADDED Requirements\n",
@@ -23995,6 +24201,10 @@ SCENARIOS: tuple = (
     (
         "decimal-runs-are-not-hash-shaped",
         validate_decimal_runs_are_not_hash_shaped_scenario,
+    ),
+    (
+        "an-owner-outlives-the-change",
+        validate_an_owner_outlives_the_change_scenario,
     ),
     ("a-context-word-is-a-word", validate_a_context_word_is_a_word_scenario),
     (
