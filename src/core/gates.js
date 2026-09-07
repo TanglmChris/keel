@@ -431,25 +431,58 @@ const DECLARED_PATH_TRAILING = /[.,;:!?)\]}"'\u2019\u201d\u3002\uff0c\u3001\uff1
 // and authors write versions in prose beside an owner.
 const ROOT_FILE_NAME = /^[^\s`]+\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
-// A declared path is a run of non-whitespace. What ends a path is whitespace;
-// what a path is *made of* is the filesystem's business, and answering the
-// first question with the second is what refused
-// `notes/note-006-转岗最难的不是流程/note.md` by reporting that
-// `notes/note-006-` does not exist — a path nobody wrote (issue #60). It is the
-// same class as #40 on the worktree-reading side, which survived because that
-// fix repaired one reader rather than how paths are extracted; this is the one
-// extractor every gate reader of a declared path now uses.
+// What ends a path is whitespace — in a script that separates words with it.
+// Chinese prose does not: a path is followed immediately by its terminator, so
+// a run bounded only by whitespace swallowed the rest of the sentence and
+// `openspec/FOLLOWUP.md。②本波两次重录重验` came back as one path (issue #113,
+// 14 instances across five consuming repositories). These characters are
+// already in `DECLARED_PATH_TRAILING`, which strips what *trails* the run and
+// therefore never reached a terminator sitting inside it.
 //
-// The backtick form wins when present. It is the only way to write a path
-// containing whitespace, and `touchEntries` already strips backticks from a
-// Touch entry, so one authorship stops being spelled two ways depending on
-// which reader will read it.
+// ASCII punctuation keeps the other treatment — permitted inside the run and
+// trimmed from its end — because `a.b/c-d.e` and `f(1)/g` are paths and ASCII
+// prose supplies the whitespace that ends them. The asymmetry follows from the
+// writing system rather than from a preference.
+const PATH_TERMINATORS = "。，、；：！？（）【】《》「」〈〉“”‘’";
+const BARE_DECLARED_PATH = new RegExp(
+  `[^\\s\`${PATH_TERMINATORS}]+/[^\\s\`${PATH_TERMINATORS}]+`
+);
+
+// A declared path is a run of non-whitespace. What a path is *made of* is the
+// filesystem's business, and answering that question with the boundary is what
+// refused `notes/note-006-转岗最难的不是流程/note.md` by reporting that
+// `notes/note-006-` does not exist — a path nobody wrote (issue #60). Adding
+// terminators does not narrow the alphabet: a path whose segments are CJK
+// words still extracts in full, and only its punctuation ends it.
+//
+// The declaration is what the value opens with. A leading backticked path wins
+// because that is the only way to write a path containing whitespace, and
+// `touchEntries` already accepts that form. A backticked span *elsewhere* is a
+// citation: `Findings` is free prose where naming the owner and then quoting a
+// file is ordinary, and taking the quotation first answered with a file the
+// author never declared — one that usually exists, so the gate accepted rather
+// than refused (issue #113, 20 instances). It is still read when the value
+// declares nothing else, which keeps `Durable owner: 见 \`docs/a b.md\`` working.
+// A separator with nothing on either side of it is not a path. Two adjacent
+// inline code spans put one there — `networkx`/`PyYAML` closes one span and
+// opens the next, so a backtick-delimited capture spanning the gap is the
+// single character `/`. Measured twice in the consumer corpus, each time
+// reported as a file that does not exist.
+function backtickedPath(match) {
+  if (!match) return null;
+  const candidate = match[1].trim();
+  if (!candidate.split("/").some(Boolean)) return null;
+  return candidate || null;
+}
+
 function declaredPath(value) {
   const text = String(value || "");
-  const quoted = text.match(/`([^`\n]*\/[^`\n]*)`/);
-  if (quoted) return quoted[1].trim() || null;
-  const bare = text.match(/[^\s`]+\/[^\s`]+/);
+  const leading = backtickedPath(text.match(/^\s*`([^`\n]*\/[^`\n]*)`/));
+  if (leading) return leading;
+  const bare = text.match(BARE_DECLARED_PATH);
   if (bare) return bare[0].replace(DECLARED_PATH_TRAILING, "") || null;
+  const quoted = backtickedPath(text.match(/`([^`\n]*\/[^`\n]*)`/));
+  if (quoted) return quoted;
   // The separator form is tried first and is unchanged, so nothing that
   // resolves today resolves differently. The trim runs before the shape is
   // judged, so a root file ending a sentence is still a root file.
