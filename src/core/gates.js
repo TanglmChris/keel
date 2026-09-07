@@ -582,7 +582,7 @@ function resolutionEvidenceVerdict(repo, value, commands, change) {
     return { ok: false, reason: "unknown-check", label: cited[0] };
   }
   const candidate = declaredPath(evidence);
-  if (!candidate) return { ok: false, reason: "unrecognized" };
+  if (!candidate) return { ok: false, reason: "unrecognized", token: evidence };
   // Resolution evidence is a file like any other and moves with the directory
   // holding it, so it earns the same verdict rather than a second answer to
   // the same question.
@@ -591,6 +591,30 @@ function resolutionEvidenceVerdict(repo, value, commands, change) {
   }
   if (fs.existsSync(path.join(repo, candidate))) return { ok: true };
   return { ok: false, reason: "missing", path: candidate };
+}
+
+// `Findings` is free prose, and in a repository whose subject is the protocol
+// that prose names the markers themselves. A quoted marker is a quotation, not
+// a disposition — the rule 5.42.0 established for the tasks.md checker and the
+// unfilled-slot scan, arriving here. Each span becomes an equal run of spaces
+// rather than being removed, because every rule downstream reads positionally:
+// `Durable owner:` captures to end of line and `Resolved here:` captures the
+// next token, so a shortened text would move what they read. The original is
+// kept for anything reported back, since a diagnostic quoting the blanked copy
+// would show the author a sentence with holes in it.
+const DISPOSITION_MARKER =
+  /\b(?:resolved here|durable owner|discard (?:reason|rationale))\s*:/gi;
+
+function withoutQuotedMarkers(text) {
+  return String(text || "").replace(/`[^`\n]*`/g, (span) =>
+    // Only the marker vocabulary is removed, not the span. A disposition may
+    // legitimately wrap its value in backticks — `Durable owner:
+    // \`keel/archive/note.md\`` is a supported form — so blanking the whole
+    // span would destroy the very path the rule exists to read. Measured: the
+    // first draft of this function did exactly that, and both the backticked
+    // owner path and the backticked resolution path started failing.
+    span.replace(DISPOSITION_MARKER, (marker) => " ".repeat(marker.length))
+  );
 }
 
 function resolutionEvidenceMessage(verdict) {
@@ -615,7 +639,13 @@ function resolutionEvidenceMessage(verdict) {
   if (verdict.reason === "missing") {
     return `${lead}\`${verdict.path}\` does not exist.${tail}`;
   }
-  return `${lead}it names neither a check nor a path.${tail}`;
+  // Naming the token turns an argument into an observation: the author
+  // believes they named a check or a path, and this is what the gate read
+  // instead.
+  return verdict.token
+    ? `${lead}it read \`${verdict.token}\`, which names neither a check nor a `
+      + `path.${tail}`
+    : `${lead}it names neither a check nor a path.${tail}`;
 }
 
 function findingOwnerIsDurable(repo, findings, change) {
@@ -1011,7 +1041,8 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
     // pass as a tracker owner, which is the one reading this disposition must
     // not have: a link to work someone else will do is not evidence that this
     // task did it.
-    const resolved = [...reviewFields.Findings.matchAll(RESOLVED_HERE)];
+    const scannable = withoutQuotedMarkers(reviewFields.Findings);
+    const resolved = [...scannable.matchAll(RESOLVED_HERE)];
     if (resolved.length > 0) {
       for (const claim of resolved) {
         const verdict = resolutionEvidenceVerdict(repo, claim[1], commands, change);
@@ -1021,7 +1052,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
         );
         break;
       }
-    } else if (!findingOwnerIsDurable(repo, reviewFields.Findings, change)) {
+    } else if (!findingOwnerIsDurable(repo, scannable, change)) {
       problems.push(
         problem(
           "finding-owner",
