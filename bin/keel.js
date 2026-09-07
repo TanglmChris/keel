@@ -983,6 +983,78 @@ function printDoctorLine(name, status, detail = "") {
   process.stdout.write(`${name}: ${status}${detail ? ` - ${detail}` : ""}\n`);
 }
 
+// The `version=` attribute of the managed marker is written by every install
+// and, until this line existed, read back by nothing that runs locally: both
+// marker parsers match `keel:start(?:\s+[^>]*)?` and throw the attributes away.
+// The one reader was the plugin's SessionStart hook, and doctor reports that
+// plugin's activation as manual on every target — so the check might simply not
+// be running, with nothing to distinguish that from agreement. Doctor is the
+// model-free fallback: the declaration comes from the working tree and the
+// running version from this process, so the comparison holds with no plugin at
+// all.
+function declaredProtocolVersion(repo) {
+  const agentsPath = path.join(repo, "AGENTS.md");
+  if (!fs.existsSync(agentsPath)) return null;
+  const match = fs
+    .readFileSync(agentsPath, "utf8")
+    .match(/<!--\s*keel:start\s+version=(\d+\.\d+\.\d+)\s*-->/);
+  return match ? match[1] : null;
+}
+
+// Numeric, not lexical: "5.9.0" precedes "5.10.0" and string order says
+// otherwise. Returns a negative number when `a` is behind `b`.
+function compareVersions(a, b) {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] - right[i];
+  }
+  return 0;
+}
+
+// Printed on every run, agreeing or not. A check that is silent when it passes
+// cannot be told apart from a check that did not run, which is the failure this
+// line exists to remove — so silence is never the report.
+function printProtocolVersionDrift(repo, target) {
+  const running = PACKAGE_JSON.version;
+  const declared = declaredProtocolVersion(repo);
+  if (!declared) {
+    printDoctorLine(
+      "protocol",
+      "not comparable",
+      `this CLI is ${running}; the repository declares no protocol version in `
+        + "an AGENTS.md `keel:start` marker — run "
+        + `keel --init --target ${target} to write one`
+    );
+    return;
+  }
+  const order = compareVersions(declared, running);
+  if (order === 0) {
+    printDoctorLine(
+      "protocol",
+      "ok",
+      `repo declares ${declared}, this CLI is ${running}`
+    );
+    return;
+  }
+  // The two directions have different repairs, and the wrong repair is a no-op
+  // that reads as a failure, so the line names the direction rather than the
+  // difference. Drift never reaches the exit code: an out-of-date install is
+  // not a broken one, and a doctor that goes red on release day is a doctor
+  // people switch off.
+  printDoctorLine(
+    "protocol",
+    "warning",
+    order < 0
+      ? `repo declares ${declared}, this CLI is ${running} — the repository is `
+        + `behind its install; run keel --init --target ${target} to bring the `
+        + "protocol forward"
+      : `repo declares ${declared}, this CLI is ${running} — the install is `
+        + "behind the repository, which carries a protocol this CLI cannot "
+        + "enforce; update the Keel package"
+  );
+}
+
 function codexHome() {
   const configured = (process.env.CODEX_HOME || "").trim();
   return path.resolve(configured || path.join(os.homedir(), ".codex"));
@@ -1552,6 +1624,8 @@ function runDoctor(options) {
         : `${where} (${versions})`
     );
   }
+
+  printProtocolVersionDrift(repo, options.target);
 
   process.stdout.write("\nProject status:\n");
   const checkStatus = runPython(

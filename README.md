@@ -280,8 +280,10 @@ command at the right moment. Three things make that happen.
 - **The hooks.** A SessionStart hook runs the continuity projection the moment a session
   opens; a PreToolUse hook enforces the write guard on every edit. Neither needs prompting.
 
-So in day-to-day use you run two commands: `keel --init` once, and `keel --doctor` when you
-want to check the wiring. Everything below is the vocabulary the agent uses on your behalf.
+So in day-to-day use you run two commands: `keel --doctor` when you want to check the
+wiring, and `keel --init` whenever it tells you the repository is behind its install — the
+protocol version lives in your `AGENTS.md`, and updating the package does not move it.
+Everything below is the vocabulary the agent uses on your behalf.
 
 ## Verification layering
 
