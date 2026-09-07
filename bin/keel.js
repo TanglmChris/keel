@@ -2234,4 +2234,11 @@ function main() {
   return runAction(options);
 }
 
-process.exit(main());
+// Not `process.exit()`: stdout to a pipe is asynchronous, and exiting discards
+// whatever the operating system has not yet accepted. Nothing is lost while the
+// payload fits the pipe buffer, which is why this was invisible at the 64KB
+// default — and under the memory pressure that shrinks buffers to a page or
+// two, a consumer receives a valid prefix of an incomplete document with no
+// error and no change of exit code. Setting the code instead lets the event
+// loop drain the write and end the process on its own.
+process.exitCode = main();
