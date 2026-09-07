@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.46.0"
-PROTOCOL_VERSION = "5.46.0"
+PACKAGE_VERSION = "5.47.0"
+PROTOCOL_VERSION = "5.47.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5572,6 +5572,205 @@ def validate_a_declared_dependency_is_resolved_scenario() -> int:
             "first message when the second happened names the wrong cause."
         )
         return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_path_is_what_the_value_declares_scenario() -> int:
+    """Issue #113: the extractor answered with a path the value did not declare.
+
+    Two shapes, measured across five consuming repositories — 624 path-shaped
+    declarations, 34 of them extracting something else.
+
+    A sentence supplies no whitespace. `openspec/FOLLOWUP.md。②接着说别的`
+    extracted whole, because the run is bounded by whitespace and Chinese prose
+    puts none after a path. That half refuses loudly, naming a path nobody
+    wrote.
+
+    A citation outranked the declaration. The backtick branch ran first and
+    searched the whole value, so a `Durable owner:` that named its owner and
+    then quoted another file resolved to the quotation. That half is worse: the
+    quoted file usually exists, so the gate accepts and checks a file the
+    author never declared.
+    """
+    label = "a-path-is-what-the-value-declares"
+
+    with tempfile.TemporaryDirectory(prefix="keel-declared-path-") as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        write_text(repo / "openspec/changes/demo/proposal.md", "# Proposal\n")
+        write_text(repo / "openspec/changes/demo/design.md", "## Context\n\nfixture\n")
+        write_text(
+            repo / "openspec/changes/demo/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+        for name in (
+            "docs/owner.md",
+            "docs/cited.md",
+            "docs/\u7b2c\u4e00\u7ae0/\u603b\u8bba.md",
+            "AGENTS.md",
+        ):
+            write_text(repo / name, "x\n")
+        write_text(repo / "docs/a b.md", "x\n")
+
+        def completion(findings: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture(evidence=("M1: check exercised.",))
+                .replace("- [ ] 1.1", "- [x] 1.1")
+                .replace("      - Status: pending\n", "      - Status: pass\n")
+                .replace(
+                    "      - Acceptance check: pending\n",
+                    "      - Acceptance check: behavior proven through the public CLI.\n",
+                )
+                .replace(
+                    "      - Scope check: pending\n",
+                    "      - Scope check: writes stayed inside Touch.\n",
+                )
+                .replace("      - Findings: pending\n", f"      - Findings: {findings}\n")
+            )
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        def messages(payload: dict) -> str:
+            return " ".join(
+                item.get("message", "") for item in payload.get("problems", [])
+            )
+
+        # --- the citation must not outrank the declaration ---------------
+        cited = "\u5224\u636e\u89c1 `docs/cited.md`"
+        payload = completion(f"still open. Durable owner: docs/owner.md\uff0c{cited}")
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: a value naming an existing owner and then citing "
+                "another existing file was refused."
+            )
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # Proven by removing the declared owner: the refusal must name it, not
+        # the citation. Without this the assertion above passes either way,
+        # because both files exist.
+        (repo / "docs/owner.md").unlink()
+        payload = completion(f"still open. Durable owner: docs/owner.md\uff0c{cited}")
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: with the declared owner deleted the value still "
+                "passed, so the gate checked the cited file instead. A "
+                "citation that outranks the declaration lets a finding be "
+                "owned by a file the author never named."
+            )
+            return 1
+
+        # Which path the gate looked for, asserted through the reader that
+        # names one. `Findings` reports a single owner refusal for every
+        # unusable owner and never names the path, so the naming half is
+        # asserted where it is actually emitted.
+        def invalidates(closure: str) -> dict:
+            write_text(
+                tasks_path,
+                task_contract_fixture().replace(
+                    "## Invalidates\n\n- None.\n\n",
+                    '## Invalidates\n\n- I1: "the wording that is now wrong" '
+                    f"\u2014 somewhere in the repo. {closure}\n\n",
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            return json.loads(result.stdout)
+
+        payload = invalidates(f"Durable owner: docs/owner.md\uff0c{cited}")
+        text = messages(payload)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: an invalidation entry whose declared owner is "
+                "missing passed, so the gate resolved the citation."
+            )
+            return 1
+        if "docs/cited.md" in text or "docs/owner.md" not in text:
+            report(
+                f"{label}: the refusal named the citation rather than the "
+                f"declared path. Got: {text or '(none)'}"
+            )
+            return 1
+        write_text(repo / "docs/owner.md", "x\n")
+
+        payload = invalidates(f"Durable owner: docs/owner.md\uff0c{cited}")
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: with the declared owner restored the invalidation "
+                "entry was still refused."
+            )
+            report(json.dumps(payload.get("problems", []), indent=2))
+            return 1
+
+        # --- a bare run ends where the sentence does ---------------------
+        accepted = (
+            (
+                "a path followed by a CJK terminator and more prose",
+                "still open. Durable owner: docs/owner.md\u3002\u2461\u63a5\u7740\u8bf4\u522b\u7684",
+            ),
+            (
+                "a path followed by a CJK comma",
+                "still open. Durable owner: docs/owner.md\uff0c\u968f\u540e\u8bf4\u660e",
+            ),
+            (
+                "a path whose own segments are CJK words",
+                "still open. Durable owner: docs/\u7b2c\u4e00\u7ae0/\u603b\u8bba.md\u3002\u540e\u6587",
+            ),
+            (
+                "a backticked path containing a space, opening the value",
+                "still open. Durable owner: `docs/a b.md` \u8bf4\u660e",
+            ),
+            (
+                "a backticked path with nothing declared before it",
+                "still open. Durable owner: \u89c1 `docs/cited.md`",
+            ),
+            ("a repository-root file", "still open. Durable owner: AGENTS.md"),
+            ("the same file with a leading dot-slash", "still open. Durable owner: ./AGENTS.md"),
+            (
+                "an ASCII path ending a sentence",
+                "still open. Durable owner: docs/owner.md. Then more text",
+            ),
+        )
+        for description, findings in accepted:
+            payload = completion(findings)
+            if payload.get("status") != "pass":
+                report(f"{label}: {description} was refused.")
+                report(json.dumps(payload.get("problems", []), indent=2))
+                return 1
+
+        # --- the boundary: a non-path stays unrecognized ------------------
+        for description, findings in (
+            ("a bare word", "still open. Durable owner: pending"),
+            ("a version string", "still open. Durable owner: 5.44.0"),
+            (
+                "a separator between two adjacent inline code spans",
+                "still open. Durable owner: \u9996\u7248\u53ea\u88c5 `networkx`/`PyYAML`",
+            ),
+        ):
+            payload = completion(findings)
+            text = messages(payload)
+            if payload.get("status") == "pass":
+                report(f"{label}: {description} was accepted as a durable owner.")
+                return 1
+            if "does not exist" in text:
+                report(
+                    f"{label}: {description} was reported as a missing file. "
+                    "Got: " + text
+                )
+                return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -24870,6 +25069,10 @@ SCENARIOS: tuple = (
         validate_an_owner_outlives_the_change_scenario,
     ),
     ("a-root-file-is-a-path", validate_a_root_file_is_a_path_scenario),
+    (
+        "a-path-is-what-the-value-declares",
+        validate_a_path_is_what_the_value_declares_scenario,
+    ),
     (
         "a-declared-dependency-is-resolved",
         validate_a_declared_dependency_is_resolved_scenario,
