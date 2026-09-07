@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.51.0"
-PROTOCOL_VERSION = "5.51.0"
+PACKAGE_VERSION = "5.52.0"
+PROTOCOL_VERSION = "5.52.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25401,6 +25401,121 @@ def validate_quoted_marker_is_not_a_disposition_scenario() -> int:
     return 0
 
 
+# A drift is a hard stop, so whatever the message says is what the author acts
+# on. Saying only that a value moved produced a wrong record in this repository:
+# the cause was recorded as a Review edit, which is measurably not covered by
+# the fingerprint at all.
+def validate_drift_names_where_to_look_scenario() -> int:
+    label = "drift-names-where-to-look"
+
+    def fixture(root: Path, name: str, anchor_value: str) -> Path:
+        repo = root / name
+        task = strategy_probe_task(strategy="vertical-tdd")
+        # Cite a design statement so the capsule holds two distinct sources.
+        task = task.replace(
+            "    - E1: the task proves its own behavior",
+            "    - E1: the task proves its own behavior\n    - D1",
+        )
+        task = task.replace(
+            "    - Contract: pending",
+            f"    - Contract: keel-task-capsule/v1 sha256:{anchor_value}",
+        )
+        write_gate_fixture(
+            repo,
+            tasks=task,
+            design=(
+                "## Context\n\nfixture\n\n## Decisions\n\n"
+                "- D1 — the public behavior is proven through the CLI. "
+                "Basis: fixture.\n"
+            ),
+        )
+        return repo
+
+    with tempfile.TemporaryDirectory(prefix="keel-drift-") as raw:
+        root = Path(raw)
+
+        # The true anchor, so the matching case can be compared against it.
+        settled = fixture(root, "settled", "0" * 64)
+        started = run_keel(
+            settled, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        true_value = json.loads(started.stdout)["contract"]["fingerprint"]["value"]
+
+        drifted = fixture(root, "drifted", "0" * 64)
+        result = run_keel(drifted, "context", "--change", "demo", "--json")
+        payload = json.loads(result.stdout)
+        if payload.get("status") != "blocked":
+            report(
+                f"{label}: a task whose anchor does not match was not blocked; "
+                f"status {payload.get('status')!r}."
+            )
+            return 1
+        reason = " ".join(str(x) for x in (payload.get("reasons") or []))
+
+        for needed in ("0" * 8, true_value[:8]):
+            if needed not in reason:
+                report(
+                    f"{label}: the drift reason no longer reports both "
+                    f"fingerprints; {reason!r}."
+                )
+                return 1
+        for source in (
+            "openspec/changes/demo/tasks.md",
+            "openspec/changes/demo/design.md",
+        ):
+            if source not in reason:
+                report(
+                    f"{label}: the drift reason does not name the authority "
+                    f"source {source!r}; {reason!r}."
+                )
+                return 1
+        # The list is the authority set, not the change directory.
+        if "proposal.md" in reason:
+            report(
+                f"{label}: the drift reason names a file the capsule resolved "
+                f"no authority text from; {reason!r}."
+            )
+            return 1
+        lowered = reason.lower()
+        for word in ("evidence", "review", "checkbox"):
+            if word not in lowered:
+                report(
+                    f"{label}: the drift reason does not say that {word} is "
+                    f"outside the fingerprint; {reason!r}."
+                )
+                return 1
+        # D3: it names a search set, never a culprit.
+        for guess in ("changed field", "the field that changed", "caused by"):
+            if guess in lowered:
+                report(
+                    f"{label}: the drift reason claims which field moved, which "
+                    f"it cannot know; {reason!r}."
+                )
+                return 1
+
+        matching = fixture(root, "matching", true_value)
+        ok = json.loads(
+            run_keel(matching, "context", "--change", "demo", "--json").stdout
+        )
+        if ok.get("status") != "ready":
+            report(
+                f"{label}: a task whose anchor matches was not ready; "
+                f"{ok.get('status')!r} {ok.get('reasons')!r}."
+            )
+            return 1
+        ok_reason = " ".join(str(x) for x in (ok.get("reasons") or []))
+        if "fingerprint" in ok_reason.lower():
+            report(
+                f"{label}: a matching anchor now reports drift wording; "
+                f"{ok_reason!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -25635,6 +25750,7 @@ SCENARIOS: tuple = (
     ("a-strategy-is-declared", validate_strategy_is_declared_scenario),
     ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
     ("a-quoted-marker-is-not-a-disposition", validate_quoted_marker_is_not_a_disposition_scenario),
+    ("drift-names-where-to-look", validate_drift_names_where_to_look_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
