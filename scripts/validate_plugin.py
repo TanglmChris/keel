@@ -3377,6 +3377,7 @@ def gate_task(
         "Covers": "\n    - E1: hook behavior",
         "Read": "\n    - openspec/changes/demo/proposal.md",
         "Touch": "\n    - src/example.js",
+        "Verification Strategy": "evidence-first",
         "Commands": "\n    - M1: npm test",
         "Acceptance": "the required command succeeds",
         "Execution recommendation": "Claude Code implementation note (advisory)",
@@ -4329,6 +4330,7 @@ def task_contract_fixture(
     touch: tuple[str, ...] = ("src/feature.js",),
     commands: tuple[str, ...] = ("M1: node test.js",),
     evidence: tuple[str, ...] = ("M1: pending",),
+    strategy: str | None = "evidence-first",
 ) -> str:
     touch_lines = "".join(f"    - {item}\n" for item in touch)
     command_lines = "".join(f"    - {item}\n" for item in commands)
@@ -4344,8 +4346,9 @@ def task_contract_fixture(
         "    - README.md\n"
         "  - Touch:\n"
         f"{touch_lines}"
-        "  - Commands:\n"
-        f"{command_lines}"
+        + (f"  - Verification Strategy: {strategy}\n" if strategy else "")
+        + "  - Commands:\n"
+        + f"{command_lines}"
         "  - Acceptance:\n"
         "    - Public behavior passes.\n"
         "  - Autonomy boundary:\n"
@@ -10228,7 +10231,10 @@ def validate_absent_verification_form_is_one_problem_scenario() -> int:
         "    - src/feature.js\n"
     )
     evidence = "  - Evidence:\n    - M1: pending\n"
-    commands = "  - Commands:\n    - M1: node test.js\n"
+    commands = (
+        "  - Verification Strategy: evidence-first\n"
+        "  - Commands:\n    - M1: node test.js\n"
+    )
 
     with tempfile.TemporaryDirectory(prefix="keel-absent-verification-") as raw:
         repo = Path(raw)
@@ -10855,6 +10861,7 @@ def tracker_owner_tasks(findings: str, closure: str) -> str:
         "    - README.md\n"
         "  - Touch:\n"
         "    - src/feature.js\n"
+        "  - Verification Strategy: evidence-first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -11255,6 +11262,7 @@ def review_extent_tasks(review: str, blocker: str = "none") -> str:
         "    - README.md\n"
         "  - Touch:\n"
         "    - src/feature.js\n"
+        "  - Verification Strategy: evidence-first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -11524,6 +11532,7 @@ def reauthorizations_tasks(reauthorizations: str, blocker: str = "none") -> str:
         "    - README.md\n"
         "  - Touch:\n"
         "    - src/feature.js\n"
+        "  - Verification Strategy: evidence-first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -12655,6 +12664,7 @@ def validate_core_gates_scenario() -> int:
             "  - Touch:\n"
             "    - src/feature.js\n"
             "    - openspec/changes/demo/tasks.md\n"
+            "  - Verification Strategy: evidence-first\n"
             "  - Commands:\n"
             "    - M1: node test.js\n"
             "  - Acceptance:\n"
@@ -12805,6 +12815,7 @@ def validate_core_gates_scenario() -> int:
                 "  - Touch:\n"
                 "    - src/feature.js\n"
                 "    - openspec/changes/demo/tasks.md\n"
+                "  - Verification Strategy: evidence-first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13298,6 +13309,7 @@ def validate_core_gates_scenario() -> int:
                 "  - Touch:\n"
                 + touch
                 + "    - openspec/changes/demo/tasks.md\n"
+                "  - Verification Strategy: evidence-first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13519,6 +13531,7 @@ def validate_core_gates_scenario() -> int:
                 "    - README.md\n"
                 "  - Touch:\n"
                 "    - src/feature.js\n"
+                "  - Verification Strategy: evidence-first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13689,6 +13702,7 @@ def validate_scope_rename_attribution_scenario() -> int:
         "    - src/renamed-from.js\n"
         "    - src/renamed-to.js\n"
         "    - openspec/changes/demo/tasks.md\n"
+        "  - Verification Strategy: evidence-first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -15865,6 +15879,7 @@ def validate_native_runtime_projection_scenario() -> int:
             "    - README.md\n"
             "  - Touch:\n"
             "    - src/feature.js\n"
+            "  - Verification Strategy: evidence-first\n"
             "  - Commands:\n"
             "    - M1: node test.js\n"
             "  - Acceptance:\n"
@@ -16457,7 +16472,7 @@ def _goal_task_block(
     title: str = "Deliver one bounded behavior",
     checked: bool = False,
     acceptance: tuple[str, ...] = ("Observable result is proven by M1.",),
-    strategy: str | None = None,
+    strategy: str | None = "evidence-first",
     filled: bool = False,
     blocker: str = "none",
     redgreen: bool = False,
@@ -24861,6 +24876,201 @@ def validate_output_survives_the_pipe_scenario() -> int:
     return 0
 
 
+# A helper the strategy scenarios share. The task body is written out rather
+# than reusing `change_verify_task` because these scenarios need to omit fields
+# that helper always emits.
+def strategy_probe_task(
+    *,
+    strategy: str | None,
+    reason: str | None = None,
+    mode: str = "implementation",
+    form: str = "Verify",
+    commands: tuple[str, ...] = ("M1: node test.js asserts the public behavior",),
+) -> str:
+    lines = [
+        "- [ ] 1.1 Strategy probe",
+        "  - Owner: claude",
+        f"  - Mode: {mode}",
+        "  - Covers:",
+        "    - E1: the task proves its own behavior",
+        "  - Read:",
+        "    - README.md",
+        "  - Touch:",
+        "    - src/example.js",
+        f"  - {form}:",
+    ]
+    if strategy is not None:
+        label = "Strategy" if form == "Verify" else "Verification Strategy"
+        lines.append(f"    - {label}: {strategy}")
+    if reason is not None:
+        lines.append(f"    - Reason: {reason}")
+    lines.extend(f"    - {entry}" for entry in commands)
+    lines.extend(
+        [
+            "  - Acceptance:",
+            "    - Public behavior passes.",
+            "  - Autonomy boundary:",
+            "    - Default: hard-stop",
+            "    - Pre-authorized fallback: none",
+            "  - Stop Rules:",
+            "    - Stop on failure.",
+            "  - Evidence:",
+            "    - Contract: pending",
+        ]
+    )
+    lines.extend(
+        f"    - {entry.split(':', 1)[0].split(' ')[0]}: pending" for entry in commands
+    )
+    lines.extend(
+        [
+            "    - Review:",
+            "      - Status: pass",
+            "      - Acceptance check: behavior proven.",
+            "      - Scope check: writes stayed inside Touch.",
+            "      - Findings: none",
+            "    - Blocker: none",
+            "  - Stop if:",
+            "    - Requires files outside Touch.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def strategy_probe_start(root: Path, name: str, task: str) -> dict:
+    repo = root / name
+    write_gate_fixture(repo, tasks=task)
+    result = run_keel(
+        repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+    )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"status": "unparsed", "problems": [{"message": result.stdout[:400]}]}
+
+
+def problem_text(payload: dict) -> str:
+    return " ".join(
+        str(entry.get("message", "")) for entry in (payload.get("problems") or [])
+    )
+
+
+def problem_codes(payload: dict) -> list[str]:
+    return [str(entry.get("code", "")) for entry in (payload.get("problems") or [])]
+
+
+# The strategy was the one capsule field the compiler supplied from a value no
+# spec documents as a default — and it supplied the weakest of the six, so
+# omitting the line was how a task opted out of red-green.
+def validate_strategy_is_declared_scenario() -> int:
+    label = "a-strategy-is-declared"
+    with tempfile.TemporaryDirectory(prefix="keel-strategy-") as raw:
+        root = Path(raw)
+
+        missing = strategy_probe_start(
+            root, "missing", strategy_probe_task(strategy=None)
+        )
+        if missing.get("status") != "fail":
+            report(
+                f"{label}: a task declaring Verify with no Strategy was not "
+                f"refused; task-start returned {missing.get('status')!r}."
+            )
+            return 1
+        text = problem_text(missing)
+        for needed in ("vertical-tdd", "evidence-first", "strategy"):
+            if needed not in text:
+                report(
+                    f"{label}: the refusal for a missing strategy omits "
+                    f"{needed!r}; got {text!r}."
+                )
+                return 1
+        # The failure this change exists to remove: reporting the task as using
+        # a strategy it never named.
+        if "unsupported" in text:
+            report(
+                f"{label}: a missing strategy was reported as an unsupported "
+                f"one, which sends the reader looking for a typo; got {text!r}."
+            )
+            return 1
+        if "missing-verification-strategy" not in problem_codes(missing):
+            report(
+                f"{label}: the refusal for a missing strategy carries no "
+                f"missing-verification-strategy code; got "
+                f"{problem_codes(missing)!r}."
+            )
+            return 1
+
+        legacy = strategy_probe_start(
+            root,
+            "legacy",
+            strategy_probe_task(strategy=None, form="Commands"),
+        )
+        if legacy.get("status") != "fail":
+            report(
+                f"{label}: an expanded v3 task declaring Commands with no "
+                "Verification Strategy was not refused; task-start returned "
+                f"{legacy.get('status')!r}."
+            )
+            return 1
+
+        for strategy in (
+            "vertical-tdd",
+            "regression-first",
+            "characterization",
+            "snapshot-characterization",
+            "rendered-behavior",
+        ):
+            declared = strategy_probe_start(
+                root, f"ok-{strategy}", strategy_probe_task(strategy=strategy)
+            )
+            if declared.get("status") != "pass":
+                report(
+                    f"{label}: a task declaring {strategy} was refused; "
+                    f"{problem_text(declared)!r}."
+                )
+                return 1
+
+        unsupported = strategy_probe_start(
+            root, "unsupported", strategy_probe_task(strategy="made-up-thing")
+        )
+        if unsupported.get("status") != "fail":
+            report(
+                f"{label}: an unsupported strategy was not refused; task-start "
+                f"returned {unsupported.get('status')!r}."
+            )
+            return 1
+        if "unsupported" not in problem_text(unsupported):
+            report(
+                f"{label}: an unsupported strategy lost its own diagnostic; "
+                f"got {problem_text(unsupported)!r}."
+            )
+            return 1
+
+        # A task declaring no verification form at all is already reported once,
+        # as the one field it is missing. Restating it as a missing strategy is
+        # the cascade this repository has removed before.
+        formless = strategy_probe_start(
+            root,
+            "formless",
+            strategy_probe_task(strategy=None).replace("  - Verify:\n", ""),
+        )
+        codes = problem_codes(formless)
+        if "missing-verification-strategy" in codes:
+            report(
+                f"{label}: a task declaring no verification form was also told "
+                f"its strategy is missing; codes {codes!r}."
+            )
+            return 1
+        if codes != ["missing-verification-form"]:
+            report(
+                f"{label}: a task declaring no verification form should be "
+                f"reported once, as that; got codes {codes!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -25092,6 +25302,7 @@ SCENARIOS: tuple = (
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
     ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
+    ("a-strategy-is-declared", validate_strategy_is_declared_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,

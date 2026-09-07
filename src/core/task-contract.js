@@ -202,11 +202,16 @@ function verification(task) {
   });
   return {
     compact: compact.length > 0,
+    // No default. The strategy is not among the defaults the capsule inherits,
+    // and the value this once fell back to — `evidence-first` — is the one
+    // strategy with no red-green requirement, so omitting the line was how a
+    // task opted out of red-green with nothing on screen saying so. An absent
+    // strategy is now reported rather than chosen.
     strategy: normalizeText(
       strategyEntry
         ? strategyEntry.replace(/^Strategy:\s*/i, "")
         : field(task, "Verification Strategy")
-    ) || "evidence-first",
+    ),
     commands,
   };
 }
@@ -920,7 +925,24 @@ function compileTaskContract(repo, change, task) {
       });
     }
   }
-  if (
+  // A task that declared no verification form at all is reported once, by
+  // requiredFieldProblems, as the one field it is missing. Telling it its
+  // strategy is missing too is the cascade that buries the actionable line.
+  const declaredVerificationForm =
+    fieldValues(task, "Verify").length > 0
+    || fieldValues(task, "Commands").length > 0;
+  if (!taskVerification.strategy) {
+    if (declaredVerificationForm) {
+      resolved.diagnostics.push({
+        code: "missing-verification-strategy",
+        message:
+          "Verification strategy is missing; a task that declares checks "
+          + "declares the strategy that governs them, because none is "
+          + "supplied by default. Supported: "
+          + `${SUPPORTED_VERIFICATION_STRATEGIES.join(", ")}.`,
+      });
+    }
+  } else if (
     !SUPPORTED_VERIFICATION_STRATEGIES.includes(
       taskVerification.strategy.toLowerCase()
     )
