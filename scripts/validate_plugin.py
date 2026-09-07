@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.47.0"
-PROTOCOL_VERSION = "5.47.0"
+PACKAGE_VERSION = "5.48.0"
+PROTOCOL_VERSION = "5.48.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24597,6 +24597,129 @@ def validate_doctor_openspec_honesty_scenario() -> int:
     return 0
 
 
+# The marker's `version=` attribute is written by the installer and, before this
+# scenario, read back by nothing that runs locally: both marker parsers match
+# `keel:start(?:\s+[^>]*)?` and discard the attributes. The only reader was the
+# plugin's SessionStart hook, whose activation doctor itself reports as manual.
+def validate_marker_version_is_read_scenario() -> int:
+    def doctor_protocol_line(repo: Path) -> tuple[str, int]:
+        result = run_keel(repo, "--doctor")
+        line = next(
+            (
+                entry
+                for entry in result.stdout.splitlines()
+                if entry.startswith("protocol:")
+            ),
+            "",
+        )
+        return line, result.returncode
+
+    def write_repo(root: Path, name: str, marker: str | None) -> Path:
+        repo = root / name
+        repo.mkdir()
+        body = "# Agents\n\nSession Start.\n"
+        (repo / "AGENTS.md").write_text(
+            f"{marker}\n{body}" if marker is not None else body,
+            encoding="utf-8",
+        )
+        return repo
+
+    with tempfile.TemporaryDirectory(prefix="keel-marker-version-") as raw:
+        root = Path(raw)
+
+        behind = write_repo(root, "behind", "<!-- keel:start version=5.14.0 -->")
+        line, behind_code = doctor_protocol_line(behind)
+        if not line.startswith("protocol: warning"):
+            report(
+                "the-marker-version-is-read scenario: a repository declaring an "
+                f"older protocol did not warn; got {line!r}."
+            )
+            return 1
+        for needed in ("5.14.0", PACKAGE_VERSION, "keel --init"):
+            if needed not in line:
+                report(
+                    "the-marker-version-is-read scenario: the behind-repository "
+                    f"warning omits {needed!r}; got {line!r}."
+                )
+                return 1
+        if "repository" not in line:
+            report(
+                "the-marker-version-is-read scenario: the warning does not name "
+                f"the repository as the term that is behind; got {line!r}."
+            )
+            return 1
+
+        ahead = write_repo(root, "ahead", "<!-- keel:start version=9.99.0 -->")
+        line, _ = doctor_protocol_line(ahead)
+        if not line.startswith("protocol: warning"):
+            report(
+                "the-marker-version-is-read scenario: a repository declaring a "
+                f"newer protocol did not warn; got {line!r}."
+            )
+            return 1
+        for needed in ("9.99.0", PACKAGE_VERSION, "install"):
+            if needed not in line:
+                report(
+                    "the-marker-version-is-read scenario: the ahead-repository "
+                    f"warning omits {needed!r}; got {line!r}."
+                )
+                return 1
+        if "keel --init" in line:
+            report(
+                "the-marker-version-is-read scenario: a repository ahead of its "
+                f"install was told to re-run keel --init; got {line!r}."
+            )
+            return 1
+
+        agreed = write_repo(
+            root, "agreed", f"<!-- keel:start version={PACKAGE_VERSION} -->"
+        )
+        line, agreed_code = doctor_protocol_line(agreed)
+        if not line.startswith("protocol: ok"):
+            report(
+                "the-marker-version-is-read scenario: agreeing versions did not "
+                f"report ok; got {line!r}."
+            )
+            return 1
+        if line.count(PACKAGE_VERSION) < 2:
+            report(
+                "the-marker-version-is-read scenario: the agreeing line does not "
+                f"print both versions; got {line!r}."
+            )
+            return 1
+
+        # D2: drift is a warning and nothing else. A line that could turn a
+        # pipeline red on release day is a line users switch off.
+        if behind_code != agreed_code:
+            report(
+                "the-marker-version-is-read scenario: drift changed doctor's "
+                f"exit code ({behind_code} vs {agreed_code})."
+            )
+            return 1
+
+        for name, marker in (
+            ("undeclared", None),
+            ("attributeless", "<!-- keel:start -->"),
+        ):
+            repo = write_repo(root, name, marker)
+            line, _ = doctor_protocol_line(repo)
+            if not line.startswith("protocol: not comparable"):
+                report(
+                    f"the-marker-version-is-read scenario: the {name} repository "
+                    f"did not report `not comparable`; got {line!r}."
+                )
+                return 1
+            if "declares" not in line:
+                report(
+                    f"the-marker-version-is-read scenario: the {name} repository "
+                    f"was not told which term is missing; got {line!r}."
+                )
+                return 1
+
+    report("the-marker-version-is-read scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -24826,6 +24949,7 @@ SCENARIOS: tuple = (
     ),
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
+    ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
