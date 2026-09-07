@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.52.0 - drift names where to look
+
+- **A contract fingerprint hard-stop said only that the value moved** (part of issue #115): two sha-256 values and a full stop, handed to an author holding a `tasks.md` they have been writing Evidence into all session and a change directory of several files. It now names the authority sources the capsule resolved its text from, and states that Evidence, Review, and the task checkbox are not covered. (keel-stateless-continuity)
+- **The old message produced a wrong record in this repository.** The 5.42.0 archive states its anchor moved because of "an edit inside the Review, which the compiled capsule covers". A controlled experiment against the real gates measures the opposite: editing Review `Findings` leaves the fingerprint unchanged; editing the text of a `design.md` statement the task's `Covers` cites changes it. That correction is appended to the archived record rather than rewritten over it, so the wrong sentence stays visible beside what replaced it.
+- **The search set was already free and was not being reported.** Every compiled authority entry carries the `source` its text was resolved from, so the files whose content can move this fingerprint are known at the moment the drift is reported. `proposal.md` is read for context and contributes no authority text, so it is not listed — the message is an authority set, not a directory listing.
+- **It names where to look and never what changed.** Only the previous fingerprint is retained, not the capsule behind it, so the field that moved cannot be computed. Reconstructing one from Git would answer for the last commit rather than for the moment of `task-start`, and a message naming the wrong field is worse than one naming a search set. The published spec already said which inputs drift a contract; the diagnostic simply did not carry it.
+- Nothing about what the fingerprint covers, when drift is detected, or that drift blocks was changed, and the scenario asserts the hard stop from both sides.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.52.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.51.0 - a quoted marker is not a disposition
 
 - **One quoted mention of a disposition marker eclipsed every real disposition in the block** (part of issue #114). `Review Findings` is free prose by design, and in a repository whose subject is the protocol that prose names the markers themselves. A finding recording `Durable owner: https://…` while discussing the resolution marker in backticks was refused with `finding-resolution-evidence` — a diagnostic about a disposition the block does not have. The resolution scan matches globally and the caller stops at the first claim it cannot resolve, so the quotation is reached before the real disposition and the real one is never read. (keel-core-gates)

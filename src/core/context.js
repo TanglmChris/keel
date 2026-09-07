@@ -85,6 +85,32 @@ function taskHasCompletionEvidence(record, contract) {
   );
 }
 
+// Two hashes and nothing to search was the whole message, and it produced a
+// wrong record here: an anchor that moved was written up as a Review edit,
+// which is measurably not covered at all. The capsule already knows the answer
+// — every authority entry carries the source its text was resolved from — so
+// the search set is free. What is not free is the field that moved: only the
+// previous fingerprint is retained, not the capsule behind it, so this names
+// where to look and never what changed.
+function driftSearchSet(contract) {
+  const sources = [
+    ...new Set(
+      (contract.capsule.authority || [])
+        .map((entry) => String(entry.source || "").split("#")[0])
+        .filter(Boolean)
+    ),
+  ];
+  const where = sources.length > 0
+    ? `The fingerprint covers text resolved from: ${sources.join(", ")}.`
+    : "The fingerprint covers this task's own resolved authority text.";
+  return (
+    `${where} Evidence, Review, and the task checkbox are not covered — `
+    + "editing them does not move it. Reauthorize by re-running "
+    + "`keel gate task-start` and recording the new anchor, after confirming "
+    + "the change to the authority above was intended."
+  );
+}
+
 function taskSelection(repo, change, record, source, requestedAction = null) {
   const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
   const contract = compileTaskContract(repo, change, record);
@@ -100,7 +126,8 @@ function taskSelection(repo, change, record, source, requestedAction = null) {
   if (anchor && anchor !== contract.fingerprint.value) {
     return blocked(
       `Task contract fingerprint drift for ${change}#${record.id}: recorded `
-        + `sha256:${anchor}, current sha256:${contract.fingerprint.value}.`,
+        + `sha256:${anchor}, current sha256:${contract.fingerprint.value}. `
+        + `${driftSearchSet(contract)}`,
       [relativePath(repo, tasksPath)]
     );
   }
