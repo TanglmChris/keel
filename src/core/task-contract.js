@@ -175,8 +175,16 @@ function isPassingReviewStatus(value) {
 function verification(task) {
   const compact = fieldValues(task, "Verify");
   const strategyEntry = compact.find((entry) => /^Strategy:\s*/i.test(entry));
+  // `evidence-first` is the one strategy scoped by an absence — work that
+  // cannot use a meaningful red-green loop — so the task states why. It is a
+  // field beside `Strategy:`, not a check: everything else under `Verify` is a
+  // command, and a reason that took an `M<n>` label would be a check the author
+  // never wrote and evidence nobody can record.
+  const reasonEntry = compact.find((entry) => /^Reason:\s*/i.test(entry));
+  const isVerificationField = (entry) =>
+    /^Strategy:\s*/i.test(entry) || /^Reason:\s*/i.test(entry);
   const commandSource = compact.length > 0
-    ? compact.filter((entry) => !/^Strategy:\s*/i.test(entry))
+    ? compact.filter((entry) => !isVerificationField(entry))
     : fieldValues(task, "Commands");
   const commands = commandSource.map((entry) => {
     // An optional tag set after the M<n> label. `fast`/`full` marks which checks
@@ -211,6 +219,11 @@ function verification(task) {
       strategyEntry
         ? strategyEntry.replace(/^Strategy:\s*/i, "")
         : field(task, "Verification Strategy")
+    ),
+    reason: normalizeText(
+      reasonEntry
+        ? reasonEntry.replace(/^Reason:\s*/i, "")
+        : field(task, "Verification Reason")
     ),
     commands,
   };
@@ -953,6 +966,22 @@ function compileTaskContract(repo, change, task) {
         `Verification strategy is unsupported: ${taskVerification.strategy}; `
         + `supported: ${SUPPORTED_VERIFICATION_STRATEGIES.join(", ")}.`,
     });
+  } else if (
+    taskVerification.strategy.toLowerCase() === "evidence-first"
+    && !isConcrete(taskVerification.reason)
+  ) {
+    // Presence and concreteness, never truth — the contract `Discard reason:`
+    // already has. No mode exempts a task from stating it: an exemption keyed
+    // on a field the same author writes is a second escape hatch.
+    resolved.diagnostics.push({
+      code: "missing-evidence-first-reason",
+      message:
+        "evidence-first states why a meaningful red-green loop does not "
+        + "apply. Add a `Reason:` entry beside `Strategy:` saying what makes "
+        + "this task non-behavioral — docs, configuration, diagnosis, or "
+        + "another reason nothing here can fail first. A red-green strategy "
+        + "needs no reason.",
+    });
   }
   const couplingMode = normalizeText(field(task, "Coupling")).toLowerCase()
     || "none";
@@ -1070,6 +1099,10 @@ function compileTaskContract(repo, change, task) {
     acceptance: [...new Set([...derivedAcceptance, ...explicitAcceptance])],
     verification: {
       strategy: taskVerification.strategy,
+      // Emitted only when the strategy is the one that requires it, so every
+      // other task keeps the capsule shape and fingerprint it had before the
+      // field existed.
+      ...(taskVerification.reason ? { reason: taskVerification.reason } : {}),
       // Emit a tag only when the check opts out of a default, so an untagged
       // check keeps the capsule shape and fingerprint it had before either tag
       // existed. `layer` appears only for `fast`, `regression` only when true.
