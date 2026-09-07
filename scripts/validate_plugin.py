@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.49.0"
-PROTOCOL_VERSION = "5.49.0"
+PACKAGE_VERSION = "5.50.0"
+PROTOCOL_VERSION = "5.50.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3378,6 +3378,7 @@ def gate_task(
         "Read": "\n    - openspec/changes/demo/proposal.md",
         "Touch": "\n    - src/example.js",
         "Verification Strategy": "evidence-first",
+        "Verification Reason": "this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first",
         "Commands": "\n    - M1: npm test",
         "Acceptance": "the required command succeeds",
         "Execution recommendation": "Claude Code implementation note (advisory)",
@@ -4347,6 +4348,8 @@ def task_contract_fixture(
         "  - Touch:\n"
         f"{touch_lines}"
         + (f"  - Verification Strategy: {strategy}\n" if strategy else "")
+        + (f"  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
+           if strategy == "evidence-first" else "")
         + "  - Commands:\n"
         + f"{command_lines}"
         "  - Acceptance:\n"
@@ -4558,6 +4561,7 @@ def section_boundary_task(
         f"{touch}"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js reports the public behavior passing\n"
         "  - Acceptance:\n"
         "    - Public behavior passes.\n"
@@ -7094,6 +7098,7 @@ def task_capsule_expanded_fixture() -> str:
     ).replace(
         "  - Acceptance:\n",
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Acceptance:\n",
     )
 
@@ -7110,6 +7115,7 @@ def task_capsule_compact_fixture() -> str:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js\n"
         "  - Autonomy boundary:\n"
         "    - Default: hard-stop\n"
@@ -7229,7 +7235,7 @@ def validate_non_concrete_verify_diagnostic_scenario() -> int:
         # absent-verification-form-is-one-problem scenario.
         bare = task_capsule_compact_fixture()
         for block in (
-            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n",
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n    - M1: node test.js\n",
         ):
             bare = bare.replace(block, "")
         write_text(repo / "openspec/changes/bare/tasks.md", bare)
@@ -7741,7 +7747,11 @@ SPEC_TEMPLATE_RELATIVE = "schemas/keel-spec-driven/templates/spec.md"
 
 
 SLOT_FILLER = "the recorded feed status"
-SLOT_VOCABULARY = {"<strategy>": "evidence-first"}
+# The filler must be a strategy the generic task can use as written.
+# `evidence-first` no longer is: it carries a `Reason:` the generic task
+# has no slot for, and giving it one would put a line there that is wrong
+# for every other strategy the slot can take.
+SLOT_VOCABULARY = {"<strategy>": "vertical-tdd"}
 
 
 def fill_template_slots(text: str) -> str:
@@ -7818,7 +7828,7 @@ def validate_guard_scope_is_the_repository_scenario() -> int:
             "- [ ] 1.1 Exercise the guard\n"
             "  - Covers:\n    - demo-cap / The system emits a feed status\n"
             "  - Touch:\n    - src/feature.js\n"
-            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n    - M1: node test.js\n"
             "  - Evidence:\n    - Contract: pending\n    - M1: pending\n"
             "    - Review:\n      - Status: pending\n"
             "      - Acceptance check: pending\n      - Scope check: pending\n"
@@ -8729,7 +8739,7 @@ def validate_default_completion_attributes_writes_scenario() -> int:
             "- [ ] 1.1 Exercise task contract\n"
             "  - Covers:\n    - E1: Public behavior passes.\n"
             "  - Touch:\n    - src/declared.js\n"
-            "  - Verify:\n    - Strategy: evidence-first\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n    - Contract: pending\n    - M1: the suite passed\n"
             "    - Review:\n      - Status: pass\n"
@@ -8927,7 +8937,7 @@ def validate_git_paths_carry_no_escaping_scenario() -> int:
             "  - Covers:\n    - E1: Public behavior passes.\n"
             "  - Touch:\n"
             f"{touch_lines}"
-            "  - Verify:\n    - Strategy: evidence-first\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n    - Contract: pending\n    - M1: the suite passed\n"
             "    - Review:\n      - Status: pass\n"
@@ -9141,7 +9151,7 @@ def validate_guard_containment_is_resolved_scenario() -> int:
             "- [ ] 1.1 Exercise the guard\n"
             "  - Covers:\n    - demo-cap / The system emits a feed status\n"
             "  - Touch:\n    - src/allowed.js\n    - docs/**\n"
-            "  - Verify:\n    - Strategy: evidence-first\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n    - Contract: pending\n    - M1: pending\n",
         )
@@ -9271,6 +9281,7 @@ def validate_completion_requires_a_recorded_anchor_scenario() -> int:
             "    - src/feature.js\n"
             "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n"
             f"    - Contract: {contract}\n"
@@ -9431,6 +9442,7 @@ def _anchor_fixture(
         f"    - {touch}\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js asserts the recorded feed status\n"
         "  - Evidence:\n"
         f"    - Contract: {contract}\n"
@@ -9721,6 +9733,7 @@ def validate_task_body_ends_at_heading_scenario() -> int:
             "    - src/feature.js\n"
             "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n"
             f"    - Contract: {contract}\n"
@@ -9838,9 +9851,17 @@ def validate_task_body_ends_at_heading_scenario() -> int:
         # rather than merely measured, so a future extent change cannot move one
         # silently. A deliberate capsule-shape change will fail here too — that
         # is the point; it should be looked at, not absorbed.
+        #
+        # Moved once, deliberately, when `evidence-first` began requiring a
+        # stated reason: this fixture gained a `Verification Reason:` field, so
+        # its own capsule changed. What did not change is the capsule of a task
+        # that states no reason — the `reason` key is emitted only when there is
+        # one, and a vertical-tdd task compiles to the identical block and the
+        # identical fingerprint before and after, measured both ways. So no
+        # existing anchor drifted; this fixture is simply a different task now.
         pinned = {
-            "1.1": "2f723a8778160a2d51cd91e34255bf19f2c654fa23cdcd7b013915727a541d17",
-            "2.1": "5e0481362b06992d0317c91d34bbd5d6746fb9c1fee47566060f61fbba7cbf05",
+            "1.1": "11110c1cdde55df1008c6a2bd9f6bde2bffa286a34ae93addb9cf66fc1e5b90f",
+            "2.1": "62f7dfaec87e0614dae7e4935ce1749554f141a23518b094632eb8423e96d54c",
         }
         plain = (
             "# Tasks\n\n"
@@ -10096,6 +10117,7 @@ def validate_task_complete_selection_requires_a_started_task_scenario() -> int:
             "    - src/feature.js\n"
             "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js\n"
             "  - Evidence:\n"
             f"    - Contract: {contract}\n"
@@ -10233,6 +10255,7 @@ def validate_absent_verification_form_is_one_problem_scenario() -> int:
     evidence = "  - Evidence:\n    - M1: pending\n"
     commands = (
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Commands:\n    - M1: node test.js\n"
     )
 
@@ -10569,7 +10592,7 @@ def validate_unusable_contract_names_only_its_cause_scenario() -> int:
         # 6. Suppression must not hide a task that genuinely declares no
         #    verification form. The refusal names the compact field to add.
         noform = clean.replace(
-            "  - Verify:\n    - Strategy: evidence-first\n    - M1: node test.js\n",
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n    - M1: node test.js\n",
             "",
         )
         write_text(repo / "openspec/changes/noform/tasks.md", noform)
@@ -10862,6 +10885,7 @@ def tracker_owner_tasks(findings: str, closure: str) -> str:
         "  - Touch:\n"
         "    - src/feature.js\n"
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -11263,6 +11287,7 @@ def review_extent_tasks(review: str, blocker: str = "none") -> str:
         "  - Touch:\n"
         "    - src/feature.js\n"
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -11533,6 +11558,7 @@ def reauthorizations_tasks(reauthorizations: str, blocker: str = "none") -> str:
         "  - Touch:\n"
         "    - src/feature.js\n"
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -12665,6 +12691,7 @@ def validate_core_gates_scenario() -> int:
             "    - src/feature.js\n"
             "    - openspec/changes/demo/tasks.md\n"
             "  - Verification Strategy: evidence-first\n"
+            "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "  - Commands:\n"
             "    - M1: node test.js\n"
             "  - Acceptance:\n"
@@ -12816,6 +12843,7 @@ def validate_core_gates_scenario() -> int:
                 "    - src/feature.js\n"
                 "    - openspec/changes/demo/tasks.md\n"
                 "  - Verification Strategy: evidence-first\n"
+                "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13310,6 +13338,7 @@ def validate_core_gates_scenario() -> int:
                 + touch
                 + "    - openspec/changes/demo/tasks.md\n"
                 "  - Verification Strategy: evidence-first\n"
+                "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13532,6 +13561,7 @@ def validate_core_gates_scenario() -> int:
                 "  - Touch:\n"
                 "    - src/feature.js\n"
                 "  - Verification Strategy: evidence-first\n"
+                "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
                 "  - Commands:\n"
                 "    - M1: node test.js\n"
                 "  - Acceptance:\n"
@@ -13703,6 +13733,7 @@ def validate_scope_rename_attribution_scenario() -> int:
         "    - src/renamed-to.js\n"
         "    - openspec/changes/demo/tasks.md\n"
         "  - Verification Strategy: evidence-first\n"
+        "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "  - Commands:\n"
         "    - M1: node test.js\n"
         "  - Acceptance:\n"
@@ -15880,6 +15911,7 @@ def validate_native_runtime_projection_scenario() -> int:
             "  - Touch:\n"
             "    - src/feature.js\n"
             "  - Verification Strategy: evidence-first\n"
+            "  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "  - Commands:\n"
             "    - M1: node test.js\n"
             "  - Acceptance:\n"
@@ -16491,6 +16523,8 @@ def _goal_task_block(
     ]
     if strategy:
         lines.append("  - Verification Strategy: %s" % strategy)
+        if strategy == "evidence-first":
+            lines.append("  - Verification Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first")
     lines.append("  - Commands:")
     lines.append("    - M1: node test.js")
     lines.append("  - Acceptance:")
@@ -17116,6 +17150,7 @@ def standing_authorization_task(boundary: str = "") -> str:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         + boundary
         + "  - Evidence:\n"
@@ -18111,6 +18146,7 @@ def validate_delegation_never_weakens_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -18384,6 +18420,7 @@ def validate_delegation_goal_budget_scenario() -> int:
             + padding
             + "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js proves the public behavior\n"
             "  - Evidence:\n"
             "    - Contract: pending\n"
@@ -18953,6 +18990,7 @@ def validate_triage_admits_only_a_start_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -19215,6 +19253,7 @@ def validate_precedent_never_weakens_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -19338,6 +19377,7 @@ def validate_standing_authorization_never_weakens_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -19496,6 +19536,7 @@ def validate_continuation_authorization_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js proves the public behavior\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -19940,6 +19981,7 @@ def validate_verify_layer_tag_scenario() -> int:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1 (fast): node fast.js\n"
         "    - M2: node full.js\n"
         "  - Autonomy boundary:\n"
@@ -21349,6 +21391,7 @@ def guard_task_fixture(checked: bool = False) -> str:
         "    - docs/**\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js\n"
         "  - Evidence:\n"
         "    - M1: pending\n"
@@ -21448,6 +21491,7 @@ def record_layer_tasks(checked: bool = False, touch: str = "src/feature.js") -> 
         f"    - {touch}\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js\n"
         "  - Evidence:\n"
         "    - M1: pending\n"
@@ -21465,6 +21509,7 @@ def mode_fixture_tasks(mode: str, touch: str) -> str:
         f"    - {touch}\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: git rev-parse HEAD resolves and git log reports one commit\n"
         "  - Evidence:\n"
         "    - Contract: pending\n"
@@ -21586,6 +21631,7 @@ def sibling_scope_tasks(sibling_checked: bool, sibling_touch: str) -> str:
             + "".join(f"    - {entry}\n" for entry in touch.split(","))
             + "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js\n"
             "  - Evidence:\n"
             "    - M1: verified\n"
@@ -22197,6 +22243,7 @@ def validate_touch_write_guard_scenario() -> int:
             "    - src/other.js\n"
             "  - Verify:\n"
             "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js\n"
             "  - Evidence:\n"
             "    - M1: pending\n"
@@ -22287,6 +22334,7 @@ def compaction_task_fixture() -> str:
         "    - src/feature.js\n"
         "  - Verify:\n"
         "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
         "    - M1: node test.js\n"
         "  - Evidence:\n"
         "    - Contract: sha256:"
@@ -23584,7 +23632,7 @@ def validate_declared_paths_are_read_whole_scenario() -> int:
             "- [x] 1.1 Exercise the declared-path readers\n"
             "  - Covers:\n    - E1: Public behavior passes.\n"
             "  - Touch:\n    - src/declared.js\n"
-            "  - Verify:\n    - Strategy: evidence-first\n"
+            "  - Verify:\n    - Strategy: evidence-first\n    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
             "    - M1: node test.js asserts the recorded feed status\n"
             "  - Evidence:\n"
             "    - Contract: keel-task-capsule/v1 sha256:"
@@ -25071,6 +25119,109 @@ def validate_strategy_is_declared_scenario() -> int:
     return 0
 
 
+# `evidence-first` is scoped by an absence — work that cannot use a meaningful
+# red-green loop — and an absence is exactly the claim that has to be stated to
+# be reviewable. The gate checks the reason is there and is a sentence; whether
+# it is true belongs to the Review, the same contract `Discard reason:` has.
+def validate_weakest_strategy_states_its_reason_scenario() -> int:
+    label = "the-weakest-strategy-states-its-reason"
+    with tempfile.TemporaryDirectory(prefix="keel-reason-") as raw:
+        root = Path(raw)
+
+        silent = strategy_probe_start(
+            root, "silent", strategy_probe_task(strategy="evidence-first")
+        )
+        if silent.get("status") != "fail":
+            report(
+                f"{label}: an evidence-first task stating no reason was not "
+                f"refused; task-start returned {silent.get('status')!r}."
+            )
+            return 1
+        if "reason" not in problem_text(silent).lower():
+            report(
+                f"{label}: the refusal does not name the reason as what is "
+                f"missing; got {problem_text(silent)!r}."
+            )
+            return 1
+
+        for slot in ("TODO", "<why>"):
+            empty = strategy_probe_start(
+                root,
+                f"slot-{slot.strip('<>')}",
+                strategy_probe_task(strategy="evidence-first", reason=slot),
+            )
+            if empty.get("status") != "fail":
+                report(
+                    f"{label}: an evidence-first task whose reason is {slot!r} "
+                    f"was accepted; task-start returned {empty.get('status')!r}."
+                )
+                return 1
+
+        stated = strategy_probe_start(
+            root,
+            "stated",
+            strategy_probe_task(
+                strategy="evidence-first",
+                reason="this task only moves documentation; there is no "
+                "executable behavior that can fail first.",
+            ),
+        )
+        if stated.get("status") != "pass":
+            report(
+                f"{label}: an evidence-first task stating a reason was refused; "
+                f"{problem_text(stated)!r}."
+            )
+            return 1
+        verification = (
+            (stated.get("contract") or {})
+            .get("capsule", {})
+            .get("verification", {})
+        )
+        if "documentation" not in str(verification.get("reason", "")):
+            report(
+                f"{label}: the compiled capsule does not carry the stated "
+                f"reason in its verification block; got {verification!r}."
+            )
+            return 1
+        # D5: the reason is a field, not a check. A reason that took an M<n>
+        # label would be a check the author never wrote.
+        labels = [entry.get("label") for entry in verification.get("commands", [])]
+        if labels != ["M1"]:
+            report(
+                f"{label}: the reason was parsed as a check; the compiled "
+                f"checks are {labels!r}."
+            )
+            return 1
+
+        # D3: no exemption. A mode the same author writes would be a second
+        # escape hatch, and the first one is what this change closes.
+        diagnostic = strategy_probe_start(
+            root,
+            "diagnose-only",
+            strategy_probe_task(strategy="evidence-first", mode="diagnose-only"),
+        )
+        if diagnostic.get("status") != "fail":
+            report(
+                f"{label}: a diagnose-only task skipped the reason; task-start "
+                f"returned {diagnostic.get('status')!r}."
+            )
+            return 1
+
+        # D4: the requirement reaches only the strategy it is about.
+        redgreen = strategy_probe_start(
+            root, "redgreen", strategy_probe_task(strategy="vertical-tdd")
+        )
+        if redgreen.get("status") != "pass":
+            report(
+                f"{label}: a vertical-tdd task was asked for a reason; "
+                f"{problem_text(redgreen)!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -25303,6 +25454,7 @@ SCENARIOS: tuple = (
     ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
     ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
     ("a-strategy-is-declared", validate_strategy_is_declared_scenario),
+    ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,

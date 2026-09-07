@@ -21,9 +21,15 @@
   - Touch:
     - <path>
   - Verify:
-    <!-- verification discipline: Strategy is one of vertical-tdd,
-         regression-first, characterization, snapshot-characterization,
-         rendered-behavior, or evidence-first. Each M<n> check must prove the
+    <!-- verification discipline: Strategy is REQUIRED and is one of
+         vertical-tdd, regression-first, characterization,
+         snapshot-characterization, rendered-behavior, or evidence-first.
+         Nothing is supplied by default, because the value an omission
+         would select is the one with no red-green requirement.
+         evidence-first additionally carries a `Reason:` entry beside
+         Strategy, stating why no meaningful red-green loop applies —
+         docs, configuration, diagnosis, or another reason nothing here
+         can fail first. No mode exempts it. Each M<n> check must prove the
          resolved Acceptance through the public interface, not build-only or
          shape-only evidence. Red-green strategies record per-label `.red` and
          `.green` Evidence entries IN ADDITION TO the bare `M<n>` entry, which
@@ -78,6 +84,7 @@
     - none
   - Verify:
     - Strategy: evidence-first
+    - Reason: <why no meaningful red-green loop applies — a diagnosis task reproduces and reports, so nothing it writes can fail first>
     - M1: <reproduction or diagnosis check with its observable evidence>
   - Evidence:
     - Contract: pending
