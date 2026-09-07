@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.48.0"
-PROTOCOL_VERSION = "5.48.0"
+PACKAGE_VERSION = "5.49.0"
+PROTOCOL_VERSION = "5.49.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24720,6 +24720,147 @@ def validate_marker_version_is_read_scenario() -> int:
     return 0
 
 
+# `process.exit()` discards whatever Node has not flushed, and stdout to a pipe
+# is asynchronous. Whether anything is lost depends only on whether the payload
+# fit the pipe buffer — so at the 64KB default nothing is ever lost, and under
+# the memory pressure that shrinks buffers to a page or two, output is lost
+# silently. Waiting for that condition is not a test; this scenario creates it.
+def validate_output_survives_the_pipe_scenario() -> int:
+    label = "output-survives-the-pipe"
+    F_SETPIPE_SZ = 1031
+    try:
+        import fcntl
+        import time
+    except ImportError:
+        return skip_scenario(
+            label,
+            "fcntl is unavailable, so the pipe buffer cannot be shrunk and the "
+            "truncation cannot be forced rather than waited for",
+        )
+
+    def goal_task(acceptance_padding: int) -> str:
+        huge = ("Acceptance " + ("A" * acceptance_padding) + " is proven by M1.",)
+        return _goal_tasks_file(
+            [_goal_task_block(acceptance=huge, strategy="vertical-tdd")]
+        )
+
+    goal_args = (
+        "project", "goal",
+        "--target", "codex",
+        "--change", "sample-change", "--task", "1.1", "--json",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-pipe-") as raw:
+        root = Path(raw)
+        repo = root / "repo"
+        write_text(repo / "openspec/changes/sample-change/proposal.md", "# P\n")
+        write_text(
+            repo / "openspec/changes/sample-change/design.md",
+            "## Context\n\nfixture\n",
+        )
+        write_text(
+            repo / "openspec/changes/sample-change/specs/demo/spec.md",
+            "## ADDED Requirements\n",
+        )
+        write_text(
+            repo / "openspec/changes/sample-change/tasks.md", goal_task(4200)
+        )
+
+        # The reference length: the same invocation with nowhere to lose bytes.
+        redirected = run_keel(repo, *goal_args)
+        if redirected.returncode != 0:
+            report(
+                f"{label}: the fixture did not produce a goal projection to "
+                f"measure against; keel exited {redirected.returncode}."
+            )
+            report((redirected.stderr or redirected.stdout).strip()[:400])
+            return 1
+        expected = redirected.stdout.encode("utf-8")
+        if len(expected) <= 4096:
+            report(
+                f"{label}: the fixture projection is {len(expected)} bytes, "
+                "which fits the shrunken pipe, so the condition this scenario "
+                "exists to force would not arise."
+            )
+            return 1
+
+        read_fd, write_fd = os.pipe()
+        try:
+            fcntl.fcntl(write_fd, F_SETPIPE_SZ, 4096)
+        except OSError as error:
+            os.close(read_fd)
+            os.close(write_fd)
+            return skip_scenario(
+                label,
+                "this platform refused F_SETPIPE_SZ "
+                f"({error}), so the pipe buffer cannot be shrunk",
+            )
+
+        child = subprocess.Popen(
+            ["node", str(ROOT / "bin" / "keel.js"), *goal_args],
+            cwd=repo,
+            stdout=write_fd,
+            stderr=subprocess.DEVNULL,
+        )
+        os.close(write_fd)
+        # Nothing is read for a moment, so the buffer fills and the rest of the
+        # write is left pending. A child that discards its pending write on exit
+        # is finished by now, having lost everything past the buffer; a child
+        # that lets the event loop drain is blocked on the write and finishes
+        # once the loop below starts reading. Reading immediately would drain
+        # fast enough to let the broken form through, which is the race this
+        # scenario exists to remove — so the pause is the forcing condition, and
+        # the child is waited for after the read rather than before it.
+        time.sleep(1.0)
+        received = b""
+        while True:
+            chunk = os.read(read_fd, 65536)
+            if not chunk:
+                break
+            received += chunk
+        os.close(read_fd)
+        child.wait(timeout=60)
+
+        if received != expected:
+            report(
+                f"{label}: {len(received)} of {len(expected)} bytes survived a "
+                "4096-byte pipe. Output written for a program to read is being "
+                "discarded at process exit, with no error and no exit-code "
+                "change — the consumer receives a valid prefix of an "
+                "incomplete document."
+            )
+            return 1
+        try:
+            json.loads(received.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            report(f"{label}: the payload that survived does not parse: {error}.")
+            return 1
+
+        # D3: the one behavioral difference a reader would worry about.
+        ok = run_keel(repo, "--version")
+        if ok.returncode != 0:
+            report(f"{label}: a successful command returned {ok.returncode}.")
+            return 1
+        refused = run_keel(
+            repo, "gate", "task-start", "--change", "no-such-change", "--task", "1.1"
+        )
+        if refused.returncode != 1:
+            report(
+                f"{label}: a refused gate returned {refused.returncode}, not 1."
+            )
+            return 1
+        invalid = run_keel(repo, "--not-a-flag")
+        if invalid.returncode != 2:
+            report(
+                f"{label}: an invalid argument returned {invalid.returncode}, "
+                "not 2."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -24950,6 +25091,7 @@ SCENARIOS: tuple = (
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
     ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
+    ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
