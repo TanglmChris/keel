@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.50.0"
-PROTOCOL_VERSION = "5.50.0"
+PACKAGE_VERSION = "5.51.0"
+PROTOCOL_VERSION = "5.51.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25222,6 +25222,185 @@ def validate_weakest_strategy_states_its_reason_scenario() -> int:
     return 0
 
 
+# A completed task fixture whose Review Findings the caller writes. Everything
+# else is the shape `task-complete` needs so that the only thing under test is
+# the Findings block.
+def findings_fixture_repo(root: Path, name: str, findings: str) -> Path:
+    repo = root / name
+    task = strategy_probe_task(strategy="vertical-tdd")
+    task = task.replace("- [ ] 1.1", "- [x] 1.1")
+    task = task.replace(
+        "    - M1: pending",
+        "    - M1: pass. node test.js reported 3 passing.\n"
+        "    - M1.red: fail, for the right reason. the assertion was absent.\n"
+        "    - M1.green: pass. node test.js reported 3 passing.",
+    )
+    task = task.replace("      - Findings: none", f"      - Findings: {findings}")
+    write_gate_fixture(repo, tasks=task)
+    started = run_keel(
+        repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+    )
+    fingerprint = json.loads(started.stdout)["contract"]["fingerprint"]["value"]
+    tasks_path = repo / "openspec/changes/demo/tasks.md"
+    tasks_path.write_text(
+        tasks_path.read_text(encoding="utf-8").replace(
+            "    - Contract: pending",
+            f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}",
+        ),
+        encoding="utf-8",
+    )
+    return repo
+
+
+def findings_completion(root: Path, name: str, findings: str) -> dict:
+    repo = findings_fixture_repo(root, name, findings)
+    result = run_keel(
+        repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
+    )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"status": "unparsed", "problems": [{"message": result.stdout[:400]}]}
+
+
+# `Findings` is free prose by design, and in a repository whose subject is the
+# protocol that prose names the markers themselves. A quoted marker was read as
+# a disposition — and because the resolution scan is global and stops at the
+# first claim it cannot resolve, one mention eclipsed every real disposition
+# beside it. 5.42.0 already decided that an inline-code span holds quoted
+# material rather than an assertion; the rule had not reached this scan.
+def validate_quoted_marker_is_not_a_disposition_scenario() -> int:
+    label = "a-quoted-marker-is-not-a-disposition"
+    tracker = "https://github.com/TanglmChris/keel/issues/114"
+    with tempfile.TemporaryDirectory(prefix="keel-quoted-marker-") as raw:
+        root = Path(raw)
+
+        owned = findings_completion(
+            root,
+            "owned",
+            "one, still open. The `Resolved here:` grammar is what this finding "
+            f"is about. Durable owner: {tracker}",
+        )
+        if owned.get("status") != "pass":
+            report(
+                f"{label}: a quoted marker eclipsed a genuine tracker owner; "
+                f"{problem_codes(owned)!r} {problem_text(owned)!r}."
+            )
+            return 1
+
+        resolved = findings_completion(
+            root,
+            "resolved",
+            "one, fixed here. The `Durable owner:` form is what this finding is "
+            "about. Resolved here: M1",
+        )
+        if resolved.get("status") != "pass":
+            report(
+                f"{label}: a quoted marker eclipsed a genuine resolution; "
+                f"{problem_codes(resolved)!r} {problem_text(resolved)!r}."
+            )
+            return 1
+
+        # Every marker, not only the one that fired.
+        for index, marker in enumerate(
+            ("Resolved here:", "Durable owner:", "Discard reason:", "Discard rationale:")
+        ):
+            only = findings_completion(
+                root,
+                f"only-{index}",
+                f"one. The `{marker}` marker is the topic of this finding, and "
+                "nothing here disposes of it.",
+            )
+            codes = problem_codes(only)
+            if only.get("status") != "fail":
+                report(
+                    f"{label}: a block whose only {marker!r} is quoted was "
+                    "accepted, so the quotation created a disposition."
+                )
+                return 1
+            if "finding-resolution-evidence" in codes:
+                report(
+                    f"{label}: a block whose only {marker!r} is quoted was "
+                    "refused as a resolution with unusable evidence; it carries "
+                    f"no disposition at all. Codes {codes!r}."
+                )
+                return 1
+            if "finding-owner" not in codes:
+                report(
+                    f"{label}: a block whose only {marker!r} is quoted did not "
+                    f"report the missing-disposition problem. Codes {codes!r}."
+                )
+                return 1
+
+        # D5: the refusal names what it read.
+        misread = findings_completion(
+            root, "misread", "one. Resolved here: thoroughly, by rewriting it."
+        )
+        if misread.get("status") != "fail":
+            report(f"{label}: a resolution naming no evidence was accepted.")
+            return 1
+        if "thoroughly" not in problem_text(misread):
+            report(
+                f"{label}: the refusal does not name the text it read as "
+                f"evidence; got {problem_text(misread)!r}."
+            )
+            return 1
+
+        # The verdicts that must not move.
+        plain = findings_completion(root, "plain", "one, fixed. Resolved here: M1")
+        if plain.get("status") != "pass":
+            report(
+                f"{label}: an ordinary resolution was refused; "
+                f"{problem_text(plain)!r}."
+            )
+            return 1
+        undeclared = findings_completion(
+            root, "undeclared", "one, fixed. Resolved here: M9"
+        )
+        if undeclared.get("status") != "fail":
+            report(
+                f"{label}: a resolution naming a check the task does not "
+                "declare was accepted."
+            )
+            return 1
+        missing_path = findings_completion(
+            root, "missing-path", "one, open. Durable owner: docs/nowhere.md"
+        )
+        if missing_path.get("status") != "fail":
+            report(
+                f"{label}: an owner naming a path that does not exist was "
+                "accepted."
+            )
+            return 1
+
+        # A disposition may legitimately wrap its value in backticks. The first
+        # draft of the blanking removed whole code spans and destroyed exactly
+        # these two forms; nothing in the suite noticed, which is why they are
+        # asserted here rather than left to the reader who happens to ask.
+        for name, findings in (
+            ("backticked-owner", "one, open. Durable owner: `keel/archive/note.md`"),
+            ("backticked-resolution", "one, fixed. Resolved here: `src/example.js`"),
+        ):
+            repo = findings_fixture_repo(root, name, findings)
+            write_text(repo / "keel/archive/note.md", "note\n")
+            write_text(repo / "src/example.js", "//\n")
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task",
+                "1.1", "--json",
+            )
+            payload = json.loads(result.stdout)
+            if payload.get("status") != "pass":
+                report(
+                    f"{label}: a disposition whose value is wrapped in "
+                    f"backticks was refused ({name}); "
+                    f"{problem_codes(payload)!r} {problem_text(payload)!r}."
+                )
+                return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -25455,6 +25634,7 @@ SCENARIOS: tuple = (
     ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
     ("a-strategy-is-declared", validate_strategy_is_declared_scenario),
     ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
+    ("a-quoted-marker-is-not-a-disposition", validate_quoted_marker_is_not_a_disposition_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
