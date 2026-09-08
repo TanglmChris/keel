@@ -9,6 +9,7 @@ const {
   ACCEPTED_REVIEW_STATUSES,
   RED_GREEN_VERIFICATION_STRATEGIES,
   compileTaskContract,
+  declaredCommandLabels,
   field,
   isConcrete,
   isPassingReviewStatus,
@@ -21,8 +22,15 @@ const GATE_STAGES = new Set(["task-start", "task-complete", "change-close"]);
 
 class GateInputError extends Error {}
 
-function problem(code, message) {
-  return { code, message };
+// `note` is the rule behind the problem rather than the problem itself. Every
+// problem carries its own copy in the JSON result, because a consumer reading
+// problems one at a time must not get a payload whose content depends on
+// position; the text renderer prints each distinct note once, because there
+// the repetition is what crowds out the specific lines. Measured on a
+// two-check task: the same 84-character sentence four times in 827 characters,
+// and it scales with the number of checks.
+function problem(code, message, note = null) {
+  return note ? { code, message, note } : { code, message };
 }
 
 function gateResult(
@@ -212,6 +220,34 @@ function anchoredFingerprint(previous) {
 // way to acknowledge a `needs-review`, so making it one would leave a
 // legitimate split unstartable. The reader is given the other task's id and
 // compares two things, rather than being told something is wrong.
+// What completion will require, said while the Evidence is still all pending.
+// The `Verify` block is complete at task-start and the obligation is a static
+// function of the strategy and the tags, so the only reason it was first heard
+// at task-complete is that nobody said it earlier — after the capsule was
+// written, the task implemented, the checks run, and the Evidence recorded.
+// A warning, never a refusal: a task whose author has not yet decided which
+// check is a regression is not malformed, it is unfinished.
+function redGreenObligation(compiled) {
+  if (!compiled || compiled.diagnostics.length > 0) return [];
+  const strategy = compiled.capsule.verification.strategy.toLowerCase();
+  if (!RED_GREEN_VERIFICATION_STRATEGIES.has(strategy)) return [];
+  const commands = compiled.capsule.verification.commands;
+  const owing = commands.filter((item) => !item.regression).map((item) => item.label);
+  const exempt = commands.filter((item) => item.regression).map((item) => item.label);
+  if (owing.length === 0) return [];
+  return [
+    `${strategy} will require concrete .red and .green Evidence at completion `
+      + `for ${owing.join(", ")}`
+      + (exempt.length > 0
+        ? `; ${exempt.join(", ")} ${exempt.length > 1 ? "are" : "is"} exempt as `
+          + "(regression)"
+        : "")
+      + ". Tag a check `(regression)` now if it asserts that something already "
+      + "green stays green, rather than discovering the obligation once the "
+      + "checks have been run.",
+  ];
+}
+
 function taskShapeWarnings(repo, selection, task, compiled) {
   if (!compiled || compiled.diagnostics.length > 0) return [];
   const strategy = compiled.capsule.verification.strategy.toLowerCase();
@@ -272,7 +308,10 @@ function taskStart(repo, options) {
     selection.change,
     [task.id],
     problems,
-    taskShapeWarnings(repo, selection, task, compiled),
+    [
+      ...redGreenObligation(compiled),
+      ...taskShapeWarnings(repo, selection, task, compiled),
+    ],
     problems.length === 0
       ? compiled
       : null
@@ -887,9 +926,13 @@ function attributeChanged(repo, task, changedList, contract, change, tasks) {
 
 function completionChecks(repo, task, contract = null, changeVerify = null, change = null) {
   const problems = [];
+  // Not the compiled capsule alone: when a check's declaration does not
+  // compile there is no capsule, and reconstructing the set from the expanded
+  // v3 `Commands` field a compact task never declares makes every reference
+  // look undeclared. The task's own declarations answer in both cases.
   const commands = contract
     ? contract.capsule.verification.commands.map((item) => item.label)
-    : commandLabels(task);
+    : declaredCommandLabels(task);
   // With no contract, the labels came from the expanded v3 `Commands` field,
   // which a compact task never declares — so their absence is a fact about the
   // fallback, not about the task. The compiler's own diagnostics are already in
@@ -926,8 +969,9 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
             problem(
               "missing-strategy-evidence",
               `${strategy} requires concrete ${label}.${phase} Evidence for `
-                + "the same behavior check. Tag the check `(regression)` if it "
-                + "asserts that something already green stays green."
+                + "the same behavior check.",
+              "Tag the check `(regression)` if it asserts that something "
+                + "already green stays green."
             )
           );
         }
@@ -1626,6 +1670,11 @@ function renderGate(result) {
         : ""),
   ];
   for (const item of result.problems) lines.push(`Problem: ${item.message}`);
+  for (const note of [
+    ...new Set(result.problems.map((item) => item.note).filter(Boolean)),
+  ]) {
+    lines.push(`Note: ${note}`);
+  }
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);
   if (result.contract) {
     lines.push(

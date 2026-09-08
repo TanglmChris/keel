@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.52.0"
-PROTOCOL_VERSION = "5.52.0"
+PACKAGE_VERSION = "5.53.0"
+PROTOCOL_VERSION = "5.53.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24945,13 +24945,20 @@ def strategy_probe_task(
         "    - README.md",
         "  - Touch:",
         "    - src/example.js",
-        f"  - {form}:",
     ]
-    if strategy is not None:
-        label = "Strategy" if form == "Verify" else "Verification Strategy"
-        lines.append(f"    - {label}: {strategy}")
-    if reason is not None:
-        lines.append(f"    - Reason: {reason}")
+    # In the expanded v3 form the strategy and its reason are task-level fields
+    # beside `Commands`, not entries inside it.
+    if form != "Verify":
+        if strategy is not None:
+            lines.append(f"  - Verification Strategy: {strategy}")
+        if reason is not None:
+            lines.append(f"  - Verification Reason: {reason}")
+    lines.append(f"  - {form}:")
+    if form == "Verify":
+        if strategy is not None:
+            lines.append(f"    - Strategy: {strategy}")
+        if reason is not None:
+            lines.append(f"    - Reason: {reason}")
     lines.extend(f"    - {entry}" for entry in commands)
     lines.extend(
         [
@@ -25516,6 +25523,295 @@ def validate_drift_names_where_to_look_scenario() -> int:
     return 0
 
 
+# Issue #112's minimal reproduction. An unfilled slot in an `M<n>` declaration
+# stopped the contract compiling, the completion path fell back to the expanded
+# v3 `Commands` field a compact task never declares, and every reference to an
+# `M<n>` was reported as naming a check the task does not declare — first, and
+# as somebody else's fault. The reporter calls it the only diagnostic in 149
+# invocations that made them edit the wrong file.
+def validate_reference_outlives_its_declaration_scenario() -> int:
+    label = "a-reference-outlives-its-declaration"
+
+    def complete(root: Path, name: str, checks, findings, form="Verify"):
+        repo = root / name
+        task = strategy_probe_task(
+            strategy="evidence-first",
+            reason="fixture; nothing here can fail first",
+            form=form,
+            commands=checks,
+        )
+        task = task.replace("- [ ] 1.1", "- [x] 1.1")
+        task = task.replace("      - Findings: none", f"      - Findings: {findings}")
+        for entry in checks:
+            lbl = entry.split(":", 1)[0].split(" ")[0]
+            task = task.replace(f"    - {lbl}: pending", f"    - {lbl}: pass. ran it.")
+        write_gate_fixture(repo, tasks=task)
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        payload = json.loads(started.stdout)
+        value = ((payload.get("contract") or {}).get("fingerprint") or {}).get(
+            "value"
+        ) or "0" * 64
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        tasks_path.write_text(
+            tasks_path.read_text(encoding="utf-8").replace(
+                "    - Contract: pending",
+                f"    - Contract: keel-task-capsule/v1 sha256:{value}",
+            ),
+            encoding="utf-8",
+        )
+        result = run_keel(
+            repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+            "--json",
+        )
+        return json.loads(result.stdout)
+
+    slotted = (
+        "M1: the first check asserts the public behavior",
+        "M2: the second check runs make sta RUN=<experiment_id> and succeeds",
+    )
+    clean = (
+        "M1: the first check asserts the public behavior",
+        "M2: the second check runs the suite and succeeds",
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-reference-") as raw:
+        root = Path(raw)
+
+        reported = complete(root, "slotted", slotted, "one. Resolved here: M2")
+        text = problem_text(reported)
+        if "<experiment_id>" not in text:
+            report(
+                f"{label}: the unfilled slot is no longer reported; {text!r}."
+            )
+            return 1
+        if "not a check this task declares" in text:
+            report(
+                f"{label}: a reference to M2 was reported as undeclared because "
+                f"M2's own declaration failed to compile; {text!r}."
+            )
+            return 1
+
+        settled = complete(root, "clean", clean, "one. Resolved here: M2")
+        if settled.get("status") != "pass":
+            report(
+                f"{label}: the same task without the slot no longer passes; "
+                f"{problem_text(settled)!r}."
+            )
+            return 1
+
+        # The set narrowed to the truth, not to everything.
+        absent = complete(root, "absent", clean, "one. Resolved here: M9")
+        if "not a check this task declares" not in problem_text(absent):
+            report(
+                f"{label}: a reference to a check the task never declared was "
+                f"accepted; {problem_text(absent)!r}."
+            )
+            return 1
+
+        legacy = complete(
+            root, "legacy", clean, "one. Resolved here: M2", form="Commands"
+        )
+        if legacy.get("status") != "pass":
+            report(
+                f"{label}: an expanded v3 task lost its declared labels; "
+                f"{problem_text(legacy)!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# The red-green obligation is a static function of the strategy and the tags,
+# and the `Verify` block is complete at task-start while the Evidence is all
+# pending. Issue #112 hit it three times, this repository twice more: the rule
+# was first heard after the capsule was written, the task implemented, the
+# checks run, and the Evidence recorded.
+def validate_obligation_is_stated_early_scenario() -> int:
+    label = "the-obligation-is-stated-early"
+
+    def start(root: Path, name: str, strategy: str, reason=None, checks=None):
+        repo = root / name
+        write_gate_fixture(
+            repo,
+            tasks=strategy_probe_task(
+                strategy=strategy,
+                reason=reason,
+                commands=checks
+                or (
+                    "M1: the first check asserts the public behavior",
+                    "M2 (regression): the second asserts something green stays green",
+                ),
+            ),
+        )
+        result = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        return json.loads(result.stdout)
+
+    with tempfile.TemporaryDirectory(prefix="keel-obligation-") as raw:
+        root = Path(raw)
+
+        redgreen = start(root, "redgreen", "vertical-tdd")
+        if redgreen.get("status") != "pass":
+            report(
+                f"{label}: stating the obligation changed the verdict; "
+                f"{problem_text(redgreen)!r}."
+            )
+            return 1
+        warnings = " ".join(str(x) for x in (redgreen.get("warnings") or []))
+        if ".red" not in warnings or ".green" not in warnings:
+            report(
+                f"{label}: task-start did not state the red-green obligation; "
+                f"{warnings!r}."
+            )
+            return 1
+        obligation = next(
+            (w for w in redgreen["warnings"] if ".red" in str(w)), ""
+        )
+        if "M1" not in obligation:
+            report(
+                f"{label}: the obligation does not name the check that owes it; "
+                f"{obligation!r}."
+            )
+            return 1
+        if "M2" not in obligation or "regression" not in obligation:
+            report(
+                f"{label}: the obligation does not name the exempt check; "
+                f"{obligation!r}."
+            )
+            return 1
+
+        quiet = start(
+            root,
+            "quiet",
+            "evidence-first",
+            reason="fixture; nothing here can fail first",
+        )
+        quiet_warnings = " ".join(str(x) for x in (quiet.get("warnings") or []))
+        if ".red" in quiet_warnings:
+            report(
+                f"{label}: a strategy without red-green was told about it; "
+                f"{quiet_warnings!r}."
+            )
+            return 1
+
+        # A task that fails task-start for another reason still fails with its
+        # own problem: the warning is not a verdict and cannot mask one.
+        broken = start(root, "broken", "made-up-thing")
+        if broken.get("status") != "fail":
+            report(f"{label}: an unsupported strategy stopped failing.")
+            return 1
+        if "unsupported" not in problem_text(broken):
+            report(
+                f"{label}: an unsupported strategy lost its own diagnostic; "
+                f"{problem_text(broken)!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# Measured on issue #112's own shape: a two-check vertical-tdd task with no
+# red-green Evidence produced four problems in 827 characters, of which the
+# same 84-character rule sentence was four copies. It scales with the number
+# of checks, and the reporter estimates a third of failure output is this.
+def validate_explanation_is_printed_once_scenario() -> int:
+    label = "an-explanation-is-printed-once"
+    shared = "Tag the check `(regression)` if it asserts that something already green stays green."
+    with tempfile.TemporaryDirectory(prefix="keel-explanation-") as raw:
+        root = Path(raw)
+        repo = root / "repo"
+        task = strategy_probe_task(
+            strategy="vertical-tdd",
+            commands=(
+                "M1: the first check asserts the public behavior",
+                "M2: the second check asserts the public behavior",
+            ),
+        )
+        task = task.replace("- [ ] 1.1", "- [x] 1.1")
+        for lbl in ("M1", "M2"):
+            task = task.replace(f"    - {lbl}: pending", f"    - {lbl}: pass. ran it.")
+        write_gate_fixture(repo, tasks=task)
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        value = json.loads(started.stdout)["contract"]["fingerprint"]["value"]
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        tasks_path.write_text(
+            tasks_path.read_text(encoding="utf-8").replace(
+                "    - Contract: pending",
+                f"    - Contract: keel-task-capsule/v1 sha256:{value}",
+            ),
+            encoding="utf-8",
+        )
+
+        rendered = run_keel(
+            repo, "gate", "task-complete", "--change", "demo", "--task", "1.1"
+        ).stdout
+        copies = rendered.count(shared)
+        if copies != 1:
+            report(
+                f"{label}: the shared rule explanation appears {copies} times "
+                "in the rendered text; it belongs once per run."
+            )
+            return 1
+        problems = [
+            line for line in rendered.splitlines() if line.startswith("Problem:")
+        ]
+        if len(problems) != 4:
+            report(
+                f"{label}: expected the four per-label problems, got "
+                f"{len(problems)}: {problems!r}."
+            )
+            return 1
+        for needed in ("M1.red", "M1.green", "M2.red", "M2.green"):
+            if not any(needed in line for line in problems):
+                report(
+                    f"{label}: {needed} lost its own problem line; {problems!r}."
+                )
+                return 1
+        if len(rendered) >= 827:
+            report(
+                f"{label}: the rendered failure is {len(rendered)} characters, "
+                "no shorter than the 827 measured before deduplication."
+            )
+            return 1
+
+        payload = json.loads(
+            run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task",
+                "1.1", "--json",
+            ).stdout
+        )
+        carried = [
+            entry for entry in (payload.get("problems") or [])
+            if entry.get("code") == "missing-strategy-evidence"
+        ]
+        if len(carried) != 4:
+            report(
+                f"{label}: the JSON result no longer carries all four problems; "
+                f"{len(carried)}."
+            )
+            return 1
+        if not all(shared in json.dumps(entry, ensure_ascii=False) for entry in carried):
+            report(
+                f"{label}: the JSON result was deduplicated; a consumer reading "
+                "problems individually would get a payload whose content "
+                "depends on position."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -25751,6 +26047,9 @@ SCENARIOS: tuple = (
     ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
     ("a-quoted-marker-is-not-a-disposition", validate_quoted_marker_is_not_a_disposition_scenario),
     ("drift-names-where-to-look", validate_drift_names_where_to_look_scenario),
+    ("a-reference-outlives-its-declaration", validate_reference_outlives_its_declaration_scenario),
+    ("the-obligation-is-stated-early", validate_obligation_is_stated_early_scenario),
+    ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,

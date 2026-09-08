@@ -229,6 +229,21 @@ function verification(task) {
   };
 }
 
+// The labels a task declares, read from the form the task itself uses. Label
+// parsing does not depend on a check being concrete, so this answers exactly
+// when the compiler cannot: a task whose `M2` declaration carries an unfilled
+// slot still declares `M2`, and a reference to it is not a reference to
+// something that does not exist.
+function declaredCommandLabels(task) {
+  const source = fieldValues(task, "Verify").length > 0
+    ? fieldValues(task, "Verify")
+    : fieldValues(task, "Commands");
+  return source
+    .map((entry) => entry.match(/^(M[1-9]\d*)(?:\s*\([^)\n]*\))?\s*:/))
+    .filter(Boolean)
+    .map((match) => match[1]);
+}
+
 function commandLabelProblems(task) {
   // A task that declared no verification form at all is reported once, by
   // requiredFieldProblems, as the one field it is missing. Its orphan Evidence
@@ -1195,6 +1210,7 @@ function loadTaskContract(repo, change, taskId) {
 
 module.exports = {
   ACCEPTED_REVIEW_STATUSES,
+  declaredCommandLabels,
   RED_GREEN_VERIFICATION_STRATEGIES,
   SUPPORTED_VERIFICATION_STRATEGIES,
   compileTaskContract,
