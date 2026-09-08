@@ -1,5 +1,39 @@
 # Keel Changelog
 
+## 5.57.0 - a red declares what it proves
+
+- **Red-green enforced the expensive half and never checked the half its value rests on** (issue
+  #116). `task-complete` refuses a task whose `M<n>.red` is missing or a placeholder — but it cannot
+  read the failure that Evidence describes, so a red that failed for an unrelated reason satisfies
+  it exactly as well as one that failed for the right reason. Two measured in a single session,
+  both caught by eye: `a-declared-dependency-is-resolved` (5.47.0), where the first red **passed**
+  because the fixture had not cleared `PATH` and found the author's own `openspec`; and
+  `a-quoted-span-is-not-a-claim` (5.43.0), where the first two fixtures contained no wording the
+  checker would refuse and failed, honestly recorded, for something else entirely. (keel-core-gates,
+  keel-task-capsule)
+- **A check may now close by declaring the failure its red must show**: `Fails with:` and one
+  inline-code literal. Completion requires that string in the check's `.red` Evidence and names both
+  the check and the string it did not find. `task-start` reports which checks owing a red declared a
+  signature and which did not — at the moment the author is about to write the failing check, which
+  is the only moment the declaration is worth anything.
+- **The clause lives in the check text, so it is in the fingerprint for free.** That is the whole
+  mechanism. A signature written after the failure was observed is a transcription; one written
+  before it is a prediction, and only a prediction can be wrong. Keel cannot observe that ordering —
+  what it does is make a post-hoc edit visible rather than impossible.
+- **What this does not verify, and does not pretend to**: whether the declared signature is a good
+  one. An author can name a string that any failure prints. This is the contract `Discard reason:`
+  and `--keep-evidence` already have — Keel records the claim and puts it where review sees it.
+- **Optional, and the undeclared case is untouched.** Making it mandatory would refuse every
+  existing task and, worse, would be satisfied by whatever string the author picked after seeing the
+  failure — the exact condition this exists to remove, reintroduced as a formality. Asserted against
+  the same fixture and the same weak red the declared check was refused for, with only the clause
+  removed.
+- **A declaration that can produce no red is refused by name**, on a `(regression)` check or under a
+  strategy outside the red-green set, as is a `Fails with:` marker naming no literal. A declaration
+  silently doing nothing reads to its author as a check being enforced. Writing about the marker
+  inside inline code declares nothing, the meaning inline code has carried here since 5.42.0.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.57.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.56.0 - the next action is a command
 
 The fifth and last group of findings from issue #112, the RTL PPA usage report. Both reproduced

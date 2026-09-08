@@ -313,6 +313,37 @@ keel --uninstall                  # reverts core.hooksPath when Keel set it
 `--with-git-hooks` is opt-in: a plain `keel --install` never touches git config, and the override
 is repo-local and reversible.
 
+## Declaring what a red proves
+
+Red-green discipline makes you write a check that fails before the implementation exists, and
+`keel gate task-complete` refuses a task whose `M<n>.red` Evidence is missing. What it could not
+check was *why* the red failed — a red that fails because a fixture is empty, or because `PATH` was
+never cleared, is shape-perfect.
+
+A check may close by declaring the failure its red must show:
+
+```
+- M1: `npm test -- --scenario widget` asserts the widget renders. Fails with: `widget is undefined`
+```
+
+Completion then requires that literal in the check's `.red` Evidence:
+
+```
+- M1.red: fail, for the right reason. The scenario reported `widget is undefined`.
+```
+
+The clause lives inside the check text, so it is inside the contract fingerprint. That is the point:
+a signature cannot be added or rewritten after the red was observed without the anchor moving, which
+is what separates a prediction from a transcription. Keel does not judge whether the signature is a
+good one — you can declare a string that any failure prints — it holds only that you wrote it first
+and that review can see it.
+
+The clause is optional; a check without one behaves exactly as before. A declaration on a check that
+can have no red — one tagged `(regression)`, or any check under a strategy outside the red-green
+set — fails `task-start` by name rather than sitting in the contract doing nothing. So does a
+`Fails with:` marker that names no literal. To *write about* the marker in a check without declaring
+one, put it in inline code.
+
 ## Domain lenses
 
 Keel's core is pure process; it ships no domain knowledge and no decisions of its own. Alongside
