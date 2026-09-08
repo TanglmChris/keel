@@ -288,6 +288,37 @@ function taskStart(repo, options) {
   // authors to — needs no manual edit. Refusal is kept only for a task with no
   // anchor at all, which is a malformed capsule rather than a reauthorization,
   // and it writes nothing, guard manifest included.
+  const declaredKeep = Array.isArray(options.keepEvidence)
+    ? options.keepEvidence
+    : [];
+  if (declaredKeep.length > 0 && !options.record) {
+    problems.push(
+      problem(
+        "keep-evidence-without-record",
+        "--keep-evidence declares which evidence a re-record leaves standing, "
+          + "and there is no re-record here. Pass --record, or drop the "
+          + "declaration so nothing reads it."
+      )
+    );
+  }
+  if (declaredKeep.length > 0 && compiled.diagnostics.length === 0) {
+    const labels = compiled.capsule.verification.commands.map(
+      (item) => item.label
+    );
+    const unknown = declaredKeep.filter((label) => !labels.includes(label));
+    if (unknown.length > 0) {
+      // Refused rather than ignored: the likeliest cause is a typo or a check
+      // that was renamed, and ignoring it would leave the author believing
+      // evidence was kept that was not.
+      problems.push(
+        problem(
+          "keep-evidence-unknown-check",
+          `--keep-evidence names ${unknown.join(", ")}, which this contract `
+            + `does not declare as a check. It declares ${labels.join(", ")}.`
+        )
+      );
+    }
+  }
   let anchorPlan = null;
   if (options.record && problems.length === 0) {
     anchorPlan = contractAnchorPlan(selection, task);
@@ -364,11 +395,30 @@ function taskStart(repo, options) {
     // call to the current agent's Review.
     const replaced = anchoredFingerprint(anchorPlan.previous);
     if (replaced && replaced !== compiled.fingerprint.value) {
+      // The gate still cannot judge which evidence survives, and this does not
+      // make it able to. What it can stop doing is saying "all of it" to an
+      // author who can see that one check's assertion did not change — because
+      // an author acting on that sentence in good faith re-runs everything,
+      // and issue #112 measured four such re-verifications in one session, one
+      // of which meant breaking a testbench and restoring it.
+      const kept = declaredKeep;
+      const labels = compiled.capsule.verification.commands.map(
+        (item) => item.label
+      );
+      const stale = labels.filter((label) => !kept.includes(label));
       result.warnings.push(
         `Re-recorded over a different contract: was sha256:${replaced}, now `
-          + `sha256:${compiled.fingerprint.value}. Execution evidence produced `
-          + "under the previous contract is stale; clear or re-verify it "
-          + "before completing this task."
+          + `sha256:${compiled.fingerprint.value}. `
+          + (kept.length > 0
+            ? `Evidence for ${stale.length > 0 ? stale.join(", ") : "no check"}`
+              + " is stale; clear or re-verify it before completing this task. "
+              + `${kept.join(", ")} ${kept.length > 1 ? "were" : "was"} `
+              + "declared unaffected by this contract change — a declaration "
+              + "Keel records and does not verify, since it retains only the "
+              + "previous fingerprint and cannot compare a check's former text "
+              + "to its current one. State the reason in Reauthorizations."
+            : "Execution evidence produced under the previous contract is "
+              + "stale; clear or re-verify it before completing this task.")
       );
     }
   }
