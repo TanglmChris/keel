@@ -333,6 +333,23 @@ keel lenses add web         # copy the web template into keel/lenses/web.md, the
 keel lenses add web --force # overwrite an existing lens
 ```
 
+## Re-recording a contract
+
+Changing a task's contract after work has started moves its fingerprint, and Keel reports that the
+evidence produced under the old one is stale. Sometimes that is too broad — a classification tag
+added to a check leaves its assertion untouched, and re-running a three-minute experiment for it
+buys nothing. Say so:
+
+```bash
+keel gate task-start --change <c> --task <t> --record --keep-evidence M1,M3
+```
+
+The report then names only the checks still stale, names the ones you declared unaffected, and says
+the narrowing came from your declaration. **Keel does not verify the claim** — it keeps only the
+previous fingerprint, not the capsule behind it, so it cannot compare a check's former text to its
+current one. State your reason in the task's `Reauthorizations` line, where a reviewer can disagree
+with it. Nothing about completion changes: every check still needs its Evidence.
+
 ## Pausing a change
 
 A change you have deliberately stopped — waiting on something outside the repository, or simply

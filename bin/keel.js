@@ -186,6 +186,7 @@ function parseArgs(argv) {
     base: null,
     noGuard: false,
     record: false,
+    keepEvidence: null,
     guardSubcommand: null,
     lensesSubcommand: null,
     lensName: null,
@@ -294,6 +295,20 @@ function parseArgs(argv) {
     }
     if (arg === "--record") {
       parsed.record = true;
+      continue;
+    }
+    if (arg === "--keep-evidence") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--keep-evidence requires a comma-separated list of M<n> labels");
+      }
+      if (parsed.keepEvidence !== null) {
+        fail("--keep-evidence was provided more than once");
+      }
+      parsed.keepEvidence = argv[index]
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
       continue;
     }
     if (arg === "--change" || arg === "--task") {

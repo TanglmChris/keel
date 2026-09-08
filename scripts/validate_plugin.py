@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.54.0"
-PROTOCOL_VERSION = "5.54.0"
+PACKAGE_VERSION = "5.55.0"
+PROTOCOL_VERSION = "5.55.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25968,6 +25968,157 @@ def validate_paused_change_is_not_the_next_action_scenario() -> int:
     return 0
 
 
+# Issue #112 recorded four re-verifications in one session from contract
+# changes that could not affect evidence — renaming `M2:` to `M2 (regression):`
+# among them, with the assertion unchanged by a character. One of the four meant
+# breaking a testbench, re-running, and restoring it. The gate genuinely cannot
+# judge which evidence survives; what it could do is stop saying "all of it".
+def validate_evidence_survives_what_did_not_change_scenario() -> int:
+    label = "evidence-survives-what-did-not-change"
+
+    def fixture(root: Path, name: str, strategy: str = "evidence-first") -> Path:
+        repo = root / name
+        task = strategy_probe_task(
+            strategy=strategy,
+            reason="fixture; nothing here can fail first",
+            commands=(
+                "M1: the first check asserts the public behavior",
+                "M2: the second check asserts the public behavior",
+                "M3: the third check asserts the public behavior",
+            ),
+        )
+        # A recorded anchor that is not the compiled one, so --record re-records.
+        task = task.replace(
+            "    - Contract: pending",
+            "    - Contract: keel-task-capsule/v1 sha256:" + "0" * 64,
+        )
+        write_gate_fixture(repo, tasks=task)
+        return repo
+
+    def start(repo: Path, *args):
+        result = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard", *args,
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"status": "unparsed", "problems": [{"message": result.stdout[:300]}]}
+
+    def said(payload: dict) -> str:
+        return " ".join(str(x) for x in (payload.get("warnings") or []))
+
+    with tempfile.TemporaryDirectory(prefix="keel-keep-evidence-") as raw:
+        root = Path(raw)
+
+        # Control: without a declaration the report covers every check.
+        blanket = start(fixture(root, "blanket"), "--record")
+        if blanket.get("status") != "pass":
+            report(
+                f"{label}: the re-record fixture did not pass; "
+                f"{problem_text(blanket)!r}."
+            )
+            return 1
+        if "stale" not in said(blanket):
+            report(
+                f"{label}: the fixture did not produce a stale-evidence "
+                f"report to narrow; {said(blanket)!r}."
+            )
+            return 1
+
+        narrowed = start(
+            fixture(root, "narrowed"), "--record", "--keep-evidence", "M1,M3"
+        )
+        if narrowed.get("status") != "pass":
+            report(
+                f"{label}: a declaration refused a valid re-record; "
+                f"{problem_text(narrowed)!r}."
+            )
+            return 1
+        spoken = said(narrowed)
+        stale_line = next(
+            (w for w in narrowed["warnings"] if "stale" in str(w)), ""
+        )
+        if "M2" not in stale_line:
+            report(
+                f"{label}: the narrowed report does not name the check that is "
+                f"still stale; {stale_line!r}."
+            )
+            return 1
+        for kept in ("M1", "M3"):
+            if kept not in stale_line:
+                report(
+                    f"{label}: the narrowed report does not name {kept} as "
+                    f"declared unaffected; {stale_line!r}."
+                )
+                return 1
+        if "declar" not in stale_line.lower():
+            report(
+                f"{label}: the narrowed report does not attribute the "
+                f"narrowing to the declaration; {stale_line!r}."
+            )
+            return 1
+
+        unknown = start(
+            fixture(root, "unknown"), "--record", "--keep-evidence", "M9"
+        )
+        if unknown.get("status") != "fail":
+            report(
+                f"{label}: a declaration naming a check the contract does not "
+                "declare was accepted; task-start returned "
+                f"{unknown.get('status')!r}."
+            )
+            return 1
+        if "M9" not in problem_text(unknown):
+            report(
+                f"{label}: the refusal does not name the label it could not "
+                f"resolve; {problem_text(unknown)!r}."
+            )
+            return 1
+
+        stray = start(fixture(root, "stray"), "--keep-evidence", "M1")
+        if stray.get("status") != "fail":
+            report(
+                f"{label}: --keep-evidence without --record was accepted, so "
+                "an author could believe they declared something nothing read."
+            )
+            return 1
+
+        # Completion is unchanged: the declaration is about the past.
+        completing = fixture(root, "completing", strategy="vertical-tdd")
+        start(completing, "--record", "--keep-evidence", "M1,M2,M3")
+        tasks_path = completing / "openspec/changes/demo/tasks.md"
+        tasks_path.write_text(
+            tasks_path.read_text(encoding="utf-8")
+            .replace("- [ ] 1.1", "- [x] 1.1")
+            .replace("    - M1: pending", "    - M1: pass. ran it.")
+            .replace("    - M2: pending", "    - M2: pass. ran it.")
+            .replace("    - M3: pending", "    - M3: pass. ran it."),
+            encoding="utf-8",
+        )
+        done = json.loads(
+            run_keel(
+                completing, "gate", "task-complete", "--change", "demo",
+                "--task", "1.1", "--json",
+            ).stdout
+        )
+        if done.get("status") != "fail":
+            report(
+                f"{label}: a declaration let a red-green task complete without "
+                "its .red/.green Evidence."
+            )
+            return 1
+        if "missing-strategy-evidence" not in problem_codes(done):
+            report(
+                f"{label}: completion stopped requiring red-green Evidence; "
+                f"{problem_codes(done)!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -26207,6 +26358,7 @@ SCENARIOS: tuple = (
     ("the-obligation-is-stated-early", validate_obligation_is_stated_early_scenario),
     ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
     ("a-paused-change-is-not-the-next-action", validate_paused_change_is_not_the_next_action_scenario),
+    ("evidence-survives-what-did-not-change", validate_evidence_survives_what_did_not_change_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
