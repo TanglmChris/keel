@@ -1,5 +1,37 @@
 # Keel Changelog
 
+## 5.56.0 - the next action is a command
+
+The fifth and last group of findings from issue #112, the RTL PPA usage report. Both reproduced
+unchanged on 5.55.0.
+
+- **`Next action: task-start` named a stage, not something you could run** (issue #112). The reporter
+  read that line every session and assembled the invocation by hand from the change and task printed
+  above it — the two arguments the command needs were already in the result, one line up. `keel
+  context` now prints `Run: keel gate task-start --change X --task Y` beneath the kind, and `--json`
+  carries the identical string. The strongest case is `change-close`, which **requires** `--action`:
+  the reported command includes it, and the scenario proves this by running exactly the string
+  printed and asserting it does not hit `requires --action`. An action with no command reports none
+  rather than an empty one. Keel prints the command and does not run it. (keel-stateless-continuity)
+- **The usage line was the reason the argument went missing.** One line covered three gates, so the
+  argument only `change-close` requires was rendered optional for all three; it is now split so the
+  requirement is visible where it applies.
+- **The OpenSpec surfaces told an agent to run `openspec`, which in that repository did not resolve**
+  (issue #112). Keel carries the OpenSpec CLI as a dependency, so a project that installed Keel alone
+  has no bare `openspec` on its path. All three Keel overlay bodies now state that the CLI is invoked
+  as `keel openspec` throughout the file and point at `keel --doctor` for which case a given
+  installation is. (keel-openspec-surface-overlay)
+- **The note lives in Keel's block, and the boundary is asserted rather than remembered.** The
+  obvious fix — rewriting `openspec` to `keel openspec` in those files — would work and would collide
+  with the next upstream change, because the bodies belong to OpenSpec. The scenario fails if Keel
+  invocation text appears anywhere outside the overlay markers.
+- **Not fixed, deliberately: `keel openspec validate --change X`.** `status` accepts `--change`,
+  `validate` takes the name positionally, and the reporter hit it. The proxy passes its arguments
+  through unaltered; translating them there would make `keel openspec` behave differently from the
+  tool it proxies, which the user discovers the moment the same command fails run directly. The
+  inconsistency is OpenSpec's CLI surface and belongs upstream.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.56.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.55.0 - evidence survives what did not change
 
 - **A re-record told the author every check's evidence was stale, and an author acting on that in good faith re-ran everything** (issue #112). Four such re-verifications in one session, from contract changes that could not have affected any evidence — the clearest being `M2:` to `M2 (regression):`, a classification tag with the assertion unchanged by a character. In that project one check is a real experiment: 30–60 seconds end to end, three minutes for a nine-combination sweep, and one of the four meant **breaking a testbench, re-running, and restoring it** to re-observe a failure mode the tag had nothing to do with. (keel-core-gates)

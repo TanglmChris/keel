@@ -160,10 +160,12 @@ Target archive directory already exists.
 - If sync is requested, use the Skill tool to invoke `openspec-sync-specs` (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 
-<!-- keel:openspec-surface-overlay version=5.55.0 -->
+<!-- keel:openspec-surface-overlay version=5.56.0 -->
 ## Keel Archive Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
+
+- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 ### Target-native subagent gate
 

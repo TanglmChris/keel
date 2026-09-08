@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.55.0"
-PROTOCOL_VERSION = "5.55.0"
+PACKAGE_VERSION = "5.56.0"
+PROTOCOL_VERSION = "5.56.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2163,7 +2163,7 @@ def validate_authoring_continuity_scenario() -> int:
             or scaffold_payload.get("status") != "ready"
             or scaffold_payload.get("selection")
             != {"source": "inferred", "change": "draft", "task": None}
-            or scaffold_payload.get("nextAction") != {"kind": "author"}
+            or scaffold_payload.get("nextAction", {}).get("kind") != "author"
         ):
             report(
                 "authoring-continuity scenario did not keep an incomplete proposal actionable."
@@ -3747,8 +3747,14 @@ def validate_stateless_continuity_scenario() -> int:
                 "change": "demo",
                 "task": "1.1",
             },
-            "nextAction": {"kind": "task-start"},
         }
+        expected_kind = "task-start"
+        if payload.get("nextAction", {}).get("kind") != expected_kind:
+            report(
+                "stateless-continuity scenario explicit selection reported "
+                f"next action {payload.get('nextAction')!r}."
+            )
+            return 1
         for key, value in expected.items():
             if payload.get(key) != value:
                 report(
@@ -3808,7 +3814,7 @@ def validate_stateless_continuity_scenario() -> int:
             inferred_payload.get("status") != "ready"
             or inferred_payload.get("selection")
             != {"source": "inferred", "change": "only", "task": "1.1"}
-            or inferred_payload.get("nextAction") != {"kind": "task-start"}
+            or inferred_payload.get("nextAction", {}).get("kind") != "task-start"
         ):
             report("stateless-continuity scenario unique inference mismatch.")
             report(inferred.stdout.strip())
@@ -3830,7 +3836,8 @@ def validate_stateless_continuity_scenario() -> int:
             or recomputed_payload.get("status") != "ready"
             or recomputed_payload.get("selection")
             != {"source": "inferred", "change": "only", "task": None}
-            or recomputed_payload.get("nextAction") != {"kind": "change-close"}
+            or recomputed_payload.get("nextAction", {}).get("kind")
+            != "change-close"
         ):
             report("stateless-continuity scenario did not recompute completed state.")
             report((recomputed.stderr or recomputed.stdout).strip())
@@ -3849,7 +3856,7 @@ def validate_stateless_continuity_scenario() -> int:
         evidence_payload = json.loads(evidence_ready.stdout)
         if (
             evidence_ready.returncode != 0
-            or evidence_payload.get("nextAction") != {"kind": "task-complete"}
+            or evidence_payload.get("nextAction", {}).get("kind") != "task-complete"
         ):
             report("stateless-continuity scenario missed evidence-ready completion.")
             report((evidence_ready.stderr or evidence_ready.stdout).strip())
@@ -3902,7 +3909,7 @@ def validate_stateless_continuity_scenario() -> int:
             or handoff_payload.get("status") != "ready"
             or handoff_payload.get("selection")
             != {"source": "handoff", "change": "beta", "task": "1.1"}
-            or handoff_payload.get("nextAction") != {"kind": "task-start"}
+            or handoff_payload.get("nextAction", {}).get("kind") != "task-start"
         ):
             report("stateless-continuity scenario did not prioritize valid HANDOFF.")
             report((handoff.stderr or handoff.stdout).strip())
@@ -4036,7 +4043,7 @@ def validate_stateless_continuity_scenario() -> int:
         discuss = run_keel(discuss_repo, "context", "--json")
         if (
             discuss.returncode != 0
-            or json.loads(discuss.stdout).get("nextAction") != {"kind": "discuss"}
+            or json.loads(discuss.stdout).get("nextAction", {}).get("kind") != "discuss"
         ):
             report("stateless-continuity scenario missed discuss transition.")
             report((discuss.stderr or discuss.stdout).strip())
@@ -4051,7 +4058,7 @@ def validate_stateless_continuity_scenario() -> int:
         author = run_keel(author_repo, "context", "--json")
         if (
             author.returncode != 0
-            or json.loads(author.stdout).get("nextAction") != {"kind": "author"}
+            or json.loads(author.stdout).get("nextAction", {}).get("kind") != "author"
         ):
             report("stateless-continuity scenario missed author transition.")
             report((author.stderr or author.stdout).strip())
@@ -4069,7 +4076,7 @@ def validate_stateless_continuity_scenario() -> int:
             idle.returncode != 0
             or idle_payload.get("status") != "idle"
             or idle_payload.get("selection") is not None
-            or idle_payload.get("nextAction") != {"kind": "none"}
+            or idle_payload.get("nextAction", {}).get("kind") != "none"
         ):
             report("stateless-continuity scenario no-work state was not idle.")
             report((idle.stderr or idle.stdout).strip())
@@ -4227,7 +4234,7 @@ def validate_stateless_continuity_scenario() -> int:
         if (
             matching.returncode != 0
             or matching_payload.get("status") != "ready"
-            or matching_payload.get("nextAction") != {"kind": "task-start"}
+            or matching_payload.get("nextAction", {}).get("kind") != "task-start"
         ):
             report("stateless-continuity scenario did not resume a matching anchor.")
             report((matching.stderr or matching.stdout).strip())
@@ -4315,7 +4322,7 @@ def validate_stateless_continuity_scenario() -> int:
             or matching_handoff_payload.get("status") != "ready"
             or matching_handoff_payload.get("selection")
             != {"source": "handoff", "change": "demo", "task": "1.1"}
-            or matching_handoff_payload.get("nextAction") != {"kind": "task-start"}
+            or matching_handoff_payload.get("nextAction", {}).get("kind") != "task-start"
         ):
             report("stateless-continuity scenario did not resume a matching HANDOFF anchor.")
             report((matching_handoff.stderr or matching_handoff.stdout).strip())
@@ -26119,6 +26126,190 @@ def validate_evidence_survives_what_did_not_change_scenario() -> int:
     return 0
 
 
+# `keel context` exists to answer "what now" and answered with a noun. Issue
+# #112: `Next action: change-close` followed by `keel gate change-close
+# --change x` failing on the argument that stage requires — a wrong attempt
+# Keel had everything in the same result to prevent.
+def validate_next_action_is_a_command_scenario() -> int:
+    label = "the-next-action-is-a-command"
+
+    def repo_with(root: Path, name: str, *, checked: bool, evidence: bool):
+        repo = root / name
+        task = strategy_probe_task(
+            strategy="evidence-first",
+            reason="fixture; nothing here can fail first",
+        )
+        if checked:
+            task = task.replace("- [ ] 1.1", "- [x] 1.1")
+        if evidence:
+            task = task.replace("    - M1: pending", "    - M1: pass. ran it.")
+        write_gate_fixture(repo, tasks=task)
+        started = run_keel(
+            repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        value = json.loads(started.stdout)["contract"]["fingerprint"]["value"]
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        tasks_path.write_text(
+            tasks_path.read_text(encoding="utf-8").replace(
+                "    - Contract: pending",
+                f"    - Contract: keel-task-capsule/v1 sha256:{value}",
+            ),
+            encoding="utf-8",
+        )
+        return repo
+
+    def context(repo: Path):
+        text = run_keel(repo, "context", "--change", "demo").stdout
+        payload = json.loads(
+            run_keel(repo, "context", "--change", "demo", "--json").stdout
+        )
+        return text, payload
+
+    with tempfile.TemporaryDirectory(prefix="keel-next-command-") as raw:
+        root = Path(raw)
+
+        pending = repo_with(root, "pending", checked=False, evidence=False)
+        text, payload = context(pending)
+        command = (payload.get("nextAction") or {}).get("command")
+        if not command:
+            report(
+                f"{label}: the next action carries no command; "
+                f"{payload.get('nextAction')!r}."
+            )
+            return 1
+        for needed in ("task-start", "--change demo", "--task 1.1"):
+            if needed not in command:
+                report(
+                    f"{label}: the reported command omits {needed!r}; "
+                    f"{command!r}."
+                )
+                return 1
+        if command not in text:
+            report(
+                f"{label}: the text surface does not carry the same command as "
+                f"--json; {command!r} not in {text!r}."
+            )
+            return 1
+
+        done = repo_with(root, "done", checked=False, evidence=True)
+        _, payload = context(done)
+        if "task-complete" not in str((payload.get("nextAction") or {}).get("command")):
+            report(
+                f"{label}: a task with completion evidence did not report the "
+                f"task-complete invocation; {payload.get('nextAction')!r}."
+            )
+            return 1
+
+        closing = repo_with(root, "closing", checked=True, evidence=True)
+        _, payload = context(closing)
+        close_command = str((payload.get("nextAction") or {}).get("command") or "")
+        if "change-close" not in close_command:
+            report(
+                f"{label}: a change whose tasks are complete did not report the "
+                f"change-close invocation; {payload.get('nextAction')!r}."
+            )
+            return 1
+        if "--action" not in close_command:
+            report(
+                f"{label}: the change-close command omits the argument that "
+                f"stage requires; {close_command!r}."
+            )
+            return 1
+        # Running exactly what was printed must not hit the input error the
+        # report describes.
+        printed = close_command.split()
+        if printed and printed[0] == "keel":
+            printed = printed[1:]
+        ran = run_keel(closing, *printed)
+        if "requires --action" in (ran.stdout + ran.stderr):
+            report(
+                f"{label}: the reported command still fails on the argument it "
+                f"was supposed to supply; {(ran.stdout + ran.stderr)[:200]!r}."
+            )
+            return 1
+
+        idle = root / "idle"
+        write_text(idle / "README.md", "# fixture\n")
+        payload = json.loads(run_keel(idle, "context", "--json").stdout)
+        if (payload.get("nextAction") or {}).get("command"):
+            report(
+                f"{label}: an action with nothing to run reported a command; "
+                f"{payload.get('nextAction')!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# `keel --init` writes OpenSpec's command and skill surfaces, whose text says
+# `openspec new change "<name>"`. With only the Keel package installed globally
+# a bare `openspec` is not on PATH, which `keel --doctor` reports and names the
+# working invocation for. Those files belong to OpenSpec and Keel appends a
+# block rather than editing their body — so the block is where Keel says it.
+def validate_overlay_names_the_invocation_scenario() -> int:
+    label = "the-overlay-names-the-invocation"
+    start = "<!-- keel:openspec-surface-overlay"
+    end = "<!-- keel:openspec-surface-overlay:end -->"
+    with tempfile.TemporaryDirectory(prefix="keel-overlay-invocation-") as raw:
+        repo = Path(raw)
+        # The surfaces OpenSpec writes, as OpenSpec writes them: the overlay is
+        # merged into files that already exist, and their body is the text this
+        # scenario asserts Keel does not touch.
+        upstream = 'Run `openspec new change "<name>"` to begin.\n'
+        for action in ("propose", "apply", "sync", "archive"):
+            write_text(repo / f".claude/commands/opsx/{action}.md", upstream)
+        for skill in (
+            "openspec-propose",
+            "openspec-apply-change",
+            "openspec-sync-specs",
+            "openspec-archive-change",
+        ):
+            write_text(repo / f".claude/skills/{skill}/SKILL.md", upstream)
+        installed = run_keel(repo, "--install", "--target", "claude")
+        if installed.returncode != 0:
+            report(
+                f"{label}: the fixture install failed; "
+                f"{(installed.stderr or installed.stdout).strip()[:300]}"
+            )
+            return 1
+
+        carrying = [
+            path
+            for path in sorted(repo.rglob("*.md"))
+            if start in path.read_text(encoding="utf-8", errors="replace")
+        ]
+        if not carrying:
+            report(f"{label}: the install wrote no file carrying an overlay.")
+            return 1
+        for path in carrying:
+            content = path.read_text(encoding="utf-8")
+            block = content[content.index(start):content.index(end) + len(end)]
+            for needed in ("keel openspec", "keel --doctor"):
+                if needed not in block:
+                    report(
+                        f"{label}: the overlay in {path.name} does not name "
+                        f"{needed!r}."
+                    )
+                    return 1
+            # The boundary: everything outside the block is OpenSpec's.
+            outside = (
+                content[: content.index(start)]
+                + content[content.index(end) + len(end):]
+            )
+            if start in outside or "keel openspec" in outside:
+                report(
+                    f"{label}: {path.name} carries Keel invocation text outside "
+                    "the overlay block, so the OpenSpec-authored body was "
+                    "edited."
+                )
+                return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -26359,6 +26550,8 @@ SCENARIOS: tuple = (
     ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
     ("a-paused-change-is-not-the-next-action", validate_paused_change_is_not_the_next_action_scenario),
     ("evidence-survives-what-did-not-change", validate_evidence_survives_what_did_not_change_scenario),
+    ("the-next-action-is-a-command", validate_next_action_is_a_command_scenario),
+    ("the-overlay-names-the-invocation", validate_overlay_names_the_invocation_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,

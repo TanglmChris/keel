@@ -94,7 +94,8 @@ Usage:
   keel capabilities [repo] [--target claude|codex|opencode] [--json]
   keel project [repo] --target claude|codex|opencode --event startup|resume|compaction|goal|task-view|worktree|subagent-start|subagent-stop [--authorize goal|task-view|subagent] [--expected-owner owner] [--native-complete] [--change name] [--task id] [--json]
   keel project tasks [repo] --target claude [--change name] [--json]
-  keel gate task-start|task-complete|change-close [repo] [--change name] [--task id] [--action sync|archive] [--base git-ref] [--no-guard] [--record] [--json]
+  keel gate task-start|task-complete [repo] [--change name] [--task id] [--base git-ref] [--no-guard] [--record] [--keep-evidence M1,M3] [--json]
+  keel gate change-close [repo] [--change name] --action sync|archive [--base git-ref] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
   keel lenses list|add [name] [repo] [--force]
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
@@ -1194,6 +1195,8 @@ function keelOpenSpecOverlay(action) {
       "",
       "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
       "",
+      "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
+      "",
       "### Expectation alignment before specs and tasks finalize",
       "",
       "- Before specs and executable tasks are finalized, run `keel-align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.",
@@ -1228,6 +1231,8 @@ function keelOpenSpecOverlay(action) {
       `## ${overlayTitleForAction(action)}`,
       "",
       "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+      "",
+      "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
       "",
       ...syncBody,
       OPENSPEC_SURFACE_OVERLAY_END,
@@ -1268,6 +1273,8 @@ function keelOpenSpecOverlay(action) {
     `## ${overlayTitleForAction(action)}`,
     "",
     "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+    "",
+    "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
     "",
     "### Target-native subagent gate",
     "",
