@@ -113,10 +113,12 @@ After completing all artifacts, summarize:
 - If a change with that name already exists, ask if user wants to continue it or create a new one
 - Verify each artifact file exists after writing before proceeding to next
 
-<!-- keel:openspec-surface-overlay version=5.55.0 -->
+<!-- keel:openspec-surface-overlay version=5.56.0 -->
 ## Keel Authoring Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
+
+- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 ### Expectation alignment before specs and tasks finalize
 

@@ -29,12 +29,34 @@ function taskRecords(tasksPath) {
   }));
 }
 
+// The invocation the action's name stands for. Everything it needs is in the
+// same result, and the failure it prevents is the one issue #112 reports: an
+// action name followed by an attempt that fails on an argument Keel knew was
+// required. Change and task are named explicitly rather than left to
+// inference, because a reader may run the printed line later or elsewhere,
+// where inference would answer about a different repository state.
+function nextActionCommand(kind, selection) {
+  if (!selection || !selection.change) return null;
+  const scope = `--change ${selection.change}`;
+  if (kind === "task-start" || kind === "task-complete") {
+    if (!selection.task) return null;
+    return `keel gate ${kind} ${scope} --task ${selection.task}`;
+  }
+  if (kind === "change-close") {
+    // `--action` is not optional for this stage, so a command printed without
+    // it is a command that fails.
+    return `keel gate change-close ${scope} --action archive`;
+  }
+  return null;
+}
+
 function result(status, selection, nextAction, read, reasons = [], contract = null) {
+  const command = nextActionCommand(nextAction, selection);
   const context = {
     schemaVersion: 1,
     status,
     selection,
-    nextAction: { kind: nextAction },
+    nextAction: command ? { kind: nextAction, command } : { kind: nextAction },
     read,
     reasons,
     warnings: [],
@@ -679,6 +701,9 @@ function renderContext(result) {
     `Keel context: ${result.status}`,
     `Next action: ${result.nextAction.kind}`,
   ];
+  if (result.nextAction.command) {
+    lines.push(`Run: ${result.nextAction.command}`);
+  }
   if (result.selection) {
     lines.push(
       `Selection: ${result.selection.change}`

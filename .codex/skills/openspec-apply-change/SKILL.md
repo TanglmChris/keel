@@ -159,10 +159,12 @@ This skill supports the "actions on a change" model:
 - **Can be invoked anytime**: Before all artifacts are done (if tasks exist), after partial implementation, interleaved with other actions
 - **Allows artifact updates**: If implementation reveals design issues, suggest updating artifacts - not phase-locked, work fluidly
 
-<!-- keel:openspec-surface-overlay version=5.55.0 -->
+<!-- keel:openspec-surface-overlay version=5.56.0 -->
 ## Keel Apply Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
+
+- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 ### Target-native subagent gate
 

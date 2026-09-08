@@ -143,10 +143,12 @@ Main specs are now updated. The change remains active - archive when implementat
 - Show what you're changing as you go
 - The operation should be idempotent - running twice should give same result
 
-<!-- keel:openspec-surface-overlay version=5.55.0 -->
+<!-- keel:openspec-surface-overlay version=5.56.0 -->
 ## Keel Sync Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
+
+- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 - The current agent owns the sync decision and must verify task evidence, follow-up ownership, and completion gates before proceeding.
 - Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.
