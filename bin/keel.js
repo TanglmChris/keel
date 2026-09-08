@@ -671,16 +671,33 @@ function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
+// npm hoists: installed as a dependency, Keel's OpenSpec bin lands in the
+// consumer project's `node_modules/.bin`, and Keel's own package root has no
+// `node_modules` at all. Searching only the package root worked in exactly one
+// layout — a checkout of this repository, where Keel is the direct consumer —
+// which is why every scenario stayed green while `keel openspec` failed on a
+// plain install (issue #129). Walk outward the way Node resolves a module:
+// nearest wins, so a project pinning its own OpenSpec is honored over one
+// further up. The `.bin` entry is the published contract between npm and a
+// consumer; resolving through the dependency's internal bin path instead would
+// bind Keel to a path that belongs to the dependency.
+function openspecBinNames() {
+  return process.platform === "win32"
+    ? ["openspec.cmd", "openspec.exe", "openspec"]
+    : ["openspec"];
+}
+
 function openspecCandidates() {
-  const localBin = path.join(
-    PACKAGE_ROOT,
-    "node_modules",
-    ".bin",
-    process.platform === "win32" ? "openspec.cmd" : "openspec"
-  );
   const candidates = [];
-  if (fs.existsSync(localBin)) {
-    candidates.push(localBin);
+  let directory = PACKAGE_ROOT;
+  for (;;) {
+    for (const name of openspecBinNames()) {
+      const candidate = path.join(directory, "node_modules", ".bin", name);
+      if (fs.existsSync(candidate)) candidates.push(candidate);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
   }
   candidates.push(process.platform === "win32" ? "openspec.cmd" : "openspec");
   candidates.push("openspec");
@@ -763,6 +780,39 @@ function declaredOpenSpecVersion(repo) {
     }
   }
   return { state: "none", version: null };
+}
+
+// "Not installed" and "installed and Keel cannot reach it" need different
+// advice: reinstalling is the only remedy for the first and cannot help with the
+// second, and issue #129 measured a whole class of installs being sent to it.
+// The package directory is the evidence — it is present whenever npm placed the
+// dependency, whatever happened to its `.bin` entry.
+function installedOpenSpecPackage() {
+  let directory = PACKAGE_ROOT;
+  for (;;) {
+    const candidate = path.join(
+      directory,
+      "node_modules",
+      "@fission-ai",
+      "openspec",
+      "package.json"
+    );
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(directory);
+    if (parent === directory) return null;
+    directory = parent;
+  }
+}
+
+// The remedy for an openspec Keel could not run, split by whether npm has
+// already done the thing the other branch would ask for.
+function unresolvedOpenSpecAdvice() {
+  const installed = installedOpenSpecPackage();
+  return installed
+    ? `the OpenSpec dependency is installed at ${path.dirname(installed)} but `
+      + "Keel could not run it — check that its node_modules/.bin entry exists "
+      + "and is executable; reinstalling will not change this"
+    : "reinstall keel so npm installs its OpenSpec dependency";
 }
 
 function findOpenSpecCommand() {
@@ -1606,8 +1656,8 @@ function runDoctor(options) {
   if (!openspec) {
     printDoctorLine(
       "openspec",
-      "missing",
-      "reinstall keel so npm installs its OpenSpec dependency"
+      installedOpenSpecPackage() ? "problem" : "missing",
+      unresolvedOpenSpecAdvice()
     );
   } else {
     const bareOpenSpecOnPath =
@@ -1967,8 +2017,7 @@ function runAction(options) {
     const openspec = findOpenSpecCommand();
     if (!openspec) {
       process.stderr.write(
-        "keel: openspec is not resolvable; reinstall keel so npm installs "
-          + "its OpenSpec dependency\n"
+        `keel: openspec is not resolvable; ${unresolvedOpenSpecAdvice()}\n`
       );
       return 1;
     }

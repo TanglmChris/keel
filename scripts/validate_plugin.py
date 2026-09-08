@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.57.0"
-PROTOCOL_VERSION = "5.57.0"
+PACKAGE_VERSION = "5.58.0"
+PROTOCOL_VERSION = "5.58.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24623,6 +24623,186 @@ def validate_validation_runner_scenario() -> int:
 
 # The one ordered scenario registry: --scenario dispatch, the --all runner,
 # and registration assertions all read this list and nothing else.
+
+# 170 scenarios and every release gate ran green while `keel openspec` did not
+# resolve on a plain `npm install` (issue #129). The cause is a layout, not a
+# behavior: npm hoists, so the OpenSpec bin lands in the consumer project's
+# `node_modules/.bin` while the lookup only searched Keel's own package root —
+# which is where it sits in a checkout of this repository, and nowhere else.
+# So the assertion has to build the other layout rather than test harder in this
+# one. Built from the package's own files instead of the registry: what is under
+# test is where a file sits, and a suite that reaches the network fails for
+# reasons that have nothing to do with this code.
+def validate_dependency_resolves_where_npm_put_it_scenario() -> int:
+    label = "the-dependency-resolves-where-npm-put-it"
+
+    def write_openspec_stub(bin_dir: Path, version: str) -> None:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            (bin_dir / "openspec.cmd").write_text(
+                f"@echo off\necho {version}\n", encoding="utf-8"
+            )
+            return
+        stub = bin_dir / "openspec"
+        stub.write_text(f"#!/bin/sh\necho {version}\n", encoding="utf-8")
+        stub.chmod(0o755)
+
+    def install_keel(package_root: Path) -> None:
+        # The published `files` set, copied rather than packed: the tarball's
+        # contents are what npm unpacks, and `npm pack` would add a network-free
+        # but slow round trip through tar for no additional assertion.
+        package_root.mkdir(parents=True, exist_ok=True)
+        for entry in ("bin", "scripts", "src", "assets", "plugins"):
+            source = ROOT / entry
+            if source.exists():
+                shutil.copytree(source, package_root / entry, dirs_exist_ok=True)
+        shutil.copy2(ROOT / "package.json", package_root / "package.json")
+
+    # PATH without any openspec, so what resolves came from the layout and not
+    # from the machine running the suite.
+    def clean_env(extra_path: Path | None = None) -> dict[str, str]:
+        env = dict(os.environ)
+        entries = [
+            entry
+            for entry in env.get("PATH", "").split(os.pathsep)
+            if entry and not (Path(entry) / "openspec").exists()
+        ]
+        if extra_path is not None:
+            entries.insert(0, str(extra_path))
+        env["PATH"] = os.pathsep.join(entries)
+        return env
+
+    def run_installed(
+        package_root: Path, cwd: Path, *args: str, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["node", str(package_root / "bin" / "keel.js"), *args],
+            cwd=cwd,
+            env=env if env is not None else clean_env(),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+
+    def doctor_openspec_line(result: subprocess.CompletedProcess[str]) -> str:
+        return next(
+            (
+                line
+                for line in result.stdout.splitlines()
+                if line.startswith("openspec:")
+            ),
+            "",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-hoisted-") as raw:
+        root = Path(raw)
+
+        # The layout npm actually produces: Keel unpacked under the consumer's
+        # node_modules with no node_modules of its own, the dependency's bin
+        # hoisted beside it.
+        project = root / "project"
+        package_root = project / "node_modules/@christang/keel"
+        install_keel(package_root)
+        write_openspec_stub(project / "node_modules/.bin", "1.12.0")
+        if (package_root / "node_modules").exists():
+            report(
+                f"{label}: the fixture gave Keel a node_modules of its own, "
+                "which is the one layout the defect does not appear in."
+            )
+            return 1
+
+        proxied = run_installed(package_root, project, "openspec", "--version")
+        if proxied.returncode != 0:
+            report(
+                f"{label}: `keel openspec` failed against the hoisted "
+                f"dependency; exit {proxied.returncode}, stderr "
+                f"{proxied.stderr.strip()!r}."
+            )
+            return 1
+        if "1.12.0" not in proxied.stdout:
+            report(
+                f"{label}: `keel openspec` exited 0 without running the "
+                f"hoisted dependency; stdout {proxied.stdout.strip()!r}."
+            )
+            return 1
+
+        hoisted_doctor = doctor_openspec_line(
+            run_installed(package_root, project, "--doctor")
+        )
+        if hoisted_doctor.startswith("openspec: missing"):
+            report(
+                f"{label}: doctor reported an installed dependency as missing; "
+                f"got {hoisted_doctor!r}."
+            )
+            return 1
+
+        # Nearest wins, so a project pinning its own OpenSpec is honored over
+        # one further up the tree.
+        nested = root / "outer/project"
+        nested_package = nested / "node_modules/@christang/keel"
+        install_keel(nested_package)
+        write_openspec_stub(root / "outer/node_modules/.bin", "9.9.9")
+        write_openspec_stub(nested / "node_modules/.bin", "1.12.0")
+        nearest = run_installed(nested_package, nested, "openspec", "--version")
+        if "1.12.0" not in nearest.stdout:
+            report(
+                f"{label}: the farther OpenSpec won over the nearer one; got "
+                f"{nearest.stdout.strip()!r}."
+            )
+            return 1
+
+        # The one case where advising a reinstall is correct.
+        bare = root / "bare"
+        bare_package = bare / "node_modules/@christang/keel"
+        install_keel(bare_package)
+        absent = doctor_openspec_line(
+            run_installed(bare_package, bare, "--doctor")
+        )
+        if not absent.startswith("openspec: missing"):
+            report(
+                f"{label}: doctor did not report a genuinely absent dependency "
+                f"as missing; got {absent!r}."
+            )
+            return 1
+        if "reinstall" not in absent:
+            report(
+                f"{label}: doctor stopped advising a reinstall in the one case "
+                f"where it is the right advice; got {absent!r}."
+            )
+            return 1
+
+        # Installed and unreachable: the package is where npm puts it, its bin
+        # entry is not. Sending this reader to reinstall is what issue #129
+        # measured, and it is the one action that cannot help.
+        broken = root / "broken"
+        broken_package = broken / "node_modules/@christang/keel"
+        install_keel(broken_package)
+        write_text(
+            broken / "node_modules/@fission-ai/openspec/package.json",
+            '{"name": "@fission-ai/openspec", "version": "1.12.0"}\n',
+        )
+        unreachable = doctor_openspec_line(
+            run_installed(broken_package, broken, "--doctor")
+        )
+        if "reinstall" in unreachable and "will not change this" not in unreachable:
+            report(
+                f"{label}: doctor advised reinstalling for a dependency that "
+                f"is already installed; got {unreachable!r}."
+            )
+            return 1
+        if "installed" not in unreachable:
+            report(
+                f"{label}: doctor did not distinguish an installed but "
+                f"unreachable dependency from an absent one; got "
+                f"{unreachable!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
 def validate_doctor_openspec_honesty_scenario() -> int:
     cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
     if "is not on PATH" not in cli:
@@ -26839,6 +27019,10 @@ SCENARIOS: tuple = (
     ),
     ("cli", validate_cli_scenario),
     ("doctor-openspec-honesty", validate_doctor_openspec_honesty_scenario),
+    (
+        "the-dependency-resolves-where-npm-put-it",
+        validate_dependency_resolves_where_npm_put_it_scenario,
+    ),
     ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
     ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
     ("a-strategy-is-declared", validate_strategy_is_declared_scenario),

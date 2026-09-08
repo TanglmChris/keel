@@ -1,5 +1,39 @@
 # Keel Changelog
 
+## 5.58.0 - the dependency resolves where npm put it
+
+- **`keel openspec` did not resolve on a plain `npm install`** (issue #129). Keel carries the
+  OpenSpec CLI as a dependency, and `openspecCandidates()` looked for its bin in exactly one place:
+  `PACKAGE_ROOT/node_modules/.bin`. **npm hoists.** Installed as a dependency, the bin lands in the
+  *consumer project's* `node_modules/.bin`, and Keel's own package root has no `node_modules` at
+  all. Measured against the published 5.57.0 tarball in an empty project: `keel openspec --version`
+  failed with `openspec is not resolvable` while `node_modules/.bin/openspec --version` printed
+  `1.12.0` two directories away. (keel-target-surface-diagnostics)
+- **This landed hardest on what 5.57.0's predecessor had just shipped.** `keel openspec` is the
+  invocation 5.56.0 wrote into twelve installed OpenSpec surfaces as the one that resolves, and
+  `keel --doctor` is the diagnostic those surfaces point at for which case an installation is. Both
+  were wrong on the common install, and doctor's remedy — reinstall so npm installs the dependency —
+  was the one action that could not help, because npm already had.
+- **Resolution now walks outward the way Node resolves a module**, from the package root through
+  each ancestor's `node_modules/.bin`, nearest first, then PATH. That is the only rule true of the
+  hoisted, nested, and workspace layouts at once, and nearest-wins means a project pinning its own
+  OpenSpec is honored over one further up. Resolving through the dependency's internal bin path was
+  rejected: that path belongs to the dependency, while the `.bin` entry is npm's published contract
+  with a consumer.
+- **Doctor separates "not installed" from "installed and unreachable"** and names the directory in
+  the second case. A diagnostic that sends the reader to a remedy that cannot work is worse than one
+  that says less.
+- **Why 170 green scenarios and eleven releases missed it.** Every scenario runs inside a checkout
+  of this repository — which is a direct consumer of `@fission-ai/openspec`, so its
+  `node_modules/.bin/openspec` happens to sit under `PACKAGE_ROOT`. **That is the single layout
+  where the old lookup worked.** The defect's cause was a layout, not a behavior, so no amount of
+  additional coverage inside that layout could have found it. The new scenario builds the other
+  layout instead: Keel's published `files` set unpacked at `node_modules/@christang/keel` with no
+  `node_modules` of its own, a stub at the hoisted location, and every `openspec`-carrying entry
+  stripped from `PATH` so that what resolves came from the layout and not from the machine. Offline
+  and by construction, because what is under test is where a file sits.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.58.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.57.0 - a red declares what it proves
 
 - **Red-green enforced the expensive half and never checked the half its value rests on** (issue
