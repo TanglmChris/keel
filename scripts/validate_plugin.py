@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.53.0"
-PROTOCOL_VERSION = "5.53.0"
+PACKAGE_VERSION = "5.54.0"
+PROTOCOL_VERSION = "5.54.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25812,6 +25812,162 @@ def validate_explanation_is_printed_once_scenario() -> int:
     return 0
 
 
+# Issue #112's most valuable finding: a change its owner had stopped kept being
+# recommended, and the workaround was a paragraph in the project's CLAUDE.md
+# telling future sessions to ignore keel's own primary output.
+def validate_paused_change_is_not_the_next_action_scenario() -> int:
+    label = "a-paused-change-is-not-the-next-action"
+
+    def write_change(repo: Path, name: str, keel_block: str | None) -> None:
+        task = strategy_probe_task(strategy="vertical-tdd")
+        change = repo / "openspec" / "changes" / name
+        write_text(
+            change / "tasks.md",
+            "# Tasks\n\n## Invalidates\n\n- None.\n\n## Expectation Coverage\n\n"
+            "- E1:\n  - Covered by: 1.1\n\n## Tasks\n\n" + task,
+        )
+        write_text(change / "proposal.md", "# Proposal\n")
+        write_text(change / "design.md", "## Context\n\nfixture\n")
+        write_text(change / "specs/demo/spec.md", "## ADDED Requirements\n")
+        write_text(
+            change / ".openspec.yaml",
+            "schema: keel-spec-driven\ncreated: 2026-09-08\n"
+            + (keel_block or ""),
+        )
+
+    paused_block = (
+        "keel:\n"
+        "  status: paused\n"
+        "  reason: 打分寻优要等赛题，当前优先级是不依赖工具的知识沉淀\n"
+        "  since: 2026-09-05\n"
+    )
+
+    def context(repo: Path, *args):
+        result = run_keel(repo, "context", "--json", *args)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"status": "unparsed", "reasons": [result.stdout[:300]]}
+
+    def said(payload: dict) -> str:
+        return " ".join(
+            str(x) for x in
+            (payload.get("reasons") or []) + (payload.get("warnings") or [])
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-paused-") as raw:
+        root = Path(raw)
+
+        # Without the declaration the pair is ambiguous, so the skip is what
+        # changes the answer rather than the fixture shape.
+        both = root / "both"
+        write_change(both, "alpha", None)
+        write_change(both, "beta", None)
+        if context(both).get("status") != "ambiguous":
+            report(
+                f"{label}: two unpaused changes were not ambiguous, so the "
+                "fixture does not isolate what pausing changes."
+            )
+            return 1
+
+        mixed = root / "mixed"
+        write_change(mixed, "alpha", paused_block)
+        write_change(mixed, "beta", None)
+        picked = context(mixed)
+        if picked.get("status") != "ready":
+            report(
+                f"{label}: inference did not pass over the paused change; "
+                f"{picked.get('status')!r} {said(picked)!r}."
+            )
+            return 1
+        if (picked.get("selection") or {}).get("change") != "beta":
+            report(
+                f"{label}: inference selected {picked.get('selection')!r} "
+                "rather than the change that is not paused."
+            )
+            return 1
+        spoken = said(picked)
+        if "alpha" not in spoken or "打分寻优" not in spoken:
+            report(
+                f"{label}: the paused change was skipped silently or without "
+                f"its reason; {spoken!r}."
+            )
+            return 1
+
+        allpaused = root / "allpaused"
+        write_change(allpaused, "alpha", paused_block)
+        write_change(allpaused, "beta", paused_block)
+        idle = context(allpaused)
+        if idle.get("status") != "idle":
+            report(
+                f"{label}: a repository whose every change is paused reported "
+                f"{idle.get('status')!r}."
+            )
+            return 1
+        spoken = said(idle)
+        for needed in ("alpha", "beta", "打分寻优"):
+            if needed not in spoken:
+                report(
+                    f"{label}: the all-paused report omits {needed!r}; "
+                    f"{spoken!r}."
+                )
+                return 1
+
+        explicit = context(mixed, "--change", "alpha")
+        if (explicit.get("selection") or {}).get("change") != "alpha":
+            report(
+                f"{label}: explicit selection no longer reaches a paused "
+                f"change; {explicit.get('status')!r} {said(explicit)!r}."
+            )
+            return 1
+        if "paused" not in said(explicit).lower():
+            report(
+                f"{label}: explicit selection did not report that the change "
+                f"is paused; {said(explicit)!r}."
+            )
+            return 1
+
+        # D6: a declaration Keel cannot read pauses nothing.
+        broken = root / "broken"
+        write_change(broken, "alpha", "keel:\n  status: perhaps-later\n")
+        write_change(broken, "beta", None)
+        unreadable = context(broken)
+        if unreadable.get("status") != "ambiguous":
+            report(
+                f"{label}: an unreadable declaration removed a change from "
+                f"inference; {unreadable.get('status')!r} {said(unreadable)!r}."
+            )
+            return 1
+        if "perhaps-later" not in said(unreadable):
+            report(
+                f"{label}: an unreadable declaration was not reported; "
+                f"{said(unreadable)!r}."
+            )
+            return 1
+
+        # D4: pausing is not a gate.
+        gated = run_keel(
+            mixed, "gate", "task-start", "--change", "alpha", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        ungated = run_keel(
+            both, "gate", "task-start", "--change", "alpha", "--task", "1.1",
+            "--json", "--no-guard",
+        )
+        if json.loads(gated.stdout).get("status") != json.loads(
+            ungated.stdout
+        ).get("status"):
+            report(
+                f"{label}: pausing changed a gate verdict — paused "
+                f"{json.loads(gated.stdout).get('status')!r} against unpaused "
+                f"{json.loads(ungated.stdout).get('status')!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # A scenario name, as the registry spells one. Two registered names carry no
 # hyphen — `cli` and `uninstall` — so requiring one would leave exactly those
 # two unchecked, and allowing single words was measured to add no false
@@ -26050,6 +26206,7 @@ SCENARIOS: tuple = (
     ("a-reference-outlives-its-declaration", validate_reference_outlives_its_declaration_scenario),
     ("the-obligation-is-stated-early", validate_obligation_is_stated_early_scenario),
     ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
+    ("a-paused-change-is-not-the-next-action", validate_paused_change_is_not_the_next_action_scenario),
     (
         "authored-scenario-names-are-registered",
         validate_authored_scenario_names_scenario,
