@@ -333,6 +333,29 @@ keel lenses add web         # copy the web template into keel/lenses/web.md, the
 keel lenses add web --force # overwrite an existing lens
 ```
 
+## Pausing a change
+
+A change you have deliberately stopped — waiting on something outside the repository, or simply
+not the priority — can say so where it lives, in its own `openspec/changes/<name>/.openspec.yaml`:
+
+```yaml
+schema: keel-spec-driven
+created: 2026-09-05
+keel:
+  status: paused
+  reason: waiting on the competition brief; the priority is knowledge that needs no tooling
+  since: 2026-09-05
+```
+
+`keel context` then passes over it when inferring what to do next, and says which change it passed
+over and why — a skip you cannot see would be worse than the wrong recommendation it replaces. If
+every active change is paused, `context` reports that, with each reason, rather than reporting that
+nothing exists.
+
+This changes only what Keel *recommends*. No gate, the write guard, and completion all behave
+exactly as they would without it, and `keel context --change <paused>` still selects it — you asked
+for it by name. Keel never pauses a change on its own.
+
 ## Commands
 
 ```bash

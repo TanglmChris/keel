@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.54.0 - a paused change is not the next action
+
+- **A change its owner had deliberately stopped kept being recommended, and Keel had nowhere to say so** (issue #112's own most-valuable finding). The reporter stopped a change because external conditions were not ready; from then on `keel context` proposed `add-fmax-and-scoring#2.1` every session. Their workaround was a paragraph in the project's `CLAUDE.md` telling future sessions to ignore it — **the tool's primary output needed a document to cancel it**. (keel-stateless-continuity)
+- **A change may now declare itself paused where it lives**, in its own `.openspec.yaml` under a `keel:` key: `status: paused`, a `reason:`, and an optional `since:`. Inference passes over it and names it with its reason; it is never skipped silently, because an invisible skip replaces a wrong recommendation with a hidden one.
+- **An all-paused repository reports each reason rather than reporting nothing.** "Nothing to do" and "everything here is deliberately on hold" are different states, and the second is the one that tells a returning session whether to un-pause something or start something new.
+- **Pausing says what to recommend, never what is allowed.** No gate, the write guard, or completion reads the declaration, and `keel context --change <paused>` still selects it — reporting the pause rather than hiding it. A declaration that could not be overridden would be the next thing to work around.
+- **A declaration Keel cannot read pauses nothing** and is reported by name. The opposite failure — a change silently dropped from inference because its config had a typo — is this defect pointed the other way.
+- The key is namespaced under `keel:` rather than written at the top level as the report suggested. `.openspec.yaml` is OpenSpec's file, and extra keys were verified not to disturb `openspec validate`; that establishes tolerance, not that OpenSpec will never define `status` itself. Keel does not pause a change on its own: every automatic criterion available — no recent commits, an old date, an unchecked task — describes work that has stalled, which is the state a person most needs reminding of.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.54.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.53.0 - a diagnostic names its own cause
 
 Three findings from issue #112 — a usage report from an RTL PPA project that ran two Full-mode changes, 14 gated tasks, 149 keel invocations, and measured what the discipline cost. All three reproduced unchanged on 5.52.0.

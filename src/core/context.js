@@ -230,8 +230,21 @@ function resolveExplicit(repo, change, task) {
   if (task && !/^\d+(?:\.\d+)+$/.test(task)) {
     return blocked(`Invalid explicit task: ${task}`);
   }
+  // A pause is skipped by inference and never by explicit selection: the owner
+  // has said which change they mean. It is still reported, because a session
+  // resuming into a paused change should know that is what it is.
+  const declaration = pauseDeclaration(repo, change);
+  const paused = declaration && declaration.paused
+    ? [
+      `Explicitly selected change is paused: ${change} — ${declaration.reason}`
+        + (declaration.since ? ` (since ${declaration.since})` : "")
+        + ". Inference passes over it; you asked for it by name.",
+    ]
+    : [];
   if (!task) {
-    return selectionForChange(repo, change, "explicit");
+    const context = selectionForChange(repo, change, "explicit");
+    context.warnings.push(...paused);
+    return context;
   }
 
   const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
@@ -259,6 +272,58 @@ function activeChanges(repo) {
     .sort();
 }
 
+// A change its owner deliberately stopped. Declared where the change lives,
+// under a `keel:` key of the OpenSpec change config — namespaced because that
+// file is OpenSpec's, and a bare `status:` would be a claim on a key OpenSpec
+// may define differently. Read by inference and by nothing else: pausing says
+// what to recommend, never what is allowed, so every gate behaves identically
+// on a paused change and explicit selection still reaches it.
+//
+// A declaration that cannot be read leaves the change available and is
+// reported. The alternative failure — a change silently dropped from inference
+// because its config had a typo — is this defect pointed the other way.
+function pauseDeclaration(repo, change) {
+  const configPath = path.join(
+    repo, "openspec", "changes", change, ".openspec.yaml"
+  );
+  if (!fs.existsSync(configPath)) return null;
+  let content;
+  try {
+    content = fs.readFileSync(configPath, "utf8");
+  } catch {
+    return { unreadable: "the file could not be read" };
+  }
+  // The indented body of a top-level `keel:` key: every following line that
+  // starts with whitespace. Simpler and safer than a lookahead for the next
+  // top-level key, which has to spell "end of input" as well.
+  const block = content.match(/^keel:[ \t]*\r?\n((?:[ \t]+\S[^\n]*\r?\n?)*)/m);
+  if (!block) return null;
+  const entries = new Map();
+  for (const line of block[1].split(/\r?\n/)) {
+    const match = line.match(/^\s+([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
+    if (match) entries.set(match[1].toLowerCase(), parseScalar(match[2]));
+  }
+  if (!entries.has("status")) return null;
+  const status = String(entries.get("status") || "").toLowerCase();
+  if (status !== "paused") {
+    return { unreadable: `status: ${entries.get("status")}` };
+  }
+  return {
+    paused: true,
+    reason: entries.get("reason") || "no reason recorded",
+    since: entries.get("since") || null,
+  };
+}
+
+function pauseNote(change, declaration) {
+  return (
+    `Paused change not inferred: ${change} — ${declaration.reason}`
+    + (declaration.since ? ` (since ${declaration.since})` : "")
+    + ". Select it explicitly with `keel context --change "
+    + `${change}\` if it is what you mean.`
+  );
+}
+
 function inferContext(repo) {
   const changes = activeChanges(repo);
   if (changes.length === 0) {
@@ -270,20 +335,57 @@ function inferContext(repo) {
       ["No active OpenSpec change was found."]
     );
   }
-  const contexts = changes.map((change) => selectionForChange(repo, change, "inferred"));
+  const declarations = new Map(
+    changes.map((change) => [change, pauseDeclaration(repo, change)])
+  );
+  const unreadable = [...declarations.entries()]
+    .filter(([, declaration]) => declaration && declaration.unreadable)
+    .map(([change, declaration]) =>
+      `Keel configuration for ${change} is not a pause declaration `
+        + `(${declaration.unreadable}); the change stays available to `
+        + "inference. A pause is `keel:` with `status: paused` and a `reason:`."
+    );
+  const paused = changes.filter(
+    (change) => declarations.get(change) && declarations.get(change).paused
+  );
+  const pauseNotes = paused.map(
+    (change) => pauseNote(change, declarations.get(change))
+  );
+  const active = changes.filter((change) => !paused.includes(change));
+  if (active.length === 0) {
+    // "Nothing to do" and "everything here is deliberately on hold" are
+    // different states, and the second is the one that tells a returning
+    // session whether to un-pause something or start something new.
+    return result(
+      "idle",
+      null,
+      "none",
+      [],
+      [
+        "Every active OpenSpec change is paused.",
+        ...pauseNotes,
+        ...unreadable,
+      ]
+    );
+  }
+  const contexts = active.map((change) => selectionForChange(repo, change, "inferred"));
   const storage = contexts.filter((context) => context.storageOnly);
   const candidates = contexts.filter((context) => !context.storageOnly);
-  const warnings = storage.map(
-    (context) =>
-      `Storage-only backlog ignored during inference: ${context.selection.change}.`
-  );
+  const warnings = [
+    ...storage.map(
+      (context) =>
+        `Storage-only backlog ignored during inference: ${context.selection.change}.`
+    ),
+    ...pauseNotes,
+    ...unreadable,
+  ];
   if (candidates.length === 0) {
     return result(
       "idle",
       null,
       "none",
       storage.flatMap((context) => context.read),
-      ["No actionable OpenSpec change was found."]
+      ["No actionable OpenSpec change was found.", ...pauseNotes, ...unreadable]
     );
   }
   if (candidates.length > 1) {
@@ -297,6 +399,8 @@ function inferContext(repo) {
           + candidates
             .map((context) => context.selection?.change || context.read[0])
             .join(", "),
+        ...pauseNotes,
+        ...unreadable,
       ]
     );
   }
