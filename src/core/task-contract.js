@@ -153,6 +153,31 @@ const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
 // Tags an M<n> check may carry after its label, as a comma-separated set.
 const COMMAND_TAGS = new Set(["fast", "full", "regression"]);
 
+// A check may end by declaring the failure its red is expected to show, so that
+// what the red proves is written down before the red is run. The clause closes
+// the check: `Fails with:` followed by one inline-code literal and nothing more.
+// End-anchored on purpose — a check that describes this rule mentions the marker
+// mid-sentence, and a mention is not a declaration.
+const FAILURE_SIGNATURE = /\bFails with:[ \t]*`([^`\n]+)`[ \t]*$/i;
+const FAILURE_MARKER = /\bFails with:/i;
+
+// Classify a check's `Fails with:` marker. `signature` is the declared literal;
+// `malformed` marks a marker that is present and is not a closing clause — a
+// typo shape, and ignoring it would leave the author believing a signature is
+// enforced when none was parsed. A marker written inside inline code is quoted
+// material rather than a declaration, the meaning inline code already carries
+// here, which is what lets this file's own tasks name the marker.
+function failureSignature(check) {
+  const text = String(check || "");
+  const match = text.match(FAILURE_SIGNATURE);
+  if (match) return { signature: match[1].trim(), malformed: false };
+  const remainder = withoutInlineCode(text);
+  return {
+    signature: null,
+    malformed: FAILURE_MARKER.test(remainder),
+  };
+}
+
 // Single source of truth for the accepted completion Review `Status`
 // vocabulary. Consumed by both the completion gate (src/core/gates.js) and the
 // context "already reviewed" probe (src/core/context.js) so the two never
@@ -193,19 +218,39 @@ function verification(task) {
     // therefore exempt from the red-green evidence requirement. A check may
     // carry both, so the tag is a comma-separated set rather than one word.
     const match = entry.match(/^(M[1-9]\d*)(?:\s*\(([^)\n]*)\))?:\s*(.*)$/);
-    if (!match) return { label: null, layer: "full", regression: false, check: entry };
+    if (!match) {
+      return {
+        label: null,
+        layer: "full",
+        regression: false,
+        check: entry,
+        failsWith: null,
+        malformedSignature: false,
+      };
+    }
     const tags = (match[2] || "")
       .split(",")
       .map((tag) => tag.trim().toLowerCase())
       .filter(Boolean);
     if (tags.some((tag) => !COMMAND_TAGS.has(tag))) {
-      return { label: null, layer: "full", regression: false, check: entry };
+      return {
+        label: null,
+        layer: "full",
+        regression: false,
+        check: entry,
+        failsWith: null,
+        malformedSignature: false,
+      };
     }
+    const check = normalizeText(match[3]);
+    const failure = failureSignature(check);
     return {
       label: match[1],
       layer: tags.includes("fast") ? "fast" : "full",
       regression: tags.includes("regression"),
-      check: normalizeText(match[3]),
+      check,
+      failsWith: failure.signature,
+      malformedSignature: failure.malformed,
     };
   });
   return {
@@ -367,7 +412,60 @@ function taskStartContractProblems(task) {
       ...regressionOnlyProblems(task),
     ];
   }
-  return [...commandLabelProblems(task), ...regressionOnlyProblems(task)];
+  return [
+    ...commandLabelProblems(task),
+    ...regressionOnlyProblems(task),
+    ...failureSignatureProblems(task),
+  ];
+}
+
+// A declared failure signature describes the check's red. A `(regression)` check
+// is exempt from red-green and a strategy outside the red-green set records no
+// `.red` at all, so in both cases the declaration describes evidence that will
+// never exist. Refused rather than left sitting in the contract: a declaration
+// doing nothing reads to its author as a check being enforced.
+function failureSignatureProblems(task) {
+  const parsed = verification(task);
+  const strategy = parsed.strategy.toLowerCase();
+  const redGreen = RED_GREEN_VERIFICATION_STRATEGIES.has(strategy);
+  const problems = [];
+  for (const entry of parsed.commands) {
+    if (!entry.label) continue;
+    if (entry.malformedSignature) {
+      problems.push({
+        code: "malformed-failure-signature",
+        message:
+          `${entry.label} carries a \`Fails with:\` marker that does not close `
+          + "the check with a literal. Write the failure signature as one "
+          + "inline-code literal at the end of the check, or fence the marker "
+          + "in inline code when the check is describing it rather than "
+          + "declaring one.",
+      });
+      continue;
+    }
+    if (!entry.failsWith) continue;
+    if (!redGreen) {
+      problems.push({
+        code: "signature-without-red",
+        message:
+          `${entry.label} declares the failure its red must show, but `
+          + `\`${parsed.strategy}\` records no red for the signature to `
+          + "describe. Name a red-green strategy, or drop the clause.",
+      });
+      continue;
+    }
+    if (entry.regression) {
+      problems.push({
+        code: "signature-without-red",
+        message:
+          `${entry.label} declares the failure its red must show, but it is `
+          + "tagged `(regression)` and so records no red for the signature to "
+          + "describe. Untag the check if it proves new behavior, or drop the "
+          + "clause.",
+      });
+    }
+  }
+  return problems;
 }
 
 // A red-green strategy whose every check is exempt from red-green is that
@@ -1127,6 +1225,10 @@ function compileTaskContract(repo, change, task) {
           const emitted = { label: entry.label, check: entry.check };
           if (entry.layer && entry.layer !== "full") emitted.layer = entry.layer;
           if (entry.regression) emitted.regression = true;
+          // The clause stays in `check` — it is text the author wrote — and the
+          // field is what the gate reads. Emitted only when declared, so every
+          // check without one keeps the capsule shape and fingerprint it had.
+          if (entry.failsWith) emitted.failsWith = entry.failsWith;
           return emitted;
         }),
     },

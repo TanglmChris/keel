@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.56.0"
-PROTOCOL_VERSION = "5.56.0"
+PACKAGE_VERSION = "5.57.0"
+PROTOCOL_VERSION = "5.57.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25020,6 +25020,306 @@ def problem_codes(payload: dict) -> list[str]:
     return [str(entry.get("code", "")) for entry in (payload.get("problems") or [])]
 
 
+
+# Red-green forces the expensive half — a check that fails before the
+# implementation exists — and enforces that a `.red` line is present. Nothing
+# checked that the red failed *because of the thing under test*. Issue #116
+# measured two reds in one session that were shape-perfect and failed for an
+# unrelated reason: one where the fixture had not cleared PATH so the check
+# passed, one where the fixture contained no wording the checker would refuse.
+# The declaration is what a gate can hold: written into the check, so it is in
+# the fingerprint, and therefore written before the run rather than after it.
+def validate_red_declares_what_it_proves_scenario() -> int:
+    label = "a-red-declares-what-it-proves"
+    signature = "openspec: not found"
+    declared = (
+        f"M1: node test.js asserts the public behavior. Fails with: `{signature}`",
+    )
+    plain = ("M1: node test.js asserts the public behavior",)
+    with tempfile.TemporaryDirectory(prefix="keel-failswith-") as raw:
+        root = Path(raw)
+
+        def start(name: str, **kwargs) -> dict:
+            return strategy_probe_start(
+                root, name, strategy_probe_task(**kwargs)
+            )
+
+        def commands_of(payload: dict) -> list[dict]:
+            contract = payload.get("contract") or {}
+            capsule = contract.get("capsule") or {}
+            return ((capsule.get("verification") or {}).get("commands") or [])
+
+        def fingerprint_of(payload: dict) -> str:
+            return str((payload.get("contract") or {}).get("fingerprint") or "")
+
+        # A declared signature compiles and is carried as its own field, so the
+        # gate can read it without re-parsing the author's prose.
+        with_signature = start(
+            "declared", strategy="vertical-tdd", commands=declared
+        )
+        if with_signature.get("status") != "pass":
+            report(
+                f"{label}: a check declaring a failure signature was refused; "
+                f"got {with_signature.get('status')!r} "
+                f"{problem_text(with_signature)!r}."
+            )
+            return 1
+        compiled = commands_of(with_signature)
+        if len(compiled) != 1 or compiled[0].get("failsWith") != signature:
+            report(
+                f"{label}: the compiled check does not carry the declared "
+                f"failure signature; got {compiled!r}."
+            )
+            return 1
+        # The clause is part of the check the author wrote, so it stays in
+        # `check` as well; the field is what the gate reads, not a replacement
+        # for the text.
+        if "Fails with:" not in str(compiled[0].get("check", "")):
+            report(
+                f"{label}: compiling the signature stripped it out of the "
+                f"check text the author wrote; got {compiled[0]!r}."
+            )
+            return 1
+
+        # In the fingerprint for free, which is what makes the declaration a
+        # prediction rather than a transcription: it cannot be retrofitted to
+        # whatever the run happened to print without the anchor moving.
+        edited = start(
+            "edited",
+            strategy="vertical-tdd",
+            commands=(
+                "M1: node test.js asserts the public behavior. "
+                "Fails with: `a different failure entirely`",
+            ),
+        )
+        without = start("without", strategy="vertical-tdd", commands=plain)
+        prints = {
+            "declared": fingerprint_of(with_signature),
+            "edited": fingerprint_of(edited),
+            "without": fingerprint_of(without),
+        }
+        if not all(prints.values()):
+            report(f"{label}: a probe reported no fingerprint; got {prints!r}.")
+            return 1
+        if prints["declared"] == prints["edited"]:
+            report(
+                f"{label}: editing only the declared failure signature left "
+                f"the fingerprint unmoved at {prints['declared']!r}, so a "
+                "signature could be rewritten after the red was recorded."
+            )
+            return 1
+        if prints["declared"] == prints["without"]:
+            report(
+                f"{label}: declaring a signature left the fingerprint "
+                f"unmoved at {prints['without']!r}."
+            )
+            return 1
+
+        # A declaration that can produce no red is refused rather than left to
+        # sit in the contract doing nothing, which reads to its author as a
+        # check being enforced.
+        for name, kwargs in (
+            (
+                "regression",
+                dict(
+                    strategy="vertical-tdd",
+                    commands=(
+                        "M1: node test.js asserts the public behavior",
+                        "M2 (regression): the suite stays green. "
+                        f"Fails with: `{signature}`",
+                    ),
+                ),
+            ),
+            (
+                "no-red-strategy",
+                dict(
+                    strategy="evidence-first",
+                    reason="the artifact is inspected after it is written.",
+                    commands=declared,
+                ),
+            ),
+        ):
+            payload = start(name, **kwargs)
+            if payload.get("status") != "fail":
+                report(
+                    f"{label}: a failure signature on a check with no red "
+                    f"({name}) was accepted; got {payload.get('status')!r}."
+                )
+                return 1
+            text = problem_text(payload)
+            expected_label = "M2" if name == "regression" else "M1"
+            if expected_label not in text or "red" not in text:
+                report(
+                    f"{label}: the refusal for {name} does not name the check "
+                    f"and say it records no red; got {text!r}."
+                )
+                return 1
+            if "signature-without-red" not in problem_codes(payload):
+                report(
+                    f"{label}: the refusal for {name} carries no "
+                    f"signature-without-red code; got "
+                    f"{problem_codes(payload)!r}."
+                )
+                return 1
+
+        # A marker that names no literal is the shape of a typo. Ignoring it
+        # leaves the author believing a signature is enforced when none parsed.
+        for name, check in (
+            ("bare", "M1: node test.js asserts the behavior. Fails with:"),
+            (
+                "unquoted",
+                "M1: node test.js asserts the behavior. Fails with: not found",
+            ),
+            (
+                "not-closing",
+                "M1: node test.js asserts it. Fails with: `not found` "
+                "and then keeps going.",
+            ),
+        ):
+            payload = start(name, strategy="vertical-tdd", commands=(check,))
+            if payload.get("status") != "fail":
+                report(
+                    f"{label}: a malformed signature marker ({name}) compiled "
+                    f"as if nothing were declared; got "
+                    f"{payload.get('status')!r}."
+                )
+                return 1
+            if "malformed-failure-signature" not in problem_codes(payload):
+                report(
+                    f"{label}: the refusal for {name} carries no "
+                    f"malformed-failure-signature code; got "
+                    f"{problem_codes(payload)!r}."
+                )
+                return 1
+
+        # The escape is the one this repository already established for quoted
+        # material: a check that describes this rule has to be able to name it.
+        quoted = start(
+            "quoted",
+            strategy="vertical-tdd",
+            commands=(
+                "M1: a `Fails with:` marker with no literal is refused by name",
+            ),
+        )
+        if quoted.get("status") != "pass":
+            report(
+                f"{label}: a marker written inside inline code was read as a "
+                f"declaration; got {quoted.get('status')!r} "
+                f"{problem_text(quoted)!r}."
+            )
+            return 1
+        if commands_of(quoted)[0].get("failsWith") is not None:
+            report(
+                f"{label}: a marker inside inline code compiled to a failure "
+                f"signature; got {commands_of(quoted)!r}."
+            )
+            return 1
+
+        # The obligation is stated where the author is deciding — before the
+        # failing check is written — rather than discovered once it has run.
+        warnings = " ".join(str(w) for w in (with_signature.get("warnings") or []))
+        if signature not in warnings or "M1" not in warnings:
+            report(
+                f"{label}: the task-start obligation does not name which "
+                f"checks declared a failure signature; got {warnings!r}."
+            )
+            return 1
+        undeclared = " ".join(str(w) for w in (without.get("warnings") or []))
+        if "declared no failure signature" not in undeclared:
+            report(
+                f"{label}: the obligation does not say that a check owing a "
+                f"red declared no signature; got {undeclared!r}."
+            )
+            return 1
+
+        # Completion is where the declaration becomes a criterion.
+        repo = root / "completion"
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+
+        def complete(check: str, red: str) -> dict:
+            write_gate_fixture(
+                repo,
+                tasks=strategy_probe_task(
+                    strategy="vertical-tdd", commands=(check,)
+                ).replace(
+                    "    - M1: pending\n",
+                    f"    - M1: the check ran.\n"
+                    f"    - M1.red: {red}\n"
+                    "    - M1.green: it passed after the implementation.\n",
+                ),
+            )
+            record_contract_anchor(repo, "demo")
+            result = run_keel(
+                repo,
+                "gate",
+                "task-complete",
+                "--change",
+                "demo",
+                "--task",
+                "1.1",
+                "--json",
+            )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {
+                    "status": "unparsed",
+                    "problems": [{"message": result.stdout[:400]}],
+                }
+
+        declared_check = declared[0]
+        mismatched = complete(
+            declared_check, "it failed before the implementation existed."
+        )
+        if mismatched.get("status") != "fail":
+            report(
+                f"{label}: task-complete accepted a red that does not show "
+                f"the declared failure; got {mismatched.get('status')!r}."
+            )
+            return 1
+        text = problem_text(mismatched)
+        if "M1" not in text or signature not in text:
+            report(
+                f"{label}: the refusal names neither the check nor the string "
+                f"it did not find; got {text!r}."
+            )
+            return 1
+        if "red-missing-declared-failure" not in problem_codes(mismatched):
+            report(
+                f"{label}: the refusal carries no "
+                f"red-missing-declared-failure code; got "
+                f"{problem_codes(mismatched)!r}."
+            )
+            return 1
+
+        matched = complete(
+            declared_check,
+            f"it failed with `{signature}` before the implementation existed.",
+        )
+        if matched.get("status") != "pass":
+            report(
+                f"{label}: a red showing the declared failure was refused; "
+                f"got {matched.get('status')!r} {problem_text(matched)!r}."
+            )
+            return 1
+
+        # D3: the undeclared case is unchanged, asserted against the same
+        # fixture with the clause removed and the same weak red that the
+        # declared check was refused for.
+        undeclared_task = complete(
+            plain[0], "it failed before the implementation existed."
+        )
+        if undeclared_task.get("status") != "pass":
+            report(
+                f"{label}: a red-green task declaring no signature stopped "
+                f"completing; got {undeclared_task.get('status')!r} "
+                f"{problem_text(undeclared_task)!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
 # The strategy was the one capsule field the compiler supplied from a value no
 # spec documents as a default — and it supplied the weakest of the six, so
 # omitting the line was how a task opted out of red-green.
@@ -26542,6 +26842,7 @@ SCENARIOS: tuple = (
     ("the-marker-version-is-read", validate_marker_version_is_read_scenario),
     ("output-survives-the-pipe", validate_output_survives_the_pipe_scenario),
     ("a-strategy-is-declared", validate_strategy_is_declared_scenario),
+    ("a-red-declares-what-it-proves", validate_red_declares_what_it_proves_scenario),
     ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
     ("a-quoted-marker-is-not-a-disposition", validate_quoted_marker_is_not_a_disposition_scenario),
     ("drift-names-where-to-look", validate_drift_names_where_to_look_scenario),

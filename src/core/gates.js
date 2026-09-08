@@ -232,9 +232,24 @@ function redGreenObligation(compiled) {
   const strategy = compiled.capsule.verification.strategy.toLowerCase();
   if (!RED_GREEN_VERIFICATION_STRATEGIES.has(strategy)) return [];
   const commands = compiled.capsule.verification.commands;
-  const owing = commands.filter((item) => !item.regression).map((item) => item.label);
+  const owingChecks = commands.filter((item) => !item.regression);
+  const owing = owingChecks.map((item) => item.label);
   const exempt = commands.filter((item) => item.regression).map((item) => item.label);
   if (owing.length === 0) return [];
+  // What a red proves is only checkable if it was written down before the red
+  // was run, so the moment to say so is here — the author is about to write the
+  // failing check — and not at completion, where any signature is a
+  // transcription of whatever already failed (issue #116).
+  const signed = owingChecks.filter((item) => item.failsWith);
+  const unsigned = owingChecks.filter((item) => !item.failsWith).map((item) => item.label);
+  const signatures = signed.length > 0
+    ? ` ${signed.map((item) => `${item.label} must fail with \`${item.failsWith}\``).join("; ")}.`
+      + (unsigned.length > 0
+        ? ` ${unsigned.join(", ")} declared no failure signature.`
+        : "")
+    : ` ${owing.join(", ")} declared no failure signature — close the check with `
+      + "`Fails with:` and the literal its red should print, and the red that "
+      + "gets recorded has to be the one you predicted.";
   return [
     `${strategy} will require concrete .red and .green Evidence at completion `
       + `for ${owing.join(", ")}`
@@ -244,7 +259,8 @@ function redGreenObligation(compiled) {
         : "")
       + ". Tag a check `(regression)` now if it asserts that something already "
       + "green stays green, rather than discovering the obligation once the "
-      + "checks have been run.",
+      + "checks have been run."
+      + signatures,
   ];
 }
 
@@ -1011,8 +1027,34 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
         .filter((entry) => entry.regression)
         .map((entry) => entry.label)
     );
+    // A check may declare the failure its red must show. Enforced against the
+    // recorded `.red`, which is where the shape check stopped: a red that
+    // failed for an unrelated reason satisfied the presence check exactly as
+    // well as one that failed for the right reason (issue #116). Keel does not
+    // judge whether the declared string is a good one — what it holds is that
+    // the string is in the contract, so it was written before the run.
+    const declaredFailure = new Map(
+      (contract ? contract.capsule.verification.commands : [])
+        .filter((entry) => entry.failsWith)
+        .map((entry) => [entry.label, entry.failsWith])
+    );
     for (const label of commands) {
       if (exempt.has(label)) continue;
+      const expected = declaredFailure.get(label);
+      const recorded = evidenceValue(task, `${label}.red`);
+      if (expected && isConcrete(recorded) && !String(recorded).includes(expected)) {
+        problems.push(
+          problem(
+            "red-missing-declared-failure",
+            `${label} declares that its red fails with \`${expected}\`, and `
+              + `the recorded ${label}.red Evidence does not contain that `
+              + "string. Record the failure output the red actually printed, "
+              + "or correct the declaration — which moves the contract "
+              + "fingerprint, because a signature edited after the red was "
+              + "observed is a transcription of it.",
+          )
+        );
+      }
       for (const phase of ["red", "green"]) {
         if (!isConcrete(evidenceValue(task, `${label}.${phase}`))) {
           problems.push(
