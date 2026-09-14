@@ -1,5 +1,37 @@
 # Keel Changelog
 
+## 5.59.0 - a staleness report names its exception
+
+- **5.55.0 built the way out of a blanket "all of it is stale" and signed it nowhere a reader
+  would look** (issue #134). `--keep-evidence` is the one way an author can say a contract change
+  did not touch a check. Grepped in the installed package, it appeared in exactly three places —
+  its parse site and its two refusals — so the only people ever told it exists were the people
+  already using it. The reporting repository measured the consequence: **one use in 67 task
+  capsules**, against a median re-verification of **256 s**, and two full re-runs in one session,
+  one of them for a contract change that was a single literal inside a `Fails with:` clause with
+  no causal path to the check that got re-run. (keel-core-gates, keel-stateless-continuity)
+- **Three exits tell an author their evidence is stale, and none of them named the flag.** All
+  three now do: the blanket `task-start --record` warning, `task-complete`'s `contract-drift`
+  refusal, and the context drift hard-stop. The middle one was the sharpest case — it already
+  printed `keel gate task-start --record`, the exact command the flag belongs to, and stopped
+  there. The comment directly above the first had already described the defect: an author acting
+  on "all of it is stale" in good faith re-runs everything.
+- **The sentence carries the flag's contract, not just its name.** It states the condition — the
+  check's assertion did not move — and sends the reason to `Reauthorizations`, because a bare flag
+  offered inside a refusal reads as a way to make the refusal go away. Keel records the claim and
+  does not verify it, and the message says so, for the same reason `README.md` puts that limit in
+  the same paragraph as the feature.
+- **No exit names which checks are unaffected**, at any of the three, asserted by a negative
+  control at each. The gate retains only the previous fingerprint and not the capsule behind it,
+  so it cannot know — that limit is why the flag is a declaration at all, and a message that
+  guessed would claim exactly the knowledge the flag exists to supply. The already-narrowed report
+  does not repeat the suggestion either: its reader has just used it.
+- **Nothing about the flag itself changed.** What it accepts, what it refuses, what it narrows,
+  and what completion still requires are all as 5.55.0 proved them; the regression check for that
+  is the 5.55.0 scenario, run unchanged. This release is what the surfaces say, not what the gate
+  does.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.59.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.58.0 - the dependency resolves where npm put it
 
 - **`keel openspec` did not resolve on a plain `npm install`** (issue #129). Keel carries the

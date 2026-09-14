@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.58.0"
-PROTOCOL_VERSION = "5.58.0"
+PACKAGE_VERSION = "5.59.0"
+PROTOCOL_VERSION = "5.59.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -26606,6 +26606,215 @@ def validate_evidence_survives_what_did_not_change_scenario() -> int:
     return 0
 
 
+# 5.55.0 built the way out of a blanket "all of it is stale" and signed it
+# nowhere a reader would look: issue #134 grepped the installed package and
+# found `--keep-evidence` only in its own two refusals, so the population told
+# it exists is exactly the population already using it. One use in 67 task
+# capsules, against a median re-verification of 256 s. Every exit that tells an
+# author their evidence is stale now names it — and none of them names which
+# checks it would apply to, because the gate keeps only the previous
+# fingerprint and cannot know.
+def validate_staleness_report_names_its_exception_scenario() -> int:
+    label = "a-staleness-report-names-its-exception"
+    flag = "--keep-evidence"
+
+    def fixture(root: Path, name: str) -> Path:
+        repo = root / name
+        task = strategy_probe_task(
+            strategy="evidence-first",
+            reason="fixture; nothing here can fail first",
+            commands=(
+                "M1: the first check asserts the public behavior",
+                "M2: the second check asserts the public behavior",
+                "M3: the third check asserts the public behavior",
+            ),
+        )
+        # A recorded anchor that is not the compiled one, so every exit fires.
+        task = task.replace(
+            "    - Contract: pending",
+            "    - Contract: keel-task-capsule/v1 sha256:" + "0" * 64,
+        )
+        write_gate_fixture(repo, tasks=task)
+        return repo
+
+    def keel_json(repo: Path, *args) -> dict:
+        result = run_keel(repo, *args)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"status": "unparsed", "problems": [
+                {"code": "unparsed", "message": result.stdout[:300]}
+            ]}
+
+    def message_for(payload: dict, code: str) -> str:
+        for entry in payload.get("problems") or []:
+            if str(entry.get("code", "")) == code:
+                return str(entry.get("message", ""))
+        return ""
+
+    # The suggestion has to carry the flag's own contract, not just its name:
+    # when it applies, and that the claim is the author's to defend.
+    def states_the_condition(text: str) -> bool:
+        return "assertion" in text.lower()
+
+    def sends_the_reason_home(text: str) -> bool:
+        return "Reauthorizations" in text
+
+    def names_a_check(text: str) -> str:
+        return next((m for m in ("M1", "M2", "M3") if m in text), "")
+
+    with tempfile.TemporaryDirectory(prefix="keel-names-exception-") as raw:
+        root = Path(raw)
+
+        # Exit 1 of 3 — `task-start --record` with no declaration. This is the
+        # branch issue #134 names, and the only one whose reader is mid-record.
+        blanket = keel_json(
+            fixture(root, "blanket"), "gate", "task-start", "--change", "demo",
+            "--task", "1.1", "--json", "--no-guard", "--record",
+        )
+        if blanket.get("status") != "pass":
+            report(
+                f"{label}: the re-record fixture did not pass, so no "
+                f"stale-evidence report was produced; {problem_text(blanket)!r}."
+            )
+            return 1
+        warned = " ".join(str(x) for x in (blanket.get("warnings") or []))
+        if flag not in warned:
+            report(
+                f"{label}: the blanket stale-evidence report does not name "
+                f"{flag}, so an author who has not already used it re-verifies "
+                f"everything; {warned!r}."
+            )
+            return 1
+        if not states_the_condition(warned):
+            report(
+                f"{label}: the blanket report names {flag} without saying when "
+                f"it applies — that the check's assertion did not move; "
+                f"{warned!r}."
+            )
+            return 1
+        if not sends_the_reason_home(warned):
+            report(
+                f"{label}: the blanket report names {flag} without saying the "
+                f"reason belongs in Reauthorizations, where it can be "
+                f"disagreed with; {warned!r}."
+            )
+            return 1
+        named = names_a_check(warned)
+        if named:
+            report(
+                f"{label}: the blanket report names {named} while suggesting "
+                f"{flag}. The gate keeps only the previous fingerprint and "
+                f"cannot know which checks are unaffected; {warned!r}."
+            )
+            return 1
+
+        # Exit 2 of 3 — `task-complete`'s contract-drift refusal, which already
+        # prints the command the flag belongs to.
+        completing = fixture(root, "completing")
+        done = keel_json(
+            completing, "gate", "task-complete", "--change", "demo",
+            "--task", "1.1", "--json",
+        )
+        drift = message_for(done, "contract-drift")
+        if not drift:
+            report(
+                f"{label}: the drifted fixture did not produce a "
+                f"contract-drift refusal; {problem_codes(done)!r}."
+            )
+            return 1
+        if "keel gate task-start --record" not in drift:
+            report(
+                f"{label}: the contract-drift refusal stopped naming the "
+                f"reauthorization command, which is what makes the flag "
+                f"belong in it; {drift!r}."
+            )
+            return 1
+        if flag not in drift:
+            report(
+                f"{label}: the contract-drift refusal does not name {flag} "
+                f"even though it names the command that accepts it; {drift!r}."
+            )
+            return 1
+        if not states_the_condition(drift):
+            report(
+                f"{label}: the contract-drift refusal names {flag} without "
+                f"saying when it applies; {drift!r}."
+            )
+            return 1
+        named = names_a_check(drift)
+        if named:
+            report(
+                f"{label}: the contract-drift refusal names {named} while "
+                f"suggesting {flag}; {drift!r}."
+            )
+            return 1
+
+        # Exit 3 of 3 — the context drift hard-stop, which already says to
+        # re-run task-start and record the new anchor.
+        blocked = keel_json(fixture(root, "blocked"), "context", "--json")
+        reasons = " ".join(str(x) for x in (blocked.get("reasons") or []))
+        if blocked.get("status") != "blocked":
+            report(
+                f"{label}: the drifted fixture did not block context, so the "
+                f"drift hard-stop did not fire; {blocked.get('status')!r}."
+            )
+            return 1
+        if "drift" not in reasons.lower():
+            report(
+                f"{label}: context blocked for something other than the "
+                f"contract drift this fixture builds; {reasons!r}."
+            )
+            return 1
+        if flag not in reasons:
+            report(
+                f"{label}: the context drift hard-stop does not name {flag} "
+                f"even though it tells the reader to re-record the anchor; "
+                f"{reasons!r}."
+            )
+            return 1
+        if not states_the_condition(reasons):
+            report(
+                f"{label}: the context drift hard-stop names {flag} without "
+                f"saying when it applies; {reasons!r}."
+            )
+            return 1
+        named = names_a_check(reasons)
+        if named:
+            report(
+                f"{label}: the context drift hard-stop names {named} while "
+                f"suggesting {flag}; {reasons!r}."
+            )
+            return 1
+
+        # The already-narrowed report does not repeat the suggestion. Absence
+        # is also what a broken narrowing produces, so the positive control
+        # runs first: the branch has to be alive before its silence means
+        # anything.
+        narrowed = keel_json(
+            fixture(root, "narrowed"), "gate", "task-start", "--change", "demo",
+            "--task", "1.1", "--json", "--no-guard", "--record",
+            "--keep-evidence", "M1,M3",
+        )
+        narrowed_said = " ".join(str(x) for x in (narrowed.get("warnings") or []))
+        if "declared unaffected" not in narrowed_said:
+            report(
+                f"{label}: the narrowed branch did not report a declaration, "
+                f"so its silence about {flag} proves nothing; "
+                f"{narrowed_said!r}."
+            )
+            return 1
+        if flag in narrowed_said:
+            report(
+                f"{label}: the narrowed report suggests {flag} to a reader who "
+                f"just used it; {narrowed_said!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
+
 # `keel context` exists to answer "what now" and answered with a noun. Issue
 # #112: `Next action: change-close` followed by `keel gate change-close
 # --change x` failing on the argument that stage requires — a wrong attempt
@@ -27035,6 +27244,10 @@ SCENARIOS: tuple = (
     ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
     ("a-paused-change-is-not-the-next-action", validate_paused_change_is_not_the_next_action_scenario),
     ("evidence-survives-what-did-not-change", validate_evidence_survives_what_did_not_change_scenario),
+    (
+        "a-staleness-report-names-its-exception",
+        validate_staleness_report_names_its_exception_scenario,
+    ),
     ("the-next-action-is-a-command", validate_next_action_is_a_command_scenario),
     ("the-overlay-names-the-invocation", validate_overlay_names_the_invocation_scenario),
     (

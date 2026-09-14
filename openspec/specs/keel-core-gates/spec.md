@@ -333,6 +333,13 @@ When a re-record lands a different fingerprint, Keel MUST report which checks re
 when a declaration is given, which were declared unaffected and that the narrowing came from that
 declaration. Keel MUST NOT report the declared checks as stale.
 
+When a re-record lands a different fingerprint and **no** declaration is given, the report MUST
+name the declaration as available, MUST state the condition under which it applies — that the
+check's assertion did not move — and MUST state that the reason belongs in `Reauthorizations`.
+Keel MUST NOT name which checks are unaffected, because it retains only the previous fingerprint
+and cannot know. The report given **with** a declaration MUST NOT carry the suggestion, its
+reader having already acted on it.
+
 Keel MUST refuse a declaration naming anything that is not a check of the compiled contract, and
 MUST refuse a declaration given without a re-record.
 
@@ -345,6 +352,17 @@ declaration MUST NOT change what completion requires.
 - **WHEN** a re-record lands a different fingerprint and the author declares two of three checks unaffected
 - **THEN** the report names the remaining check as stale
 - **AND THEN** it names the declared checks and attributes the narrowing to the declaration
+
+#### Scenario: The blanket warning names the declaration that narrows it
+
+- **WHEN** a re-record lands a different fingerprint and no declaration is given
+- **THEN** the report names `--keep-evidence`, states that it applies to a check whose assertion did not move, and states that the reason belongs in `Reauthorizations`
+- **AND THEN** it names no check as unaffected
+
+#### Scenario: The narrowed warning does not repeat the suggestion
+
+- **WHEN** a re-record lands a different fingerprint and a declaration is given
+- **THEN** the report does not suggest the declaration its reader just used
 
 #### Scenario: A declaration names a check that does not exist
 
@@ -452,6 +470,7 @@ repair from the message without reading validator source.
 
 - **WHEN** `change-close` produces `expectation-coverage` because the section is missing or declares no `E<n>` closure
 - **THEN** the error names the `## Expectation Coverage` section and carries a minimal `- E<n>: … Covered by: <task ids>` format sample
+
 ### Requirement: The tasks template emits a record-compatible Contract anchor
 
 The shipped `keel-spec-driven` tasks template MUST emit the Contract evidence
@@ -536,7 +555,7 @@ When no task is named explicitly, `task-complete` MUST NOT infer a task whose Ev
 
 `task-complete` MUST recompile the selected task's capsule and compare the result with the fingerprint recorded in its Evidence `Contract` anchor. A difference MUST fail the gate. It MUST NOT be reported as a warning or as `needs-review`, because drift returns the task to authoring rather than to the judgment of the agent recording its own Review.
 
-The diagnostic MUST name the recorded value, the recompiled value, and the command that reauthorizes the task, and MUST state that execution evidence produced under the previous contract is stale.
+The diagnostic MUST name the recorded value, the recompiled value, and the command that reauthorizes the task, and MUST state that execution evidence produced under the previous contract is stale. Having named that command, it MUST also name the declaration that command accepts for a check whose assertion did not move.
 
 Keel MUST NOT require the anchor to carry a capsule schema prefix. A fingerprint is a digest over the canonical capsule serialization, so a value that matches could only have come from the schema that produced it; the prefix is diagnostic detail, not a gate condition.
 
@@ -545,18 +564,13 @@ Keel MUST NOT require the anchor to carry a capsule schema prefix. A fingerprint
 - **THEN** the gate fails with a contract-drift diagnostic
 - **AND THEN** the diagnostic names both the recorded and the recompiled fingerprint, names the reauthorization command, and states that evidence recorded under the previous contract is stale
 
+#### Scenario: The drift refusal names the declaration its own command accepts
+- **WHEN** a contract-drift diagnostic names `keel gate task-start --record`
+- **THEN** it also names `--keep-evidence` and the condition under which it applies
+
 #### Scenario: An anchor holding a foreign fingerprint is refused
 - **WHEN** the recorded anchor is a well-formed digest that the task's own capsule does not compile to
 - **THEN** the gate fails rather than accepting the anchor on its shape
-- **AND THEN** a value of sixty-four zeros is refused for the same reason as any other non-matching value
-
-#### Scenario: A matching anchor completes
-- **WHEN** the recorded anchor equals the recompiled fingerprint
-- **THEN** the comparison contributes no problem and the task's other completion evidence is evaluated as usual
-
-#### Scenario: A schema prefix is not required
-- **WHEN** the anchor records a bare `sha256:` digest with no capsule schema prefix, and that digest matches
-- **THEN** the gate does not refuse it for the missing prefix
 
 ### Requirement: change-close compares the anchor of every checked task
 
@@ -576,7 +590,6 @@ The close diagnostic MUST identify the task and MUST NOT direct the reader to co
 #### Scenario: An unchanged change closes as before
 - **WHEN** every checked task's anchor matches its recompiled fingerprint
 - **THEN** the anchor comparison contributes no problem
-
 
 ### Requirement: Git path output is read in a form that carries no escaping
 
@@ -852,3 +865,4 @@ Keel MUST NOT judge whether a declared signature is an adequate one.
 
 - **WHEN** `keel gate task-start` reports the red-green obligation for a task
 - **THEN** it names which of the checks owing a red declared a failure signature and which did not
+

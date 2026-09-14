@@ -147,7 +147,10 @@ function contractDriftProblem(recorded, contract) {
       + "implemented under is not the authority it is being judged against. "
       + "Reauthorize with `keel gate task-start --record`, which rewrites the "
       + "anchor in place; execution evidence produced under the previous "
-      + "contract is stale and has to be cleared or re-verified first."
+      + "contract is stale and has to be cleared or re-verified first. If a "
+      + "check's assertion did not move, add `--keep-evidence <check>` to that "
+      + "re-record; Keel records that claim and does not verify it, so state "
+      + "the reason in Reauthorizations."
   );
 }
 
@@ -434,7 +437,11 @@ function taskStart(repo, options) {
               + "previous fingerprint and cannot compare a check's former text "
               + "to its current one. State the reason in Reauthorizations."
             : "Execution evidence produced under the previous contract is "
-              + "stale; clear or re-verify it before completing this task.")
+              + "stale; clear or re-verify it before completing this task. "
+              + "If a check's assertion did not move, re-record with "
+              + "`--keep-evidence <check>` to say so; Keel records that claim "
+              + "and does not verify it, so state the reason in "
+              + "Reauthorizations.")
       );
     }
   }

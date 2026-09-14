@@ -129,7 +129,10 @@ function driftSearchSet(contract) {
     `${where} Evidence, Review, and the task checkbox are not covered — `
     + "editing them does not move it. Reauthorize by re-running "
     + "`keel gate task-start` and recording the new anchor, after confirming "
-    + "the change to the authority above was intended."
+    + "the change to the authority above was intended. If a check's assertion "
+    + "did not move, add `--keep-evidence <check>` to that re-record; Keel "
+    + "records that claim and does not verify it, so state the reason in "
+    + "Reauthorizations."
   );
 }
 
