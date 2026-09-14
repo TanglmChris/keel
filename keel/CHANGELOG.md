@@ -1,5 +1,39 @@
 # Keel Changelog
 
+## 5.60.0 - a coverage claim is compared
+
+- **`## Expectation Coverage` carries the protocol's one global assertion — every expectation
+  has an owner — and 80% of its closures had nothing behind them** (issue #133). Of the three
+  forms, `Durable owner:` has checked existence since 5.51.0 and `Discard reason:` requires a
+  reason; `Covered by:` was checked only for whether the task it named was checked, never for
+  whether that task claimed the same thing back. Run by hand over 24 archived changes: 146 E
+  entries, 117 of them `Covered by:`, 42 citing identifiers, and **6 of those 42 wrong** — three
+  naming a task of the change other than the one whose `Covers:` holds the identifier, two
+  claiming an identifier as covered while another entry deferred the same one to a tracker, one
+  naming an identifier no task covered. All six were archived, past this gate and a semantic
+  Review. (keel-expectation-slice-evidence-gates)
+- **`change-close` now compares the two lists.** When an entry cites `F<n>`/`D<n>`/`A<n>`/`Q<n>`
+  and closes with `Covered by:`, the identifiers are checked against the `Covers:` of each task
+  named. The refusal carries the entry, the identifier, and **where that identifier actually is**
+  — the task whose `Covers:` holds it, or that no task of the change does. That is what tells the
+  three measured shapes apart, and the information was already in the same parse.
+- **Citing stays optional.** An entry naming no identifier is not refused and not nudged; 58% of
+  the reporting repository's entries and 99% of this one's are prose, and some expectations
+  genuinely are. What changed is that an entry which *does* cite is held to it.
+- **The close says how much of the section it compared**, whatever the numbers are. A line that
+  appeared only when something was skipped would teach a reader that its absence means full
+  coverage — and in the repository that filed this, the uncompared share is 58%.
+- **One of the report's two suggestions was declined, on measurement.** The second — that one
+  identifier may not appear on both a `Covered by:` entry and a `Durable owner:`/`Discard reason:`
+  entry — fires once across 83 archived changes here, and that once is a false positive: an entry
+  citing an identifier precisely to say which half of it *was* covered. The rule cannot tell a
+  claim from a contrast, because both are a mention. The comparison above already refuses the
+  report's own contradiction case, without having to know why an identifier was mentioned.
+- **This rule is a no-op on this repository's own archive**, and that is recorded rather than
+  hidden: 347 of 351 `Covered by:` entries here cite nothing, and the four that do arrived hours
+  earlier in 5.59.0. The archive cannot confirm this rule; the scenario carries the whole proof.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.60.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.59.0 - a staleness report names its exception
 
 - **5.55.0 built the way out of a blanket "all of it is stale" and signed it nowhere a reader

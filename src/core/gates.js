@@ -1536,27 +1536,54 @@ function invalidationProblems(repo, content, tasks, change) {
   return problems;
 }
 
+// `Covered by:` is the closure form with nothing behind it. `Durable owner:`
+// checks that the path or reference exists; `Discard reason:` requires a
+// reason; a coverage claim was checked only for whether the task it named was
+// checked, never for whether that task claimed the same thing back. Issue #133
+// ran the set difference by hand over 24 archived changes: 6 of the 42 citing
+// entries were wrong, all of them already past this gate and a semantic Review.
+// The two lists are declared, structured, and in one file — a reader will not
+// diff them by eye, which is the whole reason it is worth a gate.
+//
+// `I<n>` is deliberately not compared: an `## Invalidates` entry has its own
+// closure check that already requires `Updated by:` to name tasks of this
+// change, so an E entry citing one is a second and weaker claim about
+// something already owned.
+const CRITICAL_ID = /\b([FDAQ]\d+)\b/g;
+
+function coversByIdentifier(tasks) {
+  const index = new Map();
+  for (const task of tasks) {
+    for (const match of field(task, "Covers").matchAll(CRITICAL_ID)) {
+      const list = index.get(match[1]) || [];
+      if (!list.includes(task.id)) list.push(task.id);
+      index.set(match[1], list);
+    }
+  }
+  return index;
+}
+
 function expectationProblems(repo, content, tasks, change) {
   const heading = content.search(/^## Expectation Coverage\s*$/m);
   if (heading < 0) {
-    return [
+    return { problems: [
       problem(
         "expectation-coverage",
         "tasks.md requires a `## Expectation Coverage` section: one "
           + "`- E<n>: <expectation> Covered by: <task ids>` line per "
           + "expectation, or `- None.`."
       ),
-    ];
+    ], report: null };
   }
   const section = sectionBody(content, heading, tasks);
-  if (/^\s*-\s+None\.?\s*$/im.test(section)) return [];
+  if (/^\s*-\s+None\.?\s*$/im.test(section)) return { problems: [], report: null };
   const entries = [
     ...section.matchAll(
       /^\s*-\s+(E\d+)\s*:\s*([\s\S]*?)(?=^\s*-\s+E\d+\s*:|(?![\s\S]))/gm
     ),
   ];
   if (entries.length === 0) {
-    return [
+    return { problems: [
       problem(
         "expectation-coverage",
         "Expectation Coverage must declare each `E<n>` closure — "
@@ -1564,9 +1591,12 @@ function expectationProblems(repo, content, tasks, change) {
           + "path or `https://…` tracker reference, or a `Discard reason:` — "
           + "or `- None.`."
       ),
-    ];
+    ], report: null };
   }
   const problems = [];
+  const coverage = coversByIdentifier(tasks);
+  let compared = 0;
+  let uncited = 0;
   for (const entry of entries) {
     const [, id, body] = entry;
     const covered = body.match(/Covered by:\s*([0-9.,\s-]+)/i);
@@ -1617,9 +1647,52 @@ function expectationProblems(repo, content, tasks, change) {
           );
         }
       }
+      // Read from the entry with its closure clause removed, so a task id in
+      // `Covered by:` can never be mistaken for a statement identifier.
+      const claim = body.replace(/Covered by:[\s\S]*/i, "");
+      const cited = [
+        ...new Set([...claim.matchAll(CRITICAL_ID)].map((match) => match[1])),
+      ];
+      if (cited.length === 0) uncited += 1;
+      else compared += 1;
+      for (const reference of cited) {
+        if (ids.some((taskId) => (coverage.get(reference) || []).includes(taskId))) {
+          continue;
+        }
+        const elsewhere = coverage.get(reference) || [];
+        // Naming where it actually is turns the three shapes issue #133
+        // measured — wrong task, deferred and claimed at once, covered by
+        // nothing — into one edit instead of an investigation. The information
+        // is free: the same parse already holds every task's Covers.
+        problems.push(
+          problem(
+            "expectation-coverage-mismatch",
+            `${id} says ${ids.join(", ")} covers ${reference}, and `
+              + `${ids.length > 1 ? "none of those tasks names" : `task ${ids[0]} does not name`} `
+              + `it in Covers. ${
+                elsewhere.length > 0
+                  ? `${reference} is covered by task ${elsewhere.join(", ")}.`
+                  : `No task of this change covers ${reference}.`
+              } Name the task that covers it, add ${reference} to the Covers `
+              + "of the task named, or drop the citation if the mention is not "
+              + "a coverage claim."
+          )
+        );
+      }
     }
   }
-  return problems;
+  // Stated whatever the numbers are: a line that appears only when something
+  // was skipped teaches the reader that its absence means full coverage, and
+  // in the repository that filed #133 the uncompared share is 58%.
+  const report =
+    compared + uncited > 0
+      ? `Expectation Coverage: compared ${compared} of ${compared + uncited} `
+        + `\`Covered by:\` ${compared + uncited === 1 ? "entry" : "entries"} `
+        + `against the Covers of the task named; ${uncited} cited no `
+        + `expectation identifier and ${uncited === 1 ? "was" : "were"} not `
+        + "compared."
+      : null;
+  return { problems, report };
 }
 
 function hasDeltaSpec(changePath) {
@@ -1708,9 +1781,10 @@ function changeClose(repo, options) {
       )
     );
   }
-  problems.push(
-    ...expectationProblems(repo, selection.content, selection.tasks, selection.change)
+  const expectations = expectationProblems(
+    repo, selection.content, selection.tasks, selection.change
   );
+  problems.push(...expectations.problems);
   problems.push(...changeVerifyProblems(selection.content, selection.tasks));
 
   const changePath = path.dirname(selection.tasksPath);
@@ -1744,7 +1818,7 @@ function changeClose(repo, options) {
     selection.change,
     selection.tasks.map((task) => task.id),
     [...problems, ...reviewProblems],
-    [],
+    expectations.report ? [expectations.report] : [],
     null,
     contracts
   );

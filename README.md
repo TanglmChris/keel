@@ -364,6 +364,27 @@ keel lenses add web         # copy the web template into keel/lenses/web.md, the
 keel lenses add web --force # overwrite an existing lens
 ```
 
+## What a coverage claim is checked against
+
+`## Expectation Coverage` closes each expectation one of three ways, and each is checked. A
+`Durable owner:` must name a path that exists or an `https://…` reference that already carries
+its content. A `Discard reason:` must give a reason. And a `Covered by:` **that cites
+expectation identifiers** is compared against the `Covers:` of the task it names:
+
+```
+- E3: the records land in different flow generations (F4, D3). Covered by: 1.1
+```
+
+`keel gate change-close` checks that task 1.1's `Covers:` actually names `F4` and `D3`. When it
+does not, the refusal says so and says where the identifier *is* — the task of this change whose
+`Covers:` holds it, or that none does.
+
+**Citing identifiers is optional.** An entry that names none is not refused and not reported as
+deficient; plenty of expectations are prose ("documentation and skills follow the behavior
+changes above") and numbering them to satisfy a parser is worse than leaving them. What the check
+holds you to is the claim you chose to make. So that a pass is not read as more than it is, the
+close reports how many entries it compared and how many it did not.
+
 ## Re-recording a contract
 
 Changing a task's contract after work has started moves its fingerprint, and Keel reports that the

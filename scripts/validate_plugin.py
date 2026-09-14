@@ -37,8 +37,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.59.0"
-PROTOCOL_VERSION = "5.59.0"
+PACKAGE_VERSION = "5.60.0"
+PROTOCOL_VERSION = "5.60.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -26016,6 +26016,258 @@ def validate_drift_names_where_to_look_scenario() -> int:
 # `M<n>` was reported as naming a check the task does not declare — first, and
 # as somebody else's fault. The reporter calls it the only diagnostic in 149
 # invocations that made them edit the wrong file.
+
+# `## Expectation Coverage` carries the protocol's one global assertion — every
+# expectation has an owner — and 80% of its closures were the single form with
+# nothing behind them. Issue #133 ran the set difference by hand over 24
+# archived changes and found six wrong claims, all of them already past
+# change-close and a semantic Review. The operation that finds them is between
+# two identifier lists the author already declared, in one file.
+def validate_coverage_claim_is_compared_scenario() -> int:
+    label = "a-coverage-claim-is-compared"
+
+    design = (
+        "## Context\n\nfixture\n\n## Decisions\n\n"
+        "- F1 — the first fact the fixture declares.\n"
+        "- F2 — the second fact the fixture declares.\n"
+        "- D1 — the decision no task of the fixture covers.\n"
+    )
+
+    def task(tid: str, covers: str) -> str:
+        return "\n".join((
+            f"- [x] {tid} Coverage probe",
+            "  - Owner: claude",
+            "  - Mode: implementation",
+            "  - Covers:",
+            f"    - {covers}",
+            "  - Read:",
+            "    - README.md",
+            "  - Touch:",
+            "    - src/example.js",
+            "  - Verify:",
+            "    - Strategy: evidence-first",
+            "    - Reason: fixture; nothing here can fail first",
+            "    - M1: the check asserts the public behavior",
+            "  - Autonomy boundary:",
+            "    - Default: hard-stop",
+            "    - Pre-authorized fallback: none",
+            "  - Stop Rules:",
+            "    - Stop if the fixture needs a decision it cannot make.",
+            "  - Evidence:",
+            "    - Contract: pending",
+            "    - M1: pass. ran it.",
+            "    - Review:",
+            "      - Status: pass",
+            "      - Acceptance check: M1 asserts the behavior at its interface.",
+            "      - Scope check: only src/example.js changed.",
+            "      - Findings: none",
+            "    - Blocker: none",
+            "    - Reauthorizations: none",
+            "",
+        ))
+
+    def fixture(root: Path, name: str, coverage: str) -> Path:
+        repo = root / name
+        write_gate_fixture(repo, tasks="", design=design)
+        write_text(
+            repo / "openspec/changes/demo/tasks.md",
+            "# Tasks\n\n"
+            + "## Work\n\n"
+            + task("1.1", "F1")
+            + "\n"
+            + task("2.1", "F2")
+            + "\n## Invalidates\n\n- None.\n\n"
+            + "## Expectation Coverage\n\n"
+            + coverage
+            + "\n",
+        )
+        # Both anchors, in order: `Contract: pending` is replaced once per task,
+        # first occurrence first, and a task's fingerprint covers only its own
+        # authority text, so recording one does not move the other.
+        tasks_path = repo / "openspec/changes/demo/tasks.md"
+        for tid in ("1.1", "2.1"):
+            started = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", tid,
+                "--json", "--no-guard",
+            )
+            try:
+                payload = json.loads(started.stdout)
+            except json.JSONDecodeError:
+                report(
+                    f"{label}: the fixture's task {tid} did not start, so no "
+                    f"anchor could be recorded; "
+                    f"{(started.stderr or started.stdout).strip()[:400]!r}."
+                )
+                raise SystemExit(1)
+            value = (
+                ((payload.get("contract") or {}).get("fingerprint") or {})
+                .get("value") or "0" * 64
+            )
+            tasks_path.write_text(
+                tasks_path.read_text(encoding="utf-8").replace(
+                    "    - Contract: pending",
+                    f"    - Contract: keel-task-capsule/v1 sha256:{value}",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+        return repo
+
+    def close(repo: Path) -> dict:
+        result = run_keel(
+            repo, "gate", "change-close", "--change", "demo", "--action",
+            "archive", "--json",
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return {"status": "unparsed", "problems": [
+                {"code": "unparsed", "message": result.stdout[:300]}
+            ]}
+
+    def said(payload: dict) -> str:
+        return " ".join(str(x) for x in (payload.get("warnings") or []))
+
+    agree = "- E1: the first expectation (F1). Covered by: 1.1\n" \
+            "- E2: the second expectation (F2). Covered by: 2.1\n"
+    # The identifier is covered — by the other task.
+    mismatch = "- E1: the first expectation (F2). Covered by: 1.1\n" \
+               "- E2: the second expectation. Covered by: 2.1\n"
+    # The identifier is covered by nothing.
+    orphan = "- E1: the first expectation (D1). Covered by: 1.1\n" \
+             "- E2: the second expectation. Covered by: 2.1\n"
+    # Same entry as `mismatch` with the citation removed, and nothing else.
+    prose = "- E1: the first expectation. Covered by: 1.1\n" \
+            "- E2: the second expectation. Covered by: 2.1\n"
+    # Issue #133's contradiction: one identifier claimed covered and deferred.
+    contradiction = "- E1: the first expectation (F2). Covered by: 1.1\n" \
+                    "- E2: the same identifier, deferred (F2). " \
+                    "Durable owner: https://github.com/TanglmChris/keel/issues/133\n"
+
+    with tempfile.TemporaryDirectory(prefix="keel-coverage-claim-") as raw:
+        root = Path(raw)
+
+        # The control comes first: without a fixture that closes, every later
+        # refusal could be something else refusing.
+        settled = close(fixture(root, "agree", agree))
+        if settled.get("status") != "pass":
+            report(
+                f"{label}: the agreeing fixture does not close, so no later "
+                f"refusal can be attributed; {problem_text(settled)!r}."
+            )
+            return 1
+        wrong = close(fixture(root, "mismatch", mismatch))
+        if wrong.get("status") != "fail":
+            report(
+                f"{label}: a claim that task 1.1 covers F2 was accepted while "
+                f"1.1's Covers names only F1; change-close returned "
+                f"Status: {wrong.get('status')}."
+            )
+            return 1
+        text = problem_text(wrong)
+        if "E1" not in text:
+            report(f"{label}: the refusal does not name the entry; {text!r}.")
+            return 1
+        if "F2" not in text:
+            report(
+                f"{label}: the refusal does not name the identifier it could "
+                f"not find; {text!r}."
+            )
+            return 1
+        if "2.1" not in text:
+            report(
+                f"{label}: the refusal does not name the task whose Covers "
+                f"does hold F2, so the author is told the claim is wrong and "
+                f"must re-derive which of three shapes it is; {text!r}."
+            )
+            return 1
+
+        nowhere = close(fixture(root, "orphan", orphan))
+        if nowhere.get("status") != "fail":
+            report(
+                f"{label}: a claim naming an identifier no task covers was "
+                f"accepted; change-close returned Status: {nowhere.get('status')}."
+            )
+            return 1
+        text = problem_text(nowhere)
+        if "D1" not in text:
+            report(
+                f"{label}: the refusal does not name the uncovered identifier; "
+                f"{text!r}."
+            )
+            return 1
+        # The distinction is which of the two halves the refusal chose, not
+        # whether a task id appears at all — the entry's own claim names one.
+        if "is covered by task" in text:
+            report(
+                f"{label}: the refusal points at a task as the place D1 is "
+                f"covered, which sends the author to a capsule with nothing "
+                f"wrong in it; {text!r}."
+            )
+            return 1
+        if "No task of this change covers" not in text:
+            report(
+                f"{label}: the refusal does not say that no task covers it, so "
+                f"the shape issue #133 measured as the serious one is not told "
+                f"apart from a wrong task id; {text!r}."
+            )
+            return 1
+
+        # Citing is optional, and the fixture proving it is the mismatch with
+        # its one citation removed — so a rule that refused prose would have to
+        # refuse this and nothing else about it changed.
+        quiet = close(fixture(root, "prose", prose))
+        if quiet.get("status") != "pass":
+            report(
+                f"{label}: an entry citing no identifier was refused; "
+                f"{problem_text(quiet)!r}."
+            )
+            return 1
+
+        # D3: the report's second suggestion is unnecessary, because the
+        # comparison already refuses the case it was aimed at.
+        both = close(fixture(root, "contradiction", contradiction))
+        if both.get("status") != "fail":
+            report(
+                f"{label}: the same identifier claimed covered by a task that "
+                f"omits it and deferred to a tracker was accepted; "
+                f"change-close returned Status: {both.get('status')}."
+            )
+            return 1
+        text = problem_text(both)
+        if "F2" not in text:
+            report(
+                f"{label}: the contradiction was refused for something other "
+                f"than the identifier it is about; {text!r}."
+            )
+            return 1
+
+        # How far the comparison reached, read off the control run above.
+        spoken = said(settled)
+        if "Expectation Coverage" not in spoken:
+            report(
+                f"{label}: the close does not report how much of the section "
+                f"it compared, so a pass reads as a warrant it does not carry; "
+                f"{spoken!r}."
+            )
+            return 1
+        if "2" not in spoken:
+            report(
+                f"{label}: the report does not carry the compared count; "
+                f"{spoken!r}."
+            )
+            return 1
+        if "0" not in spoken:
+            report(
+                f"{label}: the report is suppressed when every entry was "
+                f"compared, which teaches a reader that its absence means full "
+                f"coverage; {spoken!r}."
+            )
+            return 1
+
+    report(f"{label} scenario passed.")
+    return 0
+
 def validate_reference_outlives_its_declaration_scenario() -> int:
     label = "a-reference-outlives-its-declaration"
 
@@ -27239,6 +27491,7 @@ SCENARIOS: tuple = (
     ("the-weakest-strategy-states-its-reason", validate_weakest_strategy_states_its_reason_scenario),
     ("a-quoted-marker-is-not-a-disposition", validate_quoted_marker_is_not_a_disposition_scenario),
     ("drift-names-where-to-look", validate_drift_names_where_to_look_scenario),
+    ("a-coverage-claim-is-compared", validate_coverage_claim_is_compared_scenario),
     ("a-reference-outlives-its-declaration", validate_reference_outlives_its_declaration_scenario),
     ("the-obligation-is-stated-early", validate_obligation_is_stated_early_scenario),
     ("an-explanation-is-printed-once", validate_explanation_is_printed_once_scenario),
