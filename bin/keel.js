@@ -1776,7 +1776,7 @@ function gitConfigHooksPath(repo) {
 
 function printStandingAuthorizationSurface(repo) {
   process.stdout.write("\nStanding authorization:\n");
-  const { declared, unknown, message } = readStandingAuthorization(repo);
+  const { declared, scopes, unknown, message } = readStandingAuthorization(repo);
   if (unknown.length > 0) {
     printDoctorLine("authorize", "failed", message);
     return false;
@@ -1789,9 +1789,32 @@ function printStandingAuthorizationSurface(repo) {
       : "undeclared; every action stays hard-stop"
   );
   for (const action of STANDING_AUTHORIZATION_ACTIONS) {
+    // Keyed on the action, never on the declared string. A scoped entry is
+    // `issue:acme/widgets` in the file, so a membership test against the bare
+    // name reports it `not authorized` on the same screen that has just listed
+    // it as declared — a diagnostic contradicting itself six lines apart.
+    if (!scopes.has(action)) {
+      printDoctorLine(action, "not authorized");
+      continue;
+    }
+    const scope = scopes.get(action);
     printDoctorLine(
       action,
-      declared.includes(action) ? "authorized" : "not authorized"
+      "authorized",
+      scope ? `scoped to ${scope}` : ""
+    );
+  }
+  // Said once, and only where it applies. Keel invokes no tracker client and
+  // observes none that an agent runs, so the scope is a declaration carried to
+  // the people who read it rather than a boundary anything holds. A reader who
+  // took it for a sandbox would be relying on nothing.
+  if ([...scopes.values()].some((scope) => scope !== null)) {
+    printDoctorLine(
+      "scope",
+      "carried",
+      "Keel records a scope and does not enforce it — it invokes no tracker "
+        + "client and cannot observe one, so the boundary is kept by whoever "
+        + "acts, not by this check"
     );
   }
   return true;

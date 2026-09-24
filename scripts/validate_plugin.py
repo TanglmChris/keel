@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.61.0"
-PROTOCOL_VERSION = "5.61.0"
+PACKAGE_VERSION = "5.62.0"
+PROTOCOL_VERSION = "5.62.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19808,19 +19808,20 @@ def validate_continuation_docs_scenario() -> int:
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for needle in (
-        "accepted names: commit, push, release, archive, continuation",
+        "accepted names: commit, push, release, archive, continuation, "
+        "issue:<owner>/<repo>",
         "next unchecked task of the same change",
         "the stop that re-asks for an approval already given",
-        "The five names above are the whole vocabulary.",
+        "The six names above are the whole vocabulary.",
     ):
         if needle not in readme:
             report(f"{label}: README.md lacks: {needle}")
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, release, archive,\n# continuation" not in config_text:
+    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>" not in config_text:
         report(
-            f"{label}: keel/config.yaml's comment does not name the five-name "
+            f"{label}: keel/config.yaml's comment does not name the six-name "
             "vocabulary."
         )
         return 1
@@ -27626,6 +27627,163 @@ def validate_a_filter_drops_only_what_it_named_scenario() -> int:
     return 0
 
 
+def validate_an_authorization_names_its_repository_scenario() -> int:
+    """Issue #136: the vocabulary had no name for a tracker write.
+
+    `change-close` routes an unresolved follow-up to a durable owner and accepts
+    an absolute https reference, which in practice is a tracker issue — while the
+    standing-authorization vocabulary had no way to say the agent may create one.
+    The entry added for it is the first whose credential reaches further than the
+    checkout the declaration sits in: `gh` is account-wide, so a bare `issue`
+    would be the widest entry in a file whose other entries the checkout bounds.
+    It therefore names the repository it reaches, and the bare form is refused.
+    """
+    label = "an-authorization-names-its-repository"
+
+    with tempfile.TemporaryDirectory(prefix="keel-issue-scope-") as raw:
+        root = Path(raw)
+
+        def fixture(name: str, body: str) -> Path:
+            repo = root / name
+            repo.mkdir()
+            write_authorize_config(repo, body)
+            return repo
+
+        # M1 — the scoped form is accepted, beside an ordinary entry so the
+        # assertion is about this entry and not about the block parsing at all.
+        scoped = fixture(
+            "scoped", "authorize:\n  - commit\n  - issue:acme/widgets\n"
+        )
+        out = run_keel(scoped, "--doctor").stdout
+        if "authorize: ok" not in out or "issue:acme/widgets" not in out:
+            report(
+                f"{label}: a scoped tracker entry was refused. `gh` is "
+                "account-wide, so this is the one entry that has to name its "
+                "repository, and it is the one the vocabulary rejects."
+            )
+            report(out)
+            return 1
+        if "commit: authorized" not in out:
+            report(
+                f"{label}: the entry beside the scoped one lost its "
+                "authorization, so the scoped entry voided the declaration "
+                "rather than joining it."
+            )
+            report(out)
+            return 1
+
+        # The per-action line, which is the half a reader looks at. Without it
+        # the same screen lists the entry as declared and reports the action as
+        # unauthorized.
+        if "issue: authorized" not in out or "acme/widgets" not in out.split(
+            "issue: authorized", 1
+        )[-1].split("\n", 1)[0]:
+            report(
+                f"{label}: the per-action line does not report the scoped entry "
+                "as authorized and name its scope."
+            )
+            report(out)
+            return 1
+        if "issue: not authorized" in out:
+            report(
+                f"{label}: the doctor lists the entry as declared and reports "
+                "`issue: not authorized` on the same screen, so the diagnostic "
+                "contradicts itself."
+            )
+            report(out)
+            return 1
+        # D2 is unfixable by mechanism, so it is owed to wording: a reader must
+        # not take the scope for a sandbox.
+        if "does not enforce" not in out:
+            report(
+                f"{label}: the output does not say Keel carries the scope "
+                "without enforcing it, so a reader can take it for a fence."
+            )
+            report(out)
+            return 1
+
+        # M2 — the bare form is refused, and the refusal carries the form it
+        # needs. The refusal alone is not the assertion: a bare `issue` was
+        # already refused before this existed, by not being a name at all.
+        bare = fixture("bare", "authorize:\n  - commit\n  - issue\n")
+        out = run_keel(bare, "--doctor").stdout
+        if "authorize: failed" not in out:
+            report(f"{label}: a bare tracker entry was granted.")
+            report(out)
+            return 1
+        if "issue:<owner>/<repo>" not in out:
+            report(
+                f"{label}: the bare-entry refusal does not name the form it "
+                "requires, so a reader is told `issue` is not a name rather "
+                "than that it is a name needing a scope."
+            )
+            report(out)
+            return 1
+
+        # M3 — the shape is checked, on both sides of correct.
+        for name, body in (
+            ("short", "authorize:\n  - issue:acme\n"),
+            ("long", "authorize:\n  - issue:acme/widgets/extra\n"),
+            ("empty-owner", "authorize:\n  - issue:/widgets\n"),
+            ("empty-repo", "authorize:\n  - issue:acme/\n"),
+        ):
+            repo = fixture(name, body)
+            out = run_keel(repo, "--doctor").stdout
+            if "authorize: failed" not in out:
+                report(
+                    f"{label}: a malformed scope ({name}) was accepted; a shape "
+                    "check that passes everything checks nothing."
+                )
+                report(out)
+                return 1
+            declared_entry = body.strip().splitlines()[-1].strip("- ")
+            if declared_entry not in out:
+                report(
+                    f"{label}: the refusal for {name} does not name the "
+                    f"offending entry {declared_entry!r}."
+                )
+                report(out)
+                return 1
+
+        # M3 — and fail-closed is unchanged by the new form: a valid scoped
+        # entry beside an unrecognized one authorizes nothing.
+        mixed = fixture(
+            "mixed", "authorize:\n  - issue:acme/widgets\n  - deploy\n"
+        )
+        out = run_keel(mixed, "--doctor").stdout
+        if "authorize: failed" not in out or "deploy" not in out:
+            report(f"{label}: an unrecognized entry beside a scoped one did not fail closed.")
+            report(out)
+            return 1
+        if "issue: authorized" in out:
+            report(
+                f"{label}: the scoped entry stayed authorized beside an "
+                "unrecognized one, so the declaration did not fail closed."
+            )
+            report(out)
+            return 1
+
+
+        # M3 — the new rendering did not turn an undeclared action into a
+        # declared one.
+        only_commit = fixture("only-commit", "authorize:\n  - commit\n")
+        out = run_keel(only_commit, "--doctor").stdout
+        for action in ("push", "release", "archive", "continuation", "issue"):
+            if f"{action}: not authorized" not in out:
+                report(
+                    f"{label}: {action} is not reported as unauthorized in a "
+                    "repository that declared only commit."
+                )
+                report(out)
+                return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -27971,6 +28129,10 @@ SCENARIOS: tuple = (
     (
         "a-filter-drops-only-what-it-named",
         validate_a_filter_drops_only_what_it_named_scenario,
+    ),
+    (
+        "an-authorization-names-its-repository",
+        validate_an_authorization_names_its_repository_scenario,
     ),
 )
 

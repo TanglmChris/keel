@@ -17,11 +17,20 @@
 #
 # authorize (optional): standing authorization for repository actions. The
 # accepted names are the whole vocabulary — commit, push, release, archive,
-# continuation — and an unrecognized entry is reported with the accepted names
-# rather than silently granted or silently dropped, so the declaration
-# authorizes nothing until it is corrected. An absent or empty block authorizes
-# nothing, which is the default and leaves behavior exactly as it was before
-# the block existed.
+# continuation, issue:<owner>/<repo> — and an unrecognized entry is reported
+# with the accepted names rather than silently granted or silently dropped, so
+# the declaration authorizes nothing until it is corrected. An absent or empty
+# block authorizes nothing, which is the default and leaves behavior exactly as
+# it was before the block existed.
+#
+# `issue` is the one name that carries the resource it reaches, and it is
+# refused without one. Every other name acts on this checkout, so the
+# declaration and the thing it permits are the same size; the credentials that
+# open an issue are account-wide, so a bare `issue` would silently be the widest
+# entry in this file — wider than `push`. Naming the repository is what keeps
+# the entry no bigger than what it says. Keel carries that scope to `--doctor`
+# and to the compiled capsule and does not enforce it: it invokes no tracker
+# client and cannot observe one, exactly as it never commits.
 #
 # A task that authors no `Autonomy boundary:` inherits what is declared here,
 # and the compiled capsule names this file as that entry's source. A task that
@@ -59,6 +68,12 @@ authorize:
   - push
   - release
   - archive
+  # Declared 2026-09-24 so the repository that ships the scoped form is the one
+  # that demonstrates it, as the bare-list `triage:` below already records for
+  # its own compatibility. It also closes the gap that motivated the form:
+  # `change-close` asks an unresolved follow-up for a durable owner and accepts
+  # an https reference, and until now nothing here could create one.
+  - issue:TanglmChris/keel
 
 # TanglmChris/decision-precedents, a private repository. Every other clone of
 # this one — including CI — will not have it, and that is the point: a declared

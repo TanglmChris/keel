@@ -13,7 +13,52 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   "release",
   "archive",
   "continuation",
+  "issue",
 ];
+
+// The actions whose credential reaches further than the checkout the
+// declaration sits in. Every other name here acts on this repository, so the
+// declaration and the thing it permits are the same size; `gh` is account-wide,
+// so a bare `issue` would silently be the widest entry in the file. Those
+// actions are declared with the resource they may reach and refused bare —
+// accepting the bare form as a convenience would make the narrow form optional
+// and the wide one the default, which is the decision inverted.
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue"]);
+
+// `<owner>/<repo>`: two non-empty segments and nothing else. The shape is
+// checked and the existence is not, for the reason `triage` never fetches an
+// issue — a check that reaches the network trades the local, offline,
+// deterministic evaluation its verdict rests on.
+const AUTHORIZATION_SCOPE_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+// How the accepted names are spelled back to an author: the scoped ones carry
+// their form, so the list is copyable rather than a name the next message
+// refuses.
+const STANDING_AUTHORIZATION_ACCEPTED_FORMS = STANDING_AUTHORIZATION_ACTIONS.map(
+  (action) =>
+    SCOPED_AUTHORIZATION_ACTIONS.has(action) ? `${action}:<owner>/<repo>` : action
+);
+
+// One declared entry, split into the action and the resource it names. Returns
+// the action and scope when the entry is usable, and otherwise why it is not,
+// so the caller can say which of the three mistakes an author made.
+function classifyAuthorizationEntry(entry) {
+  const separator = entry.indexOf(":");
+  const action = separator === -1 ? entry : entry.slice(0, separator);
+  const scope = separator === -1 ? null : entry.slice(separator + 1);
+  if (!STANDING_AUTHORIZATION_ACTIONS.includes(action)) {
+    return { ok: false, entry, reason: "unknown-action" };
+  }
+  if (!SCOPED_AUTHORIZATION_ACTIONS.has(action)) {
+    if (scope !== null) return { ok: false, entry, action, reason: "unexpected-scope" };
+    return { ok: true, entry, action, scope: null };
+  }
+  if (scope === null) return { ok: false, entry, action, reason: "missing-scope" };
+  if (!AUTHORIZATION_SCOPE_PATTERN.test(scope)) {
+    return { ok: false, entry, action, reason: "malformed-scope" };
+  }
+  return { ok: true, entry, action, scope };
+}
 
 // The closed vocabulary of capability tiers a repository may declare for a
 // delegated task. The names describe the capability the work requires, never
@@ -162,24 +207,64 @@ function readTriagePolicy(repo) {
 // both — but only `archive` is a name this vocabulary accepts (#93). Naming
 // that confusion only when `sync` is the entry present keeps every other
 // unrecognized name (a genuine typo) unchanged.
-function standingAuthorizationUnknownMessage(unknown) {
+function standingAuthorizationUnknownMessage(unknown, problems = []) {
   const base = `keel/config.yaml declares unrecognized ${
     unknown.length === 1 ? "action" : "actions"
   }: ${unknown.join(", ")}; accepted names are `
-    + `${STANDING_AUTHORIZATION_ACTIONS.join(", ")}. The whole declaration `
+    + `${STANDING_AUTHORIZATION_ACCEPTED_FORMS.join(", ")}. The whole declaration `
     + "authorizes nothing until it is corrected.";
-  if (!unknown.includes("sync")) return base;
-  return `${base} \`sync\` is a value of \`change-close --action\`, not a `
-    + "name `authorize:` accepts; declare `archive` if you mean to authorize "
-    + "the gate that runs it.";
+  const notes = [];
+  if (unknown.includes("sync")) {
+    notes.push(
+      "`sync` is a value of `change-close --action`, not a name `authorize:` "
+        + "accepts; declare `archive` if you mean to authorize the gate that "
+        + "runs it."
+    );
+  }
+  // A scoped action refused for its scope is not a typo, and saying "accepted
+  // names are ... issue" beside "unrecognized action: issue" would contradict
+  // itself. Name what is missing instead, and why this one name carries it.
+  for (const problem of problems) {
+    if (problem.reason === "missing-scope") {
+      notes.push(
+        `\`${problem.action}\` names no repository; write it as `
+          + `\`${problem.action}:<owner>/<repo>\`. The credentials that open an `
+          + "issue are account-wide, so an unscoped grant would reach every "
+          + "repository the account can touch — wider than commit or push, "
+          + "which this checkout bounds."
+      );
+    } else if (problem.reason === "malformed-scope") {
+      notes.push(
+        `\`${problem.entry}\` does not name a repository as `
+          + `\`<owner>/<repo>\` — two non-empty segments and nothing else.`
+      );
+    } else if (problem.reason === "unexpected-scope") {
+      notes.push(
+        `\`${problem.action}\` takes no scope; it acts on this checkout, which `
+          + "already bounds it."
+      );
+    }
+  }
+  return notes.length === 0 ? base : `${base} ${notes.join(" ")}`;
 }
 
 function readStandingAuthorization(repo) {
   const declared = [];
   const unknown = [];
+  const problems = [];
+  // Action -> the resource it names, or null for an action the checkout bounds.
+  // Additive: `declared` stays the entries as written, so the capsule's
+  // inherited autonomy line reads back what the file says.
+  const scopes = new Map();
   for (const entry of configList(repo, "authorize")) {
-    if (STANDING_AUTHORIZATION_ACTIONS.includes(entry)) declared.push(entry);
-    else unknown.push(entry);
+    const classified = classifyAuthorizationEntry(entry);
+    if (classified.ok) {
+      declared.push(entry);
+      scopes.set(classified.action, classified.scope);
+      continue;
+    }
+    unknown.push(entry);
+    if (classified.reason !== "unknown-action") problems.push(classified);
   }
   // Fail closed. A declaration Keel cannot fully read authorizes nothing,
   // because the alternative is granting the entries beside a typo while the
@@ -187,11 +272,12 @@ function readStandingAuthorization(repo) {
   if (unknown.length > 0) {
     return {
       declared: [],
+      scopes: new Map(),
       unknown,
-      message: standingAuthorizationUnknownMessage(unknown),
+      message: standingAuthorizationUnknownMessage(unknown, problems),
     };
   }
-  return { declared, unknown, message: null };
+  return { declared, scopes, unknown, message: null };
 }
 
 // A nested block of `name: value` entries under one top-level key. Delegation
@@ -389,6 +475,7 @@ module.exports = {
   CONFIG_RELATIVE_PATH,
   DELEGATION_TIERS,
   STANDING_AUTHORIZATION_ACTIONS,
+  SCOPED_AUTHORIZATION_ACTIONS,
   readDelegationPolicy,
   readPrecedentStore,
   readStandingAuthorization,

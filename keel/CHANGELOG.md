@@ -1,5 +1,44 @@
 # Keel Changelog
 
+## 5.62.0 - an authorization names its repository
+
+- **The gate asks for a tracker reference and the vocabulary had no way to say the agent may
+  create one** (issue #136). `change-close` routes an unresolved follow-up to a durable owner and
+  accepts an absolute `https://…` reference, which in practice is an issue; `authorize:` answered
+  `unrecognized action: issue; accepted names are commit, push, release, archive, continuation.`
+  So the loop could not be closed from inside: stop and ask mid-archive, or point the durable
+  owner at a pre-existing file that is *related* to the follow-up and does not own it. The second
+  is what happened, and it degrades the exact property the gate exists to protect.
+  (keel-standing-authorization)
+- **`issue` joins the vocabulary, and it must name the repository it reaches**:
+  `issue:<owner>/<repo>`. A bare `issue` is refused, and the refusal carries the form. This is the
+  first entry whose credential reaches further than the action does — every other name acts on the
+  checkout the declaration sits in, so the declaration and the thing it permits are the same size,
+  while `gh` is account-wide and a bare `issue` would silently be the widest entry in the file,
+  wider than `push`. Accepting the bare form as a convenience would make the narrow one optional
+  and the wide one the default, which is the decision inverted.
+- **Keel carries the scope and does not enforce it**, and every surface says so rather than
+  implying otherwise. Keel invokes no tracker client and cannot observe one an agent runs, exactly
+  as it never commits. `keel --doctor` prints the scope on the action's own line and states the
+  limit once beneath it; the README paragraph states it too, for the reader who learns the form
+  there and never runs the diagnostic. A scope taken for a sandbox would be a boundary nothing
+  holds, which is worse than no entry at all.
+- **The shape is checked and the existence is not.** `<owner>/<repo>` is two non-empty segments
+  and nothing more; Keel performs no network call to confirm the repository, for the reason
+  `triage:` never fetches an issue — a check that reaches the network trades the local, offline,
+  deterministic evaluation its verdict rests on. A malformed scope is an unrecognized entry and
+  voids the whole declaration, exactly as any other does.
+- **The doctor no longer contradicts itself.** Its per-action loop tested membership against the
+  bare name, so a declared `issue:acme/widgets` was listed as declared on one line and reported
+  `issue: not authorized` six lines below. The loop is now keyed on the action.
+- **Closing an issue is deliberately not in the vocabulary**, and needs no name there: a pull
+  request body carrying `Closes #<n>` closes the issue when it lands, which is how #133, #134, and
+  #137 are already owned. Commenting, labelling, and anything cross-repository are out of scope
+  too.
+- This repository declares `issue:TanglmChris/keel`, so the repository that ships the form is the
+  one that demonstrates it — as `triage:`'s bare-list form already records.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.62.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.61.0 - a filter drops only what it named
 
 - **Two scenarios built "no `openspec` on PATH" by dropping whole directories, and on the

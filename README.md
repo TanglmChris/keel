@@ -132,7 +132,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, release, archive, continuation
+authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>
   - commit
   - push
 ```
@@ -151,6 +151,16 @@ question — still stops. It authorizes no repository action and schedules nothi
 whose vocabulary predates the word, the entry is unrecognized and the whole declaration authorizes
 nothing until corrected — fail-closed, never a silent grant.
 
+`issue:<owner>/<repo>`, the sixth name, is the only one that names the resource it reaches, and
+it is refused without one. The other five act on the checkout the declaration sits in, so each is
+already bounded by the repository you declared it in. The credentials that open an issue are not:
+`gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
+silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
+grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
+capsule and **does not enforce it**: it invokes no tracker client and cannot observe one, exactly
+as it never commits on your behalf either. Closing an issue is not in scope and does not need to
+be — a pull request body carrying `Closes #<n>` does that when it lands.
+
 Three things the declaration is not:
 
 - **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
@@ -158,7 +168,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The five names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The six names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 
