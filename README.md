@@ -273,7 +273,27 @@ designed to — resist widening the policy until it stops happening.
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
 cross-module work, or anything over ~3 files / 100 lines. Use **Lite mode** for local fixes,
 small scripts, docs, or tests with no interface change and locally provable impact; Lite does
-not write OpenSpec state.
+not write OpenSpec state. The rule is in the block `keel --init` installs, because routing is
+the first decision of a session and a rule reachable only from this README is reachable only by
+an agent that already went looking.
+
+The size bar is a proxy for risk, not risk itself, and some repositories invert it: an
+append-only record whose schema change is a one-field diff can be the highest-risk change in the
+project, and a mechanical rename across twenty files the lowest. Declare the paths the heuristic
+gets wrong, each with the reason it is wrong:
+
+```yaml
+full_mode_paths:
+  - results/experiments.jsonl: append-only; a one-field diff is not revertible
+```
+
+`keel context` reports what is declared, so the exception arrives at the decision, and
+`keel --doctor` reports the declaration's health. There is deliberately **no key for the
+opposite direction**: every declaration in that file removes a confirmation and never a gate, and
+an entry that held work *out* of the flow would be the first to break that. Keel gates no routing
+decision either — routing decides whether a change exists, so there is nothing for a gate to bind
+to; what Keel does is make sure the rule and your exceptions are in front of the agent when it
+decides.
 
 ## How the agent uses these
 
@@ -283,8 +303,9 @@ command at the right moment. Three things make that happen.
 
 - **The protocol.** `keel --init` writes a bootstrap block into your repo's `AGENTS.md`
   (imported by `CLAUDE.md` on Claude). It states the rules the agent follows: open every
-  session with `keel context`, pass the gates at task boundaries, and stay inside the task's
-  declared write scope. That is how the agent knows *when* to run what.
+  session with `keel context`, route the work Full or Lite, pass the gates at task boundaries,
+  and stay inside the task's declared write scope. That is how the agent knows *when* to run
+  what.
 - **The skills.** The `keel-*` execution skills and the `/opsx:*` command overlays walk the
   agent through align → apply → review → complete, invoking the gates at each step.
 - **The hooks.** A SessionStart hook runs the continuity projection the moment a session

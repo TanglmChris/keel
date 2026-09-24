@@ -1,11 +1,12 @@
 # Keel project configuration.
 #
-# Five independent declarations live here: fast_check, which names a command;
+# Six independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
-# which names which work may start without being asked about at all; and
-# delegation, which names who runs a task.
+# which names which work may start without being asked about at all;
+# delegation, which names who runs a task; and full_mode_paths, which names the
+# paths whose change always takes the complete flow.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -157,3 +158,37 @@ triage:
 # is a claim.
 #
 # This repository declares none.
+
+# full_mode_paths (optional): the paths whose change always routes Full,
+# whatever the diff size says. Routing is the first decision of a session, and
+# the size heuristic — roughly three files or a hundred lines — is a proxy for
+# risk rather than risk itself. Where a repository's risk does not track diff
+# size, this is where it says so:
+#
+#   full_mode_paths:
+#     - results/experiments.jsonl: append-only; a one-field diff is not revertible
+#
+# Each entry carries its reason, and an entry without one is reported rather
+# than read. A bare path says a file is special without saying what makes it
+# so, and the agent reading it cannot then recognise the sibling the list does
+# not name — the reason is the part that transfers.
+#
+# One direction only. There is no key that holds a path *out* of the complete
+# flow however large its change. Every other declaration in this file removes a
+# confirmation and never a gate, and a routing entry that skipped the flow would
+# be the first to break that; a project wanting less process declares nothing
+# and leaves the judgement where it already was.
+#
+# The path's shape is read and its existence is not: an entry may name a file
+# that does not exist yet, which is much of the point — the schema change that
+# has not happened is the one worth catching.
+#
+# What this does NOT do: Keel gates no routing decision. Routing decides whether
+# a change is created, so there is no change for a gate to bind to. What Keel
+# does is put the rule and this declaration in front of the agent at the moment
+# it decides — `keel context` reports what is declared, and `keel --doctor`
+# reports the declaration's health. A declaration Keel cannot fully read routes
+# every change Full until it is corrected: the other blocks here fail toward
+# more scrutiny, and for this one more scrutiny is more Full mode.
+#
+# This repository declares none. Its risk does track diff size.

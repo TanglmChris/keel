@@ -11,7 +11,11 @@ const {
   field,
   parseTasks,
 } = require("./task-contract");
-const { readStandingAuthorization } = require("./config");
+const {
+  readStandingAuthorization,
+  readFullModePaths,
+  fullModePathsUnreadableMessage,
+} = require("./config");
 
 const NEXT_ACTIONS = new Set([
   "discuss",
@@ -671,6 +675,27 @@ function resolveContext(repo, options) {
   if (authorization.unknown.length > 0) {
     context.warnings.push(authorization.message);
   }
+  // Routing is the first decision of a session and the only durable rule with
+  // no gate behind it, so a project's declared exceptions are reported here —
+  // the one surface the protocol already requires an agent to read before
+  // deciding anything. Reported only when a declaration exists: a line printed
+  // every session for the repositories that declared nothing is a line a reader
+  // learns to skip (#131).
+  const routing = readFullModePaths(repo);
+  if (routing.unreadable.length > 0) {
+    // The other declarations in this file fail closed, and closed for them
+    // means *less proceeds without a human* — `authorize:` authorizes nothing,
+    // `triage:` admits nothing. The shared principle is to fail toward more
+    // scrutiny, and for a declaration whose whole purpose is to add process,
+    // more scrutiny is more Full mode. Reporting the entries it could read
+    // would let a typo silently lower the floor, which is the outcome the
+    // one-directional design exists to prevent.
+    context.routing = [];
+    context.routingUnreadable = true;
+    context.warnings.push(fullModePathsUnreadableMessage(routing.unreadable));
+  } else {
+    context.routing = routing.paths;
+  }
   // Set here rather than by the caller, so every consumer of the projection —
   // text, JSON, and any host reading it — carries the version without having
   // to know to add it.
@@ -713,6 +738,15 @@ function renderContext(result) {
         + (result.selection.task ? `#${result.selection.task}` : "")
         + ` (${result.selection.source})`
     );
+  }
+  if (result.routingUnreadable) {
+    lines.push(
+      "Routing: every change routes Full until keel/config.yaml's "
+        + "full_mode_paths is corrected"
+    );
+  }
+  for (const entry of result.routing || []) {
+    lines.push(`Routing: ${entry.path} always routes Full — ${entry.reason}`);
   }
   for (const reason of result.reasons) lines.push(`Reason: ${reason}`);
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);

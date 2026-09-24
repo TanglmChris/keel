@@ -280,6 +280,65 @@ function readStandingAuthorization(repo) {
   return { declared, scopes, unknown, message: null };
 }
 
+// `full_mode_paths:` — the paths whose change always routes Full, whatever the
+// diff size says. One direction only: there is no key that holds a path *out* of
+// the complete flow however large its change, because every other declaration in
+// this file removes a confirmation and never a gate, and a routing entry that
+// skipped the flow would be the first to break that.
+//
+// Each entry carries its reason. A bare path declares that a file is special and
+// leaves a reader unable to recognise the sibling the list does not name; the
+// reason is the part that transfers, so an entry without one is reported rather
+// than read.
+//
+// Neither existing reader can hold the form. `configList` takes one token per
+// item and a sentence is not one; `configMap` keys on `\w+`, which
+// `results/experiments.jsonl` is not, and values on a single token. So this gets
+// its own reader, confined to this key rather than loosening a pattern the other
+// declarations rely on being exact.
+const FULL_MODE_PATH_ENTRY = /^\s+-\s*(\S+?)\s*:\s*(\S.*?)\s*$/;
+
+function readFullModePaths(repo) {
+  const configPath = path.join(repo, "keel", "config.yaml");
+  const paths = [];
+  const unreadable = [];
+  if (!fs.existsSync(configPath)) return { paths, unreadable };
+  const opener = /^full_mode_paths\s*:\s*$/;
+  let inBlock = false;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    if (/^\s*#/.test(line)) continue;
+    if (opener.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    if (line.trim() === "") continue;
+    const item = line.match(/^\s+-\s*(.*?)\s*$/);
+    // Anything that is not a list item closes the block, exactly as it does for
+    // the other two readers.
+    if (!item) break;
+    const entry = line.match(FULL_MODE_PATH_ENTRY);
+    if (!entry) {
+      unreadable.push(item[1]);
+      continue;
+    }
+    // The path's shape is read and its existence is not. An entry may name a
+    // file that does not exist yet, which is much of the point: the schema
+    // change that has not happened is the one worth routing Full.
+    paths.push({ path: entry[1], reason: entry[2] });
+  }
+  return { paths, unreadable };
+}
+
+function fullModePathsUnreadableMessage(unreadable) {
+  return `keel/config.yaml declares a full_mode_paths ${
+    unreadable.length === 1 ? "entry" : "entries"
+  } Keel could not read: ${unreadable.join(", ")}. Write each entry as `
+    + "`- <path>: <reason>`. The reason is required: a bare path says a file is "
+    + "special without saying what makes it so, and the agent reading it cannot "
+    + "then recognise the sibling the list does not name.";
+}
+
 // A nested block of `name: value` entries under one top-level key. Delegation
 // needs a key with a value rather than a bare list, so it cannot reuse
 // configList; the reader stays line-oriented for the same reason the others do.
@@ -476,6 +535,8 @@ module.exports = {
   DELEGATION_TIERS,
   STANDING_AUTHORIZATION_ACTIONS,
   SCOPED_AUTHORIZATION_ACTIONS,
+  readFullModePaths,
+  fullModePathsUnreadableMessage,
   readDelegationPolicy,
   readPrecedentStore,
   readStandingAuthorization,

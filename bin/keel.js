@@ -48,6 +48,8 @@ const {
   STANDING_AUTHORIZATION_ACTIONS,
   readPrecedentStore,
   readStandingAuthorization,
+  readFullModePaths,
+  fullModePathsUnreadableMessage,
   readTriagePolicy,
   triageIssue,
 } = require("../src/core/config");
@@ -1728,6 +1730,7 @@ function runDoctor(options) {
   const authorizationOk = printStandingAuthorizationSurface(repo);
   printPrecedentSurface(repo);
   printTriageSurface(repo);
+  printRoutingSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
@@ -1818,6 +1821,38 @@ function printStandingAuthorizationSurface(repo) {
     );
   }
   return true;
+}
+
+function printRoutingSurface(repo) {
+  process.stdout.write("\nFull/Lite routing:\n");
+  const { paths, unreadable } = readFullModePaths(repo);
+  if (unreadable.length > 0) {
+    // Same verdict the projection reaches, from the same read: a diagnostic
+    // that reported health while `keel context` reported the conservative
+    // state would leave a reader to pick which one to believe.
+    printDoctorLine(
+      "full_mode_paths",
+      "failed",
+      `${fullModePathsUnreadableMessage(unreadable)} Every change routes Full `
+        + "until it is corrected."
+    );
+    return;
+  }
+  if (paths.length === 0) {
+    printDoctorLine(
+      "full_mode_paths",
+      "none",
+      "undeclared; routing follows the size heuristic alone"
+    );
+    return;
+  }
+  printDoctorLine(
+    "full_mode_paths",
+    "ok",
+    `declared in keel/config.yaml: ${paths.length} `
+      + `${paths.length === 1 ? "path always routes" : "paths always route"} Full`
+  );
+  for (const entry of paths) printDoctorLine(entry.path, "Full", entry.reason);
 }
 
 function printTriageSurface(repo) {

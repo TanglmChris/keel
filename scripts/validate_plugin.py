@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.62.0"
-PROTOCOL_VERSION = "5.62.0"
+PACKAGE_VERSION = "5.63.0"
+PROTOCOL_VERSION = "5.63.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -90,6 +90,28 @@ MANAGED_END = "<!-- keel:end -->"
 TEMPLATE_CHECKSUM_PREFIX = "<!-- keel:content-sha256 "
 TEMPLATE_CHECKSUM_SUFFIX = " -->"
 
+# The installed bootstrap block's byte budget, asserted by `thin-native-install`
+# and `delegation-resident-text`. Raised from 1024 to 1400 in 5.63.0 to carry the
+# Full/Lite routing rule (#131), deliberately and in a diff.
+#
+# The reason has to live here, because the cap's purpose is that the budget is
+# **not quietly spent later** — the adjective is the whole specification. A cap
+# phrased that way is not a claim that the number is right forever; it is a claim
+# that nobody moves it without a reader noticing. So a documented raise satisfies
+# it and a bare larger constant does not.
+#
+# Why routing earned it, when delegation did not: delegation is inert until a
+# project declares it, so a repository declaring nothing was already served by the
+# sentence in the block. Routing is never inert — every session routes, declared
+# or not — and it was the one durable rule with no gate, no command, and no
+# declaration carrying it to the agent. The rejected alternative was compressing
+# the existing bullets to fit under 1024, which would have gone green while paying
+# for routing out of gate-discipline prose that was already earning its place.
+#
+# 1400 rather than a round 1536: the headroom is "current content plus one short
+# clause", so the next addition has to argue for itself the way this one did.
+BOOTSTRAP_BLOCK_BYTE_BUDGET = 1400
+
 RESIDENT_BLOCKS = [
     {
         "name": "Bootstrap resident block",
@@ -110,6 +132,11 @@ RESIDENT_BLOCKS = [
             "read-only report/evidence",
             "native plugin",
             "keel --init",
+            # Routing is the one durable rule with no gate behind it, so the
+            # block is the only place it reaches a consuming repository (#131).
+            # Matched as a topic: both modes named in one statement.
+            re.compile(r"\bFull\b[^\n]*\bLite\b", re.IGNORECASE),
+            "full_mode_paths",
         ],
     },
 ]
@@ -18065,11 +18092,13 @@ def validate_delegation_resident_text_scenario() -> int:
             return 1
 
     # M1 — the consumer bootstrap deliberately does NOT carry the delegation
-    # clause. Its block has a sub-1KB budget with 11 bytes of headroom, and
-    # delegation is inert until declared, so an installing repository that
-    # declares nothing is fully served by the sentence already there. What the
-    # check enforces is that the sentence stays true by default, and that the
-    # budget is not quietly spent later.
+    # clause. Its block has a byte budget (BOOTSTRAP_BLOCK_BYTE_BUDGET) with
+    # little headroom, and delegation is inert until declared, so an installing
+    # repository that declares nothing is fully served by the sentence already
+    # there. What the check enforces is that the sentence stays true by default,
+    # and that the budget is not quietly spent later — the budget moved once, in
+    # 5.63.0 for the routing rule (#131), with the argument recorded at the
+    # constant; a raise with no reason beside it is the drift this guards.
     bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
     boot = flat(bootstrap)
     if re.sub(r"\s+", " ", "One current agent owns writes") not in boot:
@@ -18078,18 +18107,21 @@ def validate_delegation_resident_text_scenario() -> int:
     block = bootstrap.read_text(encoding="utf-8")
     body = block.split("<!-- keel:start", 1)[1].split("<!-- keel:end -->", 1)[0]
     size = len(("<!-- keel:start" + body + "<!-- keel:end -->").encode())
-    if size >= 1024:
-        report(f"delegation-resident-text: the bootstrap block is {size} bytes, over its 1KB budget.")
+    if size >= BOOTSTRAP_BLOCK_BYTE_BUDGET:
+        report(
+            f"delegation-resident-text: the bootstrap block is {size} bytes, "
+            f"over its {BOOTSTRAP_BLOCK_BYTE_BUDGET}-byte budget."
+        )
         return 1
 
     # M1 — the config header counts its declarations correctly.
     config = ROOT / "keel/config.yaml"
     cfg = flat(config)
-    if re.sub(r"\s+", " ", "Four independent declarations") in cfg:
-        report("delegation-resident-text: the config header still says four declarations.")
+    if re.sub(r"\s+", " ", "Five independent declarations") in cfg:
+        report("delegation-resident-text: the config header still says five declarations.")
         return 1
-    if re.sub(r"\s+", " ", "Five independent declarations") not in cfg:
-        report("delegation-resident-text: the config header does not name five declarations.")
+    if re.sub(r"\s+", " ", "Six independent declarations") not in cfg:
+        report("delegation-resident-text: the config header does not name six declarations.")
         return 1
     if "delegation" not in cfg:
         report("delegation-resident-text: the config header does not document delegation.")
@@ -21097,10 +21129,10 @@ def validate_thin_native_install_scenario() -> int:
             return 1
         block = extract_managed_block(agents_text)
         block_bytes = len(block.encode("utf-8"))
-        if block_bytes >= 1024:
+        if block_bytes >= BOOTSTRAP_BLOCK_BYTE_BUDGET:
             report(
-                "thin-native-install bootstrap block is not sub-1KB: "
-                f"{block_bytes} bytes"
+                "thin-native-install bootstrap block is over its "
+                f"{BOOTSTRAP_BLOCK_BYTE_BUDGET}-byte budget: {block_bytes} bytes"
             )
             return 1
 
@@ -27784,6 +27816,251 @@ def validate_an_authorization_names_its_repository_scenario() -> int:
     return 0
 
 
+def validate_the_routing_rule_reaches_the_decision_scenario() -> int:
+    """Issue #131: routing is the one durable rule with nowhere to reach the agent.
+
+    The block `keel --init` installs is five bullets and says nothing about Full
+    or Lite; routing has no implementation at all, only four lines of prose in
+    Keel's own README. So the first decision of every session is taken without
+    the rule, and a project whose risk does not track diff size has no way to say
+    so. The declaration is one-directional on purpose: it can raise the process
+    floor and there is no key that lowers it.
+    """
+    label = "the-routing-rule-reaches-the-decision"
+    declared = "results/experiments.jsonl"
+    reason = "append-only; a one-field diff is not revertible"
+
+    with tempfile.TemporaryDirectory(prefix="keel-routing-") as raw:
+        root = Path(raw)
+
+        def fixture(name: str, body: str | None) -> Path:
+            repo = root / name
+            repo.mkdir()
+            if body is not None:
+                (repo / "keel").mkdir()
+                (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
+            return repo
+
+        def context(repo: Path) -> str:
+            return run_keel(repo, "context").stdout
+
+        # M1 — a declared path is reported with the reason it carries, and the
+        # projection is otherwise the one it would have printed anyway.
+        plain = fixture("plain", "fast_check: echo plain\n")
+        declaring = fixture(
+            "declaring",
+            f"fast_check: echo plain\nfull_mode_paths:\n  - {declared}: {reason}\n",
+        )
+        out = context(declaring)
+        if declared not in out:
+            report(
+                f"{label}: no routing line — a repository that declared "
+                f"{declared!r} is told nothing about it at the one moment the "
+                "routing decision is made."
+            )
+            report(out)
+            return 1
+        if reason not in out:
+            report(
+                f"{label}: the declared path is reported without its reason, so "
+                "the agent learns the file is special and not what makes it so."
+            )
+            report(out)
+            return 1
+        # D5 — the fixture creates no file at that path, on purpose.
+        if (declaring / declared).exists():
+            report(f"{label}: the fixture created the declared path; D5 is untested.")
+            return 1
+        baseline = [
+            line
+            for line in context(plain).splitlines()
+            if line.startswith(("Keel context:", "Next action:"))
+        ]
+        moved = [
+            line
+            for line in out.splitlines()
+            if line.startswith(("Keel context:", "Next action:"))
+        ]
+        if baseline != moved:
+            report(
+                f"{label}: the declaration moved the projection's status or next "
+                f"action; {baseline!r} became {moved!r}."
+            )
+            return 1
+
+        # M2 — an entry with no reason is not a declaration.
+        bare = fixture(
+            "bare", f"full_mode_paths:\n  - {declared}\n"
+        )
+        out = context(bare)
+        # Behavior before message: what D2 forbids is the entry counting as a
+        # declaration, and whether it is also reported well comes after that.
+        routing_lines = [
+            line for line in out.splitlines() if line.startswith("Routing:")
+        ]
+        if any(declared in line for line in routing_lines):
+            report(
+                f"{label}: the reason-less entry was read as a declaration; "
+                f"{routing_lines!r}"
+            )
+            return 1
+        if "full_mode_paths" not in out or declared not in out:
+            report(
+                f"{label}: an entry with no reason was dropped silently; the "
+                "author is left believing they declared what they typed."
+            )
+            report(out)
+            return 1
+        if "<path>: <reason>" not in out:
+            report(
+                f"{label}: the refusal does not name the form the entry needs."
+            )
+            report(out)
+            return 1
+
+        # 1.2 — a declaration Keel cannot fully read raises the floor rather
+        # than dropping it. `authorize:` and `triage:` fail closed and closed
+        # means *less proceeds without a human*; for a declaration whose purpose
+        # is to add process, the same principle is more Full mode, not less.
+        mixed = fixture(
+            "mixed",
+            f"full_mode_paths:\n  - {declared}: {reason}\n  - src/lib.js\n",
+        )
+        out = context(mixed)
+        routing_lines = [
+            line for line in out.splitlines() if line.startswith("Routing:")
+        ]
+        if not any("every change" in line.lower() for line in routing_lines):
+            report(
+                f"{label}: routes only the entries it could read — a "
+                "declaration Keel half-read was treated as the policy, so a "
+                "typo silently lowers the process floor. {0!r}".format(
+                    routing_lines
+                )
+            )
+            report(out)
+            return 1
+        if any(declared in line for line in routing_lines):
+            report(
+                f"{label}: the readable entry was reported as the declared set "
+                "beside an unreadable one, so half a declaration acted as a "
+                f"whole one; {routing_lines!r}"
+            )
+            return 1
+        if "src/lib.js" not in out:
+            report(f"{label}: the unreadable entry is not named, so the state is not attributable.")
+            report(out)
+            return 1
+        doctor = run_keel(mixed, "--doctor").stdout
+        if "full_mode_paths: failed" not in doctor or "src/lib.js" not in doctor:
+            report(
+                f"{label}: the doctor does not report the declaration as failed "
+                "and name the entry, so it reports health the projection "
+                "contradicts."
+            )
+            report(doctor)
+            return 1
+        # The conservative branch is reached by an unreadable declaration, not
+        # by any declaration at all.
+        if "every change" in context(declaring).lower():
+            report(
+                f"{label}: a readable declaration reported the "
+                "everything-routes-Full state."
+            )
+            return 1
+
+        # M3 — the common case pays nothing.
+        for name, body in (
+            ("absent", None),
+            ("blockless", "fast_check: echo blockless\n"),
+            ("empty", "fast_check: echo empty\nfull_mode_paths:\n"),
+        ):
+            repo = fixture(name, body)
+            out = context(repo)
+            if "Routing:" in out or "full_mode_paths" in out:
+                report(
+                    f"{label}: the {name} repository was told about a routing "
+                    "declaration it does not have."
+                )
+                report(out)
+                return 1
+
+    # 1.3 — the rule itself, in the artifact `keel --init` installs. Asserted on
+    # the shipped block rather than on a fixture: this is the file a consuming
+    # repository receives, and its two budgets are what keep it resident.
+    bootstrap_path = ROOT / "assets/bootstrap/AGENTS.md"
+    bootstrap = bootstrap_path.read_text(encoding="utf-8")
+    for needle, why in (
+        ("Full", "the block must name the complete flow"),
+        ("Lite", "the block must name the local flow"),
+        ("100 lines", "the block must carry the size heuristic it is correcting"),
+        ("full_mode_paths", "the block must say a project can declare exceptions"),
+    ):
+        if needle not in bootstrap:
+            report(
+                f"{label}: bootstrap states no routing rule — {why}; "
+                f"{needle!r} is absent. Routing is the first decision of a "
+                "session and the block a consuming repository receives is "
+                "where it has to arrive."
+            )
+            return 1
+    # Both budgets. The line one runs the check the suite enforces rather than
+    # counting here; the byte one is asserted at its raised value.
+    budget_errors: list[str] = []
+    validate_resident_blocks(budget_errors)
+    if budget_errors:
+        report(f"{label}: the routing line broke the resident block line budget.")
+        for error in budget_errors:
+            report(f"- {error}")
+        return 1
+    body = bootstrap.split("<!-- keel:start", 1)[1].split("<!-- keel:end -->", 1)[0]
+    block_bytes = len(("<!-- keel:start" + body + "<!-- keel:end -->").encode())
+    if block_bytes >= BOOTSTRAP_BLOCK_BYTE_BUDGET:
+        report(
+            f"{label}: the block is {block_bytes} bytes, over its "
+            f"{BOOTSTRAP_BLOCK_BYTE_BUDGET}-byte budget."
+        )
+        return 1
+
+    # The raise is only authorized because it is loud: a larger constant with no
+    # argument beside it is exactly the quiet drift the cap was built to stop,
+    # and it would pass every check above. So both assertions of the cap must
+    # carry the reason it moved, not just the number.
+    suite = (ROOT / "scripts/validate_plugin.py").read_text(encoding="utf-8")
+    for marker in ("thin-native-install bootstrap block", "over its"):
+        start = suite.find(marker)
+        if start < 0:
+            report(f"{label}: the byte-cap assertion {marker!r} is gone.")
+            return 1
+    # The rationale for a constant in this file lives in the comment block above
+    # it, so that is where it is read from — walking back over the contiguous
+    # comment lines rather than guessing a window.
+    lines = suite.splitlines()
+    at = next(
+        i for i, line in enumerate(lines)
+        if line.startswith("BOOTSTRAP_BLOCK_BYTE_BUDGET =")
+    )
+    top = at
+    while top > 0 and lines[top - 1].startswith("#"):
+        top -= 1
+    rationale = "\n".join(lines[top:at + 1])
+    for needle in ("routing", "not quietly"):
+        if needle not in rationale:
+            report(
+                f"{label}: names the new cap without the reason it moved; "
+                f"{needle!r} is absent from the constant's own rationale. A "
+                "reader inheriting a larger number and no argument is the drift "
+                "the cap exists to prevent."
+            )
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -28133,6 +28410,10 @@ SCENARIOS: tuple = (
     (
         "an-authorization-names-its-repository",
         validate_an_authorization_names_its_repository_scenario,
+    ),
+    (
+        "the-routing-rule-reaches-the-decision",
+        validate_the_routing_rule_reaches_the_decision_scenario,
     ),
 )
 

@@ -1,5 +1,61 @@
 # Keel Changelog
 
+## 5.63.0 - the routing rule reaches the decision
+
+- **Routing was the first decision of every session and the only durable rule Keel neither
+  installed, declared, nor gated** (issue #131). Measured at 5.62.0: the block `keel --init` writes
+  into a consuming repository was **9 lines and 5 bullets** — session start, the capsule and its
+  gates, write ownership, projections, plugin provenance — and **not one word about routing**; and
+  `grep -rn "Full mode\|Lite mode\|full_mode\|routing" src/ bin/` returned two unrelated hits,
+  so there was **no routing machinery at all**. The rule was four lines of prose in Keel's own
+  README. (keel-full-lite-routing)
+- **The rule is now in the installed block**, in one line naming both modes, the size heuristic,
+  and that a project may correct it. A lens could not have carried it: a lens loads when a
+  *change's* artifacts or Touch match, and routing decides whether that change is created, so it
+  fires strictly too late.
+- **`full_mode_paths:` in `keel/config.yaml` names the paths whose change always routes Full**,
+  whatever the diff size says, and **each entry carries its reason**:
+
+  ```yaml
+  full_mode_paths:
+    - results/experiments.jsonl: append-only; a one-field diff is not revertible
+  ```
+
+  The reason is required, not decoration — an entry without one is reported rather than read. A bare
+  path says a file is special without saying what makes it so, and the agent reading it cannot then
+  recognise the sibling the list does not name. The size bar is a proxy for risk rather than risk
+  itself, and it inverts: the reporting project's append-only record takes a one-field diff and is
+  its highest-risk change, while a mechanical rename across twenty files clears any bar carrying no
+  design risk.
+- **One direction only. There is deliberately no `lite_mode_paths`.** The symmetric case is real and
+  is not the test: a floor-raising entry's worst misuse costs time, while a floor-lowering one
+  becomes durable policy exempting every future change touching that path, including the ones nobody
+  had in mind. Every other declaration in that file removes a confirmation and never a gate.
+- **An unreadable declaration routes every change Full**, and names the entry. This is the opposite
+  of `authorize:`'s fail-closed and the same principle: those fail toward *more* human involvement —
+  authorizing nothing, admitting nothing — and for a declaration whose purpose is to add process,
+  more involvement is more Full mode. Reporting only the entries it could read would let a typo
+  silently lower the floor.
+- **`keel context` reports the declared paths with their reasons, and `keel --doctor` reports the
+  declaration's health.** The projection stays silent where nothing is declared: a line printed every
+  session for the repositories that declared nothing is a line a reader learns to skip.
+- **Keel carries the rule and gates no routing decision**, and the block says so. Routing decides
+  whether a change exists, so there is no change for a gate to bind to. What this buys is that the
+  rule and the project's exceptions are in front of the agent when it decides, instead of in a README
+  it may never open — and design.md A1 states plainly that whether the agent then routes by them is
+  not something any check here observes.
+- **The installed block's byte budget moved from 1024 to 1400, deliberately and with its reason at
+  the constant.** The block was **1014 bytes with 10 bytes of headroom**, so no addition of any length
+  fit and shortening the line was not a fix. The two checks holding that cap say what they defend —
+  that the budget is *not quietly spent later* — and the adjective is the specification: a raise in a
+  diff with its argument beside the number is the path that phrasing forces. The rejected alternative
+  was compressing the existing bullets to fit under 1024, which would have gone **green on the worse
+  outcome**: routing paid for out of gate-discipline prose already earning its place. Both assertions
+  now read one constant, and a check refuses a larger number whose rationale is missing. Routing
+  earned the bytes where delegation did not, because delegation is inert until declared and routing
+  never is. 1400 rather than a round 1536, so the next addition argues for itself the same way.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.63.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.62.0 - an authorization names its repository
 
 - **The gate asks for a tracker reference and the vocabulary had no way to say the agent may
