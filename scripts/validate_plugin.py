@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import hashlib
 import os
@@ -37,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.60.0"
-PROTOCOL_VERSION = "5.60.0"
+PACKAGE_VERSION = "5.61.0"
+PROTOCOL_VERSION = "5.61.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5521,36 +5522,46 @@ def validate_a_declared_dependency_is_resolved_scenario() -> int:
     """
     label = "a-declared-dependency-is-resolved"
 
-    # `no openspec on PATH`, and nothing else removed. Emptying PATH outright
-    # would also remove `node`, and the openspec shim needs it — the scenario
-    # would then be asserting that a shell without an interpreter fails.
-    without = dict(os.environ)
-    without["PATH"] = os.pathsep.join(
-        entry
-        for entry in os.environ.get("PATH", "").split(os.pathsep)
-        if entry and not (Path(entry) / "openspec").exists()
-    )
-    if shutil.which("openspec", path=without["PATH"]) is not None:
-        report(
-            f"{label}: could not build a PATH without openspec on it, so the "
-            "reproduction cannot be set up."
-        )
-        return 1
-    resolved = run_openspec(ROOT, "--version", env=without)
-    if resolved is None:
-        report(
-            f"{label}: with no `openspec` on PATH the runner resolved nothing, "
-            "but this package declares it as a dependency and installs it at "
-            "node_modules/.bin. A tool the repository ships is not a tool the "
-            "host has to provide."
-        )
-        return 1
-    if resolved.returncode != 0 or not re.search(r"\d+\.\d+\.\d+", resolved.stdout):
-        report(
-            f"{label}: the resolved openspec did not report a version. "
-            f"exit={resolved.returncode} out={(resolved.stdout or '').strip()!r}"
-        )
-        return 1
+    # `no openspec on PATH`, and nothing else removed — by file, not by
+    # directory. Removing the directory would also remove `node`, and the
+    # openspec shim needs it, so the scenario would be asserting that a shell
+    # without an interpreter fails (issue #137).
+    with path_without_openspec() as sanitized:
+        without = dict(os.environ)
+        without["PATH"] = sanitized
+        if shutil.which("openspec", path=without["PATH"]) is not None:
+            report(
+                f"{label}: could not build a PATH without openspec on it, so the "
+                "reproduction cannot be set up."
+            )
+            return 1
+        # The scenario's own precondition, asserted before the behavior. A shim
+        # with no interpreter exits 127, and calling that a fact about openspec
+        # sends the reader to a tool with nothing wrong with it.
+        if shutil.which("node", path=without["PATH"]) is None:
+            return skip_scenario(
+                label,
+                "node does not resolve on the PATH this scenario built, so the "
+                "openspec shim it resolves would have no interpreter. That is a "
+                "broken fixture, not a fact about openspec.",
+            )
+        resolved = run_openspec(ROOT, "--version", env=without)
+        if resolved is None:
+            report(
+                f"{label}: with no `openspec` on PATH the runner resolved "
+                "nothing, but this package declares it as a dependency and "
+                "installs it at node_modules/.bin. A tool the repository ships "
+                "is not a tool the host has to provide."
+            )
+            return 1
+        if resolved.returncode != 0 or not re.search(
+            r"\d+\.\d+\.\d+", resolved.stdout
+        ):
+            report(
+                f"{label}: the resolved openspec did not report a version. "
+                f"exit={resolved.returncode} out={(resolved.stdout or '').strip()!r}"
+            )
+            return 1
 
     # And it is the declared one, not whatever a host happens to carry.
     declared = ROOT / "node_modules" / ".bin" / "openspec"
@@ -14041,6 +14052,60 @@ OPENSPEC_SEARCH_ORDER = (
     "the package's own node_modules/.bin",
     "PATH",
 )
+
+
+@contextlib.contextmanager
+def path_without_openspec(path: str | None = None):
+    """Yield `path` with every `openspec` executable on it removed, and nothing else.
+
+    Dropping a PATH *directory* because it holds an `openspec` also drops that
+    directory's other contents. On the ordinary Homebrew plus `npm install -g`
+    layout one directory holds both `openspec` and `node`, so the filter took the
+    interpreter the openspec shim needs and the scenario built on it asserted that
+    a shell without an interpreter fails — reported against `openspec`, which was
+    installed and working (issue #137).
+
+    So a directory that holds the tool is replaced in place, at the same index, by
+    a mirror symlinking every one of its entries except the `openspec` ones; a
+    directory that does not hold it is passed through untouched. Exclusion is by
+    stem, so `openspec.cmd` and its siblings cannot survive a filter whose whole
+    purpose is that the name does not resolve.
+
+    The mirrors live for the duration of the context, so callers must hold it open
+    across every child process they run against the PATH, not only across the call
+    that built it.
+    """
+    original = os.environ.get("PATH", "") if path is None else path
+    entries = [entry for entry in original.split(os.pathsep) if entry]
+    with tempfile.TemporaryDirectory(prefix="keel-no-openspec-") as raw:
+        mirrors = Path(raw)
+        rebuilt: list[str] = []
+        for index, entry in enumerate(entries):
+            source = Path(entry)
+            try:
+                contents = sorted(source.iterdir())
+            except OSError:
+                # Unreadable or absent: it carried nothing resolvable either way.
+                rebuilt.append(entry)
+                continue
+            if not any(item.stem == "openspec" for item in contents):
+                rebuilt.append(entry)
+                continue
+            mirror = mirrors / str(index)
+            try:
+                mirror.mkdir()
+                for item in contents:
+                    if item.stem == "openspec":
+                        continue
+                    (mirror / item.name).symlink_to(item)
+            except OSError:
+                # Windows can refuse a symlink without the privilege. Fall back to
+                # dropping the directory, which is what this replaces; the caller's
+                # precondition check then reports the consequence by name instead
+                # of attributing it to the tool.
+                continue
+            rebuilt.append(str(mirror))
+        yield os.pathsep.join(rebuilt)
 
 
 def resolve_openspec(env: dict[str, str] | None = None) -> str | None:
@@ -24659,14 +24724,13 @@ def validate_dependency_resolves_where_npm_put_it_scenario() -> int:
         shutil.copy2(ROOT / "package.json", package_root / "package.json")
 
     # PATH without any openspec, so what resolves came from the layout and not
-    # from the machine running the suite.
+    # from the machine running the suite. Removed by file rather than by
+    # directory: one directory holds `openspec` and `node` on the ordinary
+    # Homebrew plus `npm install -g` layout, and the children below are run by
+    # `node` (issue #137).
     def clean_env(extra_path: Path | None = None) -> dict[str, str]:
         env = dict(os.environ)
-        entries = [
-            entry
-            for entry in env.get("PATH", "").split(os.pathsep)
-            if entry and not (Path(entry) / "openspec").exists()
-        ]
+        entries = [entry for entry in sanitized_path.split(os.pathsep) if entry]
         if extra_path is not None:
             entries.insert(0, str(extra_path))
         env["PATH"] = os.pathsep.join(entries)
@@ -24696,7 +24760,21 @@ def validate_dependency_resolves_where_npm_put_it_scenario() -> int:
             "",
         )
 
-    with tempfile.TemporaryDirectory(prefix="keel-hoisted-") as raw:
+    # The mirrors live for the duration of the context, so it stays open across
+    # every child process below rather than only across the call that built it.
+    with path_without_openspec() as sanitized_path, tempfile.TemporaryDirectory(
+        prefix="keel-hoisted-"
+    ) as raw:
+        # The scenario's own precondition, asserted before the behavior: every
+        # assertion below runs `node`, so a PATH without one is a broken fixture
+        # and not a fact about where the dependency resolves.
+        if shutil.which("node", path=sanitized_path) is None:
+            return skip_scenario(
+                label,
+                "node does not resolve on the PATH this scenario built, and "
+                "every assertion below runs the installed Keel through it. That "
+                "is a broken fixture, not a fact about openspec.",
+            )
         root = Path(raw)
 
         # The layout npm actually produces: Keel unpacked under the consumer's
@@ -27445,6 +27523,109 @@ def validate_authored_scenario_names_scenario() -> int:
     return 0
 
 
+def validate_a_filter_drops_only_what_it_named_scenario() -> int:
+    """Issue #137: a PATH built to exclude one tool removed a whole directory.
+
+    Both scenarios that need "no openspec on PATH" dropped every directory that
+    held an `openspec`. On the ordinary Homebrew plus `npm install -g` layout one
+    directory holds `openspec` and `node`, so the filter took the interpreter the
+    openspec shim needs, and the diagnostic named `openspec` — a tool that was
+    installed and working.
+
+    The defect is a layout, so the fixture builds the layout instead of relying on
+    this host having it: a directory carrying both binaries, on a PATH between two
+    that carry neither. Asserted from both sides — that the runtime survived is the
+    regression guard, that the tool is gone is the positive control, because a
+    mirror that produced an empty directory would satisfy the second alone.
+    """
+    label = "a-filter-drops-only-what-it-named"
+
+    def write_executable(path: Path, body: str) -> None:
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+
+    with tempfile.TemporaryDirectory(prefix="keel-shared-bin-") as raw:
+        root = Path(raw)
+        before = root / "before"
+        shared = root / "shared"
+        after = root / "after"
+        for directory in (before, shared, after):
+            directory.mkdir()
+        write_executable(before / "tool-a", "#!/bin/sh\necho a\n")
+        write_executable(after / "tool-b", "#!/bin/sh\necho b\n")
+        # The layout under test: the interpreter and the tool in one directory,
+        # plus a neighbour that belongs to neither and must survive with it.
+        write_executable(shared / "node", "#!/bin/sh\necho node\n")
+        write_executable(shared / "openspec", "#!/bin/sh\necho 1.12.0\n")
+        write_executable(shared / "openspec.cmd", "#!/bin/sh\necho 1.12.0\n")
+        write_executable(shared / "unrelated", "#!/bin/sh\necho unrelated\n")
+
+        source = os.pathsep.join(str(entry) for entry in (before, shared, after))
+        with path_without_openspec(source) as sanitized:
+            entries = sanitized.split(os.pathsep)
+
+            # Behavior before shape: what the defect destroys is the ability to
+            # run the interpreter, and an entry count is only its symptom.
+            node = shutil.which("node", path=sanitized)
+            if node is None:
+                report(
+                    f"{label}: node did not survive a filter that was removing "
+                    f"openspec. The interpreter shares a directory with the "
+                    f"tool, and the whole directory went. sanitized PATH "
+                    f"{sanitized!r}"
+                )
+                return 1
+            if shutil.which("unrelated", path=sanitized) is None:
+                report(
+                    f"{label}: an executable unrelated to openspec was removed "
+                    f"along with it."
+                )
+                return 1
+
+            # The positive control. Without it, an empty mirror passes.
+            for name in ("openspec", "openspec.cmd"):
+                found = shutil.which(name, path=sanitized)
+                if found is not None:
+                    report(
+                        f"{label}: {name} still resolves on a PATH built to "
+                        f"exclude it, at {found!r}."
+                    )
+                    return 1
+
+            if len(entries) != 3:
+                report(
+                    f"{label}: the sanitized PATH has {len(entries)} entries, "
+                    f"not the 3 it was given, so search order did not survive. "
+                    f"got {sanitized!r}"
+                )
+                return 1
+            if Path(node).parent != Path(entries[1]):
+                report(
+                    f"{label}: node survived but moved search position; it "
+                    f"resolved from {str(Path(node).parent)!r}, not from PATH "
+                    f"entry 1 {entries[1]!r}."
+                )
+                return 1
+
+            # M2: an entry that does not hold the tool is passed through, not
+            # mirrored — the cost and the blast radius stay on the directories
+            # that carry it.
+            for index, original in ((0, before), (2, after)):
+                if entries[index] != str(original):
+                    report(
+                        f"{label}: a PATH entry holding no openspec was "
+                        f"rewritten; expected {str(original)!r}, got "
+                        f"{entries[index]!r}."
+                    )
+                    return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -27786,6 +27967,10 @@ SCENARIOS: tuple = (
     (
         "change-verify-deferred-evidence",
         validate_change_verify_deferred_evidence_scenario,
+    ),
+    (
+        "a-filter-drops-only-what-it-named",
+        validate_a_filter_drops_only_what_it_named_scenario,
     ),
 )
 

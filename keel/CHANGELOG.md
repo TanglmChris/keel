@@ -1,5 +1,43 @@
 # Keel Changelog
 
+## 5.61.0 - a filter drops only what it named
+
+- **Two scenarios built "no `openspec` on PATH" by dropping whole directories, and on the
+  ordinary Homebrew plus `npm install -g` layout one directory holds `openspec` and `node`**
+  (issue #137). So the filter took the interpreter the openspec shim needs. Measured on the
+  reporting host: **1 of 17 PATH entries was dropped, and it was the one holding `node`**;
+  `npm test` then failed `a-declared-dependency-is-resolved` and
+  `the-dependency-resolves-where-npm-put-it` on an unmodified checkout, with every other
+  scenario green. (keel-validation-runner)
+- **The diagnostic named the wrong subject.** The failure printed was `the resolved openspec
+  did not report a version. exit=127` — 127 being `#!/usr/bin/env node` finding no
+  interpreter — so it pointed at a tool that was installed, resolvable, and working, and a
+  reader who trusted it would reinstall the thing that was never broken. The scenario
+  carrying the real cause (`FileNotFoundError: … 'node'`) emitted it as an unhandled
+  traceback, and its name was not the one printed first. The scenario's own comment shows
+  the hazard was anticipated and guarded only in its global form — "Emptying PATH outright
+  would also remove `node`" — and directory granularity reintroduced it. "Nothing else
+  removed" was true of the intent and false of the filter.
+- **The sanitized PATH is now built by file.** A directory holding an `openspec` is replaced
+  in place, at the same index, by a mirror symlinking every one of its entries except the
+  `openspec` ones; a directory that does not hold it is passed through as the identical
+  string. Exclusion is by stem, so `openspec.cmd` and its siblings cannot survive a filter
+  whose whole purpose is that the name does not resolve — a property directory-dropping had
+  for free and a mirror has to state. Cost on the affected directory: 131 symlinks, 6 ms.
+- **A scenario now asserts its own precondition before asserting the behavior.** If `node`
+  does not resolve on the PATH it just built, that is a broken fixture and it reports the
+  skip contract naming `node`. **This is a net, not the fix** — after the change the expected
+  outcome on an affected host is a pass, and a skip there would mean the mirror failed and
+  the net hid it. It exists because the consequence has to be attributable when the mirror
+  cannot be built, which is the one case this change leaves: Windows can refuse a symlink
+  without the privilege, and the fallback there is the directory drop this replaces.
+- **`npm test` is a completion check again on an affected host.** It reports `validation --all
+  passed: baseline plus 173 scenarios, 1 skipped` — the first state in this repository where
+  a release can say that without a differential against `origin/main`. Every task since
+  5.59.0 whose `M<n>` was "`npm test` passes" had to record an exception instead, which is
+  how a known-red suite stops being read at all.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.61.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.60.0 - a coverage claim is compared
 
 - **`## Expectation Coverage` carries the protocol's one global assertion — every expectation
