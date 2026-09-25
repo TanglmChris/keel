@@ -49,6 +49,7 @@ const {
   readPrecedentStore,
   readStandingAuthorization,
   readFullModePaths,
+  readExecutorTier,
   fullModePathsUnreadableMessage,
   readTriagePolicy,
   triageIssue,
@@ -1731,6 +1732,7 @@ function runDoctor(options) {
   printPrecedentSurface(repo);
   printTriageSurface(repo);
   printRoutingSurface(repo);
+  printExecutorTierSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
@@ -1853,6 +1855,24 @@ function printRoutingSurface(repo) {
       + `${paths.length === 1 ? "path always routes" : "paths always route"} Full`
   );
   for (const entry of paths) printDoctorLine(entry.path, "Full", entry.reason);
+}
+
+// Reported whether or not it is declared, because the default is the state a
+// reader most needs to see: a repository that declared nothing is loading every
+// skill's guidance and has no other surface that says so.
+function printExecutorTierSurface(repo) {
+  process.stdout.write("\nExecutor tier:\n");
+  const { declared, tier, unknown, message } = readExecutorTier(repo);
+  if (unknown.length > 0) {
+    printDoctorLine("executor_tier", "unreadable", message);
+    return;
+  }
+  printDoctorLine(
+    "executor_tier",
+    tier,
+    (declared ? "declared in keel/config.yaml" : "undeclared; the default")
+      + " - affects which skill guidance is read and nothing else"
+  );
 }
 
 function printTriageSurface(repo) {

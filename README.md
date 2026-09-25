@@ -295,6 +295,34 @@ decision either — routing decides whether a change exists, so there is nothing
 to; what Keel does is make sure the rule and your exceptions are in front of the agent when it
 decides.
 
+### How much guidance the agent loads
+
+Keel's skills carry two kinds of content, and their value moves in opposite directions. *How to do it*
+— how to split a task, what order to run things in — matters less the stronger the executor is. *Make
+yourself falsifiable* — red then green, the failure literal a check predicts, the fingerprint, whether
+a `Durable owner:` reference actually exists — matters more, because a strong executor produces
+confident work and those are the checks that can contradict it.
+
+So the stepwise half of a skill lives in a `guidance.md` beside it, and a repository can say it does
+not need that half:
+
+```yaml
+executor_tier: high
+```
+
+The default is `standard`, which reads the guidance; an absent or misspelled declaration reads it too,
+so the worst an unconfigured repository does is pay for a read. `keel context` and `keel --doctor`
+report the tier.
+
+**The tier reaches guidance and nothing else** — no gate, criterion, evidence requirement, or Review
+changes with it. That is not a promise in this README: a guidance file is checked to contain none of
+the words Keel states criteria in, so a tier can only ever skip a file that decides nothing. Deciding
+what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
+the judgement a weak executor gets most wrong, and it would be answering it about itself.
+
+One skill is split today, `keel-run-single-task-goal`, and its body is 11% smaller for it. The other
+five are almost entirely criteria, so splitting them would move the half that has to stay.
+
 ## How the agent uses these
 
 You rarely type the commands below. The point of Keel is that the discipline runs itself:

@@ -81,6 +81,7 @@ const CONFIG_DECLARATIONS = [
   "triage",
   "delegation",
   "full_mode_paths",
+  "executor_tier",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -402,6 +403,55 @@ function readDelegationPolicy(repo) {
   return { declared: true, tier, unknown: [], accepted };
 }
 
+// Which guidance an executor loads, declared by the repository rather than
+// judged by the executor. #135's argument is that "do I need this help?" is the
+// judgement a weak executor gets most wrong, so the skip is written down; the
+// absent default therefore reads the guidance, and the worst an unconfigured
+// repository does is pay for a read.
+const EXECUTOR_TIERS = ["standard", "high"];
+const EXECUTOR_TIER_DEFAULT = "standard";
+
+// The tier reaches guidance and nothing else. It is a separate key from
+// `delegation:`'s tier on purpose: that one names who runs a *delegated* task,
+// and a repository may hand routine work to a weak delegate while its own
+// session is strong, so one field cannot answer both without lying about one.
+function readExecutorTier(repo) {
+  const declared = configScalar(repo, "executor_tier");
+  const accepted = [...EXECUTOR_TIERS];
+  if (!declared) {
+    return {
+      declared: false,
+      tier: EXECUTOR_TIER_DEFAULT,
+      unknown: [],
+      accepted,
+    };
+  }
+  // Fail closed, the same rule `delegation:` and `authorize:` follow — except
+  // that closed here means *reading* the guidance rather than skipping it. A
+  // misspelling must not silently buy the reduction it asked for.
+  if (!EXECUTOR_TIERS.includes(declared)) {
+    return {
+      declared: true,
+      tier: EXECUTOR_TIER_DEFAULT,
+      unknown: [declared],
+      accepted,
+      message: executorTierUnreadableMessage(declared, accepted),
+    };
+  }
+  return { declared: true, tier: declared, unknown: [], accepted };
+}
+
+// Names the value and the alternatives, never just the key: a reader told their
+// declaration is wrong without being told what is right has to go find the
+// documentation the declaration was supposed to replace.
+function executorTierUnreadableMessage(value, accepted) {
+  return (
+    `keel/config.yaml declares executor_tier: ${value}, which is not one of `
+    + `${accepted.join(", ")}; the ${EXECUTOR_TIER_DEFAULT} tier applies until `
+    + "it is corrected, so skill guidance is read rather than skipped"
+  );
+}
+
 function configScalar(repo, key) {
   const configPath = path.join(repo, "keel", "config.yaml");
   if (!fs.existsSync(configPath)) return null;
@@ -548,12 +598,16 @@ function triageIssue(repo, labels, issue = null) {
 module.exports = {
   CONFIG_RELATIVE_PATH,
   DELEGATION_TIERS,
+  EXECUTOR_TIERS,
+  EXECUTOR_TIER_DEFAULT,
   CONFIG_DECLARATIONS,
   STANDING_AUTHORIZATION_ACTIONS,
   SCOPED_AUTHORIZATION_ACTIONS,
   readFullModePaths,
   fullModePathsUnreadableMessage,
   readDelegationPolicy,
+  readExecutorTier,
+  executorTierUnreadableMessage,
   readPrecedentStore,
   readStandingAuthorization,
   readTriagePolicy,

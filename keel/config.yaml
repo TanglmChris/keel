@@ -1,12 +1,13 @@
 # Keel project configuration.
 #
-# Six independent declarations live here: fast_check, which names a command;
+# Seven independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
 # which names which work may start without being asked about at all;
-# delegation, which names who runs a task; and full_mode_paths, which names the
-# paths whose change always takes the complete flow.
+# delegation, which names who runs a task; full_mode_paths, which names the
+# paths whose change always takes the complete flow; and executor_tier, which
+# names how much stepwise guidance this project's skills should load.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see

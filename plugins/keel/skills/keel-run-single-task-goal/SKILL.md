@@ -13,16 +13,13 @@ metadata:
 
 Activate a native goal or subagent runtime to execute exactly one authorized OpenSpec task end to end, while OpenSpec, Git, the task-capsule fingerprint, and deterministic Keel gates stay the only durable authority. The current agent remains the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. Where delegation is declared, an authorized delegate may write inside the `Touch` boundary that authority already defined and acquires none of those decisions; the current agent re-runs each `M<n>` check itself before recording Evidence, because a delegate's reported result is a claim and the byte-identity check that validates a read-only helper cannot apply to a writer. A native evaluator declaring success never marks or reports the task complete.
 
-## Authoritative sources and provenance
+## Guidance
 
-These official runtime docs are linked as authoritative references, not copied. Their text and trademarks belong to their owners; Keel paraphrases only the activation semantics it needs and bundles none of their prose.
+Read `guidance.md` beside this file before proceeding, unless `keel/config.yaml` declares `executor_tier: high` — it holds the runtime references, the manual sequence, and the per-target detail. Every criterion is here, so an absent or unreadable declaration costs a read and nothing else.
 
-- Codex goal-following: https://learn.chatgpt.com/use-cases/follow-goals
-- Codex subagents: https://developers.openai.com/codex/subagents
-- Claude goal execution: https://code.claude.com/docs/en/goal
-- Claude subagents: https://code.claude.com/docs/en/sub-agents
+## License
 
-License note: this skill is distributed under the Keel package license (UNLICENSED, all rights reserved by the author). Linking the official docs does not relicense them; do not paste their content into Keel artifacts.
+License note: the Keel package license (UNLICENSED, all rights reserved by the author). Linking the official runtime docs relicenses nothing; their provenance is recorded beside the links and their content is never pasted into Keel artifacts.
 
 ## When to activate
 
@@ -60,9 +57,8 @@ Helpers are optional, read-only evidence producers and never a second writer. Co
 
 ## Manual fallback
 
-When native activation is unavailable — no plugin, disabled hooks, managed policy, missing trust, or an unsupported surface — do not fake activation. Run the same lifecycle by hand: `keel gate task-start`, `keel project goal ... --json` for the view, implement, surface evidence, `keel gate task-complete`, then check the box. The manual loop preserves the identical single-task lifecycle and stop boundary.
+When native activation is unavailable, do not fake activation: run the identical lifecycle by hand. The manual loop preserves the same single-task boundary and the same stop boundary; its steps are in `guidance.md`.
 
 ## Target activation
 
-- Codex: where a callable goal/subagent surface exists, activate one bounded goal for the selected task and use subagents only as bounded read-only helpers. Without a callable surface, paste the exact `keel project goal` command and treat the capability as advisory.
-- Claude: activate one `/goal` whose condition stays within the 4,000-character budget; the evaluator is transcript-only, so surface command and gate evidence explicitly. If hooks are disabled, policy blocks activation, or trust is missing, report the manual fallback.
+Claude and Codex only. Activate exactly one bounded goal for the selected task; a native evaluator declaring success never marks or reports the task complete. The per-target detail is in `guidance.md`.

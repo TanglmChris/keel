@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.66.0"
-PROTOCOL_VERSION = "5.66.0"
+PACKAGE_VERSION = "5.67.0"
+PROTOCOL_VERSION = "5.67.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -14396,6 +14396,27 @@ def validate_native_plugin_manifests_scenario() -> int:
                 f"source: {skill_name}"
             )
             return 1
+        # A referenced `guidance.md` travels with the body that names it. The
+        # host reads the plugin copy directly, so a guidance file the parity
+        # check ignored could drift from the criteria it was split out of, and
+        # the drift would be invisible to everything except a reader.
+        canonical_guidance = canonical_skill.parent / "guidance.md"
+        plugin_guidance = plugin_skill.parent / "guidance.md"
+        if canonical_guidance.is_file() and not plugin_guidance.is_file():
+            report(
+                "native-plugin-manifests guidance file diverges from canonical "
+                f"source: {skill_name} has guidance.md that the plugin does not "
+                "ship, so the body's reference resolves to nothing"
+            )
+            return 1
+        if canonical_guidance.is_file() and plugin_guidance.read_text(
+            encoding="utf-8"
+        ) != canonical_guidance.read_text(encoding="utf-8"):
+            report(
+                "native-plugin-manifests guidance file diverges from canonical "
+                f"source: {skill_name}"
+            )
+            return 1
     lenses_root = ROOT / "assets/lenses"
     for template in ("web.md", "hardware.md", "hardware-dsl.md"):
         if not (lenses_root / template).is_file():
@@ -20692,6 +20713,15 @@ def validate_native_goal_capabilities_scenario() -> int:
     return 0
 
 
+# The referenced half of a split skill. Returns "" for a skill with one body, so
+# every assertion about a skill's content reads the same shape whether or not it
+# was split — a split must not be able to drop a required statement, and a
+# scenario must not have to know which skills were split to stay correct.
+def skill_guidance_text(skill_md: Path) -> str:
+    guidance = skill_md.parent / "guidance.md"
+    return guidance.read_text(encoding="utf-8") if guidance.is_file() else ""
+
+
 SINGLE_TASK_GOAL_SKILL = "keel-run-single-task-goal"
 OFFICIAL_GOAL_SOURCES = (
     "https://learn.chatgpt.com/use-cases/follow-goals",
@@ -20711,7 +20741,13 @@ def validate_single_task_goal_skill_scenario() -> int:
     if canonical_bytes != projection.read_bytes():
         report("single-task-goal-skill projection is not byte-equal to the canonical source.")
         return 1
-    text = canonical_bytes.decode("utf-8")
+    # A skill split into a body and a referenced `guidance.md` carries its
+    # content across both files. What these assertions require is that the skill
+    # states the thing, not that SKILL.md does, so the split must not be able to
+    # drop a required statement by moving it — and must not be able to keep one
+    # only in a file the plugin does not ship, which `native-plugin-manifests`
+    # checks byte-for-byte alongside the body.
+    text = canonical_bytes.decode("utf-8") + skill_guidance_text(canonical)
 
     # Authoritative official sources are linked, and provenance/license is recorded.
     for source in OFFICIAL_GOAL_SOURCES:
@@ -20916,8 +20952,9 @@ def _goal_target_surface(target: str) -> int:
             return 1
 
         # The skill carries the target-specific fallback guidance.
-        skill_text = (ROOT / "plugins/keel/skills" / SINGLE_TASK_GOAL_SKILL / "SKILL.md").read_text(
-            encoding="utf-8"
+        skill_body = ROOT / "plugins/keel/skills" / SINGLE_TASK_GOAL_SKILL / "SKILL.md"
+        skill_text = skill_body.read_text(encoding="utf-8") + skill_guidance_text(
+            skill_body
         )
         if target == "claude" and "disabled hooks" not in skill_text.lower():
             report("native-goal-claude skill lacks the disabled-hooks fallback.")
@@ -28721,16 +28758,280 @@ def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
 
     # A header naming every declaration while miscounting them in prose passes:
     # membership is the checkable property, and a count is a lossy restatement.
-    miscounted = flat_header.replace(
-        "Six independent declarations", "Five independent declarations"
+    # The numeral is located by shape, not by its current value. Pinning the
+    # word here would reintroduce the literal this scenario exists to remove,
+    # one level down: adding `executor_tier` moved the header to "Seven" and the
+    # mutation stopped finding anything to vary.
+    miscounted, varied = re.subn(
+        r"\b\w+ independent declarations\b",
+        "Zero independent declarations",
+        flat_header,
+        count=1,
     )
-    if miscounted == flat_header:
+    if not varied:
         report(f"{label}: the header's prose count could not be located to vary it.")
         return 1
     if config_header_problem(names, miscounted):
         report(
             f"{label}: still says six declarations — a header naming all of them "
             "while miscounting them in prose was refused."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_a_tier_declares_what_is_skipped_scenario() -> int:
+    """Issue #135: which guidance an executor skips is a declaration, not a judgement.
+
+    A strong executor gets no value from stepwise how-to prose and pays for it on
+    every activation. The report's own argument against letting the executor
+    decide is that "do I need this?" is the judgement it is worst at, so the skip
+    is written down by the repository. The tier reaches guidance and nothing else:
+    a reader who takes it for a relaxation of the gates is worse off than one who
+    never saw it, which is why every surface that reports it says so.
+    """
+    label = "a-tier-declares-what-is-skipped"
+
+    with tempfile.TemporaryDirectory(prefix="keel-tier-") as raw:
+        root = Path(raw)
+
+        def fixture(name: str, body: str) -> Path:
+            repo = root / name
+            repo.mkdir()
+            (repo / "keel").mkdir()
+            (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
+            return repo
+
+        def context(repo: Path) -> str:
+            return run_keel(repo, "context").stdout
+
+        # M1 — the declared tier is reported, an absent one reports the default,
+        # and both say guidance is all the tier reaches.
+        for name, body, expected in (
+            ("high", "fast_check: echo high\nexecutor_tier: high\n", "high"),
+            ("absent", "fast_check: echo absent\n", "standard"),
+        ):
+            repo = fixture(name, body)
+            out = context(repo)
+            line = next(
+                (l for l in out.splitlines() if l.startswith("Executor tier:")), None
+            )
+            if line is None:
+                report(
+                    f"{label}: no executor tier reported — the {name} repository "
+                    "is told nothing about which guidance its skills load."
+                )
+                report(out)
+                return 1
+            if expected not in line:
+                report(
+                    f"{label}: the {name} repository reports {line!r} rather than "
+                    f"the {expected!r} tier."
+                )
+                return 1
+            if "guidance" not in line:
+                report(
+                    f"{label}: no executor tier reported as affecting guidance "
+                    f"only; {line!r} leaves a reader free to take it for a "
+                    "relaxation of the gates."
+                )
+                return 1
+
+        # M2 — a value Keel cannot read fails closed to reading the guidance.
+        # The author of a typo believes they declared what they typed, so a
+        # misspelling must not silently buy the skip it asked for, and the
+        # refusal names the value and the alternatives rather than the key.
+        typo = fixture("typo", "fast_check: echo typo\nexecutor_tier: aggressive\n")
+        out = context(typo)
+        line = next(
+            (l for l in out.splitlines() if l.startswith("Executor tier:")), None
+        )
+        if line is None:
+            report(
+                f"{label}: accepted a tier outside the set — the projection "
+                "reported no tier at all for an unreadable value, so the "
+                "fallback is invisible."
+            )
+            report(out)
+            return 1
+        if "standard" not in line:
+            report(
+                f"{label}: accepted a tier outside the set — an unreadable value "
+                f"did not fall back to reading the guidance; got {line!r}."
+            )
+            report(out)
+            return 1
+        if "aggressive" not in out:
+            report(
+                f"{label}: the rejected value is not named, so the author is "
+                "left believing they declared what they typed."
+            )
+            report(out)
+            return 1
+        if "high" not in out:
+            report(
+                f"{label}: the refusal does not name the accepted tiers, so the "
+                "reader learns their value is wrong and not what is right."
+            )
+            report(out)
+            return 1
+        doctor = run_keel(typo, "--doctor").stdout
+        if "executor_tier" not in doctor or "aggressive" not in doctor:
+            report(
+                f"{label}: the doctor does not report the declaration as failed "
+                "and name the entry, so it reports health the projection "
+                "contradicts."
+            )
+            report(doctor)
+            return 1
+        healthy = run_keel(fixture("ok", "executor_tier: high\n"), "--doctor").stdout
+        if "executor_tier: high" not in healthy:
+            report(
+                f"{label}: the doctor does not report a readable declaration, so "
+                "the only tier it ever mentions is a broken one."
+            )
+            report(healthy)
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+# The words Keel states a criterion in. A guidance file is asserted to contain
+# none of them, which is what makes "the executor tier removes no criterion" a
+# property of the repository rather than a promise in a design document: a tier
+# can only skip a file that decides nothing.
+CRITERION_VOCABULARY = ("MUST", "SHOULD", "refuses", "rejects", "hard-stops")
+
+
+def guidance_criterion_problem(name: str, text: str) -> str | None:
+    """Return the problem a guidance file's text has, or None.
+
+    Takes the text rather than reading the path, so the rule can be exercised on
+    a planted copy. A rule that could only ever see files already known to be
+    clean would pass forever without anyone learning whether it fires.
+    """
+    for word in CRITERION_VOCABULARY:
+        if word in text:
+            return (
+                f"{name}'s guidance.md states a criterion — it contains "
+                f"{word!r}, and a criterion in the file the executor tier skips "
+                "would let `executor_tier: high` relax a rule rather than skip "
+                "an explanation. Move the sentence back into SKILL.md."
+            )
+    return None
+
+
+def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
+    """Issue #135: stepwise guidance is referenced, and it decides nothing.
+
+    Keel is not on the delivery path for a skill body — the host reads
+    `plugins/keel/skills/*/SKILL.md` directly — so the only way the resident cost
+    falls is for the body to be smaller. What leaves it is how-to prose; every
+    criterion stays, and that is checked here by planting one rather than
+    promised, because a tier that could remove a criterion would be a relaxation
+    of the gates wearing a capability label.
+    """
+    label = "guidance-is-referenced-and-carries-no-criterion"
+    skills_root = ROOT / "src/skills"
+    guidance_files = sorted(skills_root.glob("*/guidance.md"))
+
+    # D4 splits exactly one skill today. An empty glob would satisfy every loop
+    # below without reading anything, so the count is asserted first.
+    if not guidance_files:
+        report(
+            f"{label}: no skill has a guidance.md, so every assertion below is "
+            "vacuous — the split this scenario checks did not happen."
+        )
+        return 1
+
+    for guidance in guidance_files:
+        skill = guidance.parent / "SKILL.md"
+        body = skill.read_text(encoding="utf-8")
+        text = guidance.read_text(encoding="utf-8")
+        if "guidance.md" not in body:
+            report(
+                f"{label}: guidance file is not referenced — "
+                f"{guidance.parent.name}'s SKILL.md never names guidance.md, so "
+                "the prose that left the body is unreachable from it."
+            )
+            return 1
+        if "executor_tier" not in body:
+            report(
+                f"{label}: {guidance.parent.name}'s SKILL.md names guidance.md "
+                "without the condition under which it is read, which leaves the "
+                "skip to the executor's own judgement — the judgement #135 says "
+                "it gets most wrong."
+            )
+            return 1
+        if "high" not in body:
+            report(
+                f"{label}: {guidance.parent.name}'s SKILL.md does not name the "
+                "tier that skips the read, so the condition it states cannot be "
+                "evaluated."
+            )
+            return 1
+        # "Measurably smaller than before the split" is checkable only as a
+        # property of what is on disk now: the guidance carries real content,
+        # and that content is no longer duplicated in the body it left.
+        if len(text) < 500:
+            report(
+                f"{label}: {guidance.parent.name}'s guidance.md holds "
+                f"{len(text)} bytes, too few for the split to have moved "
+                "anything; a pointer to an almost-empty file costs a read and "
+                "saves nothing."
+            )
+            return 1
+        criterion = guidance_criterion_problem(guidance.parent.name, text)
+        if criterion:
+            report(f"{label}: {criterion}")
+            return 1
+        for heading in [
+            line for line in text.splitlines() if line.startswith("## ")
+        ]:
+            if heading in body:
+                report(
+                    f"{label}: {guidance.parent.name}'s body still carries "
+                    f"{heading!r}, so the section was copied rather than moved "
+                    "and the resident cost did not fall."
+                )
+                return 1
+
+    # M2 — the property is held by the suite, not promised by the design. A
+    # guidance file that stated a criterion would let the tier skip one, which
+    # would make `executor_tier: high` a relaxation of the gates wearing a
+    # capability label. Planting one is the only way to know the rule fires.
+    sample = guidance_files[0]
+    planted = (
+        sample.read_text(encoding="utf-8")
+        + "\nAn executor MUST record the fingerprint before implementing.\n"
+    )
+    problem = guidance_criterion_problem(sample.parent.name, planted)
+    if not problem:
+        report(
+            f"{label}: states a criterion — a guidance file carrying `MUST` was "
+            "accepted, so nothing stops a criterion from moving into the file "
+            "the tier skips."
+        )
+        return 1
+    if sample.parent.name not in problem:
+        report(
+            f"{label}: the refusal does not name the file that states the "
+            f"criterion; got {problem!r}."
+        )
+        return 1
+    if "MUST" not in problem:
+        report(
+            f"{label}: the refusal does not name the word it objected to, so the "
+            f"author has to guess which sentence to move; got {problem!r}."
         )
         return 1
 
@@ -29102,6 +29403,14 @@ SCENARIOS: tuple = (
     (
         "a-negation-is-not-a-marker",
         validate_a_negation_is_not_a_marker_scenario,
+    ),
+    (
+        "guidance-is-referenced-and-carries-no-criterion",
+        validate_guidance_is_referenced_and_carries_no_criterion_scenario,
+    ),
+    (
+        "a-tier-declares-what-is-skipped",
+        validate_a_tier_declares_what_is_skipped_scenario,
     ),
     (
         "a-count-is-derived-from-what-it-counts",

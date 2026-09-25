@@ -15,6 +15,7 @@ const {
   readStandingAuthorization,
   readFullModePaths,
   fullModePathsUnreadableMessage,
+  readExecutorTier,
 } = require("./config");
 
 const NEXT_ACTIONS = new Set([
@@ -696,6 +697,14 @@ function resolveContext(repo, options) {
   } else {
     context.routing = routing.paths;
   }
+  // Reported every session, declared or not, unlike `full_mode_paths` above:
+  // the default is the one a reader most needs to see, because a repository
+  // that declared nothing is loading guidance it may not want and has no other
+  // surface that would tell it so.
+  const executor = readExecutorTier(repo);
+  context.executorTier = executor.tier;
+  if (executor.unknown.length > 0) context.warnings.push(executor.message);
+
   // Set here rather than by the caller, so every consumer of the projection —
   // text, JSON, and any host reading it — carries the version without having
   // to know to add it.
@@ -747,6 +756,13 @@ function renderContext(result) {
   }
   for (const entry of result.routing || []) {
     lines.push(`Routing: ${entry.path} always routes Full — ${entry.reason}`);
+  }
+  if (result.executorTier) {
+    lines.push(
+      `Executor tier: ${result.executorTier} — affects which skill guidance is `
+        + "read and nothing else; no gate, criterion, evidence requirement, or "
+        + "Review changes with it"
+    );
   }
   for (const reason of result.reasons) lines.push(`Reason: ${reason}`);
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);

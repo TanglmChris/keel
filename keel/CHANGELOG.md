@@ -1,5 +1,66 @@
 # Keel Changelog
 
+## 5.67.0 - guidance loads by declaration
+
+Issue #135 asked for guidance to be tiered by executor capability: how-to prose loses value as the
+executor gets stronger, while the machinery that makes work falsifiable gains it. Two measurements
+changed what got built.
+
+**The mechanism the issue assumed does not exist.** Skills ship inside the plugin and the host reads
+`plugins/keel/skills/*/SKILL.md` directly; `scripts/install_to_repo.py` writes no skill, and the plugin
+copy is required to be byte-identical to `src/skills/`. Nothing Keel runs sits between a declaration
+and that read, so no declaration can make the host load less of a body than the body contains. The only
+way the resident cost falls is for the body to be smaller — so the stepwise half moves into a
+`guidance.md` beside it, and the body names the file and the condition under which it is read.
+
+**Most of the A-class prose in an agent's context is not Keel's to move.** Measured before designing:
+Keel's six skill bodies are 28,939 bytes and its overlay blocks 10,907, while the generic stepwise prose
+in the `opsx` command and skill files is 32,518 bytes authored by OpenSpec — the remediation Keel's own
+doctor prints for those files is `openspec update --force`, which reverts anything Keel edited there.
+The one concrete example the issue cites sits in that text. The overlay Keel does own is almost entirely
+the falsifiability half the issue says to keep.
+
+**And Keel's own bodies are criteria-dense.** Only `keel-run-single-task-goal` had how-to prose worth
+moving. Its body went from 6,265 to 5,554 bytes — 11%, with 1,708 bytes in the referenced file. That is
+a modest number and it is the honest one; the other five skills are lists of criteria, and splitting
+them would move the half that has to stay. One skill is split, and the measurement is the reason rather
+than an unfinished sweep.
+
+`executor_tier:` in `keel/config.yaml` takes `standard` or `high`. Absent means `standard`, and an
+unreadable value fails closed to `standard` naming both what it rejected and what is accepted — the same
+rule `authorize:` and `delegation:` follow, except that closed here means *reading* the guidance, because
+a misspelling must not silently buy the reduction it asked for. It is a separate key from `delegation:`'s
+tier: that one names who runs a *delegated* task, and a repository may hand routine work to a weak
+delegate while its own session is strong. `keel context` and `keel --doctor` report the tier, and both
+state that it reaches guidance only.
+
+**The tier cannot remove a criterion, and that is checked rather than promised.** A guidance file is
+asserted to contain none of the words Keel states criteria in, so `executor_tier: high` can only skip a
+file that decides nothing. Without that check the declaration would be a relaxation of the gates wearing
+a capability label. The rule takes the file's text rather than its path so it can be run on a planted
+copy — a rule that only ever reads files already known to be clean passes forever without anyone
+learning whether it fires.
+
+**The split's real hazard showed up immediately.** Three scenarios pinned content of that skill — the
+four official doc links, `advisory`, `disabled hooks` — and all three failed, because a requirement
+asserted against `SKILL.md` can be satisfied-away by moving its sentence. Every such assertion now reads
+the body plus its guidance through one helper that returns `""` for an unsplit skill, so no scenario has
+to know which skills were split; `native-plugin-manifests` compares `guidance.md` byte-for-byte the way
+it already compared the body, so a statement cannot be kept only in a file the host never receives. Two
+of those three failures were a rewrite-for-length dropping an exact phrase, caught in one run by the
+checks that pinned it.
+
+One repair came along the way. `a-count-is-derived-from-what-it-counts`, shipped in 5.66.0 to stop the
+config header's declaration count being a hand-bumped literal, still pinned the numeral in its own
+mutation: adding a seventh declaration moved the header to "Seven" and the mutation stopped finding
+anything to vary. The fix removed the assertion and left a literal one level down, and the first
+declaration added afterward hit it. It now locates the numeral by shape.
+
+## 5.67.0 - TODO: summarize this release
+
+- TODO: describe the change.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.67.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.66.0 - a count is derived from what it counts
 
 - **The check on `keel/config.yaml`'s header restated the declaration set as an English numeral, and

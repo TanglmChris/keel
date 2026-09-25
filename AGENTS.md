@@ -1,6 +1,6 @@
-# Keel v5.66.0 Agent Protocol
+# Keel v5.67.0 Agent Protocol
 
-<!-- keel:start version=5.66.0 -->
+<!-- keel:start version=5.67.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -87,12 +87,13 @@
 
 ## token discipline
 - Keep resident files concise and route detail into official OpenSpec artifacts or archive evidence.
+- A skill's stepwise guidance lives in a `guidance.md` beside its `SKILL.md` and is read before proceeding unless `keel/config.yaml` declares `executor_tier: high`; an absent or unreadable declaration reads it. The tier reaches guidance and nothing else — no gate, criterion, evidence requirement, or Review moves with it — and a guidance file states no criterion, which is checked rather than promised.
 - Read only the documents needed for the current decision and summarize instead of copying long rationale.
 
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.66.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.67.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions
