@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.64.0"
-PROTOCOL_VERSION = "5.64.0"
+PACKAGE_VERSION = "5.65.0"
+PROTOCOL_VERSION = "5.65.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -28459,6 +28459,138 @@ def validate_a_claim_names_what_would_falsify_it_scenario() -> int:
     return 0
 
 
+def validate_a_negation_is_not_a_marker_scenario() -> int:
+    """Issue #144: `Not resolved here:` was read as `Resolved here:`.
+
+    The marker scan's `\\b` sits at the space inside the negation, so a finding
+    that said in as many words it was *not* resolved here had the next word read
+    as its resolution evidence — a dismissal read as a repair, then refused for
+    lacking repair evidence. 5.42.0 established that a quoted marker is a
+    quotation; a negated one is the same class and was not covered.
+    """
+    label = "a-negation-is-not-a-marker"
+
+    def findings_task(findings: str) -> str:
+        return "\n".join(
+            [
+                "- [x] 1.1 Findings probe",
+                "  - Owner: claude",
+                "  - Mode: implementation",
+                "  - Covers:",
+                "    - E1: the task proves its own behavior",
+                "  - Read:",
+                "    - README.md",
+                "  - Touch:",
+                "    - src/example.js",
+                "  - Verify:",
+                "    - Strategy: vertical-tdd",
+                "    - M1: node test.js asserts the public behavior",
+                "  - Evidence:",
+                "    - Contract: pending",
+                "    - M1: pass. node test.js reported the behavior.",
+                "    - M1.red: fail. the behavior did not exist.",
+                "    - M1.green: pass.",
+                "    - Review:",
+                "      - Status: pass",
+                "      - Acceptance check: the behavior is proven.",
+                "      - Scope check: only Touch changed.",
+                f"      - Findings: {findings}",
+                "    - Blocker: none",
+                "    - Reauthorizations: none",
+            ]
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-negation-") as raw:
+        root = Path(raw)
+
+        def complete(name: str, findings: str) -> dict:
+            repo = root / name
+            write_gate_fixture(repo, tasks=findings_task(findings))
+            run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--record", "--json",
+            )
+            done = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            try:
+                return json.loads(done.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unparsed", "problems": [{"message": done.stdout[:400]}]}
+
+        # M1 — the text that produced #144, verbatim in shape.
+        negated = complete(
+            "negated",
+            "one, still open. The count is derivable from the declarations the "
+            "module reads. Not resolved here: it is a different module and would "
+            "be scope expansion. Durable owner: https://example.com/issues/1",
+        )
+        if negated.get("status") != "pass":
+            report(
+                f"{label}: names neither a check nor a path — a finding saying it "
+                "was *not* resolved here, closing with a durable owner, was "
+                f"refused; {problem_codes(negated)!r} {problem_text(negated)!r}."
+            )
+            return 1
+        if "resolution evidence" in problem_text(negated).lower():
+            report(
+                f"{label}: the negated phrase still produced a resolution-evidence "
+                f"diagnostic; {problem_text(negated)!r}."
+            )
+            return 1
+
+        # M2 — the positive control, in all three opening positions. Without it
+        # the narrowing could pass by recognizing no marker anywhere.
+        for name, findings in (
+            ("opens-value", "Resolved here: M9"),
+            ("after-break", "one, and it was fixed.\n        Resolved here: M9"),
+            ("after-stop", "one, and it was fixed. Resolved here: M9"),
+        ):
+            payload = complete(name, findings)
+            if payload.get("status") == "pass":
+                report(
+                    f"{label}: stopped recognizing a real marker ({name}) — a "
+                    "`Resolved here:` naming a check this task does not declare "
+                    "completed cleanly."
+                )
+                return 1
+            if "M9" not in problem_text(payload):
+                report(
+                    f"{label}: stopped recognizing a real marker ({name}) — the "
+                    f"refusal does not name the cited check; {problem_text(payload)!r}."
+                )
+                return 1
+
+        # M3 — a marker that opens no clause is refused, not ignored, and the
+        # refusal names the rule so the author is not told to add what they wrote.
+        swallowed = complete(
+            "swallowed", "one, and the fix was Resolved here: M1 in passing"
+        )
+        if swallowed.get("status") == "pass":
+            report(
+                f"{label}: a finding whose only marker opens no clause completed "
+                "cleanly, so it carried no disposition and nothing said so."
+            )
+            return 1
+        # Asserted on the whole phrase, not the word: `opens` alone matches
+        # inside `openspec`, which the same diagnostic already prints, and the
+        # assertion was vacuous until this was tightened.
+        if "opens its clause" not in problem_text(swallowed).lower():
+            report(
+                f"{label}: does not name the opening requirement — an author "
+                "whose sentence visibly contains a marker is told to add a "
+                f"disposition; {problem_text(swallowed)!r}."
+            )
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -28816,6 +28948,10 @@ SCENARIOS: tuple = (
     (
         "a-claim-names-what-would-falsify-it",
         validate_a_claim_names_what_would_falsify_it_scenario,
+    ),
+    (
+        "a-negation-is-not-a-marker",
+        validate_a_negation_is_not_a_marker_scenario,
     ),
 )
 

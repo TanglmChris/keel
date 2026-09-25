@@ -672,7 +672,24 @@ function transientOwnerMessage(candidate) {
 // swallow and changes nothing about why this one is narrow. The match is
 // global because each resolved claim owes its own evidence; checking only the
 // first would let a second one assert itself for free.
-const RESOLVED_HERE = /\bresolved here\s*:[ \t]*(\S*)/gi;
+// A marker is a disposition only where it OPENS its clause: the start of the
+// value, a line break, or sentence-ending punctuation may precede it, and a word
+// may not. `Not resolved here:` contains the marker and means its opposite, and a
+// `\b` boundary sat happily at the space inside it — the negation was read as a
+// resolution claim and the next word, `it`, as its evidence, so a dismissal was
+// read as a repair and then refused for lacking repair evidence (issue #144).
+// Quoting was the first way a marker could appear without being one (5.42.0);
+// negating it is the second.
+//
+// Written as a lookbehind so the captures keep reading from the same offsets —
+// every rule here is positional, and a rule that shortened the text would move
+// what they read.
+const CLAUSE_OPENING = "(?<=^|[\\n.;:!?\u2014\u2013])[ \\t]*";
+
+const RESOLVED_HERE = new RegExp(
+  `${CLAUSE_OPENING}resolved here\\s*:[ \\t]*(\\S*)`,
+  "gi"
+);
 
 // Resolution evidence is deliberately narrower than a durable owner. An
 // `http`/`https` reference says someone else will do the work later, which is
@@ -714,8 +731,24 @@ function resolutionEvidenceVerdict(repo, value, commands, change) {
 // next token, so a shortened text would move what they read. The original is
 // kept for anything reported back, since a diagnostic quoting the blanked copy
 // would show the author a sentence with holes in it.
-const DISPOSITION_MARKER =
-  /\b(?:resolved here|durable owner|discard (?:reason|rationale))\s*:/gi;
+// The same opening rule, for the same reason. Narrowing only the capture would
+// leave a negated marker counted as a disposition being *present* while it
+// supplied no evidence — a finding accepted as disposed with nothing behind it,
+// which is worse than either half of the defect alone.
+// The marker vocabulary wherever it appears, with no opening rule. Two different
+// questions are asked of this text and they need different patterns. *Blanking* a
+// marker inside a quoted span asks "is this marker text?" — and inside a span the
+// character before it is a backtick, so an opening rule would refuse to blank it
+// and the quotation would survive into the recognition scan. *Recognizing* a
+// disposition asks "does this marker open a clause?", which is the narrower
+// question `DISPOSITION_MARKER` below answers.
+const MARKER_VOCABULARY =
+  /(?:resolved here|durable owner|discard (?:reason|rationale))\s*:/gi;
+
+const DISPOSITION_MARKER = new RegExp(
+  `${CLAUSE_OPENING}(?:resolved here|durable owner|discard (?:reason|rationale))\\s*:`,
+  "gi"
+);
 
 function withoutQuotedMarkers(text) {
   return String(text || "").replace(/`[^`\n]*`/g, (span) =>
@@ -725,7 +758,7 @@ function withoutQuotedMarkers(text) {
     // span would destroy the very path the rule exists to read. Measured: the
     // first draft of this function did exactly that, and both the backticked
     // owner path and the backticked resolution path started failing.
-    span.replace(DISPOSITION_MARKER, (marker) => " ".repeat(marker.length))
+    span.replace(MARKER_VOCABULARY, (marker) => " ".repeat(marker.length))
   );
 }
 
@@ -1269,11 +1302,30 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
             + "must still do is `Durable owner:` naming "
             + `${DURABLE_OWNER_FORMS}; one deliberately not being done is a `
             + "`Discard reason:`/`Discard rationale:` prefix."
+            // Said only where a marker is visibly present and was not counted,
+            // which is the one case where "carry a disposition" reads as a
+            // contradiction of what the author can see they wrote.
+            + (mentionsUnopenedMarker(scannable)
+              ? " A marker counts only where it opens its clause — after the "
+                + "start of the value, a line break, or sentence-ending "
+                + "punctuation. This text mentions one mid-sentence, so it was "
+                + "read as prose; move it to the start of its own clause, or "
+                + "keep it as prose and add the disposition separately."
+              : "")
         )
       );
     }
   }
   return { problems, reviewProblems };
+}
+
+// Whether the text names a disposition marker somewhere that is not a clause
+// opening. Used only to add a sentence to a refusal, never to accept anything:
+// a marker mid-sentence stays prose, and this is what tells its author why.
+function mentionsUnopenedMarker(text) {
+  const body = String(text || "");
+  if (!new RegExp(MARKER_VOCABULARY.source, "i").test(body)) return false;
+  return !new RegExp(DISPOSITION_MARKER.source, "i").test(body);
 }
 
 function taskComplete(repo, options) {

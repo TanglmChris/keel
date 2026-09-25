@@ -1,5 +1,37 @@
 # Keel Changelog
 
+## 5.65.0 - a negation is not a marker
+
+- **A Review `Findings` entry recording an unresolved finding, with a valid tracker owner, was
+  refused** (issue #144). The text:
+
+  > … **Not resolved here:** it is a different module and would be scope expansion … Durable owner:
+  > https://github.com/TanglmChris/keel/issues/143
+
+  The scan was `/\bresolved here\s*:[ \t]*(\S*)/gi`, and `\b` sits happily at the space inside
+  `Not resolved here:`. So the negation was read as the marker and the next word, `it`, as its
+  resolution evidence: **a dismissal read as a repair, then refused for lacking repair evidence.**
+  `## Follow-up Ownership` warns against picking the marker that passes over the one that is true;
+  this ran that inversion the other way. (keel-expectation-slice-evidence-gates)
+- **A marker now counts only where it opens its clause** — preceded by the start of the value, a line
+  break, or sentence-ending punctuation. A word before it makes it part of that sentence. Written as
+  a lookbehind, because every rule reading this text is positional and a rule that shortened the text
+  would move what they read.
+- **Both scans narrowed together.** Narrowing only the capture would have left a negated marker
+  counted as a disposition being *present* while supplying no evidence — a finding accepted as
+  disposed with nothing behind it, worse than either half of the defect.
+- **Blanking and recognition are now two patterns**, which is a regression this change introduced and
+  its own suite caught. Marker text inside a quoted span is blanked so a quotation cannot become a
+  disposition (5.42.0); inside a span the character before the marker is a backtick, so an opening
+  rule stopped the blanking and the quotation survived. Blanking asks whether text is marker
+  vocabulary; recognition asks whether a marker opens a clause.
+- **The narrowing cannot pass silently**, which is what makes it safe. A real `Resolved here:` that
+  no longer parses does not become unchecked: the finding then carries no disposition, which was
+  already refused. That refusal now names the opening requirement **only where a marker is visibly
+  present and was not counted** — the one case where "carry a disposition" contradicts what the
+  author can see they wrote.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.65.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.64.0 - a claim names what would falsify it
 
 - **A red can be entirely honest and the check still immune to the defect it exists to catch**
