@@ -68,6 +68,21 @@ function classifyAuthorizationEntry(entry) {
 // and the declaration must still be correct after both.
 const DELEGATION_TIERS = ["routine", "standard", "deep"];
 
+// Every declaration this module reads, in the order the file documents them. One
+// list, so an assertion about the set can be derived from the set instead of
+// restating it: the header check used to pin an English numeral and had been
+// hand-bumped twice, each time discovered by a red suite run in a scenario named
+// for something else (issue #143). Adding a declaration now costs a header line
+// and an entry here, and nothing has to agree about a number.
+const CONFIG_DECLARATIONS = [
+  "fast_check",
+  "authorize",
+  "precedents",
+  "triage",
+  "delegation",
+  "full_mode_paths",
+];
+
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
 
 // The declarations share keel/config.yaml with fast_check, so the reader stays
@@ -533,6 +548,7 @@ function triageIssue(repo, labels, issue = null) {
 module.exports = {
   CONFIG_RELATIVE_PATH,
   DELEGATION_TIERS,
+  CONFIG_DECLARATIONS,
   STANDING_AUTHORIZATION_ACTIONS,
   SCOPED_AUTHORIZATION_ACTIONS,
   readFullModePaths,

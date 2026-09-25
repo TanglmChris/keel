@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.65.0"
-PROTOCOL_VERSION = "5.65.0"
+PACKAGE_VERSION = "5.66.0"
+PROTOCOL_VERSION = "5.66.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -17027,6 +17027,42 @@ STANDING_AUTHORIZATION_ACTIONS = (
 )
 
 
+def run_node_expression(root: Path, expression: str) -> str:
+    """Evaluate a Node expression with `root` as the working directory.
+
+    The declaration set is read from the module that defines it rather than by
+    regexing its source: a regex over the source would be a second copy of the
+    same literal the check exists to remove, one level down (issue #143).
+    """
+    result = subprocess.run(
+        ["node", "-e", expression],
+        cwd=root,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout
+
+
+def config_header_problem(names: list, flat_header: str) -> str:
+    """The one rule for "the header names every declaration", or "" when it does.
+
+    Returns the diagnostic naming the missing declaration. Deliberately reports
+    no count: a count tells an author that two numbers differ, and the name tells
+    them which line to write.
+    """
+    for name in names:
+        if name not in flat_header:
+            return (
+                f"keel/config.yaml's header does not name the `{name}` "
+                "declaration, so a project reading it would never learn it may "
+                "write one. Add it to the header's list."
+            )
+    return ""
+
+
 def write_authorize_config(repo: Path, body: str) -> None:
     (repo / "keel").mkdir(parents=True, exist_ok=True)
     (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
@@ -18117,11 +18153,27 @@ def validate_delegation_resident_text_scenario() -> int:
     # M1 — the config header counts its declarations correctly.
     config = ROOT / "keel/config.yaml"
     cfg = flat(config)
-    if re.sub(r"\s+", " ", "Five independent declarations") in cfg:
-        report("delegation-resident-text: the config header still says five declarations.")
+    # Derived from the module that reads the declarations, not restated here. The
+    # literal this replaces had been hand-bumped twice, and the second bump was
+    # found by a red suite run in a scenario named for something else (#143).
+    declarations = [
+        name
+        for name in run_node_expression(
+            ROOT,
+            "process.stdout.write("
+            "require('./src/core/config.js').CONFIG_DECLARATIONS.join(','))",
+        ).strip().split(",")
+        if name
+    ]
+    if not declarations:
+        report(
+            "delegation-resident-text: src/core/config.js exports no declaration "
+            "list, so the header cannot be checked against what Keel reads."
+        )
         return 1
-    if re.sub(r"\s+", " ", "Six independent declarations") not in cfg:
-        report("delegation-resident-text: the config header does not name six declarations.")
+    header_problem = config_header_problem(declarations, cfg)
+    if header_problem:
+        report(f"delegation-resident-text: {header_problem}")
         return 1
     if "delegation" not in cfg:
         report("delegation-resident-text: the config header does not document delegation.")
@@ -28591,6 +28643,104 @@ def validate_a_negation_is_not_a_marker_scenario() -> int:
     return 0
 
 
+def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
+    """Issue #143: the header assertion restated a set as an English numeral.
+
+    It had been hand-bumped twice, and the second bump was discovered by a red
+    suite run in a scenario whose name has nothing to do with what was changed.
+    An assertion about a set belongs to the set: read it from the module that
+    defines it, and name the member that is missing rather than a count.
+    """
+    label = "a-count-is-derived-from-what-it-counts"
+
+    def declared_names(root: Path) -> list[str]:
+        result = run_node_expression(
+            root,
+            "process.stdout.write("
+            "require('./src/core/config.js').CONFIG_DECLARATIONS.join(','))",
+        )
+        return [name for name in result.strip().split(",") if name]
+
+    names = declared_names(ROOT)
+    if not names:
+        report(
+            f"{label}: the assertion is a literal — `src/core/config.js` exports "
+            "no declaration list, so nothing the header is checked against comes "
+            "from the code that reads it."
+        )
+        return 1
+    for expected in (
+        "fast_check",
+        "authorize",
+        "precedents",
+        "triage",
+        "delegation",
+        "full_mode_paths",
+    ):
+        if expected not in names:
+            report(
+                f"{label}: the exported declaration list omits {expected!r}, so "
+                f"the header is not checked for it; got {names!r}."
+            )
+            return 1
+
+    header = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
+    flat_header = re.sub(r"\s+", " ", header)
+    for name in names:
+        if name not in flat_header:
+            report(
+                f"{label}: keel/config.yaml's header does not name {name!r}, "
+                "which is the declaration a new project would never learn it may "
+                "write."
+            )
+            return 1
+
+    # The derivation is proved by feeding the check a member the header cannot
+    # contain. Without this the whole scenario is satisfied by a list that
+    # happens to agree with a header nobody compared it to.
+    missing = config_header_problem(names + ["invented_declaration"], flat_header)
+    if not missing:
+        report(
+            f"{label}: the assertion is a literal — a declaration absent from "
+            "the header produced no failure, so the check is not reading the "
+            "exported list."
+        )
+        return 1
+    if "invented_declaration" not in missing:
+        report(
+            f"{label}: the failure does not name the missing declaration; got "
+            f"{missing!r}."
+        )
+        return 1
+    if re.search(r"\b(?:four|five|six|seven)\b", missing, re.IGNORECASE):
+        report(
+            f"{label}: still says six declarations — the failure reports a "
+            f"count rather than the missing name; got {missing!r}."
+        )
+        return 1
+
+    # A header naming every declaration while miscounting them in prose passes:
+    # membership is the checkable property, and a count is a lossy restatement.
+    miscounted = flat_header.replace(
+        "Six independent declarations", "Five independent declarations"
+    )
+    if miscounted == flat_header:
+        report(f"{label}: the header's prose count could not be located to vary it.")
+        return 1
+    if config_header_problem(names, miscounted):
+        report(
+            f"{label}: still says six declarations — a header naming all of them "
+            "while miscounting them in prose was refused."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -28952,6 +29102,10 @@ SCENARIOS: tuple = (
     (
         "a-negation-is-not-a-marker",
         validate_a_negation_is_not_a_marker_scenario,
+    ),
+    (
+        "a-count-is-derived-from-what-it-counts",
+        validate_a_count_is_derived_from_what_it_counts_scenario,
     ),
 )
 

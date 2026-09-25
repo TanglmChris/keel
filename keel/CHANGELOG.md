@@ -1,5 +1,29 @@
 # Keel Changelog
 
+## 5.66.0 - a count is derived from what it counts
+
+- **The check on `keel/config.yaml`'s header restated the declaration set as an English numeral, and
+  had been hand-bumped twice** (issue #143) — `Four` to `Five` when `delegation` arrived, `Five` to
+  `Six` in 5.63.0 when `full_mode_paths` did. The intent was right: the header is where a new project
+  reads the declaration set from, so a count that drifts is a real defect. The assertion was not
+  derived from the thing it described, so adding a declaration *and* updating the header still failed
+  — in `delegation-resident-text`, a scenario whose name has nothing to do with what was changed. In
+  5.63.0 that cost one red suite run and a second `## Invalidates` entry the first pass missed,
+  because the entry named the file the wording lives in and not the check holding it.
+  (keel-validation-runner)
+- **`src/core/config.js` now exports `CONFIG_DECLARATIONS`**, the one list both the readers and the
+  check consult. The check asks the module by running it, not by regexing its source — a regex over
+  the source would be a second copy of the same literal one level down.
+- **The failure names the declaration missing from the header** rather than a count. A count tells an
+  author that two numbers differ; the name tells them which line to write.
+- **The prose numeral is deliberately no longer asserted.** It stays in the header for a reader.
+  Checking it would reintroduce the literal, and a header that names every declaration while
+  miscounting them misleads nobody about what they may declare — while one that omits a declaration
+  is a defect the membership rule catches.
+- Adding a declaration now costs a header line and an entry in the exported list. It never again costs
+  a surprise red in an unrelated scenario.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.66.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.65.0 - a negation is not a marker
 
 - **A Review `Findings` entry recording an unresolved finding, with a valid tracker owner, was
