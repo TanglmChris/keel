@@ -1,5 +1,41 @@
 # Keel Changelog
 
+## 5.70.0 - a publish waits for the one before it
+
+`.github/workflows/publish.yml` fires on `release: [published]` and declared no `concurrency` group.
+Landing the eleven-PR stack created eleven releases inside ~20 seconds, so eleven `npm publish` jobs ran
+against the same package at once (#153).
+
+**Nothing was lost.** Every job logged its own `+ @christang/keel@<version>`, and the write side proved
+it afterwards by refusing a re-run with `You cannot publish over the previously published versions`.
+What broke was the **read** side: for several minutes the registry's packument reported published
+versions as missing, and the set of missing ones changed between reads.
+
+The damage was a wrong diagnosis acted on. Reading the registry listing is the obvious way to confirm a
+publish, and it lied for long enough to justify two re-runs — which now sit in the Actions history as
+red failures against a release that had succeeded, a permanently misleading record. **Confirm a publish
+from the job log, not from the registry listing**; the `+ @christang/keel@<version>` line comes from the
+write path and is available immediately.
+
+The workflow now declares one group for the whole workflow. `cancel-in-progress: false` is the
+load-bearing half: GitHub's default is `true`, which would cancel a publish still queued when the next
+release fires — losing that version outright rather than appearing to. A group keyed per release, such
+as `publish-${{ github.ref }}`, would serialize nothing while looking exactly like a fix, because every
+release has its own ref. The thing being protected is the package, and there is one of those.
+
+All three shapes are asserted, on planted copies of the file. That matters more here than usual:
+`publish.yml` runs only on GitHub, only on a `release` event, so the repository's own copy is the one
+input guaranteed to be correct, and a check that only ever saw it would pass forever without anyone
+learning whether it fires. The two failing shapes that are *not* absence — present-but-cancelling, and
+present-and-per-run — both read as "concurrency is handled" to anyone skimming the file, which is why
+each is refused by name rather than folded into a presence check.
+
+Not adopted: having the workflow read the registry back to confirm its own publish. That is the read
+side this change exists because of, and polling it would reintroduce the same lag behind a longer
+feedback loop.
+
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.70.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.69.0 - a release describes itself
 
 `node scripts/bump_version.js minor` writes a stub section for the new release, and the convention is to

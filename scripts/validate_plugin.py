@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.69.0"
-PROTOCOL_VERSION = "5.69.0"
+PACKAGE_VERSION = "5.70.0"
+PROTOCOL_VERSION = "5.70.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -29697,6 +29697,138 @@ def validate_an_equivalence_claim_names_its_base_scenario() -> int:
     return 0
 
 
+# The workflow serializes, or it does not. Asserted by reading the file, because
+# it runs only on GitHub, only on a `release` event, and nothing local can
+# exercise it — which is exactly why an edit could drop the declaration and
+# nobody would find out until the next day someone cut several releases at once.
+PUBLISH_WORKFLOW = ".github/workflows/publish.yml"
+
+
+def publish_serialization_problem(workflow: str) -> str | None:
+    """Return the problem the publish workflow's ordering has, or None.
+
+    Takes the text rather than reading the path, so each broken shape can be
+    exercised on a planted copy. A rule that could only ever see the file already
+    known to be correct would pass forever without anyone learning whether it
+    fires.
+    """
+    block = re.search(
+        r"^concurrency:\n((?:[ \t]+\S[^\n]*\n)+)", workflow, re.M
+    )
+    if not block:
+        return (
+            "simultaneous releases publish concurrently — "
+            f"{PUBLISH_WORKFLOW} declares no `concurrency:` group, so every "
+            "release event starts its own publish against the same package."
+        )
+    body = block.group(1)
+    if not re.search(r"^[ \t]+cancel-in-progress:\s*false\s*$", body, re.M):
+        return (
+            "a queued publish would be cancelled — the group declares no "
+            "`cancel-in-progress: false`, and the default is `true`: the next "
+            "release would cancel a publish still waiting to run, losing that "
+            "version outright rather than appearing to."
+        )
+    group = re.search(r"^[ \t]+group:\s*(\S.*?)\s*$", body, re.M)
+    if not group:
+        return (
+            "a per-run group serializes nothing — the `concurrency:` block "
+            "names no `group:`, so there is nothing for a run to queue behind."
+        )
+    if "${{" in group.group(1):
+        return (
+            "a per-run group serializes nothing — the group expression "
+            f"`{group.group(1)}` is evaluated per run, so each release gets a "
+            "group of its own and none of them wait. The thing being protected "
+            "is the package, and there is one of those."
+        )
+    return None
+
+
+def validate_a_publish_waits_for_the_one_before_it_scenario() -> int:
+    """Issue #153: eleven releases at once, and a registry that lied about it.
+
+    Nothing was lost — every job logged its own `+ @christang/keel@<version>`,
+    and the write side proved it by refusing a re-run with `You cannot publish
+    over the previously published versions`. What broke was the read side: the
+    packument reported published versions as missing, and the set changed
+    between reads. Two re-runs were triggered on that false reading and are now
+    red rows against a release that succeeded. Serialized, each publish finishes
+    before the next begins and the window does not exist.
+    """
+    label = "a-publish-waits-for-the-one-before-it"
+    path = ROOT / PUBLISH_WORKFLOW
+    if not path.is_file():
+        report(f"{label}: {PUBLISH_WORKFLOW} is missing.")
+        return 1
+    workflow = path.read_text(encoding="utf-8")
+
+    # M1 — the real file declares it, and a copy with the block removed does not.
+    # The removal is the state the file was actually in on 2026-09-25.
+    problem = publish_serialization_problem(workflow)
+    if problem:
+        report(f"{label}: {problem}")
+        return 1
+    stripped = re.sub(
+        r"^concurrency:\n(?:[ \t]+\S[^\n]*\n)+", "", workflow, flags=re.M
+    )
+    if stripped == workflow:
+        report(
+            f"{label}: simultaneous releases publish concurrently — no "
+            "`concurrency:` block could be located to remove, so the real file "
+            "does not declare one and the check has nothing to prove."
+        )
+        return 1
+    if not publish_serialization_problem(stripped):
+        report(
+            f"{label}: simultaneous releases publish concurrently — a workflow "
+            "with no concurrency group was accepted, which is the configuration "
+            "that let eleven releases publish at once."
+        )
+        return 1
+
+    # M2 — the option whose default is wrong for this job. A check satisfied by
+    # the block alone would pass on the configuration that loses a version
+    # outright, which is worse than the one being fixed here.
+    cancelling = workflow.replace("  cancel-in-progress: false\n", "")
+    if cancelling == workflow:
+        report(
+            f"{label}: a queued publish would be cancelled — "
+            "`cancel-in-progress: false` could not be located to remove, so the "
+            "real file does not declare it."
+        )
+        return 1
+    if not publish_serialization_problem(cancelling):
+        report(
+            f"{label}: a queued publish would be cancelled — a group without "
+            "`cancel-in-progress: false` was accepted, and the default cancels "
+            "a queued publish when the next release fires."
+        )
+        return 1
+
+    # M3 — the shape that looks like a fix and is not. A group keyed per release
+    # gives every run its own group, so nothing ever queues behind anything.
+    per_ref = workflow.replace(
+        "  group: publish\n", "  group: publish-${{ github.ref }}\n"
+    )
+    if per_ref == workflow:
+        report(f"{label}: a per-run group serializes nothing — `group: publish` could not be located to vary.")
+        return 1
+    if not publish_serialization_problem(per_ref):
+        report(
+            f"{label}: a per-run group serializes nothing — a group expression "
+            "that differs per release was accepted, so each publish gets a group "
+            "of its own and none of them wait."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -30062,6 +30194,10 @@ SCENARIOS: tuple = (
     (
         "an-equivalence-claim-names-its-base",
         validate_an_equivalence_claim_names_its_base_scenario,
+    ),
+    (
+        "a-publish-waits-for-the-one-before-it",
+        validate_a_publish_waits_for_the_one_before_it_scenario,
     ),
     (
         "guidance-is-referenced-and-carries-no-criterion",

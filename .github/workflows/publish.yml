@@ -8,6 +8,21 @@ permissions:
   contents: read
   id-token: write
 
+# One group for the whole workflow, and one for the package it publishes to.
+# Eleven releases created in a loop are eleven simultaneous jobs against one npm
+# package; nothing was lost when that happened, but the registry's read side
+# reported published versions as missing for several minutes and two re-runs were
+# triggered on that false reading (#153).
+#
+# `cancel-in-progress: false` is the load-bearing half. The default is `true`,
+# which would cancel a queued publish when the next release fires — losing a
+# version for real rather than appearing to. A group keyed per release, such as
+# `publish-${{ github.ref }}`, would serialize nothing while looking like a fix:
+# the thing being protected is the package, and there is one of those.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
