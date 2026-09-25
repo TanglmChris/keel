@@ -47,9 +47,6 @@ strategy and silently stopped satisfying the guard, refusing a correctly authore
 the wrong task. The guard now reads the sibling's own `Verify` text in both the compact and expanded
 forms.
 
-## 5.68.0 - TODO: summarize this release
-
-- TODO: describe the change.
 - Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.68.0; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.67.0 - guidance loads by declaration
@@ -108,9 +105,6 @@ mutation: adding a seventh declaration moved the header to "Seven" and the mutat
 anything to vary. The fix removed the assertion and left a literal one level down, and the first
 declaration added afterward hit it. It now locates the numeral by shape.
 
-## 5.67.0 - TODO: summarize this release
-
-- TODO: describe the change.
 - Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.67.0; the OpenSpec dependency pin stays `^1.4.1`.
 
 ## 5.66.0 - a count is derived from what it counts
