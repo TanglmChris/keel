@@ -1,5 +1,55 @@
 # Keel Changelog
 
+## 5.64.0 - a claim names what would falsify it
+
+- **A red can be entirely honest and the check still immune to the defect it exists to catch**
+  (issue #132). The reporting repository's consistency check asserted that synthesis and STA report
+  the same fmax: the red was real (the function did not exist), the `Fails with:` signature predicted
+  it correctly, the green was real, and `rel=1e-9` reads as strict. Changing `set_load` from `0.0005`
+  to `0.5` — a **1000× unit error, 5e-16 against 5e-13** — left the check **green**, because
+  `pytest.approx` carries a default `abs=1e-12`. `.red` proves the check failed before the
+  implementation existed; a signature predicts the red of an **absent** feature; neither says
+  anything about the red of a **broken** one, and the two reds can be unrelated.
+  (keel-task-capsule)
+- **`Detects:` declares the injection.** A check may close with
+  `Detects: \`<mutation>\` -> \`<failure it must produce>\``, and `task-complete` requires that
+  second literal in a `.detects` Evidence entry for the same check. Same shape as `Fails with:`:
+  inside the check text, therefore inside the fingerprint, so an injection edited after the run
+  reports as drift rather than passing as a transcription.
+- **A `(regression)` check may declare one, and is the best place for it.** The report proposed
+  refusing the clause on "shapes other than `(regression)`"; this inverts that. A regression check has
+  no honest red by construction and is already exempt from `.red`/`.green`, so an injection is the
+  only mechanism that can show it is not vacuous — refusing it there would remove the clause from
+  where it is worth most. The refusal was implemented on purpose to take that check's red, and
+  watched doing exactly this, before being reverted.
+- **`Measured:` binds a number to the output behind it.** A check may close with
+  `Measured: \`<literal>\``, required in that check's own `M<n>` Evidence — the entry holding the
+  command and its output. One session produced six numbers that were estimates or recollection
+  presented as measurement, three of which reached durable artifacts; the one that was caught sat in
+  a `Fails with:` clause and the gate held it against the recorded red. Same error class, same
+  session: the one instance with a criterion was stopped and the five without were not.
+- **The universal numeric rule was declined on measurement.** The report's own "lightest version" —
+  every inline-code number in Evidence must appear in a named command's output — was measured against
+  this repository's archive: 87 changes, **6811 inline-code spans inside Evidence, 847 containing a
+  digit**, of which 541 are other text containing a number, 170 version-like, 57 sha256, 56 bare
+  numbers, 14 git shas. Of 256 sha256 literals **247 are on `Contract:` lines the gate writes itself**
+  and only 9 are author-supplied, none of them measurement claims. A majority of the 847 legitimately
+  appear in no command output, and each would be a false stop. `Measured:` is opt-in instead, and the
+  weakness is stated rather than hidden: an author who invents a number will not volunteer to bind it.
+  What answers that is the measured history — `Fails with:` is opt-in too and still caused **8 of 24
+  non-`none` `Reauthorizations` (33%)** in the reporting repository, because the cost lands after the
+  author has declared and is then held to it.
+- **Clauses chain.** A check is one line, so the clauses are parsed as a trailing sequence and any may
+  follow another; one check may carry both. `Fails with:` keeps its exact meaning standing alone or
+  last, which is every task in the archive, and the scenario that pins its behavior is green
+  unchanged. A malformed clause of either kind is refused by name rather than ignored, because a
+  declaration that parsed as nothing reads to its author as a check being enforced.
+- **Keel runs no mutation and judges no declaration**, and both surfaces say so. A `.detects` entry
+  has the same standing as every other `M<n>` result: the author's claim, placed where Review can see
+  it. Building verification for it would mean Keel running a mutation against the worktree, which is
+  a far larger claim than this change makes and one nothing else in the capsule does.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.64.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.63.0 - the routing rule reaches the decision
 
 - **Routing was the first decision of every session and the only durable rule Keel neither

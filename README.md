@@ -375,6 +375,45 @@ set — fails `task-start` by name rather than sitting in the contract doing not
 `Fails with:` marker that names no literal. To *write about* the marker in a check without declaring
 one, put it in inline code.
 
+#### A red can be honest and the check still immune
+
+A signature predicts the red of an **absent** feature. It says nothing about the red of a **broken**
+one, and the two can be unrelated. A consistency check asserting two tool outputs agree had a real
+red, a correct signature, a real green — and stayed green through a 1000× unit error, the one thing
+it existed to catch, because its tolerance carried a default absolute floor. The only way to find
+that is to put the defect in and watch.
+
+`Detects:` declares that injection — the mutation, and the failure it must produce:
+
+```
+- M1: `pytest tests/test_fmax.py` asserts synth fmax == sta fmax. Fails with: `AttributeError` Detects: `sed -i s/0.0005/0.5/ run_sta.py` -> `assert 5e-16 == 5e-13`
+```
+
+Completion requires that second literal in the check's `.detects` Evidence. Clauses chain, so a check
+may carry both — the example above is one check, one line.
+
+**Keel does not run the mutation and does not judge it.** It records the claim and puts it where
+review can see it, the same standing every other check result has. You can declare an injection any
+check would catch; what the clause buys is that you decided it before the run, and that editing it
+afterwards moves the fingerprint.
+
+A `(regression)` check **may** declare one, and is the best place for it: such a check has no honest
+red by construction, so an injection is the only thing that can show it is not vacuous.
+
+#### A number can claim to be a measurement
+
+`Basis:`, Evidence prose and `Findings` are free text, and a number in them reads the same whether it
+was measured, estimated, or remembered. `Measured:` binds one to the output behind it:
+
+```
+- M1: `node bench.js` reports the fanout load. Measured: `1799.9`
+```
+
+Completion requires that literal in the check's own `M<n>` Evidence — the entry holding the command
+and its output. Opt-in, and deliberately not a rule over every number: measured against this
+repository's archive, that rule would reach 847 inline-code spans, mostly version strings, counts,
+and quoted references that appear in no command output, and each would be a false stop.
+
 ## Domain lenses
 
 Keel's core is pure process; it ships no domain knowledge and no decisions of its own. Alongside

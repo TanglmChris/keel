@@ -153,28 +153,88 @@ const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
 // Tags an M<n> check may carry after its label, as a comma-separated set.
 const COMMAND_TAGS = new Set(["fast", "full", "regression"]);
 
-// A check may end by declaring the failure its red is expected to show, so that
-// what the red proves is written down before the red is run. The clause closes
-// the check: `Fails with:` followed by one inline-code literal and nothing more.
-// End-anchored on purpose — a check that describes this rule mentions the marker
-// mid-sentence, and a mention is not a declaration.
-const FAILURE_SIGNATURE = /\bFails with:[ \t]*`([^`\n]+)`[ \t]*$/i;
-const FAILURE_MARKER = /\bFails with:/i;
+// A check may end by declaring things about itself, so that each is written down
+// before the run it describes. Every clause has the same shape: it closes the
+// clause sequence with inline-code literals, it lives inside the check text and
+// therefore inside the contract fingerprint, and it is enforced by requiring its
+// literal in a named Evidence entry. Keel judges none of them.
+//
+// The clauses chain. A check is one line — `fieldValues` splits the field per
+// line and treats each as its own entry — so a single end-anchored slot would
+// make the clauses mutually exclusive, and the case that motivated `Detects:`
+// declares an injection beside a failure signature on one check (issue #132).
+//
+// Each is still anchored at the end of what remains, on purpose: a check that
+// describes this rule mentions a marker mid-sentence, and a mention is not a
+// declaration.
+//
+// - `Fails with:` — the failure the check's red must show. Predicts the red of an
+//   *absent* feature.
+// - `Detects:` — a mutation that puts a defect in, and the failure it must
+//   produce. Answers the question a red cannot: the red of a *broken* feature.
+//   The two can be entirely unrelated, which is the whole reason this exists.
+const DECLARATION_CLAUSES = [
+  {
+    name: "failure",
+    pattern: /\bFails with:[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bFails with:/i,
+    build: (match) => match[1].trim(),
+  },
+  {
+    name: "detects",
+    pattern: /\bDetects:[ \t]*`([^`\n]+)`[ \t]*->[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bDetects:/i,
+    build: (match) => ({
+      mutation: match[1].trim(),
+      failure: match[2].trim(),
+    }),
+  },
+  {
+    // `Measured:` — a literal the check's own recorded output must contain. The
+    // failure class is a number that reads like a measurement and is an estimate
+    // or a recollection; free prose cannot tell a reader which it is. Opt-in on
+    // purpose: a universal rule over every number in Evidence would reach 847
+    // inline-code spans in this repository's own archive, most of them version
+    // strings, counts the author computed, and quoted references that appear in
+    // no command output, and each would be a false stop.
+    name: "measured",
+    pattern: /\bMeasured:[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bMeasured:/i,
+    build: (match) => match[1].trim(),
+  },
+];
 
-// Classify a check's `Fails with:` marker. `signature` is the declared literal;
-// `malformed` marks a marker that is present and is not a closing clause — a
-// typo shape, and ignoring it would leave the author believing a signature is
-// enforced when none was parsed. A marker written inside inline code is quoted
-// material rather than a declaration, the meaning inline code already carries
-// here, which is what lets this file's own tasks name the marker.
-function failureSignature(check) {
-  const text = String(check || "");
-  const match = text.match(FAILURE_SIGNATURE);
-  if (match) return { signature: match[1].trim(), malformed: false };
+// Strip one matching trailing clause at a time until none matches, then report a
+// marker surviving in the remaining prose as malformed. Malformed rather than
+// ignored: a declaration that parsed as nothing reads to its author as a check
+// being enforced. A marker inside inline code is quoted material, the meaning
+// inline code already carries here, which is what lets this file's own tasks
+// name the markers.
+function declarationClauses(check) {
+  let text = String(check || "");
+  const declared = {};
+  for (let matched = true; matched; ) {
+    matched = false;
+    for (const clause of DECLARATION_CLAUSES) {
+      const match = text.match(clause.pattern);
+      if (!match) continue;
+      if (!(clause.name in declared)) declared[clause.name] = clause.build(match);
+      text = text.slice(0, match.index).replace(/[ \t]+$/, "");
+      matched = true;
+      break;
+    }
+  }
   const remainder = withoutInlineCode(text);
+  const malformed = {};
+  for (const clause of DECLARATION_CLAUSES) {
+    malformed[clause.name] =
+      !(clause.name in declared) && clause.marker.test(remainder);
+  }
   return {
-    signature: null,
-    malformed: FAILURE_MARKER.test(remainder),
+    signature: declared.failure == null ? null : declared.failure,
+    detects: declared.detects == null ? null : declared.detects,
+    measured: declared.measured == null ? null : declared.measured,
+    malformed,
   };
 }
 
@@ -226,6 +286,10 @@ function verification(task) {
         check: entry,
         failsWith: null,
         malformedSignature: false,
+        detects: null,
+        malformedInjection: false,
+        measured: null,
+        malformedMeasurement: false,
       };
     }
     const tags = (match[2] || "")
@@ -240,17 +304,25 @@ function verification(task) {
         check: entry,
         failsWith: null,
         malformedSignature: false,
+        detects: null,
+        malformedInjection: false,
+        measured: null,
+        malformedMeasurement: false,
       };
     }
     const check = normalizeText(match[3]);
-    const failure = failureSignature(check);
+    const clauses = declarationClauses(check);
     return {
       label: match[1],
       layer: tags.includes("fast") ? "fast" : "full",
       regression: tags.includes("regression"),
       check,
-      failsWith: failure.signature,
-      malformedSignature: failure.malformed,
+      failsWith: clauses.signature,
+      malformedSignature: clauses.malformed.failure,
+      detects: clauses.detects,
+      malformedInjection: clauses.malformed.detects,
+      measured: clauses.measured,
+      malformedMeasurement: clauses.malformed.measured,
     };
   });
   return {
@@ -440,6 +512,29 @@ function failureSignatureProblems(task) {
           + "inline-code literal at the end of the check, or fence the marker "
           + "in inline code when the check is describing it rather than "
           + "declaring one.",
+      });
+      continue;
+    }
+    if (entry.malformedMeasurement) {
+      problems.push({
+        code: "malformed-measurement",
+        message:
+          `${entry.label} carries a \`Measured:\` marker that does not close `
+          + "the check with a literal. Write it as `Measured: `<literal>`` at "
+          + "the end of the check, or fence the marker in inline code when the "
+          + "check is describing it rather than declaring one.",
+      });
+      continue;
+    }
+    if (entry.malformedInjection) {
+      problems.push({
+        code: "malformed-injection",
+        message:
+          `${entry.label} carries a \`Detects:\` marker that does not close `
+          + "the check with a mutation and the failure it must produce. Write "
+          + "it as `Detects: `<mutation>` -> `<failure>`` at the end of the "
+          + "check, or fence the marker in inline code when the check is "
+          + "describing it rather than declaring one.",
       });
       continue;
     }
@@ -1229,6 +1324,8 @@ function compileTaskContract(repo, change, task) {
           // field is what the gate reads. Emitted only when declared, so every
           // check without one keeps the capsule shape and fingerprint it had.
           if (entry.failsWith) emitted.failsWith = entry.failsWith;
+          if (entry.detects) emitted.detects = entry.detects;
+          if (entry.measured) emitted.measured = entry.measured;
           return emitted;
         }),
     },

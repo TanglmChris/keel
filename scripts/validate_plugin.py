@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.63.0"
-PROTOCOL_VERSION = "5.63.0"
+PACKAGE_VERSION = "5.64.0"
+PROTOCOL_VERSION = "5.64.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -28061,6 +28061,404 @@ def validate_the_routing_rule_reaches_the_decision_scenario() -> int:
     return 0
 
 
+def validate_a_claim_names_what_would_falsify_it_scenario() -> int:
+    """Issue #132: an honest red does not mean the check can catch the defect.
+
+    A consistency check whose red was real, whose signature predicted it, and
+    whose green was real stayed green through a 1000x unit error — the one thing
+    it existed to catch — because `pytest.approx` carries a default absolute
+    tolerance. `.red` proves the check failed before the implementation existed
+    and `Fails with:` predicts the red of an *absent* feature; neither says
+    anything about the red of a *broken* one. `Detects:` declares the injection
+    that answers the third question, in the same shape: inside the check text, so
+    it enters the fingerprint, and enforced by requiring its literal in Evidence.
+    """
+    label = "a-claim-names-what-would-falsify-it"
+    mutation = "sed -i s/0.0005/0.5/ run_sta.py"
+    failure = "assert 5e-16 == 5e-13"
+
+    with tempfile.TemporaryDirectory(prefix="keel-detects-") as raw:
+        root = Path(raw)
+
+        def start(name: str, **kwargs) -> dict:
+            return strategy_probe_start(root, name, strategy_probe_task(**kwargs))
+
+        def commands_of(payload: dict) -> list[dict]:
+            contract = payload.get("contract") or {}
+            capsule = contract.get("capsule") or {}
+            return ((capsule.get("verification") or {}).get("commands") or [])
+
+        # M1 — two clauses on one check, both parsed. The failure signature comes
+        # first, so this is also the assertion that a signature no longer has to
+        # be the final clause.
+        chained = (
+            "M1: node test.js asserts the public behavior. "
+            f"Fails with: `boom` Detects: `{mutation}` -> `{failure}`",
+        )
+        payload = start("chained", strategy="vertical-tdd", commands=chained)
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: Detects: is not parsed — a check carrying a failure "
+                "signature followed by an injection clause was refused; got "
+                f"{payload.get('status')!r} {problem_text(payload)!r}."
+            )
+            return 1
+        compiled = commands_of(payload)
+        if len(compiled) != 1:
+            report(f"{label}: the chained check did not compile to one check; {compiled!r}")
+            return 1
+        entry = compiled[0]
+        if entry.get("failsWith") != "boom":
+            report(
+                f"{label}: Detects: is not parsed — the failure signature was "
+                f"lost when a clause followed it; got {entry!r}."
+            )
+            return 1
+        detects = entry.get("detects") or {}
+        if detects.get("mutation") != mutation or detects.get("failure") != failure:
+            report(
+                f"{label}: Detects: is not parsed — the compiled check does not "
+                f"carry the declared injection; got {entry!r}."
+            )
+            return 1
+        # The clause is inside the check text, so it is inside the fingerprint.
+        # Without this, an injection edited after the run would be invisible.
+        other = start(
+            "chained-edited",
+            strategy="vertical-tdd",
+            commands=(
+                "M1: node test.js asserts the public behavior. "
+                f"Fails with: `boom` Detects: `{mutation}` -> `assert 1 == 2`",
+            ),
+        )
+        first = str((payload.get("contract") or {}).get("fingerprint") or "")
+        second = str((other.get("contract") or {}).get("fingerprint") or "")
+        if not first or first == second:
+            report(
+                f"{label}: editing the declared injection did not move the "
+                f"fingerprint; {first!r} vs {second!r}."
+            )
+            return 1
+
+        # M1, second half — the declaration is enforced at completion, against a
+        # `.detects` Evidence entry for the same check. The clause is a claim Keel
+        # records: it never runs the mutation, so what completion holds is that
+        # the declared failure appears in what the author recorded.
+        def complete(name: str, detects_evidence: str | None) -> dict:
+            repo = root / name
+            evidence = [
+                "    - Contract: pending",
+                "    - M1: pass. node test.js reported the behavior.",
+                "    - M1.red: fail. `boom` as predicted.",
+                "    - M1.green: pass.",
+            ]
+            if detects_evidence is not None:
+                evidence.append(f"    - M1.detects: {detects_evidence}")
+            task = "\n".join(
+                [
+                    "- [x] 1.1 Injection probe",
+                    "  - Owner: claude",
+                    "  - Mode: implementation",
+                    "  - Covers:",
+                    "    - E1: the task proves its own behavior",
+                    "  - Read:",
+                    "    - README.md",
+                    "  - Touch:",
+                    "    - src/example.js",
+                    "  - Verify:",
+                    "    - Strategy: vertical-tdd",
+                    "    - M1: node test.js asserts the public behavior. "
+                    f"Fails with: `boom` Detects: `{mutation}` -> `{failure}`",
+                    "  - Evidence:",
+                    *evidence,
+                    "    - Review:",
+                    "      - Status: pass",
+                    "      - Acceptance check: the behavior is proven.",
+                    "      - Scope check: only Touch changed.",
+                    "      - Findings: none.",
+                    "    - Blocker: none",
+                    "    - Reauthorizations: none",
+                ]
+            )
+            write_gate_fixture(repo, tasks=task)
+            started = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--record", "--json",
+            )
+            try:
+                anchor_value = str(
+                    (json.loads(started.stdout).get("contract") or {}).get(
+                        "fingerprint"
+                    )
+                    or ""
+                )
+            except json.JSONDecodeError:
+                anchor_value = ""
+            if not anchor_value:
+                return {"status": "unstarted", "problems": [{"message": started.stdout[:300]}]}
+            done = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            try:
+                return json.loads(done.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unparsed", "problems": [{"message": done.stdout[:400]}]}
+
+        absent = complete("no-detects", None)
+        if absent.get("status") == "pass":
+            report(
+                f"{label}: Detects: is not enforced — a declared injection with "
+                "no `.detects` Evidence completed cleanly."
+            )
+            return 1
+        if "missing-injection-evidence" not in problem_codes(absent):
+            report(
+                f"{label}: Detects: is not enforced — an absent `.detects` was "
+                f"refused under another diagnostic; {problem_codes(absent)!r} "
+                f"{problem_text(absent)!r}."
+            )
+            return 1
+        wrong = complete("wrong-detects", "ran the mutation; it still passed.")
+        if wrong.get("status") == "pass":
+            report(
+                f"{label}: Detects: is not enforced — a `.detects` recording "
+                "something other than the declared failure completed cleanly."
+            )
+            return 1
+        if "injection-missing-declared-failure" not in problem_codes(wrong):
+            report(
+                f"{label}: a `.detects` lacking the declared failure was "
+                f"refused under another diagnostic; {problem_codes(wrong)!r} "
+                f"{problem_text(wrong)!r}."
+            )
+            return 1
+        right = complete("good-detects", f"fail, as declared: `{failure}`.")
+        if right.get("status") != "pass":
+            report(
+                f"{label}: a `.detects` carrying the declared failure was still "
+                f"refused; {problem_codes(right)!r} {problem_text(right)!r}."
+            )
+            return 1
+
+        # M2 — a (regression) check may declare one. It has no honest red by
+        # construction and is exempt from .red/.green, so an injection is the
+        # only mechanism that can show it is not vacuous: this is where the
+        # clause is worth most, which is why the report's suggested refusal here
+        # was narrowed rather than adopted.
+        regression = start(
+            "regression",
+            strategy="vertical-tdd",
+            commands=(
+                "M1: node test.js asserts the new behavior. Fails with: `boom`",
+                f"M2 (regression): node all.js stays green. Detects: `{mutation}` -> `{failure}`",
+            ),
+        )
+        if regression.get("status") != "pass":
+            report(
+                f"{label}: regression check may not declare an injection; got "
+                f"{regression.get('status')!r} {problem_text(regression)!r}."
+            )
+            return 1
+        second_entry = next(
+            (e for e in commands_of(regression) if e.get("label") == "M2"), {}
+        )
+        if not (second_entry.get("detects") or {}).get("failure"):
+            report(
+                f"{label}: regression check may not declare an injection — the "
+                f"clause was dropped; got {second_entry!r}."
+            )
+            return 1
+
+        # M3 — a malformed clause is named, not ignored. Both shapes: one literal
+        # with no arrow, and an arrow with nothing after it.
+        for name, clause in (
+            ("one-literal", f"Detects: `{mutation}`"),
+            ("no-target", f"Detects: `{mutation}` ->"),
+        ):
+            bad = start(
+                name,
+                strategy="vertical-tdd",
+                commands=(f"M1: node test.js asserts the behavior. {clause}",),
+            )
+            if bad.get("status") == "pass":
+                report(
+                    f"{label}: a malformed injection clause ({name}) was "
+                    "silently ignored, which leaves the author believing an "
+                    "injection is enforced when none was parsed."
+                )
+                return 1
+            if "malformed-injection" not in problem_codes(bad):
+                report(
+                    f"{label}: a malformed injection clause ({name}) was "
+                    "silently ignored under another diagnostic; got "
+                    f"{problem_codes(bad)!r} {problem_text(bad)!r}."
+                )
+                return 1
+        # A marker inside inline code is quoted material, not a declaration —
+        # which is what lets this repository's own tasks write about the clause.
+        quoted = start(
+            "quoted",
+            strategy="vertical-tdd",
+            commands=(
+                "M1: node test.js asserts that a check may close with "
+                "`Detects:` and two literals. Fails with: `boom`",
+            ),
+        )
+        if quoted.get("status") != "pass":
+            report(
+                f"{label}: a clause named inside inline code was silently "
+                f"ignored as a declaration; got {problem_text(quoted)!r}."
+            )
+            return 1
+
+        # 1.2 — `Measured:` binds a literal to the check's own recorded output.
+        # The failure class it answers is a number that reads like a measurement
+        # and is an estimate or a recollection; the one instance of it that was
+        # caught in the reporting session was caught exactly this way, by sitting
+        # in a clause the gate held against recorded output.
+        measured_literal = "1799.9"
+
+        def complete_measured(name: str, m1_evidence: str, clause: str) -> dict:
+            repo = root / name
+            task = "\n".join(
+                [
+                    "- [x] 1.1 Measurement probe",
+                    "  - Owner: claude",
+                    "  - Mode: implementation",
+                    "  - Covers:",
+                    "    - E1: the task proves its own behavior",
+                    "  - Read:",
+                    "    - README.md",
+                    "  - Touch:",
+                    "    - src/example.js",
+                    "  - Verify:",
+                    "    - Strategy: vertical-tdd",
+                    f"    - M1: node test.js reports the fanout load.{clause}",
+                    "  - Evidence:",
+                    "    - Contract: pending",
+                    f"    - M1: {m1_evidence}",
+                    "    - M1.red: fail. the reader did not exist.",
+                    "    - M1.green: pass.",
+                    "    - Review:",
+                    "      - Status: pass",
+                    "      - Acceptance check: the behavior is proven.",
+                    "      - Scope check: only Touch changed.",
+                    "      - Findings: none.",
+                    "    - Blocker: none",
+                    "    - Reauthorizations: none",
+                ]
+            )
+            write_gate_fixture(repo, tasks=task)
+            run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--record", "--json",
+            )
+            done = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task", "1.1",
+                "--json",
+            )
+            try:
+                return json.loads(done.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unparsed", "problems": [{"message": done.stdout[:400]}]}
+
+        estimated = complete_measured(
+            "measured-absent",
+            "pass. node test.js reported a fanout load of 1200 fF.",
+            f" Measured: `{measured_literal}`",
+        )
+        if estimated.get("status") == "pass":
+            report(
+                f"{label}: Measured: is not enforced — a declared literal absent "
+                "from the check's own recorded output completed cleanly, which is "
+                "an estimate presented as a measurement."
+            )
+            return 1
+        if "measurement-missing-from-evidence" not in problem_codes(estimated):
+            report(
+                f"{label}: a declared measurement absent from the output was "
+                f"refused under another diagnostic; {problem_codes(estimated)!r} "
+                f"{problem_text(estimated)!r}."
+            )
+            return 1
+        real = complete_measured(
+            "measured-present",
+            f"pass. node test.js reported a fanout load of {measured_literal} fF.",
+            f" Measured: `{measured_literal}`",
+        )
+        if real.get("status") != "pass":
+            report(
+                f"{label}: a declared measurement present in the output was "
+                f"refused; {problem_codes(real)!r} {problem_text(real)!r}."
+            )
+            return 1
+        # D4 — opt-in. A number in Evidence that no check declared is required
+        # nowhere: the universal rule was declined on measurement, because in this
+        # repository's own archive it would reach 847 inline-code spans, most of
+        # them version strings, computed counts, and quoted references.
+        undeclared = complete_measured(
+            "measured-undeclared",
+            "pass. node test.js reported `1200` fF across `2433` fanout pins.",
+            "",
+        )
+        if undeclared.get("status") != "pass":
+            report(
+                f"{label}: numbers in Evidence with no `Measured:` clause were "
+                f"refused, so the opt-in boundary did not hold; "
+                f"{problem_codes(undeclared)!r} {problem_text(undeclared)!r}."
+            )
+            return 1
+
+    # 1.3 — the clauses are documented where the first one is documented. A
+    # vocabulary an author cannot discover is a vocabulary nobody declares.
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    for needle, why in (
+        ("Detects:", "the injection clause must be named"),
+        ("Measured:", "the measurement clause must be named"),
+    ):
+        if needle not in readme:
+            report(
+                f"{label}: README does not name {needle} — {why}, and a clause "
+                "an author cannot find is a clause nobody declares."
+            )
+            return 1
+        if needle not in agents:
+            report(
+                f"{label}: the protocol's verification discipline does not name "
+                f"{needle} — {why}."
+            )
+            return 1
+    flat_readme = re.sub(r"\s+", " ", readme)
+    for needle, why in (
+        ("records the claim", "the README must say Keel does not judge the injection"),
+        ("does not run", "the README must say Keel does not run the mutation"),
+    ):
+        if needle not in flat_readme:
+            report(f"{label}: README does not name Detects: honestly — {why}.")
+            return 1
+    # The chaining is taught by the example rather than by prose about it: a
+    # reader copies the example, and an example showing one clause teaches that
+    # one clause is all there is.
+    chained_example = re.search(
+        r"Fails with: `[^`]+` Detects: `[^`]+` -> `[^`]+`", readme
+    )
+    if not chained_example:
+        report(
+            f"{label}: README does not name Detects: in a worked example beside "
+            "a failure signature, so a reader learns the clauses are mutually "
+            "exclusive from the only example they have."
+        )
+        return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -28414,6 +28812,10 @@ SCENARIOS: tuple = (
     (
         "the-routing-rule-reaches-the-decision",
         validate_the_routing_rule_reaches_the_decision_scenario,
+    ),
+    (
+        "a-claim-names-what-would-falsify-it",
+        validate_a_claim_names_what_would_falsify_it_scenario,
     ),
 )
 

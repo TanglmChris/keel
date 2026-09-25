@@ -1022,6 +1022,68 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
       );
     }
   }
+  // A declared measurement is held against the check's own bare `M<n>` Evidence
+  // — the entry where the command and its output are recorded. A literal that
+  // output does not contain is either unpasted or not measured, and free prose
+  // gives a reader no way to tell those from a real reading (issue #132).
+  for (const entry of contract ? contract.capsule.verification.commands : []) {
+    if (!entry.measured || !entry.label) continue;
+    const recorded = evidenceValue(task, entry.label);
+    if (!isConcrete(recorded)) continue;
+    if (!String(recorded).includes(entry.measured)) {
+      problems.push(
+        problem(
+          "measurement-missing-from-evidence",
+          `${entry.label} declares the measurement \`${entry.measured}\`, and `
+            + `its recorded ${entry.label} Evidence does not contain that `
+            + "string. Paste the output the number came from, or correct the "
+            + "declaration — which moves the contract fingerprint, because a "
+            + "number reconciled to the output after the run is a transcription "
+            + "of it.",
+        )
+      );
+    }
+  }
+  // A declared injection is enforced whatever the strategy and whatever the
+  // tags. It is not a red-green artifact: `.red` proves the check failed before
+  // the implementation existed and a failure signature predicts the red of an
+  // *absent* feature, while an injection answers what neither can — whether the
+  // check still fails once the feature exists and is broken. A `(regression)`
+  // check is where it matters most, because it has no honest red at all, so
+  // exempting it here would remove the clause from its best use (issue #132).
+  //
+  // Keel does not run the mutation. What it holds is that the failure the author
+  // declared before the run appears in what they recorded after it.
+  for (const entry of contract ? contract.capsule.verification.commands : []) {
+    if (!entry.detects || !entry.label) continue;
+    const recorded = evidenceValue(task, `${entry.label}.detects`);
+    if (!isConcrete(recorded)) {
+      problems.push(
+        problem(
+          "missing-injection-evidence",
+          `${entry.label} declares that \`${entry.detects.mutation}\` must make `
+            + `it fail with \`${entry.detects.failure}\`, and records no `
+            + `${entry.label}.detects Evidence. Run the mutation, record what it `
+            + "printed, and revert it — a green check that has never been made "
+            + "to fail on the defect it names is not evidence that it would.",
+        )
+      );
+      continue;
+    }
+    if (!String(recorded).includes(entry.detects.failure)) {
+      problems.push(
+        problem(
+          "injection-missing-declared-failure",
+          `${entry.label} declares that its injection fails with `
+            + `\`${entry.detects.failure}\`, and the recorded `
+            + `${entry.label}.detects Evidence does not contain that string. `
+            + "Record what the mutation actually printed, or correct the "
+            + "declaration — which moves the contract fingerprint, because an "
+            + "injection edited after the run is a transcription of it.",
+        )
+      );
+    }
+  }
   const strategy = contract
     ? contract.capsule.verification.strategy.toLowerCase()
     : "";
