@@ -344,6 +344,41 @@ wiring, and `keel --init` whenever it tells you the repository is behind its ins
 protocol version lives in your `AGENTS.md`, and updating the package does not move it.
 Everything below is the vocabulary the agent uses on your behalf.
 
+### When the right answer is "nothing changed"
+
+A refactor, a move, a flow upgrade that claims the numbers hold — the correct evidence for these is
+*zero difference*, and red-green has no shape for it. The repository that reported this had a task
+whose `tasks.md` said "this one has no honest red" several times, and re-recorded its contract twice
+trying to fit. The criterion was right; it had nowhere to live.
+
+```
+- Verify:
+  - Strategy: equivalence
+  - Base: origin/main
+  - Fields: wns, tns, cell_count
+  - M1: node compare.js --base --head reports every field equal
+```
+
+`equivalence` owes no red. Its criterion is that base and head agree on the fields you named, which is
+*stronger* than red-green — it also catches the change that incidentally moved a result. What the gate
+checks is every way that shape can look complete and compare nothing: a missing `Base:` or `Fields:`,
+an empty field set, a ref that resolves to nothing, and a `Base:` that resolves to HEAD.
+
+It is not a way out of red-green. A task declaring `equivalence` while covering a scenario its own
+change *adds* is refused unless a sibling task covers that same entry under a red-green strategy —
+behavior that is new is not behavior that is unchanged, and a task cannot prove both.
+
+And Evidence no longer has to retell the output:
+
+```
+- M1: artifact openspec/changes/<change>/evidence/compare.json sha256:9f2c…
+```
+
+The gate checks the file is there and the digest matches, and refuses a path outside the change's own
+directory, because archiving moves that directory and the pointer would break. Keel hashes the bytes
+and reads nothing inside them — the claim stays yours, and what the digest buys is that the file your
+reviewer opens is the file you meant.
+
 ## Verification layering
 
 Keel splits verification into two layers so a slow suite never blocks your push:

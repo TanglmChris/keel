@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -143,6 +144,13 @@ const SUPPORTED_VERIFICATION_STRATEGIES = [
   "snapshot-characterization",
   "rendered-behavior",
   "evidence-first",
+  // Zero difference, not "nothing could fail first". `evidence-first` is the
+  // only other strategy without a red-green obligation, and it is scoped by an
+  // absence; an A/B against a base is the opposite — a criterion stronger than
+  // red-green, because it also catches the change that incidentally moved a
+  // result. Issue #142 measured a task re-recording its contract twice to get
+  // past the shape rather than the criterion.
+  "equivalence",
 ];
 
 const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
@@ -257,6 +265,77 @@ function isPassingReviewStatus(value) {
   );
 }
 
+// A git ref resolved locally, or null. Reads the repository the gate is already
+// reading and reaches nothing else: a gate that fetched would stop being local
+// and offline, which is the property its verdict rests on.
+function resolveCommit(repo, ref) {
+  try {
+    return execFileSync(
+      "git",
+      ["-C", repo, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Four ways an `equivalence` task's shape can be complete and still compare
+// nothing. Each names the declaration it is about: a diagnostic naming the
+// strategy would send the author to the one line that is correct.
+function equivalenceProblems(repo, taskVerification) {
+  const problems = [];
+  const declaredFields = taskVerification.fieldsDeclared;
+  if (!isConcrete(taskVerification.base)) {
+    problems.push({
+      code: "missing-equivalence-base",
+      message:
+        "equivalence compares one code path at two commits and declares which "
+        + "one it is compared against. Add a `Base:` entry beside `Strategy:` "
+        + "naming a git ref — without it the criterion is `the numbers are the "
+        + "same as some other numbers`.",
+    });
+  }
+  if (taskVerification.fields.length === 0) {
+    problems.push({
+      code: "missing-equivalence-fields",
+      message: declaredFields
+        ? "`Fields:` is declared and resolves to an empty set, so the "
+          + "comparison has nothing to compare. It reads as a declaration to "
+          + "every reader except the comparison; name the fields, separated by "
+          + "commas."
+        : "equivalence declares which fields are compared. Add a `Fields:` "
+          + "entry beside `Strategy:` listing them, separated by commas — a "
+          + "comparison with no field set agrees with everything.",
+    });
+  }
+  if (isConcrete(taskVerification.base)) {
+    const base = resolveCommit(repo, taskVerification.base);
+    if (!base) {
+      problems.push({
+        code: "unresolvable-equivalence-base",
+        message:
+          `\`Base: ${taskVerification.base}\` resolves to no commit in this `
+          + "repository. The base is read locally and never fetched, so a ref "
+          + "that exists only on a remote is not one this gate can see.",
+      });
+    } else {
+      const head = resolveCommit(repo, "HEAD");
+      if (head && head === base) {
+        problems.push({
+          code: "equivalence-base-is-head",
+          message:
+            `\`Base: ${taskVerification.base}\` resolves to ${base}, which is `
+            + "HEAD. An A/B against itself always agrees, so the check would "
+            + "pass having compared nothing — the one shape here that is "
+            + "complete, resolvable, and still empty.",
+        });
+      }
+    }
+  }
+  return problems;
+}
+
 function verification(task) {
   const compact = fieldValues(task, "Verify");
   const strategyEntry = compact.find((entry) => /^Strategy:\s*/i.test(entry));
@@ -266,8 +345,19 @@ function verification(task) {
   // command, and a reason that took an `M<n>` label would be a check the author
   // never wrote and evidence nobody can record.
   const reasonEntry = compact.find((entry) => /^Reason:\s*/i.test(entry));
+  // `equivalence` compares one code path at two commits. Neither half of that
+  // fits in a check: the check is the command, and what it cannot say by itself
+  // is which commit it is compared against and which fields are compared. #142
+  // proposed a third field for the command too; commands already have exactly
+  // one home here, and a second would put half of them outside the labelled
+  // evidence `task-complete` enforces.
+  const baseEntry = compact.find((entry) => /^Base:\s*/i.test(entry));
+  const fieldsEntry = compact.find((entry) => /^Fields:\s*/i.test(entry));
   const isVerificationField = (entry) =>
-    /^Strategy:\s*/i.test(entry) || /^Reason:\s*/i.test(entry);
+    /^Strategy:\s*/i.test(entry)
+    || /^Reason:\s*/i.test(entry)
+    || /^Base:\s*/i.test(entry)
+    || /^Fields:\s*/i.test(entry);
   const commandSource = compact.length > 0
     ? compact.filter((entry) => !isVerificationField(entry))
     : fieldValues(task, "Commands");
@@ -342,6 +432,24 @@ function verification(task) {
         ? reasonEntry.replace(/^Reason:\s*/i, "")
         : field(task, "Verification Reason")
     ),
+    base: normalizeText(
+      baseEntry ? baseEntry.replace(/^Base:\s*/i, "") : field(task, "Verification Base")
+    ),
+    // A set, so "declared but empty" is a state the gate can see. `Fields:` with
+    // nothing behind it is the shape that passes while comparing nothing, and it
+    // reads as a declaration to everyone except the comparison.
+    // Whether the line was written at all, kept beside the parsed set so a
+    // refusal can tell an author who wrote nothing from one who wrote an empty
+    // set. To the comparison they are the same state; to the author they are
+    // opposite mistakes.
+    fieldsDeclared: Boolean(fieldsEntry || field(task, "Verification Fields")),
+    fields: (fieldsEntry
+      ? fieldsEntry.replace(/^Fields:\s*/i, "")
+      : field(task, "Verification Fields") || ""
+    )
+      .split(",")
+      .map((entry) => normalizeText(entry))
+      .filter(Boolean),
     commands,
   };
 }
@@ -1191,6 +1299,11 @@ function compileTaskContract(repo, change, task) {
         + "needs no reason.",
     });
   }
+  if (taskVerification.strategy.toLowerCase() === "equivalence") {
+    resolved.diagnostics.push(
+      ...equivalenceProblems(repo, taskVerification)
+    );
+  }
   const couplingMode = normalizeText(field(task, "Coupling")).toLowerCase()
     || "none";
   const candidateBoundary = normalizedValues(task, "Candidate Boundary", {
@@ -1311,6 +1424,14 @@ function compileTaskContract(repo, change, task) {
       // other task keeps the capsule shape and fingerprint it had before the
       // field existed.
       ...(taskVerification.reason ? { reason: taskVerification.reason } : {}),
+      // Same rule: emitted only by the strategy that declares them, so every
+      // existing task's capsule shape and fingerprint are untouched. They belong
+      // in the capsule rather than only in the file because a declaration
+      // outside the fingerprint could be edited after the run it describes.
+      ...(taskVerification.base ? { base: taskVerification.base } : {}),
+      ...(taskVerification.fields.length > 0
+        ? { fields: taskVerification.fields }
+        : {}),
       // Emit a tag only when the check opts out of a default, so an untagged
       // check keeps the capsule shape and fingerprint it had before either tag
       // existed. `layer` appears only for `fast`, `regression` only when true.

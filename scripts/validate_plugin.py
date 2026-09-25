@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.67.0"
-PROTOCOL_VERSION = "5.67.0"
+PACKAGE_VERSION = "5.68.0"
+PROTOCOL_VERSION = "5.68.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -29042,6 +29042,509 @@ def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
     return 0
 
 
+def equivalence_task(
+    *,
+    base: str | None = "HEAD~1",
+    fields: str | None = "wns, tns, cell_count",
+    covers: tuple[str, ...] = ("E1: the measured result does not move",),
+    label: str = "1.1",
+    title: str = "Move the attribute without moving the numbers",
+) -> str:
+    """One `equivalence` task, with either declaration omittable."""
+    lines = [
+        f"- [ ] {label} {title}",
+        "  - Covers:",
+    ]
+    lines.extend(f"    - {entry}" for entry in covers)
+    lines.extend(
+        [
+            "  - Read:",
+            "    - README.md",
+            "  - Touch:",
+            "    - src/example.js",
+            "  - Verify:",
+            "    - Strategy: equivalence",
+        ]
+    )
+    if base is not None:
+        lines.append(f"    - Base: {base}")
+    if fields is not None:
+        lines.append(f"    - Fields: {fields}")
+    lines.extend(
+        [
+            "    - M1: node compare.js --base --head reports every field equal",
+            "  - Autonomy boundary:",
+            "    - Default: hard-stop",
+            "    - Pre-authorized fallback: none",
+            "  - Stop Rules:",
+            "    - Stop on any field that differs.",
+            "  - Evidence:",
+            "    - Contract: pending",
+            "    - M1: pending",
+            "    - Review:",
+            "      - Status: pass",
+            "      - Acceptance check: every declared field agreed.",
+            "      - Scope check: writes stayed inside Touch.",
+            "      - Findings: none",
+            "    - Blocker: none",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def validate_an_equivalence_claim_names_its_base_scenario() -> int:
+    """Issue #142: the correct evidence for a refactor is zero difference.
+
+    Red-green has no shape for it. The reporting repository re-recorded one
+    task's contract twice to get past the shape — not because a criterion was
+    wrong, but because the criterion had nowhere to live. An A/B against a base
+    is *stronger* than red-green: it catches the change that also, incidentally,
+    moved a result. What it needs is a place to say what it compares against and
+    on which fields, plus a refusal for every way that shape can be complete and
+    still compare nothing.
+    """
+    label = "an-equivalence-claim-names-its-base"
+
+    def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-equivalence-") as raw:
+        root = Path(raw)
+
+        def fixture(name: str, task: str) -> Path:
+            repo = (root / name).resolve()
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "t@example.com")
+            git(repo, "config", "user.name", "keel-test")
+            write_gate_fixture(repo, tasks=task)
+            write_text(repo / "src/example.js", "// product\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "first")
+            write_text(repo / "src/example.js", "// product, moved\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "second")
+            return repo
+
+        def start(name: str, **kwargs) -> dict:
+            repo = fixture(name, equivalence_task(**kwargs))
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--no-guard", "--json",
+            )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {
+                    "status": "unparsed",
+                    "problems": [{"message": result.stdout[:400]}],
+                }
+
+        # M1 — the strategy is accepted, and it owes no red.
+        payload = start("accepted")
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: unsupported verification strategy — a complete "
+                "equivalence task was refused, so the one task class with the "
+                "strongest criterion still has nowhere to declare it. "
+                f"{problem_text(payload)}"
+            )
+            return 1
+        capsule = (payload.get("contract") or {}).get("capsule") or {}
+        verification = capsule.get("verification") or {}
+        if verification.get("strategy", "").lower() != "equivalence":
+            report(
+                f"{label}: the compiled capsule does not carry the strategy; got "
+                f"{verification.get('strategy')!r}."
+            )
+            return 1
+        if not verification.get("base") or not verification.get("fields"):
+            report(
+                f"{label}: the capsule drops the declarations — base "
+                f"{verification.get('base')!r}, fields "
+                f"{verification.get('fields')!r}. A declaration absent from the "
+                "capsule is absent from the fingerprint, so it could be edited "
+                "after the run without moving the contract."
+            )
+            return 1
+        warnings = " ".join(str(w) for w in (payload.get("warnings") or []))
+        if ".red" in warnings or ".green" in warnings:
+            report(
+                f"{label}: equivalence was given a red-green obligation; the "
+                f"criterion is agreement with a base, not a failing first run. "
+                f"{warnings}"
+            )
+            return 1
+
+        # M2 — every way the shape can be complete and still compare nothing,
+        # each named for the declaration it is about. A diagnostic that named
+        # the strategy would send the author to the line that is correct.
+        for name, kwargs, code, expected in (
+            ("no-base", {"base": None}, "missing-equivalence-base", "Base:"),
+            ("no-fields", {"fields": None}, "missing-equivalence-fields", "Fields:"),
+            ("empty-fields", {"fields": " , "}, "missing-equivalence-fields", "Fields:"),
+            (
+                "bad-base",
+                {"base": "no-such-ref"},
+                "unresolvable-equivalence-base",
+                "no-such-ref",
+            ),
+        ):
+            payload = start(name, **kwargs)
+            if payload.get("status") == "pass":
+                report(
+                    f"{label}: accepted an equivalence task that compares "
+                    f"nothing — the {name} fixture passed, so the declaration "
+                    "is optional in practice."
+                )
+                return 1
+            if code not in problem_codes(payload):
+                report(
+                    f"{label}: accepted an equivalence task that compares "
+                    f"nothing — the {name} fixture was refused for another "
+                    f"reason; expected {code}, got {problem_codes(payload)!r}."
+                )
+                return 1
+            message = problem_text(payload)
+            if expected not in message:
+                report(
+                    f"{label}: the {name} refusal does not name {expected!r}, so "
+                    f"the author is sent to find which line is wrong; got "
+                    f"{message!r}."
+                )
+                return 1
+        # Absent and empty are the same state to the comparison and different
+        # states to the author, so the two are asserted to read differently.
+        absent = problem_text(start("no-fields-message", fields=None))
+        empty = problem_text(start("empty-fields-message", fields=" , "))
+        if absent == empty:
+            report(
+                f"{label}: a missing `Fields:` and one that resolves to an empty "
+                "set produce the same sentence, so an author who wrote the line "
+                "is told they did not."
+            )
+            return 1
+
+        # M1 of 1.2 — `equivalence` owes no red, which makes it the first thing
+        # reached for by a task that should have one. A task covering a scenario
+        # the change *adds* is claiming new behavior and unchanged behavior at
+        # once, and one of the two claims has no proof anywhere.
+        added_spec = (
+            "## ADDED Requirements\n\n"
+            "### Requirement: The moved attribute keeps its effect\n\n"
+            "The attribute SHALL keep its effect after the move.\n\n"
+            "#### Scenario: The effect survives the move\n\n"
+            "- **WHEN** the attribute moves into the flow\n"
+            "- **THEN** the effect is unchanged\n\n"
+            # A second real scenario, so the mismatched-sibling control fails
+            # because the guard refused it and not because its Covers entry
+            # resolves to nothing. A first attempt pointed the sibling at an
+            # invented scenario and passed for that unrelated reason.
+            "#### Scenario: The flow reports the attribute\n\n"
+            "- **WHEN** the flow runs\n"
+            "- **THEN** it reports the attribute\n"
+        )
+        covered = (
+            "demo / The moved attribute keeps its effect / The effect survives "
+            "the move"
+        )
+
+        def escape_fixture(name: str, *, sibling: str | None) -> dict:
+            repo = (root / name).resolve()
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "t@example.com")
+            git(repo, "config", "user.name", "keel-test")
+            tasks = equivalence_task(covers=(covered,))
+            if sibling is not None:
+                tasks += (
+                    "- [ ] 1.2 Add the behavior\n"
+                    "  - Covers:\n"
+                    f"    - {sibling}\n"
+                    "  - Read:\n    - README.md\n"
+                    "  - Touch:\n    - src/other.js\n"
+                    "  - Verify:\n"
+                    "    - Strategy: vertical-tdd\n"
+                    "    - M1: node test.js asserts the new behavior\n"
+                    "  - Autonomy boundary:\n"
+                    "    - Default: hard-stop\n"
+                    "    - Pre-authorized fallback: none\n"
+                    "  - Stop Rules:\n    - Stop on failure.\n"
+                    "  - Evidence:\n    - Contract: pending\n    - M1: pending\n"
+                    "    - Review:\n      - Status: pass\n"
+                    "      - Acceptance check: behavior asserted.\n"
+                    "      - Scope check: inside Touch.\n"
+                    "      - Findings: none\n"
+                    "    - Blocker: none\n"
+                )
+            write_gate_fixture(repo, tasks=tasks)
+            write_text(repo / "openspec/changes/demo/specs/demo/spec.md", added_spec)
+            write_text(repo / "src/example.js", "// product\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "first")
+            write_text(repo / "src/example.js", "// moved\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "second")
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--no-guard", "--json",
+            )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {
+                    "status": "unparsed",
+                    "problems": [{"message": result.stdout[:400]}],
+                }
+
+        payload = escape_fixture("escape-alone", sibling=None)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: accepted new behavior with no red anywhere — an "
+                "equivalence task covering a scenario the change adds passed, so "
+                "the strategy is a way to author a feature with no red in the "
+                "whole change."
+            )
+            return 1
+        if "equivalence-covers-added-behavior" not in problem_codes(payload):
+            report(
+                f"{label}: accepted new behavior with no red anywhere — refused "
+                f"for another reason; got {problem_codes(payload)!r}."
+            )
+            return 1
+        message = problem_text(payload)
+        if "The effect survives the move" not in message:
+            report(
+                f"{label}: the refusal does not name the covered scenario, so "
+                f"the author cannot tell which Covers entry is the problem; got "
+                f"{message!r}."
+            )
+            return 1
+        if "unchanged" not in message:
+            report(
+                f"{label}: the refusal does not say why the two claims conflict; "
+                f"got {message!r}."
+            )
+            return 1
+
+        # M2 of 1.2 — the guard is satisfied by coverage of the entry it
+        # objected to, and not by a red-green task merely existing in the change.
+        payload = escape_fixture("escape-sibling", sibling=covered)
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: a sibling task covering the same scenario under "
+                f"vertical-tdd did not satisfy the guard. {problem_text(payload)}"
+            )
+            return 1
+        payload = escape_fixture(
+            "escape-other-sibling",
+            sibling=(
+                "demo / The moved attribute keeps its effect / The flow reports "
+                "the attribute"
+            ),
+        )
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: any sibling satisfied the guard — a red-green task "
+                "covering a different scenario was accepted as proof of this "
+                "one, which makes the guard a check that a change contains at "
+                "least one red-green task."
+            )
+            return 1
+        if "equivalence-covers-added-behavior" not in problem_codes(payload):
+            report(
+                f"{label}: any sibling satisfied the guard — refused for another "
+                f"reason; got {problem_codes(payload)!r}."
+            )
+            return 1
+
+        # M3 of 1.2 — the guard fires on new behavior, not on the strategy. A
+        # task covering only identifiers, or a requirement the change does not
+        # add, is an ordinary equivalence task.
+        plain = start("escape-plain")
+        if plain.get("status") != "pass":
+            report(
+                f"{label}: an equivalence task covering no added scenario was "
+                f"refused. {problem_text(plain)}"
+            )
+            return 1
+
+        # M3 — the shape that is complete, resolvable, and still empty. This is
+        # the refusal worth having: nothing about the task looks wrong, and the
+        # check passes having compared a thing against itself.
+        payload = start("base-is-head", base="HEAD")
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: accepted a base that is head — an A/B against itself "
+                "always agrees, so the check proves nothing and looks complete "
+                "doing it."
+            )
+            return 1
+        if "equivalence-base-is-head" not in problem_codes(payload):
+            report(
+                f"{label}: accepted a base that is head — refused for another "
+                f"reason; got {problem_codes(payload)!r}."
+            )
+            return 1
+        message = problem_text(payload)
+        head = subprocess.run(
+            ["git", "-C", str((root / "base-is-head").resolve()), "rev-parse",
+             "HEAD"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if head and head not in message:
+            report(
+                f"{label}: the refusal does not name the resolved commit, so the "
+                "author cannot tell which ref collapsed onto HEAD; got "
+                f"{message!r}."
+            )
+            return 1
+        if "always agrees" not in message:
+            report(
+                f"{label}: the refusal does not say why a base that is HEAD is "
+                f"empty rather than merely redundant; got {message!r}."
+            )
+            return 1
+
+        # 1.3 — Evidence may point at the machine output instead of retelling
+        # it. A 244-line tasks.md that is mostly transcribed test output is a
+        # transcription that can be wrong and that nobody can re-check.
+        def artifact_fixture(
+            name: str,
+            *,
+            artifact_path: str = "openspec/changes/demo/evidence/compare.json",
+            body: str = '{"wns": 0.0, "tns": 0.0}\n',
+            recorded: str | None = None,
+            write_at: str | None = None,
+        ) -> dict:
+            repo = (root / name).resolve()
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "t@example.com")
+            git(repo, "config", "user.name", "keel-test")
+            digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+            evidence = recorded or f"artifact {artifact_path} sha256:{digest}"
+            tasks = equivalence_task().replace(
+                "    - M1: pending", f"    - M1: {evidence}"
+            )
+            write_gate_fixture(repo, tasks=tasks)
+            if write_at is not None:
+                write_text(repo / write_at, body)
+            write_text(repo / "src/example.js", "// product\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "first")
+            write_text(repo / "src/example.js", "// moved\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "second")
+            run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                "--record", "--no-guard",
+            )
+            result = run_keel(
+                repo, "gate", "task-complete", "--change", "demo", "--task",
+                "1.1", "--json",
+            )
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {
+                    "status": "unparsed",
+                    "problems": [{"message": result.stdout[:400]}],
+                }
+
+        inside = "openspec/changes/demo/evidence/compare.json"
+        payload = artifact_fixture("artifact-ok", write_at=inside)
+        if payload.get("status") != "pass":
+            report(
+                f"{label}: an artifact reference was not verified — a reference "
+                "to a file that is there, with a digest that matches, was "
+                f"refused. {problem_text(payload)}"
+            )
+            return 1
+        payload = artifact_fixture("artifact-absent", write_at=None)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: an artifact reference was not verified — a reference "
+                "to a file that does not exist was accepted, so the form is "
+                "tolerated as prose rather than checked. Any sentence would "
+                "have passed the same way."
+            )
+            return 1
+        if "artifact-missing" not in problem_codes(payload):
+            report(
+                f"{label}: an artifact reference was not verified — refused for "
+                f"another reason; got {problem_codes(payload)!r}."
+            )
+            return 1
+
+        # M2 of 1.3 — the digest is what makes the pointer worth more than a
+        # path. A file that moved after the digest was recorded is the case a
+        # bare path cannot see, and it is the common one: the command gets
+        # re-run.
+        stale = hashlib.sha256(b"different\n").hexdigest()
+        payload = artifact_fixture(
+            "artifact-stale",
+            recorded=f"artifact {inside} sha256:{stale}",
+            write_at=inside,
+        )
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: accepted a stale digest — the artifact's content does "
+                "not hash to the recorded digest and the reference was accepted, "
+                "so Review reads whatever the file says now."
+            )
+            return 1
+        if "artifact-digest-mismatch" not in problem_codes(payload):
+            report(
+                f"{label}: accepted a stale digest — refused for another reason; "
+                f"got {problem_codes(payload)!r}."
+            )
+            return 1
+        message = problem_text(payload)
+        for expected in (inside, stale[:12]):
+            if expected not in message:
+                report(
+                    f"{label}: the refusal does not name {expected!r}, so a "
+                    "reader cannot tell a stale record from a wrong path; got "
+                    f"{message!r}."
+                )
+                return 1
+
+        # M3 of 1.3 — the inverse of the `Durable owner:` rule, for the opposite
+        # reason: a follow-up pointer must outlive the change, and an evidence
+        # artifact must travel with it. `openspec archive` moves the change
+        # directory, so a path outside it is one the archive leaves behind.
+        outside = "evidence/compare.json"
+        payload = artifact_fixture("artifact-outside", artifact_path=outside, write_at=outside)
+        if payload.get("status") == "pass":
+            report(
+                f"{label}: accepted a path archiving would leave behind — an "
+                f"artifact at {outside!r} was accepted although the archive "
+                "moves only the change directory."
+            )
+            return 1
+        if "artifact-outside-change" not in problem_codes(payload):
+            report(
+                f"{label}: accepted a path archiving would leave behind — "
+                f"refused for another reason; got {problem_codes(payload)!r}."
+            )
+            return 1
+        if "archiv" not in problem_text(payload):
+            report(
+                f"{label}: the refusal does not say that archiving is what "
+                f"breaks the pointer; got {problem_text(payload)!r}."
+            )
+            return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -29403,6 +29906,10 @@ SCENARIOS: tuple = (
     (
         "a-negation-is-not-a-marker",
         validate_a_negation_is_not_a_marker_scenario,
+    ),
+    (
+        "an-equivalence-claim-names-its-base",
+        validate_an_equivalence_claim_names_its_base_scenario,
     ),
     (
         "guidance-is-referenced-and-carries-no-criterion",

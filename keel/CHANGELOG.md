@@ -1,5 +1,57 @@
 # Keel Changelog
 
+## 5.68.0 - an equivalence claim names its base
+
+One class of task's correct evidence is zero difference: a refactor, a move, a flow upgrade claiming the
+measurements do not change (#142). Red-green has no shape for it, and the tell is in the reporting
+repository's own `tasks.md`: `move-keep-hierarchy-from-rtl-into-the-synthesis-flow` says "this one has no
+honest red" several times and **re-recorded its contract twice** to get past the shape — tagging checks
+`(regression)`, editing `Fails with:`. Neither re-record was because a criterion was wrong. The criterion
+was right and had nowhere to live.
+
+`Strategy: equivalence` is now that place. It declares `Base:` (a resolvable git ref) and `Fields:` (the
+compared field set) beside `Strategy:`, and owes no red. Its criterion is **stronger** than red-green,
+not weaker: an A/B against a base also catches the change that incidentally moved a result, which no red
+can. `task-start` refuses each way the shape can look complete and compare nothing — a missing `Base:`
+or `Fields:`, a `Fields:` that resolves to an empty set, a ref that resolves to nothing, and a `Base:`
+that resolves to HEAD. The last is the one worth having: nothing about that task looks wrong, and an A/B
+against itself always agrees.
+
+`Command:` was declined. #142 proposes it as a third field; `Verify` already has exactly one place
+commands live, and a second would put half of them outside the labelled evidence `task-complete`
+enforces. The A/B command is an ordinary `M<n>` check, and `Base:`/`Fields:` are what the check cannot
+say by itself.
+
+**It is not an escape from red-green.** `equivalence` owes no red, which makes it the first strategy
+reached for by a task that should have one. A task covering a scenario its own change adds under
+`## ADDED Requirements` is refused unless a sibling task of the change covers that same entry under a
+red-green strategy. Satisfied by coverage of the entry it objected to, never by a red-green task merely
+existing — a condition every change with more than one task meets.
+
+**Evidence may point at the output instead of retelling it.** `artifact <path> sha256:<digest>`:
+`task-complete` requires the file to exist and the digest to match, and refuses a path outside the
+change's own directory. That last rule is the inverse of the `Durable owner:` rule and for the opposite
+reason — a follow-up pointer has to outlive the change, an evidence artifact has to travel with it, and
+archiving moves only the change directory. Keel hashes the bytes and reads nothing inside them: it does
+not parse the artifact and compares nothing in it, so the claim stays the author's, recorded before
+Review exactly as `Fails with:` and `Detects:` are. What the digest buys is that the file Review opens is
+the file the author meant, which a 244-line `tasks.md` of transcribed test output cannot offer.
+
+Two defects were found by taking the reds rather than by reading the code. The negative control for the
+escape-hatch guard — a red-green sibling covering a *different* scenario — passed for the wrong reason:
+the sibling covered an invented scenario, so the fixture was refused because that sibling's `Covers`
+resolved to nothing, and the assertion was green while testing nothing. Fixing it exposed the more
+serious one: the guard read a sibling's strategy by compiling it, and `compileTaskContract` returns no
+capsule when a task has any diagnostic — so a sibling with an unrelated contract error read as having no
+strategy and silently stopped satisfying the guard, refusing a correctly authored change and pointing at
+the wrong task. The guard now reads the sibling's own `Verify` text in both the compact and expanded
+forms.
+
+## 5.68.0 - TODO: summarize this release
+
+- TODO: describe the change.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.68.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.67.0 - guidance loads by declaration
 
 Issue #135 asked for guidance to be tiered by executor capability: how-to prose loses value as the

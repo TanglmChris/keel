@@ -2,6 +2,7 @@
 
 // Keel 4.1.0 deterministic gate contract.
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -293,6 +294,112 @@ function taskShapeWarnings(repo, selection, task, compiled) {
   ];
 }
 
+// The requirement names a change declares as new, read from the `## ADDED
+// Requirements` sections of its delta specs. A `## MODIFIED` requirement is
+// deliberately not here: behavior that changed is still behavior an equivalence
+// task can legitimately claim is measurement-stable.
+function addedRequirementNames(repo, change) {
+  const specsRoot = path.join(repo, "openspec", "changes", change, "specs");
+  const names = new Set();
+  let capabilities = [];
+  try {
+    capabilities = fs.readdirSync(specsRoot);
+  } catch {
+    return names;
+  }
+  for (const capability of capabilities) {
+    const specPath = path.join(specsRoot, capability, "spec.md");
+    let content = "";
+    try {
+      content = fs.readFileSync(specPath, "utf8");
+    } catch {
+      continue;
+    }
+    // Only the ADDED section, bounded by the next `## ` heading, so a
+    // requirement listed under MODIFIED or REMOVED is not read as new.
+    for (const section of content.split(/^##\s+/m).slice(1)) {
+      if (!/^ADDED Requirements\s*$/m.test(section.split(/\r?\n/)[0])) continue;
+      for (const match of section.matchAll(/^###\s+Requirement:\s*(.+?)\s*$/gm)) {
+        names.add(match[1]);
+      }
+    }
+  }
+  return names;
+}
+
+// A task's declared strategy, from the text it wrote. Both forms: the compact
+// `Strategy:` entry under `Verify`, and the expanded `Verification Strategy`
+// field beside `Commands`.
+function declaredStrategy(task) {
+  const compact = String(field(task, "Verify") || "").match(
+    /^\s*-?\s*Strategy:\s*(.+?)\s*$/m
+  );
+  const value = compact
+    ? compact[1]
+    : String(field(task, "Verification Strategy") || "");
+  return value.trim().toLowerCase();
+}
+
+// A `Covers` entry naming a spec scenario: `capability / Requirement / Scenario`.
+// Identifier entries (`D4`, `F1`, `E2`) have no slashes and are not spec claims.
+function specCoverEntries(task) {
+  return String(field(task, "Covers") || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*-\s*/, "").trim())
+    .filter((entry) => entry.split("/").length >= 3)
+    .map((entry) => entry.split("/").map((part) => part.trim()));
+}
+
+// `equivalence` owes no red, which makes it the first strategy reached for by a
+// task that should have one. A task covering a scenario its own change *adds* is
+// claiming that behavior is new and that behavior is unchanged at the same time,
+// and without this guard one of the two claims has no proof anywhere in the
+// change. Satisfied only by a sibling covering the same entry, never by the mere
+// presence of a red-green task somewhere in the change.
+function equivalenceEscapeProblems(repo, selection, task, compiled) {
+  const strategy = String(
+    ((compiled.capsule || {}).verification || {}).strategy || ""
+  ).toLowerCase();
+  if (strategy !== "equivalence") return [];
+  const added = addedRequirementNames(repo, selection.change);
+  if (added.size === 0) return [];
+  const problems = [];
+  for (const parts of specCoverEntries(task)) {
+    const requirement = parts[1];
+    if (!added.has(requirement)) continue;
+    const entry = parts.join(" / ");
+    const scenario = parts.slice(2).join(" / ");
+    const covered = selection.tasks.some((sibling) => {
+      if (sibling.id === task.id) return false;
+      // Read from the sibling's own `Verify` text rather than by compiling it.
+      // Compiling made the guard depend on the sibling being otherwise valid: a
+      // sibling with any unrelated contract error produced no capsule, so its
+      // strategy read as absent and it silently stopped satisfying the guard.
+      const siblingStrategy = declaredStrategy(sibling);
+      if (!RED_GREEN_VERIFICATION_STRATEGIES.has(siblingStrategy)) return false;
+      // The same entry, not any entry. A guard satisfied by the presence of a
+      // red-green task would be a check that the change contains one, which
+      // every change with more than one task passes.
+      return specCoverEntries(sibling).some(
+        (other) => other.join(" / ") === entry
+      );
+    });
+    if (!covered) {
+      problems.push(
+        problem(
+          "equivalence-covers-added-behavior",
+          `This task declares \`Strategy: equivalence\` and covers `
+            + `"${scenario}", a scenario this change adds. Behavior that is new `
+            + "is not behavior that is unchanged, and no task of this change "
+            + "proves the new half: name a red-green task that covers the same "
+            + "entry, or move this Covers entry to the task that implements it."
+        )
+      );
+    }
+  }
+  return problems;
+}
+
 function taskStart(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
@@ -300,6 +407,7 @@ function taskStart(repo, options) {
   const problems = [
     ...compiled.diagnostics,
     ...invalidationProblems(repo, selection.content, selection.tasks, selection.change),
+    ...equivalenceEscapeProblems(repo, selection, task, compiled),
   ];
   // Recording the current fingerprint is idempotent: --record replaces the
   // selected task's Contract anchor whatever it holds, so reauthorizing a task
@@ -452,6 +560,72 @@ function commandLabels(task) {
   return [
     ...field(task, "Commands").matchAll(/^\s*-\s*(M\d+):\s+\S.*$/gim),
   ].map((match) => match[1]);
+}
+
+// `artifact <path> sha256:<digest>`, or null for prose. The path is
+// repo-relative; the digest is what Review is entitled to assume it is reading.
+const ARTIFACT_EVIDENCE =
+  /^artifact\s+(\S+)\s+sha256:([0-9a-f]{64})\s*$/i;
+
+function artifactReference(value) {
+  const match = String(value || "").trim().match(ARTIFACT_EVIDENCE);
+  return match ? { path: match[1], digest: match[2].toLowerCase() } : null;
+}
+
+// Keel checks identity and reads nothing else: it does not parse the artifact,
+// does not know what a field is, and compares nothing in it. The claim that the
+// numbers agree stays the author's, recorded before Review exactly as
+// `Fails with:` and `Detects:` are. What the digest buys is that the file Review
+// opens is the file the author meant, which a retelling cannot offer.
+function artifactProblems(repo, change, label, reference) {
+  if (!reference) return [];
+  // The inverse of the `Durable owner:` rule, and for the opposite reason: a
+  // follow-up pointer has to outlive the change, while an evidence artifact has
+  // to travel with it. `openspec archive` moves the change directory and
+  // nothing else, so a path outside it is one the archive is guaranteed to
+  // leave behind — and an evidence pointer that breaks on archive is worse than
+  // a retelling, which at least survives.
+  const changeDir = path.join("openspec", "changes", change);
+  const normalized = reference.path.split(path.sep).join("/");
+  if (!normalized.startsWith(`${changeDir.split(path.sep).join("/")}/`)) {
+    return [
+      problem(
+        "artifact-outside-change",
+        `${label} Evidence references \`${reference.path}\`, which is outside `
+          + `\`${changeDir}\`. Archiving moves the change directory and nothing `
+          + "else, so this pointer breaks the moment the change is archived. "
+          + "Put the artifact inside the change's own directory."
+      ),
+    ];
+  }
+  const absolute = path.join(repo, reference.path);
+  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
+    return [
+      problem(
+        "artifact-missing",
+        `${label} Evidence references the artifact \`${reference.path}\`, and `
+          + "no file is there. An unresolvable reference is worse than a "
+          + "retelling: the retelling at least carries the result."
+      ),
+    ];
+  }
+  const actual = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(absolute))
+    .digest("hex");
+  if (actual !== reference.digest) {
+    return [
+      problem(
+        "artifact-digest-mismatch",
+        `${label} Evidence records \`${reference.path}\` at `
+          + `sha256:${reference.digest}, and the file there hashes to `
+          + `sha256:${actual}. Re-record the digest if the command was re-run, `
+          + "or correct the path — naming both is what lets a reader tell a "
+          + "stale record from a pointer at the wrong file."
+      ),
+    ];
+  }
+  return [];
 }
 
 function evidenceValue(task, label) {
@@ -1049,11 +1223,21 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
     problems.push(problem("missing-commands", "Commands must define at least one M<n>."));
   }
   for (const label of commands) {
-    if (!isConcrete(evidenceValue(task, label))) {
+    const recorded = evidenceValue(task, label);
+    if (!isConcrete(recorded)) {
       problems.push(
         problem("missing-evidence", `Missing concrete Evidence for ${label}.`)
       );
+      continue;
     }
+    // An A/B pairing or a sweep summary *is* the output of one command, and
+    // retelling it into tasks.md is a transcription that can be wrong and that
+    // nobody can re-check (issue #142). A reference is checked rather than
+    // tolerated: as prose it would already have passed as concrete, so without
+    // this the form would buy nothing at all.
+    problems.push(
+      ...artifactProblems(repo, change, label, artifactReference(recorded))
+    );
   }
   // A declared measurement is held against the check's own bare `M<n>` Evidence
   // — the entry where the command and its output are recorded. A literal that
