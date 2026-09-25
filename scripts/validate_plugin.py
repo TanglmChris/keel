@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.68.0"
-PROTOCOL_VERSION = "5.68.0"
+PACKAGE_VERSION = "5.69.0"
+PROTOCOL_VERSION = "5.69.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2302,6 +2302,61 @@ def validate_domain_lenses_scenario() -> int:
     return 0
 
 
+# `bump_version.js` writes a stub section for the new release, and the convention
+# is to fill it in. Writing the entry *above* it instead leaves an orphan, and
+# the stub carries the `Version alignment:` line this scenario reads — so the
+# section describing nothing was the section that passed (#151). It happened in
+# 5.67.0 and 5.68.0, with the suite green both times.
+#
+# Takes the text rather than reading the file, so the rule can be exercised on a
+# planted copy: a rule that could only ever see the changelog already known to be
+# correct would pass forever without anyone learning whether it fires.
+def release_description_problem(changelog: str, version: str) -> str | None:
+    """Return the problem the released version's section has, or None.
+
+    Scoped to the version being released. An older section is history a current
+    author cannot act on, and a rule that swept the whole file would fail on the
+    archive — which is how a check gets disabled rather than fixed. The file also
+    legitimately quotes `TODO` when describing the rules that refuse it.
+    """
+    pattern = re.compile(
+        r"^## " + re.escape(version) + r"\b[^\n]*$", re.M
+    )
+    headings = pattern.findall(changelog)
+    if not headings:
+        return (
+            f"the changelog carries no `## {version}` section, so the release "
+            "describes nothing at all."
+        )
+    if len(headings) > 1:
+        return (
+            f"the changelog describes {version} twice — {len(headings)} `## "
+            f"{version}` headings: {', '.join(h.strip() for h in headings)}. A "
+            "release entry written above the stub instead of into it leaves both."
+        )
+    for heading in headings:
+        if "TODO" in heading:
+            return (
+                f"the changelog still carries the stub heading `{heading.strip()}`"
+                f", so the {version} release was never described. Fill that "
+                "section in rather than writing the entry above it."
+            )
+    # The section body, bounded by the next `## ` heading, so a `TODO` belonging
+    # to an older release is not read as this one's.
+    start = changelog.index(headings[0])
+    rest = changelog[start + len(headings[0]):]
+    end = rest.find("\n## ")
+    body = rest if end < 0 else rest[:end]
+    for line in body.splitlines():
+        if re.match(r"^\s*-\s*TODO\b", line):
+            return (
+                f"the {version} section still carries the stub bullet "
+                f"`{line.strip().lstrip('- ')}`, so the release is titled but "
+                "not described."
+            )
+    return None
+
+
 def validate_version_alignment_scenario() -> int:
     package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     if package.get("version") != PACKAGE_VERSION:
@@ -2363,6 +2418,103 @@ def validate_version_alignment_scenario() -> int:
             f"version-alignment scenario changelog announces {headings[0]} while "
             f"the package declares {PACKAGE_VERSION}; the newest entry is a "
             "release claim and must name the version everything else ships."
+        )
+        return 1
+
+    # The released version's section has to say what the release did. Asserted on
+    # planted copies first, so the rule is known to fire, and then on the
+    # repository's own changelog.
+    stub = (
+        f"# Keel Changelog\n\n## {PACKAGE_VERSION} - TODO: summarize this "
+        f"release\n\n- TODO: describe the change.\n- Version alignment: "
+        f"shares Keel {PACKAGE_VERSION}.\n\n## 5.0.0 - older\n\n- Done.\n"
+    )
+    planted = release_description_problem(stub, PACKAGE_VERSION)
+    if not planted:
+        report(
+            "version-alignment scenario: an unfilled stub was accepted — a "
+            f"changelog whose {PACKAGE_VERSION} section is the stub "
+            "`bump_version.js` writes produced no problem, so a release can "
+            "ship describing nothing while this scenario passes."
+        )
+        return 1
+    if "TODO: summarize this release" not in planted:
+        report(
+            "version-alignment scenario: the refusal does not name the offending "
+            f"line, so an author is sent to read the whole changelog; got "
+            f"{planted!r}."
+        )
+        return 1
+
+    # Still M1 — the stub survives renaming its heading. The bullet is the other
+    # half of what `bump_version.js` writes, and a section titled correctly while
+    # its only content is `- TODO: describe the change.` describes nothing.
+    renamed = (
+        f"# Keel Changelog\n\n## {PACKAGE_VERSION} - a real sounding title\n\n"
+        f"- TODO: describe the change.\n- Version alignment: shares Keel "
+        f"{PACKAGE_VERSION}.\n"
+    )
+    bullet = release_description_problem(renamed, PACKAGE_VERSION)
+    if not bullet:
+        report(
+            "version-alignment scenario: an unfilled stub was accepted — a "
+            "section with a real heading whose content is still `- TODO: describe "
+            "the change.` produced no problem, so renaming the stub is enough to "
+            "ship an undescribed release."
+        )
+        return 1
+    if "TODO: describe the change." not in bullet:
+        report(
+            "version-alignment scenario: the bullet refusal does not name the "
+            f"line it found; got {bullet!r}."
+        )
+        return 1
+
+    # M2 — two sections for one version. This is the shape the real defect had,
+    # and neither TODO rule catches it once the stub's heading has been renamed:
+    # the reader then sees two identical version headings, one of which describes
+    # nothing.
+    doubled = (
+        f"# Keel Changelog\n\n## {PACKAGE_VERSION} - the real entry\n\n"
+        f"- Did the thing.\n- Version alignment: shares Keel {PACKAGE_VERSION}."
+        f"\n\n## {PACKAGE_VERSION} - summarized\n\n- Also this.\n"
+    )
+    problem_found = release_description_problem(doubled, PACKAGE_VERSION)
+    if not problem_found:
+        report(
+            "version-alignment scenario: a version described twice was accepted "
+            f"— two `## {PACKAGE_VERSION}` sections produced no problem, which is "
+            "the shape the defect this rule exists for actually had."
+        )
+        return 1
+    if "twice" not in problem_found:
+        report(
+            "version-alignment scenario: the duplicate-section refusal does not "
+            f"say the version is described twice; got {problem_found!r}."
+        )
+        return 1
+
+    # M3 — only the version being released is judged. An older section is history,
+    # and this file legitimately quotes `TODO` when describing the rules that
+    # refuse it, so a rule sweeping the whole file would fire on its own
+    # documentation.
+    older = (
+        f"# Keel Changelog\n\n## {PACKAGE_VERSION} - the real entry\n\n"
+        f"- Did the thing.\n- Version alignment: shares Keel {PACKAGE_VERSION}."
+        "\n\n## 5.0.0 - TODO: summarize this release\n\n- TODO: describe it.\n"
+    )
+    if release_description_problem(older, PACKAGE_VERSION):
+        report(
+            "version-alignment scenario: an older section was refused — a `TODO` "
+            "in a section for another version failed the current release, which "
+            "is a check the archive can only be edited to satisfy."
+        )
+        return 1
+    if release_description_problem(changelog, PACKAGE_VERSION):
+        report(
+            "version-alignment scenario: an older section was refused — the "
+            "repository's own changelog does not satisfy the rule: "
+            f"{release_description_problem(changelog, PACKAGE_VERSION)}"
         )
         return 1
 

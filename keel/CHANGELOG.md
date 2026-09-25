@@ -1,5 +1,40 @@
 # Keel Changelog
 
+## 5.69.0 - a release describes itself
+
+`node scripts/bump_version.js minor` writes a stub section for the new release, and the convention is to
+fill it in. Writing the entry *above* it instead leaves an orphan — and nothing caught it (#151). The
+stub carries the `Version alignment:` line `version-alignment` reads, so **the section describing nothing
+was the section that passed**. `npm test` was green with the file in that state.
+
+It happened in 5.67.0 and 5.68.0, the two releases immediately before this one, and was found by eye
+while grepping the changelog for something unrelated — three commits after the first one shipped. Both
+orphans are removed, and the published changelog no longer carries two headings per version, one of them
+saying the release was never described.
+
+`version-alignment` now refuses a changelog in which the version being released is not described, in the
+three shapes the stub survives in: a `TODO` in that version's heading, a `- TODO:` bullet inside its
+section, and two `## <version>` headings for it. The duplicate-heading rule is checked first because it
+is the shape the real defect had; each of the other two would have been satisfied by a half-edit, and
+renaming the stub's title alone would otherwise have been enough to ship an undescribed release. Every
+refusal names the offending line verbatim, because "the changelog is incomplete" sends an author to read
+700 lines.
+
+Two scoping decisions. The rule judges only the version being released: an older section is history a
+current author cannot act on, and a rule that swept the whole file would fail on the archive, which is
+how a check gets disabled rather than fixed. And this file legitimately quotes `TODO` when describing the
+rules that refuse it — the 5.29.0 entry does — so a whole-file rule would fire on its own documentation.
+
+`bump_version.js` keeps writing the stub. Removing it would let an author who wrote no entry at all pass
+with no section, and the check would then have to tell absent from unfilled: the same defect with less on
+screen.
+
+The rule takes the changelog text and a version rather than reading the file, which is what made all four
+planted fixtures possible. A rule of this kind that could only ever see the repository's own changelog —
+the one input guaranteed to be correct — would pass forever without anyone learning whether it fires.
+
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.69.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.68.0 - an equivalence claim names its base
 
 One class of task's correct evidence is zero difference: a refactor, a move, a flow upgrade claiming the
