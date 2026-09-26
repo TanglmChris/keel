@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.70.0"
-PROTOCOL_VERSION = "5.70.0"
+PACKAGE_VERSION = "5.71.0"
+PROTOCOL_VERSION = "5.71.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -17219,15 +17219,46 @@ def run_node_expression(root: Path, expression: str) -> str:
     return result.stdout
 
 
-def config_header_problem(names: list, flat_header: str) -> str:
+def config_header_paragraph(config_text: str) -> str:
+    """The opening paragraph that lists the declarations, whitespace-collapsed.
+
+    The header, not the file. Both callers used to pass the whole of
+    `keel/config.yaml`, so a declaration name appearing anywhere in the body — a
+    comment elsewhere that happened to use the word — satisfied "the header names
+    it". `merge` did exactly that in 5.71.0, through the triage section's "never
+    authorizes a merge", before the header said anything about it (#155).
+    """
+    lines = config_text.splitlines()
+    start = next(
+        (i for i, line in enumerate(lines) if "independent declarations live here" in line),
+        None,
+    )
+    if start is None:
+        return ""
+    paragraph = []
+    for line in lines[start:]:
+        if not line.startswith("#") or line.strip() == "#":
+            break
+        paragraph.append(line.lstrip("#").strip())
+    return re.sub(r"\s+", " ", " ".join(paragraph))
+
+
+def config_header_problem(names: list, config_text: str) -> str:
     """The one rule for "the header names every declaration", or "" when it does.
 
     Returns the diagnostic naming the missing declaration. Deliberately reports
     no count: a count tells an author that two numbers differ, and the name tells
     them which line to write.
     """
+    header = config_header_paragraph(config_text)
+    if not header:
+        return (
+            "keel/config.yaml has no header paragraph listing its declarations "
+            "(the one containing `independent declarations live here`), so "
+            "nothing tells a project which keys it may write."
+        )
     for name in names:
-        if name not in flat_header:
+        if name not in header:
             return (
                 f"keel/config.yaml's header does not name the `{name}` "
                 "declaration, so a project reading it would never learn it may "
@@ -28874,7 +28905,7 @@ def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
             return 1
 
     header = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    flat_header = re.sub(r"\s+", " ", header)
+    flat_header = config_header_paragraph(header)
     for name in names:
         if name not in flat_header:
             report(
@@ -28887,7 +28918,7 @@ def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
     # The derivation is proved by feeding the check a member the header cannot
     # contain. Without this the whole scenario is satisfied by a list that
     # happens to agree with a header nobody compared it to.
-    missing = config_header_problem(names + ["invented_declaration"], flat_header)
+    missing = config_header_problem(names + ["invented_declaration"], header)
     if not missing:
         report(
             f"{label}: the assertion is a literal — a declaration absent from "
@@ -28908,6 +28939,23 @@ def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
         )
         return 1
 
+    # The header is the opening paragraph, not the file. A declaration name that
+    # appears only in the body — a comment elsewhere happening to use the word —
+    # does not tell a new project it may write that key. Found when `merge` was
+    # added in 5.71.0: the triage section's "never authorizes a merge" satisfied
+    # the rule before the header said anything (#155).
+    body_only = header.replace(
+        "# delegation, which names who runs a task;",
+        "# delegation, which names who runs a task;",
+    ) + "\n# a body comment that mentions body_only_declaration in passing\n"
+    if not config_header_problem(names + ["body_only_declaration"], body_only):
+        report(
+            f"{label}: a declaration named only in the file body was accepted as "
+            "named in the header — the rule reads the whole file, so any common "
+            "word used anywhere satisfies it."
+        )
+        return 1
+
     # A header naming every declaration while miscounting them in prose passes:
     # membership is the checkable property, and a count is a lossy restatement.
     # The numeral is located by shape, not by its current value. Pinning the
@@ -28917,7 +28965,7 @@ def validate_a_count_is_derived_from_what_it_counts_scenario() -> int:
     miscounted, varied = re.subn(
         r"\b\w+ independent declarations\b",
         "Zero independent declarations",
-        flat_header,
+        header,
         count=1,
     )
     if not varied:
@@ -29829,6 +29877,131 @@ def validate_a_publish_waits_for_the_one_before_it_scenario() -> int:
     return 0
 
 
+def validate_a_merge_names_who_makes_it_scenario() -> int:
+    """Issue #155: the protocol says the agent may not merge, and stops there.
+
+    Once a repository merges on its own rule — auto-merge behind a required
+    check — that sentence is literally true and misleading: a reader concludes
+    every change reaching the default branch was looked at by a person. The
+    declaration says who merges, so the projection can say it too.
+    """
+    label = "a-merge-names-who-makes-it"
+
+    with tempfile.TemporaryDirectory(prefix="keel-merge-") as raw:
+        root = Path(raw)
+
+        def fixture(name: str, body: str) -> Path:
+            repo = root / name
+            repo.mkdir()
+            (repo / "keel").mkdir()
+            (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
+            return repo
+
+        def merge_lines(out: str) -> list[str]:
+            return [l for l in out.splitlines() if l.startswith("Merge:")]
+
+        # M1 — a repository merge is reported with its consequence.
+        repo = fixture("repository", "fast_check: echo r\nmerge: repository:full-gate\n")
+        out = run_keel(repo, "context").stdout
+        lines = merge_lines(out)
+        if not lines:
+            report(
+                f"{label}: no merge declaration reported — a repository that "
+                "declared its default branch merges on `full-gate` is told "
+                "nothing about it where the session starts."
+            )
+            report(out)
+            return 1
+        if "full-gate" not in lines[0]:
+            report(f"{label}: the Merge line does not name the check; got {lines[0]!r}.")
+            return 1
+        if "no human" not in lines[0].lower():
+            report(
+                f"{label}: the Merge line echoes the value without its "
+                f"consequence — that no human reviews before merge; got {lines[0]!r}."
+            )
+            return 1
+
+        human = fixture("human", "fast_check: echo h\nmerge: human\n")
+        lines = merge_lines(run_keel(human, "context").stdout)
+        if not lines:
+            report(f"{label}: no merge declaration reported for `merge: human`.")
+            return 1
+        if "human" not in lines[0]:
+            report(f"{label}: the `merge: human` line does not say human; got {lines[0]!r}.")
+            return 1
+
+        absent = fixture("absent", "fast_check: echo a\n")
+        out = run_keel(absent, "context").stdout
+        if merge_lines(out):
+            report(
+                f"{label}: an undeclared repository was given a Merge line — "
+                "Keel cannot know how it merges and must not claim it."
+            )
+            report(out)
+            return 1
+
+        # M2 — a claim without its basis claims nothing. A bare `repository`
+        # says no person reviews without naming what does, which is the claim
+        # that misleads most; an unknown value is a typo its author believes.
+        for name, value in (("bare", "repository"), ("unknown", "robots")):
+            bad = fixture(name, f"fast_check: echo b\nmerge: {value}\n")
+            out = run_keel(bad, "context").stdout
+            if merge_lines(out):
+                report(
+                    f"{label}: accepted a merge claim with no basis — "
+                    f"`merge: {value}` produced {merge_lines(out)!r}."
+                )
+                return 1
+            if value not in out:
+                report(f"{label}: the refusal does not name `{value}`.")
+                report(out)
+                return 1
+            if "repository:<check>" not in out:
+                report(f"{label}: the refusal does not name the accepted forms.")
+                report(out)
+                return 1
+
+        # M3 — the declaration is not a permission. `merge` under `authorize:`
+        # stays an unrecognized action, so nobody can read the new key as leave
+        # for the agent to merge.
+        perm = fixture("perm", "fast_check: echo p\nauthorize:\n  - merge\n")
+        doctor = run_keel(perm, "--doctor").stdout
+        if "unrecognized action: merge" not in doctor:
+            report(
+                f"{label}: `authorize: merge` is not reported as an unrecognized "
+                "action, so the new declaration could be read as permission."
+            )
+            report(doctor)
+            return 1
+
+        for name, repo_, expected in (
+            ("repository", repo, "full-gate"),
+            ("human", human, "human"),
+            ("absent", absent, "undeclared"),
+        ):
+            doctor = run_keel(repo_, "--doctor").stdout
+            merge_doctor = [l for l in doctor.splitlines() if l.startswith("merge:")]
+            if not merge_doctor:
+                report(
+                    f"{label}: no merge declaration reported by the doctor for the "
+                    f"{name} fixture — it has no `merge:` line at all."
+                )
+                return 1
+            if expected not in merge_doctor[0]:
+                report(
+                    f"{label}: the doctor's merge line for the {name} fixture does "
+                    f"not name {expected!r}; got {merge_doctor[0]!r}."
+                )
+                return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -30194,6 +30367,10 @@ SCENARIOS: tuple = (
     (
         "an-equivalence-claim-names-its-base",
         validate_an_equivalence_claim_names_its_base_scenario,
+    ),
+    (
+        "a-merge-names-who-makes-it",
+        validate_a_merge_names_who_makes_it_scenario,
     ),
     (
         "a-publish-waits-for-the-one-before-it",

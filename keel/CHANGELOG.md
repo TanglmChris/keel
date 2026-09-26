@@ -1,5 +1,42 @@
 # Keel Changelog
 
+## 5.71.0 - a merge names who makes it
+
+The owner wants this repository to run fully automatically, merge included (#155). Two guards refuse
+the merge when the *agent* takes it: Claude Code's auto-mode classifier (`[Merge Without Review]`, and
+`[Auto-Mode Bypass]` when the agent tried to reconfigure permissions around it), and Keel's own
+`## Unattended runs` — "It may not merge one." Both are right about the agent. The shape that satisfies
+everyone moves the merge into the repository: GitHub auto-merge behind a required check, so the agent
+opens a pull request and never merges.
+
+That leaves Keel's sentence literally true and misleading. A reader concludes a person looked at every
+change reaching the default branch, while the check is the only reviewer. Keel had nowhere to record who
+merges, so it could not say so.
+
+`merge:` in `keel/config.yaml` now does: `human`, or `repository:<check>` naming the required check.
+`keel context` reports a declared value with its plain consequence — for `repository:`, that **no human
+reviews before merge and the check is the last gate** — and `keel --doctor` reports it or its absence. A
+bare `repository` is refused the way a bare `issue` is: the claim that nobody reviews is only honest
+beside what replaced them. The first red for that rule printed "merges when null passes", which is that
+claim exactly. An undeclared repository gets no line, because Keel cannot know how it merges and a
+default `human` would be the same unfounded assertion this change stops the protocol making.
+
+**It is not an `authorize:` entry, on purpose.** That list says what the agent may do without asking;
+`authorize: merge` stays an unrecognized action, and both guards should keep refusing an agent merge.
+`merge:` describes the repository. Keel reads the claim and never GitHub — it stays local and offline —
+so it cannot verify auto-merge or branch protection is on; it reports what the owner declared. This
+repository declares nothing yet: turning auto-merge on is the owner's one-time act, because an agent
+configuring a repository to merge without review is the refused outcome with a different executor.
+
+**The 5.66.0 header rule never read the header.** Adding `merge` to the exported declaration list should
+have turned the header check red and did not. Both callers passed the whole of `keel/config.yaml`, and
+the triage section's comment "It also never authorizes a merge" already contained the word — so the
+check that exists to catch an undocumented declaration was satisfied by an unrelated sentence, and would
+have been for any future declaration named with an ordinary word. It now reads only the opening
+paragraph that lists the declarations, and a planted name mentioned only in the body is refused.
+
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.71.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.70.0 - a publish waits for the one before it
 
 `.github/workflows/publish.yml` fires on `release: [published]` and declared no `concurrency` group.

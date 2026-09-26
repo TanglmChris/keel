@@ -1,13 +1,14 @@
 # Keel project configuration.
 #
-# Seven independent declarations live here: fast_check, which names a command;
+# Eight independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
 # which names which work may start without being asked about at all;
 # delegation, which names who runs a task; full_mode_paths, which names the
-# paths whose change always takes the complete flow; and executor_tier, which
-# names how much stepwise guidance this project's skills should load.
+# paths whose change always takes the complete flow; executor_tier, which
+# names how much stepwise guidance this project's skills should load; and
+# merge, which names who merges into the default branch.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -117,6 +118,8 @@ precedents: ../decision-precedents
 # it. Alignment still escalates material choices, every gate still runs, and the
 # write guard still binds. It also never authorizes a merge — an unattended run
 # may open a pull request and may not merge one, and no key here changes that.
+# `merge:` below does not either: it describes how the repository merges, and
+# grants the agent nothing.
 # Admission comes from this declaration and never from a precedent.
 #
 # Declared 2026-07-29 by the owner, and left in the bare-list form on purpose:
@@ -193,3 +196,13 @@ triage:
 # more scrutiny, and for this one more scrutiny is more Full mode.
 #
 # This repository declares none. Its risk does track diff size.
+
+# merge (optional): who merges into the default branch. `human`, or
+# `repository:<check>` when the repository merges on its own rule — GitHub
+# auto-merge behind a required status check — naming the check it merges on. A
+# bare `repository` is refused: "no person reviews this" is only honest beside
+# what replaced the person. This is not a permission. The agent never merges
+# whatever this says; `authorize:` has no `merge` entry and should not gain one.
+# Keel reads this claim and never GitHub, so it cannot verify auto-merge or
+# branch protection is actually on — it reports what the owner declared.
+# Undeclared here: this repository has not turned auto-merge on (#155).

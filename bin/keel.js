@@ -50,6 +50,7 @@ const {
   readStandingAuthorization,
   readFullModePaths,
   readExecutorTier,
+  readMergeDeclaration,
   fullModePathsUnreadableMessage,
   readTriagePolicy,
   triageIssue,
@@ -1733,6 +1734,7 @@ function runDoctor(options) {
   printTriageSurface(repo);
   printRoutingSurface(repo);
   printExecutorTierSurface(repo);
+  printMergeSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
 
@@ -1860,6 +1862,29 @@ function printRoutingSurface(repo) {
 // Reported whether or not it is declared, because the default is the state a
 // reader most needs to see: a repository that declared nothing is loading every
 // skill's guidance and has no other surface that says so.
+// Reported whether or not it is declared: the doctor is where a reader goes to
+// learn what is and is not declared, and "undeclared" is itself the answer to
+// "does anything here claim merges are reviewed".
+function printMergeSurface(repo) {
+  process.stdout.write("\nMerge:\n");
+  const merge = readMergeDeclaration(repo);
+  if (!merge.declared) {
+    printDoctorLine("merge", "undeclared", "nothing here claims how merges happen");
+    return;
+  }
+  if (merge.unknown.length > 0) {
+    printDoctorLine("merge", "unreadable", merge.message);
+    return;
+  }
+  printDoctorLine(
+    "merge",
+    merge.kind === "repository" ? `repository:${merge.check}` : merge.kind,
+    merge.kind === "repository"
+      ? `declared in keel/config.yaml - the default branch merges when ${merge.check} passes, with no human review; the agent still never merges`
+      : "declared in keel/config.yaml - a person merges"
+  );
+}
+
 function printExecutorTierSurface(repo) {
   process.stdout.write("\nExecutor tier:\n");
   const { declared, tier, unknown, message } = readExecutorTier(repo);
