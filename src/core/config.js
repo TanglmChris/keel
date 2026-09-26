@@ -82,6 +82,7 @@ const CONFIG_DECLARATIONS = [
   "delegation",
   "full_mode_paths",
   "executor_tier",
+  "merge",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -452,6 +453,43 @@ function executorTierUnreadableMessage(value, accepted) {
   );
 }
 
+// Who merges into the default branch. Not an `authorize:` entry: that list says
+// what the *agent* may do without asking, and merging stays out of it — both the
+// host's classifier and this protocol refuse an agent merge. This key describes
+// the repository instead. Once a repository merges on its own rule, "the agent
+// may not merge" is literally true and misleading, because a reader concludes a
+// person looked at every change (#155). Keel reads the claim and never GitHub:
+// it stays local and offline, so the declaration is the owner's statement,
+// reported where Review can see it.
+function readMergeDeclaration(repo) {
+  const declared = configScalar(repo, "merge");
+  if (!declared) return { declared: false, kind: null, check: null, unknown: [] };
+  if (declared === "human") {
+    return { declared: true, kind: "human", check: null, unknown: [] };
+  }
+  const scoped = declared.match(/^repository:(\S+)$/);
+  if (scoped) {
+    return { declared: true, kind: "repository", check: scoped[1], unknown: [] };
+  }
+  // A bare `repository` is refused like a bare `issue`: "no person reviews this"
+  // without naming what does is the claim that misleads most. An unreadable value
+  // claims nothing — neither human review nor its absence.
+  return {
+    declared: true,
+    kind: null,
+    check: null,
+    unknown: [declared],
+    message:
+      `keel/config.yaml declares merge: ${declared}, which is not one of `
+      + "human, repository:<check>; nothing is claimed about how merges happen "
+      + "until it is corrected"
+      + (declared === "repository"
+        ? " — name the required check the repository merges on, because a claim "
+          + "that no person reviews is only honest beside what replaced them"
+        : ""),
+  };
+}
+
 function configScalar(repo, key) {
   const configPath = path.join(repo, "keel", "config.yaml");
   if (!fs.existsSync(configPath)) return null;
@@ -607,6 +645,7 @@ module.exports = {
   fullModePathsUnreadableMessage,
   readDelegationPolicy,
   readExecutorTier,
+  readMergeDeclaration,
   executorTierUnreadableMessage,
   readPrecedentStore,
   readStandingAuthorization,

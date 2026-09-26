@@ -16,6 +16,7 @@ const {
   readFullModePaths,
   fullModePathsUnreadableMessage,
   readExecutorTier,
+  readMergeDeclaration,
 } = require("./config");
 
 const NEXT_ACTIONS = new Set([
@@ -701,6 +702,12 @@ function resolveContext(repo, options) {
   // the default is the one a reader most needs to see, because a repository
   // that declared nothing is loading guidance it may not want and has no other
   // surface that would tell it so.
+  // Reported only when declared, like `full_mode_paths`: an absent declaration
+  // changes nothing, and Keel cannot know how an undeclared repository merges,
+  // so it must not print a line that implies it does.
+  const merge = readMergeDeclaration(repo);
+  if (merge.declared && merge.unknown.length === 0) context.merge = merge;
+  if (merge.unknown.length > 0) context.warnings.push(merge.message);
   const executor = readExecutorTier(repo);
   context.executorTier = executor.tier;
   if (executor.unknown.length > 0) context.warnings.push(executor.message);
@@ -756,6 +763,14 @@ function renderContext(result) {
   }
   for (const entry of result.routing || []) {
     lines.push(`Routing: ${entry.path} always routes Full — ${entry.reason}`);
+  }
+  if (result.merge) {
+    lines.push(
+      result.merge.kind === "repository"
+        ? `Merge: repository — the default branch merges when ${result.merge.check} `
+          + "passes; no human reviews before merge, so that check is the last gate"
+        : `Merge: ${result.merge.kind} — a person merges into the default branch`
+    );
   }
   if (result.executorTier) {
     lines.push(

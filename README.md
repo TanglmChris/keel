@@ -268,6 +268,25 @@ material choice, every gate still runs, and the write guard still binds. In part
 each step decidable with authority. And a run that stops at a real decision has ended the way it was
 designed to — resist widening the policy until it stops happening.
 
+### Who merges
+
+Keel never lets the agent merge — an unattended run opens a pull request and stops. A repository can
+still merge without a person, on a rule of its own: GitHub auto-merge behind a required status check.
+If yours does, say so:
+
+```yaml
+merge: repository:full-gate
+```
+
+`keel context` then reports that the default branch merges when `full-gate` passes and that **no human
+reviews before merge**. Without it, a reader of your protocol concludes a person looked at every change,
+because the only thing the protocol says about merging is that the agent may not.
+
+`merge: human` says the opposite. A bare `repository` is refused — "nobody reviews this" is only honest
+beside what replaced the reviewer. It is not a permission: `authorize:` has no `merge` entry and should
+not gain one. Keel reads the declaration and never GitHub, so it cannot check that auto-merge is really
+on; it reports what you declared.
+
 ### Full vs Lite
 
 Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
