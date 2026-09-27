@@ -68,7 +68,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 The install instructions say project setup turns on plugin auto-update
+- [x] 1.2 The install instructions say project setup turns on plugin auto-update
   - Covers:
     - E2
   - Read:
@@ -88,10 +88,18 @@
   - Stop Rules:
     - Stop if the prose would have to claim the host is observed to update, because Keel reports only the declaration.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:dc9e9f86f6e435c77d6a07ff9bf9e3c0d6967e4659fc81504046503f407a0631
+    - M1: `README.md` `## Install` now says four things:
+      - `keel --init --target claude` and `keel --install` declare auto-update for `keel-marketplace` in the project's `.claude/settings.json`, which Claude reads before its own default of off;
+      - a release is fetched in the background after a session's first message, and applies after `/reload-plugins` or at the next start;
+      - to opt out, set the entry's `autoUpdate` to `false`, which Keel keeps;
+      - `keel --doctor` reports which value is declared.
+    - M2: `README.zh-CN.md` `## 安装` states the same, in Chinese.
+    - Review:
+      - Status: pass
+      - Acceptance check: the prose names the declaration and its effect as the host documents it. It does not claim that Keel observes updates happening, so the Stop Rule held, and the doctor wording in 1.1 draws the same line. It replaces the 5.74.0 sentence I1 names, keeping the reload guidance that stays true.
+      - Scope check: `git status --short` shows `README.md` and `README.zh-CN.md`, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
