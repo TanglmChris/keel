@@ -8,12 +8,12 @@ Define how a repository declares standing authorization for named repository act
 Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` naming repository
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
-`issue` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`issue`, `protocol-refresh` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
 resource it may reach, and MUST be refused in its bare form. `issue` is such an action: the
 credentials that open one are account-wide, while `commit`, `push`, `release`, and `archive` are
-bounded by the checkout the declaration sits in. Accepting a bare `issue` would make the narrow
+bounded by the checkout the declaration sits in, and so is `protocol-refresh`. Accepting a bare `issue` would make the narrow
 form optional and the wide one the default, so the bare entry MUST be reported with the required
 form rather than granted.
 
@@ -29,8 +29,8 @@ diagnostic call.
 #### Scenario: A declared action is authorized for the whole repository
 - **WHEN** `keel/config.yaml` declares `authorize:` listing `commit` and `push`
 - **THEN** Keel resolves `commit` and `push` as standing-authorized for that repository
-- **AND THEN** `release`, `archive`, `continuation`, and `issue` remain unauthorized because they
-  were not listed
+- **AND THEN** `release`, `archive`, `continuation`, `issue`, and `protocol-refresh` remain
+  unauthorized because they were not listed
 
 #### Scenario: No declaration preserves current behavior
 - **WHEN** `keel/config.yaml` is absent, or declares no `authorize:` block, or declares an empty one
@@ -178,3 +178,15 @@ the network would trade the local, offline, deterministic evaluation the verdict
 - **THEN** Keel accepts it on its shape and performs no network call to confirm it
 - **AND THEN** an entry whose shape is wrong is still refused, so the check is on the form rather
   than on nothing
+
+### Requirement: A protocol-refresh authorization covers refreshing an older managed protocol
+
+`protocol-refresh` MUST be an accepted `authorize:` name that takes no scope. It MUST cover exactly one action: running the refresh `keel context` names while it reports the repository's managed protocol as older than the running Keel. It MUST NOT cover committing the result, and it MUST NOT cover a refresh while a task's write guard is active. Like every standing authorization, it MUST remove only the confirmation.
+
+#### Scenario: The name is accepted and reported
+- **WHEN** `keel/config.yaml` declares `authorize:` listing `protocol-refresh`
+- **THEN** the declaration is read without error, and `keel --doctor` reports `protocol-refresh` as authorized
+
+#### Scenario: Other names stay unauthorized
+- **WHEN** only `protocol-refresh` is declared
+- **THEN** `commit`, `push`, `release`, `archive`, `continuation`, and `issue` remain unauthorized

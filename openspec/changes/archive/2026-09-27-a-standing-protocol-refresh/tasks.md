@@ -112,7 +112,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release
+- [x] 2.1 Release
   - Covers:
     - E1
   - Read:
@@ -153,10 +153,14 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:a61bd3fb7d51350ba332508ed4992fc9ea3044081c6f220a0b130559f6109600
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.75.0 to 5.76.0. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.76.0 section written into the stub. The Stop Rule held.
+    - M2: pass. In `keel-standing-authorization`, the vocabulary requirement is MODIFIED to seven names and the `protocol-refresh` requirement is ADDED. In `keel-stateless-continuity`, the context requirement is ADDED. `node node_modules/.bin/openspec validate a-standing-protocol-refresh --strict` reports the change valid, `openspec validate --specs --strict` reports `26 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 187 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the 5.76.0 entry records the two design corrections the work forced: the Codex target is recognized by absence, and the bootstrap carries no copy of the rule. Both were measured, not assumed. It also says plainly what is left to a human: committing the refreshed block. This repository does not declare `protocol-refresh`, because as Keel's source it never gets a `Protocol:` line. Declaring it would authorize nothing.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and both promoted specs, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
