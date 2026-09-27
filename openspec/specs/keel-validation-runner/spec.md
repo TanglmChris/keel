@@ -1,7 +1,7 @@
 # keel-validation-runner Specification
 
 ## Purpose
-TBD - created by archiving change consolidate-and-parallelize-validation-runner. Update Purpose after archive.
+Define how Keel validates itself: one scenario registry behind every entry point, a parallel, deterministic, fail-loud full run that also gates CI on a clean runner, resident text checked as topics rather than prose, derived assertion sets that fail when they collapse to empty, and a suite that never writes to the repository it validates.
 ## Requirements
 ### Requirement: One scenario registry drives all validation entry points
 

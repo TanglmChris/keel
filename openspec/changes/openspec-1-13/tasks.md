@@ -64,7 +64,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Six specs get a real Purpose, and the protocol says where 1.13 puts Codex's workflows
+- [x] 1.2 Six specs get a real Purpose, and the protocol says where 1.13 puts Codex's workflows
   - Covers:
     - D5
     - D6
@@ -95,12 +95,16 @@
   - Stop Rules:
     - Stop if a spec still fails for a reason other than its Purpose, because that is a requirement change rather than a missing sentence.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:7158d58702d8aafdd6ab0ed848e6975aba1917c1e1eb1440489751708c8bfa7f
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` reports `26 published specs validate strictly against openspec 1.13.2`.
+    - M1.red: fail, for the declared reason. With the 1.13.2 pin from 1.1 it reported `published-specs-validate-strictly 6 published spec(s) fail strict validation against openspec 1.13.2. …`, listing `keel-native-plugin-package`, `keel-single-task-goal-execution`, and the other four. Carries the declared signature `published spec(s) fail strict validation`.
+    - M1.green: pass. Same command after each of the six `## Purpose` placeholders (`TBD - created by archiving change …`) was replaced with a statement of what the capability is for, drawn from its requirements, directly in the main spec. The Stop Rule held: no spec failed for any reason other than its Purpose.
+    - M2: pass. `npm test` reports `validation --all passed: baseline plus 188 scenarios, 1 skipped: output-survives-the-pipe.` `AGENTS.md`'s runtime command-surface line now names `.agents/skills/openspec-*` under the pinned 1.13, and keeps `CODEX_HOME/prompts` for a repository set up under 1.6.
+    - Review:
+      - Status: pass
+      - Acceptance check: each Purpose restates that spec's own requirement list and adds no new obligation, so none moves a requirement. The six were placeholders for months because the pinned 1.6.0 only informed about them; moving the pin is what made them count.
+      - Scope check: `git status --short` shows the six specs and `AGENTS.md`, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 

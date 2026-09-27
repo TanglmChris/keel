@@ -1,7 +1,7 @@
 # keel-single-task-goal-execution Specification
 
 ## Purpose
-TBD - created by archiving change native-single-task-goal-execution. Update Purpose after archive.
+Define how one authorized OpenSpec task runs as a single native goal on Codex or Claude: explicit, fingerprinted activation, a goal projected from the task capsule, the current agent keeping sole write authority and completion, execution by the task's verification strategy, and a stop at the task boundary or at any failure or scope limit.
 ## Requirements
 ### Requirement: Single-task goal activation is explicit and fingerprinted
 Keel MUST activate native goal execution only for one explicitly selected OpenSpec task whose `task-start` gate passes, and MUST bind the authorization to that task's capsule fingerprint.

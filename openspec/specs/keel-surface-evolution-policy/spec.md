@@ -1,7 +1,7 @@
 # keel-surface-evolution-policy Specification
 
 ## Purpose
-TBD - created by archiving change define-surface-evolution-evidence-policy. Update Purpose after archive.
+Define when Keel cedes a surface to its host or integrates a host-native one: a cede is grounded in first-party coverage evidence, an integration needs recorded design authority, and native target capability is never a goal in its own right.
 ## Requirements
 ### Requirement: Surface cede decisions are grounded in first-party coverage evidence
 

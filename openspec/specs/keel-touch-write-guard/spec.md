@@ -1,7 +1,7 @@
 # keel-touch-write-guard Specification
 
 ## Purpose
-TBD - created by archiving change enforce-touch-write-guard. Update Purpose after archive.
+Define the write guard that holds file edits to a task's declared Touch: deterministic denial outside it, fail-closed behavior on any manifest fault, a lifecycle bounded by one fingerprinted task that a passing task-start begins by default, an ignorable local manifest, and capability reported only from observed evidence.
 ## Requirements
 ### Requirement: Guarded write tools outside Touch are denied deterministically
 While a valid guard manifest is active on the Claude target, Keel MUST deny `Edit`, `Write`, and `NotebookEdit` tool calls whose resolved target path lies inside the repository and falls outside the manifest's normalized Touch list, and MUST allow calls inside the list without modifying their inputs. A target outside the repository is out of the guard's scope and is governed by the repository-scope requirement instead. The guarded change's own `openspec/changes/<change>/` directory MUST additionally be writable without being declared in Touch, because it holds the records the task produces rather than the product it changes, and because the completion gate already refuses to attribute it as an outside-Touch failure. The guard and the completion gate MUST agree on that boundary.
