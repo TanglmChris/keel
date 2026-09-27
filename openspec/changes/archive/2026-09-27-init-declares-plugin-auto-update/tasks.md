@@ -105,7 +105,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release, and declare auto-update in this repository
+- [x] 2.1 Release, and declare auto-update in this repository
   - Covers:
     - E1
     - E3
@@ -148,11 +148,15 @@
   - Stop Rules:
     - Stop if `keel --install` on this repository changes any file outside this task's Touch.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:dff3bd7d6d97ac762e25a5602a7f2ff687d25f3030d5e03ac9c1c969bc7e83d1
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.74.0 to 5.75.0. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.75.0 section written into the stub.
+    - M2: pass. `node bin/keel.js --install --target claude` on this repository printed `update .claude/settings.json`, and the file now holds its `permissions.allow` list unchanged beside `extraKnownMarketplaces.keel-marketplace = {"source": {"source": "github", "repo": "TanglmChris/keel"}, "autoUpdate": true}`. `node bin/keel.js --doctor` reports `plugin auto-update: ok - .claude/settings.json declares keel-marketplace autoUpdate: true; …`. The Stop Rule held: apart from the bump's own markers, the install changed only `.claude/settings.json`, and the OpenSpec overlay reported `refreshed=0 current=8`.
+    - M3: pass. The ADDED requirement is promoted into `openspec/specs/keel-native-plugin-package/spec.md`. `node node_modules/.bin/openspec validate init-declares-plugin-auto-update --strict` reports the change valid, `openspec validate --specs --strict` reports `26 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 186 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: this repository is the first project to carry the declaration, written by the shipped installer rather than by hand, so what ships is also what this repository runs. The 5.75.0 entry says that Keel reports the declaration and cannot observe the update itself, because that is the one thing a reader could otherwise over-read.
+      - Scope check: `git status --short` shows the version markers, `.claude/settings.json`, `keel/CHANGELOG.md`, and the promoted spec, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
