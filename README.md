@@ -55,8 +55,12 @@ claude plugin marketplace add TanglmChris/keel
 claude plugin install keel@keel-marketplace
 ```
 
-After an update, `/reload-plugins` applies it in the running session; otherwise it applies at the
-next start.
+Updates arrive by themselves once a project is set up: `keel --init --target claude` (and
+`keel --install`) declares auto-update for `keel-marketplace` in the project's
+`.claude/settings.json`, which Claude reads before its own default of off. A new release is fetched
+in the background after a session's first message; `/reload-plugins` applies it in the running
+session, and otherwise it applies at the next start. To opt out, set that entry's `autoUpdate` to
+`false`; Keel keeps a value the project states, and `keel --doctor` reports which one is declared.
 
 **Codex, and your own terminal** — install the CLI as well (it also installs the bundled
 OpenSpec CLI):

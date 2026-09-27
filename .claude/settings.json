@@ -9,5 +9,14 @@
       "Bash(keel:*)",
       "Bash(openspec:*)"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "keel-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "TanglmChris/keel"
+      },
+      "autoUpdate": true
+    }
   }
 }

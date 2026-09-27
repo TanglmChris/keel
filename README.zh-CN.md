@@ -46,7 +46,10 @@ claude plugin marketplace add TanglmChris/keel
 claude plugin install keel@keel-marketplace
 ```
 
-更新之后，在当前会话执行 `/reload-plugins` 即可生效；不执行的话，下次启动时生效。
+项目初始化后，更新会自己到来：`keel --init --target claude`（以及 `keel --install`）会在项目的
+`.claude/settings.json` 里为 `keel-marketplace` 声明自动更新，Claude 先读这个声明，而不是它默认的"关闭"。
+新版本会在会话发出第一条消息后在后台下载；执行 `/reload-plugins` 即在当前会话生效，否则下次启动时生效。
+不想自动更新，就把那一项的 `autoUpdate` 设为 `false`；项目写明的值 Keel 会保留，`keel --doctor` 会报告当前声明的是哪一个。
 
 **Codex，以及你自己的终端** —— 另外装一份 CLI（同时装上捆绑的 OpenSpec CLI）：
 

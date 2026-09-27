@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.75.0 - project setup turns on plugin auto-update
+
+Since 5.74.0 one plugin update brings the CLI too, but the update still waited for someone to start it. Claude Code auto-updates plugins only from marketplaces with auto-update on, and that defaults to off for every marketplace that is not Anthropic's own. A marketplace author cannot change that default, so each user had to find the toggle. Change 2 of #164.
+
+- **`keel --init` and `keel --install` declare it.** On the Claude target they merge an `extraKnownMarketplaces.keel-marketplace` entry, with the Keel repository as source and `autoUpdate: true`, into the project's `.claude/settings.json`. Claude reads that before its own default. A release is then fetched in the background after a session's first message, and applies after `/reload-plugins` or at the next start. (keel-native-plugin-package)
+- **The project keeps its say.** Every other setting is kept. An existing entry keeps its own source, for instance a developer's local directory, and a stated `autoUpdate: false` is never overwritten. Running install again changes nothing. `keel --uninstall` removes the entry only when it is exactly Keel's, and removes the file only if nothing else was left in it.
+- **Doctor reports the declaration, not the behavior.** A `plugin auto-update` line reports one of three states: `ok` when declared on; `manual` when the project declared it off; `manual` when nothing is declared, naming the command that declares it. The host's `marketplace list --json` carries no auto-update state, so Keel cannot observe whether updates actually run, and the line says so.
+- This repository now declares it too: `keel --install --target claude` added the entry beside its `permissions`.
+- Still open on #164: a standing authorization for the agent to refresh the managed protocol block.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.75.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.74.0 - the plugin is the published package
 
 On Claude Code, a Keel release used to arrive in two parts. The CLI came through npm and the plugin through the marketplace, each with its own update command, and the drift line then said to restart. On 2026-09-27 a restart after 5.73.1 still showed plugin 5.72.0, CLI 5.72.0, and protocol 5.73.1, and it took three commands and a second restart to line them up. The owner asked for updates the user does not notice (#164). This release removes the second part on Claude.

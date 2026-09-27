@@ -755,6 +755,46 @@ function openspecReportedVersion(command) {
   return match ? match[0] : null;
 }
 
+// What the project declares about Keel plugin auto-update (#164). Claude reads
+// it first from `autoUpdate` on the marketplace's `extraKnownMarketplaces`
+// entry, and `keel --install --target claude` writes it. The host reports no
+// auto-update state Keel could read, so this is the declaration only; whether
+// updates actually arrive is the host's to show.
+function pluginAutoUpdateDeclaration(repo) {
+  const settingsPath = path.join(repo, ".claude", "settings.json");
+  const observation =
+    "Keel reads the declaration; the host does not expose whether updates run";
+  let entry;
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    entry = ((settings && settings.extraKnownMarketplaces) || {})[
+      "keel-marketplace"
+    ];
+  } catch {
+    entry = undefined;
+  }
+  if (entry && entry.autoUpdate === true) {
+    return [
+      "ok",
+      `.claude/settings.json declares keel-marketplace autoUpdate: true; ${observation}`,
+    ];
+  }
+  if (entry && entry.autoUpdate === false) {
+    return [
+      "manual",
+      ".claude/settings.json declares keel-marketplace autoUpdate: false, "
+        + "which is the project's choice; updates arrive only through "
+        + "`claude plugin update`",
+    ];
+  }
+  return [
+    "manual",
+    "not declared, so Claude leaves auto-update off for this marketplace; "
+      + "run keel --install --target claude, or enable it under /plugin → "
+      + "Marketplaces",
+  ];
+}
+
 // The root is the repository under diagnosis, never PACKAGE_ROOT. Rooting this
 // at Keel's own install location made the line a statement about a repository
 // the reader was never shown: a consumer pinning 9.9.9 was told the version
@@ -1572,6 +1612,10 @@ function printTargetSurface(repo, target) {
             : "claude plugin install keel@<marketplace>"
         } and verify in a fresh session`
     );
+    if (target === "claude") {
+      const [status, detail] = pluginAutoUpdateDeclaration(repo);
+      printDoctorLine("plugin auto-update", status, detail);
+    }
   }
 
   const openspecSkillRoot = openspecSkillRootForTarget(target);
