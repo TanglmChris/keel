@@ -741,9 +741,10 @@ function stampedProtocol(repo) {
 
 // The target the installer left behind. `CLAUDE.md` carries the managed
 // import only on the Claude target, and only OpenCode writes project commands
-// under `.opencode/`. A Codex install writes neither — its OpenSpec commands
-// are global prompts under CODEX_HOME — so a managed `AGENTS.md` with neither
-// surface beside it is what a Codex install leaves.
+// under `.opencode/`. A Codex install writes neither: OpenSpec 1.13 puts its
+// skills under `.agents/skills`, and 1.6 put its commands in CODEX_HOME, so a
+// managed `AGENTS.md` with neither surface beside it is what a Codex install
+// leaves.
 function installedTarget(repo) {
   try {
     if (/<!--\s*keel:start/.test(fs.readFileSync(path.join(repo, "CLAUDE.md"), "utf8"))) {

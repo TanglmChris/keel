@@ -1277,9 +1277,34 @@ function skillRootForTarget(target) {
   return path.join(".opencode", "skills");
 }
 
-function openspecSkillRootForTarget(target) {
+// Which OpenSpec layout a Codex repository carries (#169). OpenSpec 1.6 wrote
+// Codex's skills under `.codex/skills` and its commands as prompts in
+// CODEX_HOME; 1.13, which Keel pins, writes skills under `.agents/skills` and
+// no command files. A repository set up under 1.6 keeps its layout, and every
+// other one — a fresh repository included — gets the one the pin writes.
+function codexOpenSpecLayout(repo) {
+  const holdsOpenSpec = (root) => {
+    try {
+      return fs
+        .readdirSync(path.join(repo, root))
+        .some((entry) => entry.startsWith("openspec-"));
+    } catch {
+      return false;
+    }
+  };
+  return holdsOpenSpec(path.join(".codex", "skills"))
+    && !holdsOpenSpec(path.join(".agents", "skills"))
+    ? "legacy"
+    : "agents";
+}
+
+function openspecSkillRootForTarget(target, repo) {
   if (target === "claude") return path.join(".claude", "skills");
-  if (target === "codex") return path.join(".codex", "skills");
+  if (target === "codex") {
+    return codexOpenSpecLayout(repo) === "legacy"
+      ? path.join(".codex", "skills")
+      : path.join(".agents", "skills");
+  }
   return path.join(".opencode", "skills");
 }
 
@@ -1292,6 +1317,16 @@ function commandSurfaceForTarget(target, repo) {
         path.join(repo, location, `${id}.md`)
       ),
       remediation: "run keel --init --target claude or openspec update --force",
+    };
+  }
+  if (target === "codex" && codexOpenSpecLayout(repo) === "agents") {
+    // OpenSpec 1.13 surfaces Codex's workflows as the skills counted on the
+    // line above and writes no command file, so there is nothing to count here.
+    return {
+      location: path.join(".agents", "skills"),
+      paths: [],
+      remediation: "run keel --init --target codex or openspec update --force",
+      skillsOnly: true,
     };
   }
   if (target === "codex") {
@@ -1320,13 +1355,15 @@ function commandPathForAction(target, repo, action) {
     return path.join(repo, ".claude", "commands", "opsx", `${action}.md`);
   }
   if (target === "codex") {
-    return path.join(codexHome(), "prompts", `opsx-${action}.md`);
+    return codexOpenSpecLayout(repo) === "legacy"
+      ? path.join(codexHome(), "prompts", `opsx-${action}.md`)
+      : null;
   }
   return path.join(repo, ".opencode", "commands", `opsx-${action}.md`);
 }
 
 function openspecOverlaySurfacesForTarget(target, repo) {
-  const skillRoot = openspecSkillRootForTarget(target);
+  const skillRoot = openspecSkillRootForTarget(target, repo);
   return OPENSPEC_OVERLAY_ACTIONS.flatMap((action) => {
     if (action === "propose" && target === "opencode") {
       return [];
@@ -1346,7 +1383,7 @@ function openspecOverlaySurfacesForTarget(target, repo) {
         action,
         path: commandPathForAction(target, repo, action),
       },
-    ];
+    ].filter((surface) => surface.path !== null);
   });
 }
 
@@ -1699,7 +1736,7 @@ function printTargetSurface(repo, target) {
     }
   }
 
-  const openspecSkillRoot = openspecSkillRootForTarget(target);
+  const openspecSkillRoot = openspecSkillRootForTarget(target, repo);
   const openspecSkillPaths = OPENSPEC_SKILLS.map((skill) =>
     path.join(repo, openspecSkillRoot, skill, "SKILL.md")
   );
@@ -1722,16 +1759,25 @@ function printTargetSurface(repo, target) {
   );
 
   const commands = commandSurfaceForTarget(target, repo);
-  const commandCounts = countExisting(commands.paths);
-  const commandDetail =
-    surfaceStatus(commandCounts) === "ok"
-      ? formatCount(commandCounts, commands.location)
-      : `${formatCount(commandCounts, commands.location)}; ${commands.remediation}`;
-  printDoctorLine(
-    "OpenSpec commands",
-    surfaceStatus(commandCounts),
-    commandDetail
-  );
+  if (commands.skillsOnly) {
+    printDoctorLine(
+      "OpenSpec commands",
+      "ok",
+      `none; OpenSpec 1.13 surfaces Codex's workflows as the skills under `
+        + `${commands.location}`
+    );
+  } else {
+    const commandCounts = countExisting(commands.paths);
+    const commandDetail =
+      surfaceStatus(commandCounts) === "ok"
+        ? formatCount(commandCounts, commands.location)
+        : `${formatCount(commandCounts, commands.location)}; ${commands.remediation}`;
+    printDoctorLine(
+      "OpenSpec commands",
+      surfaceStatus(commandCounts),
+      commandDetail
+    );
+  }
 
   const overlayPaths = openspecOverlaySurfacesForTarget(target, repo).map(
     (surface) => surface.path
