@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.78.0 - Keel runs OpenSpec 1.13
+
+Since 5.74.0 Keel's published shrinkwrap had pinned OpenSpec 1.6.0 (released 2026-07-10) for every install, while consumers had been running 1.13.2 (2026-09-23). 5.77.0 stopped `keel --init` from downgrading their surfaces, and this release moves Keel itself forward (#169).
+
+- **OpenSpec 1.13.2 is pinned.** `npm-shrinkwrap.json` resolves it, and the declared range stays `^1.4.1`. In a repository whose surfaces 1.13.2 wrote, doctor's `OpenSpec surfaces` line is now `ok`.
+- **Codex surfaces follow the layout the repository carries.** OpenSpec 1.13 writes Codex's workflows as project-local skills under `.agents/skills/openspec-*`, with no `.codex/skills` and no `CODEX_HOME` prompts. Keel's overlay refresh, uninstall, and doctor now use that layout, except in a repository whose OpenSpec skills sit only under `.codex/skills`. That is a 1.6-era setup, and it keeps exactly its old behavior, prompts included. Doctor's Codex command line reads `none; OpenSpec 1.13 surfaces Codex's workflows as the skills under .agents/skills` rather than counting files that are never written. (keel-openspec-surface-overlay)
+- **Six specs got the Purpose they never had.** They still read `TBD - created by archiving change …`. The pinned 1.6.0 only informed about that; 1.13.2's strict validation refuses it, and a spec the validator Keel ships refuses is one every consumer sees refused.
+- `AGENTS.md`'s runtime command-surface line names `.agents/skills` for Codex under 1.13, and keeps `CODEX_HOME/prompts` for a 1.6-era repository.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.78.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.77.0 - init never downgrades OpenSpec
 
 A regression from 5.74.0, reported from a consumer repository on 2026-09-27 (#168). `keel --init` runs `openspec init --force` and `openspec update --force` with the OpenSpec Keel resolves. Since 5.74.0 the published `npm-shrinkwrap.json` pins that OpenSpec to 1.6.0 for every install, and consumers had been resolving `^1.4.1` to the newest 1.x, 1.13.2. So `keel --init` there rewrote ten OpenSpec skill and command files with 1.6.0 templates and deleted about 1000 lines, while doctor still said `openspec: ok`. The agent in that repository restored them by hand.

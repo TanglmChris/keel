@@ -110,7 +110,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release
+- [x] 2.1 Release
   - Covers:
     - E1
   - Read:
@@ -151,11 +151,15 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:dab4c27ca7aa8667adb556ce83ebcbc4e22f36e72601f3dc4f4220ac041b56fe
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.77.0 to 5.78.0. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.78.0 section written into the stub. The Stop Rule held.
+    - M2: pass. Running `node bin/keel.js --doctor` from inside `rtl_ppa_prj` printed `openspec: ok - …/keel/node_modules/.bin/openspec (1.13.2, …)` and `OpenSpec surfaces: ok - written by OpenSpec 1.13.2; Keel runs 1.13.2`. A `shasum` of `git -C rtl_ppa_prj status --porcelain` taken before and after is identical.
+    - M3: pass. The ADDED requirement is promoted into `openspec/specs/keel-openspec-surface-overlay/spec.md`. `node node_modules/.bin/openspec validate openspec-1-13 --strict` reports the change valid, `openspec validate --specs --strict` (1.13.2) reports `26 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 188 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the warning 5.77.0 left in the affected repository is gone. It was not suppressed: Keel now runs the OpenSpec that wrote that repository's surfaces. The repository was read, not written.
+      - Scope check: `git status --short` shows the version markers, `npm-shrinkwrap.json`, `keel/CHANGELOG.md`, and the promoted spec, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
