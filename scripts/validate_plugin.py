@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.75.0"
-PROTOCOL_VERSION = "5.75.0"
+PACKAGE_VERSION = "5.76.0"
+PROTOCOL_VERSION = "5.76.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -16222,6 +16222,121 @@ def validate_init_declares_plugin_auto_update_scenario() -> int:
     return 0
 
 
+# Issue #164: the managed protocol block is the one piece of a release that a
+# plugin update cannot carry, so `keel context` names its refresh, and a
+# standing `protocol-refresh` lets the agent run it without asking.
+PROTOCOL_REFRESH_LABEL = "context-names-the-protocol-refresh"
+
+
+def _installed_repo(tmp: Path, name: str, target: str, stamp: str) -> Path:
+    repo = tmp / name
+    repo.mkdir()
+    installed = run_keel(repo, "--install", "--target", target)
+    if installed.returncode != 0:
+        raise RuntimeError((installed.stderr or installed.stdout).strip())
+    agents = repo / "AGENTS.md"
+    text = agents.read_text(encoding="utf-8")
+    agents.write_text(
+        re.sub(r"<!-- keel:start version=[0-9.]+ -->", f"<!-- keel:start version={stamp} -->", text, count=1),
+        encoding="utf-8",
+    )
+    return repo
+
+
+def _protocol_lines(repo: Path) -> list[str]:
+    result = run_keel(repo, "context")
+    return [line for line in (result.stdout or "").splitlines() if line.startswith("Protocol:")]
+
+
+def _protocol_json(repo: Path):
+    result = run_keel(repo, "context", "--json")
+    try:
+        return json.loads(result.stdout).get("protocol")
+    except ValueError:
+        return "unparseable"
+
+
+def _protocol_refresh_m1(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "older", "claude", "5.0.0")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1:
+        return f"M1 context printed no Protocol line for a 5.0.0 stamp under Keel {PACKAGE_VERSION}: {lines!r}"
+    line = lines[0]
+    for needle in ("5.0.0", PACKAGE_VERSION, "keel --install --target claude", "ask"):
+        if needle not in line:
+            return f"M1 context printed no Protocol line carrying {needle!r}: {line!r}"
+    found = _protocol_json(repo)
+    if not isinstance(found, dict) or found.get("stamped") != "5.0.0":
+        return f"M1 context printed no Protocol line in its JSON result: protocol is {found!r}"
+    return None
+
+
+def _protocol_refresh_m2(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "authorized", "claude", "5.0.0")
+    write_text(repo / "keel/config.yaml", "authorize:\n  - protocol-refresh\n")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "standing-authorized" not in lines[0]:
+        return f"M2 context did not read protocol-refresh as authorized: {lines!r}"
+    doctor = run_keel(repo, "--doctor").stdout or ""
+    if "protocol-refresh: authorized" not in doctor or "commit: not authorized" not in doctor:
+        return (
+            "M2 doctor did not read protocol-refresh as authorized alone: "
+            + repr([l for l in doctor.splitlines() if "authoriz" in l])
+        )
+    return None
+
+
+def _protocol_refresh_m3(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "guarded", "claude", "5.0.0")
+    write_text(repo / "keel/config.yaml", "authorize:\n  - protocol-refresh\n")
+    write_text(repo / "keel/guard.json", "{}\n")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "deferred" not in lines[0] or "write guard" not in lines[0]:
+        return f"M3 the refresh was not deferred while a write guard is active: {lines!r}"
+    return None
+
+
+def _protocol_refresh_m4(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "newer", "claude", "99.0.0")
+    for where, target in (("a 99.0.0 stamp", repo), ("Keel's own source repository", ROOT)):
+        lines = _protocol_lines(target)
+        found = _protocol_json(target)
+        if lines or found is not None:
+            return (
+                f"M4 context offered a refresh for a protocol that is not older ({where}): "
+                f"{lines!r}, json {found!r}"
+            )
+    return None
+
+
+def _protocol_refresh_m5(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "codex", "codex", "5.0.0")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "keel --install --target codex" not in lines[0]:
+        return f"M5 context named the wrong target for a Codex repository: {lines!r}"
+    return None
+
+
+def validate_context_names_the_protocol_refresh_scenario() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="keel-protocol-refresh-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+        for check in (
+            _protocol_refresh_m1,
+            _protocol_refresh_m2,
+            _protocol_refresh_m3,
+            _protocol_refresh_m4,
+            _protocol_refresh_m5,
+        ):
+            problem = check(tmp)
+            if problem:
+                report(f"{PROTOCOL_REFRESH_LABEL} {problem}")
+                return 1
+    report(f"{PROTOCOL_REFRESH_LABEL} scenario passed.")
+    return 0
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -17925,6 +18040,7 @@ STANDING_AUTHORIZATION_ACTIONS = (
     "release",
     "archive",
     "continuation",
+    "protocol-refresh",
 )
 
 
@@ -20824,25 +20940,52 @@ def validate_continuation_docs_scenario() -> int:
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for needle in (
-        "accepted names: commit, push, release, archive, continuation, "
-        "issue:<owner>/<repo>",
         "next unchecked task of the same change",
         "the stop that re-asks for an approval already given",
-        "The six names above are the whole vocabulary.",
     ):
         if needle not in readme:
             report(f"{label}: README.md lacks: {needle}")
             return 1
+    # The seventh name (#164). Each surface that spells the vocabulary out has
+    # to spell all of it: a reader copies from the list they are shown.
+    for needle in (
+        "accepted names: commit, push, release, archive, continuation, "
+        "issue:<owner>/<repo>, protocol-refresh",
+        "The seven names above are the whole vocabulary.",
+        "`protocol-refresh`, the seventh name",
+    ):
+        if needle not in readme:
+            report(f"{label}: README.md lacks: protocol-refresh, as {needle!r}")
+            return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>" not in config_text:
+    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>, protocol-refresh" not in config_text:
         report(
-            f"{label}: keel/config.yaml's comment does not name the six-name "
-            "vocabulary."
+            f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
+            "seven-name vocabulary."
         )
         return 1
 
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    # M2 — the rule an agent follows when `keel context` names a refresh. The
+    # consumer bootstrap has no room for it (its byte budget is spent), and
+    # needs none: it opens with `keel context`, whose `Protocol:` line states
+    # the same rule in whichever state applies.
+    session = agents.split("## Session Start", 1)[-1].split("\n## ", 1)[0]
+    for needle in ("`protocol-refresh`", "write guard", "uncommitted"):
+        if needle not in session:
+            report(
+                f"{label}: AGENTS.md Session Start does not carry the "
+                f"protocol-refresh rule; it lacks {needle!r}."
+            )
+            return 1
+    bootstrap = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
+    if "Start every session with `keel context`" not in bootstrap:
+        report(
+            f"{label}: the bootstrap does not carry the protocol-refresh rule's "
+            "route to a consumer: it no longer opens with `keel context`."
+        )
+        return 1
     parts = agents.split("## Execution boundary", 1)
     if len(parts) != 2:
         report(f"{label}: AGENTS.md lost its Execution boundary section.")
@@ -31170,6 +31313,7 @@ SCENARIOS: tuple = (
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
+    ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),

@@ -1,5 +1,22 @@
 # Keel Changelog
 
+## 5.76.0 - a standing protocol refresh
+
+5.74.0 and 5.75.0 carry a Keel release to a Claude project's plugin and CLI with nobody acting. The one piece they cannot carry is the managed protocol block in each repository's `AGENTS.md`, which moves only when `keel --install` runs there. The agent already noticed a stale block, because `AGENTS.md` asks it to compare `keel context`'s `Keel:` line with the stamp, and then it had to stop and ask every time. The owner decided the agent should refresh it under a standing authorization and leave only the commit (#164, change 3 of 3).
+
+- **A seventh `authorize:` name, `protocol-refresh`.** It covers exactly one action: running the refresh `keel context` names while the repository's managed protocol is older than the running Keel. It takes no scope, because it acts on this checkout. It never covers committing what the refresh wrote. Like every name, it removes a confirmation and never a gate. `keel --doctor` lists it with the others. (keel-standing-authorization)
+- **`keel context` names the refresh.** When the stamp is strictly older, a `Protocol:` line gives both versions and the command, `keel --install --target <t>`, with the target inferred from what the installer left in the repository. The line ends in one of three states:
+  - standing-authorized: run it before other work and leave the diff for the owner to commit;
+  - not authorized: ask before running it;
+  - a task's write guard is active: deferred, because the refresh writes outside that task's `Touch`.
+
+  The JSON result carries the same fields as `protocol`. An equal or newer stamp prints nothing, because a newer stamp means the CLI is the stale side, which the SessionStart drift line reports. So does Keel's own source repository, whose `AGENTS.md` is authored rather than installed. `status`, `nextAction`, and selection never change. (keel-stateless-continuity)
+- **A Codex repository is recognized by what it lacks.** Measured while writing this: a Codex-target install writes no `.codex/` surface into the repository, because Codex's OpenSpec commands are global prompts. So the target is `claude` when `CLAUDE.md` carries the managed import, `opencode` when `.opencode/commands` exists, and `codex` otherwise.
+- **The rule lives where it is read.** `AGENTS.md` `## Session Start` states it. The consumer bootstrap does not, because its 1400-byte budget has 75 bytes left and the budget's own comment refuses compressing other bullets to make room. It needs no copy of the rule either: it opens with `keel context`, whose `Protocol:` line states the rule in whichever state applies.
+- An older Keel reading a declaration that lists `protocol-refresh` fails closed: the whole declaration authorizes nothing until it is corrected.
+- With this, #164's three changes are in. On Claude Code, a release reaches the plugin and its CLI by itself (5.74.0, 5.75.0), and the protocol block refreshes itself where the project declares `protocol-refresh`. The human act left is committing that diff.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.76.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.75.0 - project setup turns on plugin auto-update
 
 Since 5.74.0 one plugin update brings the CLI too, but the update still waited for someone to start it. Claude Code auto-updates plugins only from marketplaces with auto-update on, and that defaults to off for every marketplace that is not Anthropic's own. A marketplace author cannot change that default, so each user had to find the toggle. Change 2 of #164.
