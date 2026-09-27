@@ -16222,6 +16222,121 @@ def validate_init_declares_plugin_auto_update_scenario() -> int:
     return 0
 
 
+# Issue #164: the managed protocol block is the one piece of a release that a
+# plugin update cannot carry, so `keel context` names its refresh, and a
+# standing `protocol-refresh` lets the agent run it without asking.
+PROTOCOL_REFRESH_LABEL = "context-names-the-protocol-refresh"
+
+
+def _installed_repo(tmp: Path, name: str, target: str, stamp: str) -> Path:
+    repo = tmp / name
+    repo.mkdir()
+    installed = run_keel(repo, "--install", "--target", target)
+    if installed.returncode != 0:
+        raise RuntimeError((installed.stderr or installed.stdout).strip())
+    agents = repo / "AGENTS.md"
+    text = agents.read_text(encoding="utf-8")
+    agents.write_text(
+        re.sub(r"<!-- keel:start version=[0-9.]+ -->", f"<!-- keel:start version={stamp} -->", text, count=1),
+        encoding="utf-8",
+    )
+    return repo
+
+
+def _protocol_lines(repo: Path) -> list[str]:
+    result = run_keel(repo, "context")
+    return [line for line in (result.stdout or "").splitlines() if line.startswith("Protocol:")]
+
+
+def _protocol_json(repo: Path):
+    result = run_keel(repo, "context", "--json")
+    try:
+        return json.loads(result.stdout).get("protocol")
+    except ValueError:
+        return "unparseable"
+
+
+def _protocol_refresh_m1(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "older", "claude", "5.0.0")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1:
+        return f"M1 context printed no Protocol line for a 5.0.0 stamp under Keel {PACKAGE_VERSION}: {lines!r}"
+    line = lines[0]
+    for needle in ("5.0.0", PACKAGE_VERSION, "keel --install --target claude", "ask"):
+        if needle not in line:
+            return f"M1 context printed no Protocol line carrying {needle!r}: {line!r}"
+    found = _protocol_json(repo)
+    if not isinstance(found, dict) or found.get("stamped") != "5.0.0":
+        return f"M1 context printed no Protocol line in its JSON result: protocol is {found!r}"
+    return None
+
+
+def _protocol_refresh_m2(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "authorized", "claude", "5.0.0")
+    write_text(repo / "keel/config.yaml", "authorize:\n  - protocol-refresh\n")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "standing-authorized" not in lines[0]:
+        return f"M2 context did not read protocol-refresh as authorized: {lines!r}"
+    doctor = run_keel(repo, "--doctor").stdout or ""
+    if "protocol-refresh: authorized" not in doctor or "commit: not authorized" not in doctor:
+        return (
+            "M2 doctor did not read protocol-refresh as authorized alone: "
+            + repr([l for l in doctor.splitlines() if "authoriz" in l])
+        )
+    return None
+
+
+def _protocol_refresh_m3(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "guarded", "claude", "5.0.0")
+    write_text(repo / "keel/config.yaml", "authorize:\n  - protocol-refresh\n")
+    write_text(repo / "keel/guard.json", "{}\n")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "deferred" not in lines[0] or "write guard" not in lines[0]:
+        return f"M3 the refresh was not deferred while a write guard is active: {lines!r}"
+    return None
+
+
+def _protocol_refresh_m4(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "newer", "claude", "99.0.0")
+    for where, target in (("a 99.0.0 stamp", repo), ("Keel's own source repository", ROOT)):
+        lines = _protocol_lines(target)
+        found = _protocol_json(target)
+        if lines or found is not None:
+            return (
+                f"M4 context offered a refresh for a protocol that is not older ({where}): "
+                f"{lines!r}, json {found!r}"
+            )
+    return None
+
+
+def _protocol_refresh_m5(tmp: Path) -> str | None:
+    repo = _installed_repo(tmp, "codex", "codex", "5.0.0")
+    lines = _protocol_lines(repo)
+    if len(lines) != 1 or "keel --install --target codex" not in lines[0]:
+        return f"M5 context named the wrong target for a Codex repository: {lines!r}"
+    return None
+
+
+def validate_context_names_the_protocol_refresh_scenario() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="keel-protocol-refresh-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+        for check in (
+            _protocol_refresh_m1,
+            _protocol_refresh_m2,
+            _protocol_refresh_m3,
+            _protocol_refresh_m4,
+            _protocol_refresh_m5,
+        ):
+            problem = check(tmp)
+            if problem:
+                report(f"{PROTOCOL_REFRESH_LABEL} {problem}")
+                return 1
+    report(f"{PROTOCOL_REFRESH_LABEL} scenario passed.")
+    return 0
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -17925,6 +18040,7 @@ STANDING_AUTHORIZATION_ACTIONS = (
     "release",
     "archive",
     "continuation",
+    "protocol-refresh",
 )
 
 
@@ -31170,6 +31286,7 @@ SCENARIOS: tuple = (
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
+    ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),

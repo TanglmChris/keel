@@ -18,6 +18,7 @@ const {
   readExecutorTier,
   readMergeDeclaration,
 } = require("./config");
+const { isKeelSourceRepo } = require("./capabilities");
 
 const NEXT_ACTIONS = new Set([
   "discuss",
@@ -712,11 +713,87 @@ function resolveContext(repo, options) {
   context.executorTier = executor.tier;
   if (executor.unknown.length > 0) context.warnings.push(executor.message);
 
+  const protocol = protocolRefresh(repo, keelVersion(), authorization);
+  if (protocol) context.protocol = protocol;
+
   // Set here rather than by the caller, so every consumer of the projection —
   // text, JSON, and any host reading it — carries the version without having
   // to know to add it.
   context.keel = keelVersion();
   return context;
+}
+
+// The managed block is the one piece of a release a plugin update cannot
+// carry: it lives in each repository and moves only when `keel --install`
+// runs there (#164). The stamp is read in the SessionStart hook's order.
+function stampedProtocol(repo) {
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    try {
+      const text = fs.readFileSync(path.join(repo, name), "utf8");
+      const match = text.match(/<!--\s*keel:start\s+version=(\d+\.\d+\.\d+)\s*-->/);
+      if (match) return { version: match[1], file: name };
+    } catch {
+      // Absent is not older.
+    }
+  }
+  return null;
+}
+
+// The target the installer left behind. `CLAUDE.md` carries the managed
+// import only on the Claude target, and only OpenCode writes project commands
+// under `.opencode/`. A Codex install writes neither — its OpenSpec commands
+// are global prompts under CODEX_HOME — so a managed `AGENTS.md` with neither
+// surface beside it is what a Codex install leaves.
+function installedTarget(repo) {
+  try {
+    if (/<!--\s*keel:start/.test(fs.readFileSync(path.join(repo, "CLAUDE.md"), "utf8"))) {
+      return "claude";
+    }
+  } catch {
+    // No CLAUDE.md: not the Claude target.
+  }
+  if (fs.existsSync(path.join(repo, ".opencode", "commands"))) return "opencode";
+  return "codex";
+}
+
+// Numeric X.Y.Z order. Only a strictly older stamp is a refresh: a newer one
+// means the CLI is the stale side, which the SessionStart drift line reports.
+function olderThan(stamped, running) {
+  const a = stamped.split(".").map(Number);
+  const b = String(running).split(".").map(Number);
+  if (b.length !== 3 || b.some(Number.isNaN)) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
+}
+
+function protocolRefresh(repo, running, authorization) {
+  if (isKeelSourceRepo(repo)) return null;
+  const stamped = stampedProtocol(repo);
+  if (!stamped || !olderThan(stamped.version, running)) return null;
+  return {
+    stamped: stamped.version,
+    keel: running,
+    file: stamped.file,
+    command: `keel --install --target ${installedTarget(repo)}`,
+    authorized: authorization.scopes.has("protocol-refresh"),
+    deferred: fs.existsSync(path.join(repo, "keel", "guard.json")),
+  };
+}
+
+function renderProtocol(protocol) {
+  const head = `Protocol: ${protocol.file} is stamped ${protocol.stamped}, older than `
+    + `Keel ${protocol.keel}; refresh with \`${protocol.command}\``;
+  if (protocol.deferred) {
+    return `${head} — deferred while a task's write guard is active, because `
+      + "the refresh writes outside the task's Touch";
+  }
+  return protocol.authorized
+    ? `${head} — standing-authorized (authorize: protocol-refresh); run it `
+      + "before other work and leave the diff for the owner to commit"
+    : `${head} — ask before running it; keel/config.yaml does not `
+      + "standing-authorize protocol-refresh";
 }
 
 // The version comparison has to survive a runtime too old to contain it. The
@@ -779,6 +856,7 @@ function renderContext(result) {
         + "Review changes with it"
     );
   }
+  if (result.protocol) lines.push(renderProtocol(result.protocol));
   for (const reason of result.reasons) lines.push(`Reason: ${reason}`);
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);
   return `${lines.join("\n")}\n`;

@@ -14,6 +14,10 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   "archive",
   "continuation",
   "issue",
+  // Running the refresh `keel context` names while the managed protocol is
+  // older than the running Keel (#164). It acts on this checkout, so it takes
+  // no scope, and it never covers committing what the refresh wrote.
+  "protocol-refresh",
 ];
 
 // The actions whose credential reaches further than the checkout the
