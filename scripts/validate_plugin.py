@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.73.1"
-PROTOCOL_VERSION = "5.73.1"
+PACKAGE_VERSION = "5.74.0"
+PROTOCOL_VERSION = "5.74.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -15983,6 +15983,63 @@ def validate_plugin_runs_its_own_cli_scenario() -> int:
     return 0
 
 
+def stage_claude_market_under_test(tmp: Path) -> tuple[Path, str, str] | str:
+    """A Claude marketplace that installs this tree rather than the registry.
+
+    The committed entry installs the published package at this release, which
+    does not exist on the registry until the release lands (#164), and at a
+    version that does exist it installs the registry's copy and tests nothing
+    here. So an install smoke packs the tree the way npm publishes it and puts
+    it behind a copy of the committed entry whose source points at it and whose
+    manifest fields are unchanged. A sentinel only the packed tree carries lets
+    the caller prove which copy was installed. Returns the marketplace
+    directory, its name, and the sentinel, or a failure message.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        return "needs npm to pack the package under test."
+    packed = subprocess.run(
+        [npm, "pack", "--json", "--pack-destination", str(tmp)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    if packed.returncode != 0:
+        return "npm pack failed: " + (packed.stderr or packed.stdout).strip()
+    tarball = tmp / json.loads(packed.stdout)[0]["filename"]
+    market = tmp / "claude-market"
+    market.mkdir()
+    subprocess.run(["tar", "-xzf", str(tarball), "-C", str(market)], check=True)
+    sentinel = ".keel-package-under-test"
+    write_text(market / "package" / sentinel, "\n")
+    committed = json.loads(
+        (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+    )
+    for entry in committed.get("plugins", []):
+        if entry.get("name") == "keel":
+            entry["source"] = "./package"
+    write_text(
+        market / ".claude-plugin/marketplace.json",
+        json.dumps(committed, indent=2) + "\n",
+    )
+    return market, committed["name"], sentinel
+
+
+def installed_elsewhere(config: Path, market_name: str, sentinel: str) -> list | None:
+    """None when Keel was installed from the package under test, else the paths."""
+    installed = json.loads(
+        (config / "plugins/installed_plugins.json").read_text(encoding="utf-8")
+    )
+    paths = [
+        record.get("installPath", "")
+        for record in installed.get("plugins", {}).get(f"keel@{market_name}", [])
+    ]
+    return None if any((Path(p) / sentinel).is_file() for p in paths) else paths
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -16061,49 +16118,11 @@ def validate_native_plugin_marketplaces_scenario() -> int:
             report("native-plugin-marketplaces claude plugin validate failed:")
             report((validated.stderr or validated.stdout).strip())
             return 1
-        # The committed entry installs the published package at this release,
-        # which does not exist on the registry until the release lands (#164).
-        # So the smoke installs the package under test: this tree, packed the
-        # way npm publishes it, behind a copy of the committed entry whose
-        # source points at it and whose manifest fields are unchanged.
-        npm = shutil.which("npm")
-        if npm is None:
-            report("native-plugin-marketplaces needs npm to pack the package under test.")
+        staged = stage_claude_market_under_test(tmp)
+        if isinstance(staged, str):
+            report(f"native-plugin-marketplaces {staged}")
             return 1
-        packed = subprocess.run(
-            [npm, "pack", "--json", "--pack-destination", str(tmp)],
-            cwd=ROOT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
-        if packed.returncode != 0:
-            report("native-plugin-marketplaces npm pack failed:")
-            report((packed.stderr or packed.stdout).strip())
-            return 1
-        tarball = tmp / json.loads(packed.stdout)[0]["filename"]
-        claude_market = tmp / "claude-market"
-        claude_market.mkdir()
-        subprocess.run(
-            ["tar", "-xzf", str(tarball), "-C", str(claude_market)], check=True
-        )
-        # A sentinel only the package under test carries: an install that
-        # quietly fetched the registry's copy of this version instead passes
-        # every other check here, and tests nothing this tree changed.
-        sentinel = ".keel-package-under-test"
-        write_text(claude_market / "package" / sentinel, "\n")
-        committed = json.loads(
-            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
-        )
-        for entry in committed.get("plugins", []):
-            if entry.get("name") == "keel":
-                entry["source"] = "./package"
-        write_text(
-            claude_market / ".claude-plugin/marketplace.json",
-            json.dumps(committed, indent=2) + "\n",
-        )
+        claude_market, claude_market_name, sentinel = staged
         claude_market_add = run_claude(
             "plugin", "marketplace", "add", str(claude_market)
         )
@@ -16111,7 +16130,6 @@ def validate_native_plugin_marketplaces_scenario() -> int:
             report("native-plugin-marketplaces claude marketplace add failed:")
             report((claude_market_add.stderr or claude_market_add.stdout).strip())
             return 1
-        claude_market_name = committed["name"]
         claude_install = run_claude(
             "plugin", "install", f"keel@{claude_market_name}"
         )
@@ -16119,21 +16137,11 @@ def validate_native_plugin_marketplaces_scenario() -> int:
             report("native-plugin-marketplaces claude plugin install failed:")
             report((claude_install.stderr or claude_install.stdout).strip())
             return 1
-        installed = json.loads(
-            (claude_config / "plugins/installed_plugins.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        install_paths = [
-            record.get("installPath", "")
-            for record in installed.get("plugins", {}).get(
-                f"keel@{claude_market_name}", []
-            )
-        ]
-        if not any((Path(p) / sentinel).is_file() for p in install_paths):
+        elsewhere = installed_elsewhere(claude_config, claude_market_name, sentinel)
+        if elsewhere is not None:
             report(
                 "native-plugin-marketplaces claude plugin install failed to use "
-                f"the package under test; it installed from {install_paths!r}, "
+                f"the package under test; it installed from {elsewhere!r}, "
                 "which does not carry the sentinel the packed tree does."
             )
             return 1
@@ -22232,14 +22240,25 @@ def validate_native_plugin_install_matrix_scenario() -> int:
         ).returncode != 0:
             report("native-plugin-install-matrix claude validate --strict failed.")
             return 1
-        claude_market = json.loads(
-            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
-        )["name"]
-        if run_claude("plugin", "marketplace", "add", str(ROOT)).returncode != 0:
+        staged = stage_claude_market_under_test(tmp)
+        if isinstance(staged, str):
+            report(f"native-plugin-install-matrix {staged}")
+            return 1
+        staged_market, claude_market, sentinel = staged
+        if run_claude(
+            "plugin", "marketplace", "add", str(staged_market)
+        ).returncode != 0:
             report("native-plugin-install-matrix claude marketplace add failed.")
             return 1
         if run_claude("plugin", "install", f"keel@{claude_market}").returncode != 0:
             report("native-plugin-install-matrix claude install failed.")
+            return 1
+        elsewhere = installed_elsewhere(claude_config, claude_market, sentinel)
+        if elsewhere is not None:
+            report(
+                "native-plugin-install-matrix claude install did not use the "
+                f"package under test; it installed from {elsewhere!r}."
+            )
             return 1
         if run_claude("plugin", "uninstall", "keel").returncode != 0:
             report("native-plugin-install-matrix claude uninstall failed.")

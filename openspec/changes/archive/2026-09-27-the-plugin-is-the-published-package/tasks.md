@@ -162,7 +162,7 @@
 
 ## 2. Close
 
-- [ ] 2.1 Release
+- [x] 2.1 Release
   - Covers:
     - E2
     - E3
@@ -175,6 +175,7 @@
     - package.json
     - npm-shrinkwrap.json
     - .claude-plugin/marketplace.json
+    - scripts/validate_plugin.py
     - plugins/keel/.claude-plugin/plugin.json
     - plugins/keel/.codex-plugin/plugin.json
     - AGENTS.md
@@ -207,13 +208,17 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:6518da5c75f0611ab2a05b1ae15762200ccb2c224a26b7459781a42c9fe2e8ae
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.73.1 to 5.74.0, including `.claude-plugin/marketplace.json`'s `version` and `source.version`, which it now reports as `updated .claude-plugin/marketplace.json`, and `npm-shrinkwrap.json`. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.74.0 section written into the stub. The Stop Rule held: the new marker is the one `version-alignment` gained in 1.2.
+    - M2: pass. `keel/CHANGELOG.md` `## 5.74.0 - the plugin is the published package` covers four things. It says that on Claude the plugin and CLI are one artifact at one version. It says what an existing Claude user sees on the next update: the npm-sourced plugin, and a global `keel` named when it differs. It explains the merge-to-publish window and why the version is pinned. And it lists what is still open on #164.
+    - M3: pass. Both deltas are promoted: in `keel-native-plugin-package`, two requirements MODIFIED and one ADDED; in `keel-native-runtime-projection`, one MODIFIED. `node node_modules/.bin/openspec validate the-plugin-is-the-published-package --strict` reports the change valid, `openspec validate --specs --strict` reports `26 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 185 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the first `npm test` after the bump failed `native-plugin-install-matrix` (`claude install failed`). It is a second install smoke that read the committed marketplace, and the npm entry at unpublished 5.74.0 cannot resolve. That is the release-time face of the false green M6 found in 1.2: at 5.73.1 it had passed by installing the registry's copy. Both smokes now share `stage_claude_market_under_test()` and `installed_elsewhere()`, and the changelog names both. Only the Codex scenarios still add `ROOT` as a marketplace, which stays correct because the Codex entry is still `./plugins/keel`.
+      - Scope check: `git status --short` shows the version markers, `.claude-plugin/marketplace.json`, `npm-shrinkwrap.json`, `scripts/validate_plugin.py`, `keel/CHANGELOG.md`, and both promoted specs, this task's reauthorized Touch, plus this change's own directory.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/164 — the unpack mode of `bin/keel` from the host's npm-source fetch (F6) can only be observed on the first real update after 5.74.0 publishes. Check `ls -l ~/.claude/plugins/cache/keel-marketplace/keel/5.74.0/bin/keel` and a bare `keel --version` in the agent's shell then. The hook does not depend on it (D3).
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-09-27 — `scripts/validate_plugin.py` added to Touch. After the bump to 5.74.0, `npm test` failed `native-plugin-install-matrix` with `claude install failed`. It is a second scenario that installs from the committed marketplace, and at an unpublished version the npm entry cannot resolve. It passed during 1.2 only because 5.73.1 is on the registry, which is the same false green M6's sentinel closed in the other scenario. No evidence had been recorded, so none went stale.
 
 ## Invalidates
 
