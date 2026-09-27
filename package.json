@@ -17,6 +17,7 @@
     "src/core/",
     "assets/",
     "README.md",
+    "npm-shrinkwrap.json",
     "plugins/",
     "!**/__pycache__",
     "!**/*.pyc"

@@ -53,7 +53,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 The Claude marketplace installs the published package, and the package runs as a plugin
+- [x] 1.2 The Claude marketplace installs the published package, and the package runs as a plugin
   - Covers:
     - keel-native-plugin-package / The Claude plugin is the published package / One artifact carries the plugin and its CLI
     - keel-native-plugin-package / The Claude plugin is the published package / The entry's hooks cannot drift from the plugin's
@@ -80,6 +80,7 @@
     - .claude-plugin/marketplace.json
     - bin/keel
     - bin/keel.js
+    - package.json
     - package-lock.json
     - npm-shrinkwrap.json
     - scripts/bump_version.js
@@ -100,28 +101,32 @@
     - Stop if `claude plugin validate` refuses an entry that is the manifest for an npm source, because D1 rests on F2.
     - Stop if any scenario needs the network to pass, because the suite runs offline apart from `native-plugin-marketplaces`, which is skipped in CI.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
-    - M3.red: pending
-    - M3.green: pending
-    - M4: pending
-    - M4.red: pending
-    - M4.green: pending
-    - M5: pending
-    - M5.red: pending
-    - M5.green: pending
-    - M6: pending
-    - M6.detects: pending
-    - M7: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:ce738a4f5520cda0e54d3001e62530fa6445414325bc557089622da6cc238b2d
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` reports the scenario passing. The Claude entry's source is `{source: npm, package: @christang/keel, version: 5.73.1}`, its `version` is `5.73.1`, and `./plugins/keel/skills/` and `./plugins/keel/agents/keel-single-task-goal-claude.md` exist.
+    - M1.red: fail, for the declared reason. `native-plugin-manifests claude marketplace entry is not the published package: source './plugins/keel'`. Carries the declared signature `claude marketplace entry is not the published package`.
+    - M1.green: pass. Same command after `.claude-plugin/marketplace.json` was rewritten with the npm source and pinned versions, and the skills and agent paths.
+    - M2: pass. Same scenario. The entry's inline `hooks` equal `plugins/keel/hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}/scripts/` read as `${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/`. `claude plugin validate .` also passes, with one warning: no marketplace description.
+    - M2.red: fail, for the declared reason. With the entry written without hooks: `native-plugin-manifests claude marketplace entry hooks diverge from plugins/keel/hooks/hooks.json after resolving script paths from the package root: None`. Carries the declared signature `entry hooks diverge from`.
+    - M2.green: pass. Same command after the hooks were generated from `hooks.json` into the entry.
+    - M3: pass. Same scenario. `npm pack --dry-run --json` lists `bin/keel` with an executable mode, and lists `npm-shrinkwrap.json`. `the-tarball-is-the-repository` reports `44 packed files, all tracked`.
+    - M3.red: fail, for the declared reason. `native-plugin-manifests packed set lacks what the host needs to run the package as a plugin: ['bin/keel', 'npm-shrinkwrap.json'] (bin/keel must be executable)`. Carries the declared signature `packed set lacks`. After `bin/keel` (`100755`) and `git mv package-lock.json npm-shrinkwrap.json`, the same check still reported `['npm-shrinkwrap.json']`: npm 11.17.0 does not pack a shrinkwrap on its own when `files` is declared. That was the reauthorization below.
+    - M3.green: pass. Same command after `npm-shrinkwrap.json` was added to `files` in `package.json`.
+    - M4: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario doctor-reads-the-diagnosed-repository` reports the scenario passing. A repository with `npm-shrinkwrap.json` declaring OpenSpec 0.0.2 and `package-lock.json` declaring 0.0.1 gets `repo pins 0.0.2`.
+    - M4.red: fail, for the declared reason. `doctor-reads-the-diagnosed-repository M4 doctor read package-lock.json over npm-shrinkwrap.json, while npm installs from the shrinkwrap when both exist.`, with the line showing `repo pins 0.0.1`. Carries the declared signature `read package-lock.json over npm-shrinkwrap.json`.
+    - M4.green: pass. Same command after `declaredOpenSpecVersion()` in `bin/keel.js` tries `npm-shrinkwrap.json` and then `package-lock.json`, and the unreadable detail names the file it read. The suite's two reads of this repository's own lockfile now read `npm-shrinkwrap.json`.
+    - M5: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports the scenario passing. The entry's `version` and `source.version` are `5.73.1`, and `bump_version.js 99.0.0`, run in a scratch copy, moves both to `99.0.0`.
+    - M5.red: fail, for the declared reason. `version-alignment scenario claude marketplace entry version was not moved by bump_version.js: {'version': '5.73.1', 'source.version': '5.73.1'}`. Carries the declared signature `claude marketplace entry version`. The first run crashed earlier, with `ENOENT … package-lock.json`, because the script still read the renamed lockfile. `LOCK_PATH` was pointed at `npm-shrinkwrap.json` before this red was taken.
+    - M5.green: pass. Same command after `bumpClaudeMarketplace()` was added to `scripts/bump_version.js`.
+    - M6: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-marketplaces` reports the scenario passing on this machine, which has codex and claude installed. The scenario packs the tree, extracts it beside a copy of the committed entry whose source is `./package`, validates, installs into an isolated `CLAUDE_CONFIG_DIR`, requires a sentinel planted only in the packed tree at the recorded `installPath`, and requires `Version: 5.73.1` in `plugin list`.
+    - M6.detects: the mutation, the scenario installing from the committed npm entry (the source rewrite disabled in a scratch copy), made the scenario fail with `native-plugin-marketplaces claude plugin install failed to use the package under test; it installed from ['…/claude-config/plugins/cache/keel-marketplace/keel/5.73.1'], which does not carry the sentinel the packed tree does.` Carries the declared failure `claude plugin install failed`. Without the sentinel, the same mutation first *passed*: it installed the registry's published 5.73.1 and tested nothing in this tree. The sentinel check was added because of that. With the entry at the unpublished 5.74.0, the release state, the install itself fails with `Could not resolve @christang/keel@5.74.0 from the npm registry: E404`.
+    - M7: pass. `npm test` reports `validation --all passed: baseline plus 185 scenarios, 1 skipped: output-survives-the-pipe.` `native-plugin-marketplaces` ran inside it. Separately, `npm ci --ignore-scripts` from `package.json` and `npm-shrinkwrap.json` alone installs `node_modules/.bin/openspec`, which is what CI and the host's dependency step run. Neither Stop Rule triggered: `claude plugin validate` accepted the entry as the manifest, and only `native-plugin-marketplaces`, which is skipped in CI, packs for install.
+    - Review:
+      - Status: pass
+      - Acceptance check: every check runs a real tool: the packer's own `--json`, `claude plugin validate`, an isolated `claude plugin install`, the bump script, and doctor. M6's first detects run is the finding worth keeping. Once the npm entry was committed, the smoke would have passed on any published version by installing the registry's copy, so it tested nothing. The sentinel closes that, and it binds the smoke to the tree whatever the version.
+      - Scope check: `git status --short` shows `.claude-plugin/marketplace.json`, `bin/keel`, `bin/keel.js`, `package-lock.json` → `npm-shrinkwrap.json`, `package.json`, `scripts/bump_version.js`, and `scripts/validate_plugin.py`, this task's reauthorized Touch, plus this change's own directory. The header comment of `bump_version.js` still told the reader to tag by hand, a line #162 missed. It was corrected here because the same comment had to name the new markers anyway.
+      - Findings: Resolved here: M5 — the header comment of `scripts/bump_version.js` still said "tag `vX.Y.Z`, push, and publish a GitHub Release" after #162 corrected its closing hint. It now points to the printed steps and says nothing is tagged by hand; M5 runs the script.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-09-27 — `package.json` added to Touch. npm 11.17.0 does not pack `npm-shrinkwrap.json` when `package.json` declares `files` (`npm pack --dry-run --json` listed only `LICENSE`, `README.md`, `README.zh-CN.md`, `package.json` at the root), so the lockfile has to be named in `files`. No evidence had been recorded, so none went stale.
 
 - [ ] 1.3 The install instructions say the Claude plugin carries its CLI
   - Covers:

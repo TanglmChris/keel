@@ -769,21 +769,28 @@ function openspecReportedVersion(command) {
 // project that does not depend on OpenSpec directly. A lockfile that exists and
 // cannot be parsed is a read failure. Collapsing them would either warn at
 // everyone or hide a real failure.
+//
+// The lockfile is the one npm installs from: `npm-shrinkwrap.json` when it
+// exists, else `package-lock.json`. A package that publishes itself — Keel
+// does since #164 — carries the shrinkwrap, because npm never publishes a
+// `package-lock.json`.
 function declaredOpenSpecVersion(repo) {
-  const lockPath = path.join(repo, "package-lock.json");
-  if (!fs.existsSync(lockPath)) return { state: "none", version: null };
+  const lockName = ["npm-shrinkwrap.json", "package-lock.json"].find((name) =>
+    fs.existsSync(path.join(repo, name))
+  );
+  if (!lockName) return { state: "none", version: null, lockName: null };
   let lock;
   try {
-    lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+    lock = JSON.parse(fs.readFileSync(path.join(repo, lockName), "utf8"));
   } catch {
-    return { state: "unreadable", version: null };
+    return { state: "unreadable", version: null, lockName };
   }
   for (const [name, entry] of Object.entries(lock.packages || {})) {
     if (name.endsWith("@fission-ai/openspec") && entry && entry.version) {
-      return { state: "declared", version: entry.version };
+      return { state: "declared", version: entry.version, lockName };
     }
   }
-  return { state: "none", version: null };
+  return { state: "none", version: null, lockName };
 }
 
 // "Not installed" and "installed and Keel cannot reach it" need different
@@ -1686,7 +1693,7 @@ function runDoctor(options) {
     const declaredText = {
       declared: `repo pins ${declared.version}`,
       none: "repo declares no OpenSpec version",
-      unreadable: "repo package-lock.json unreadable",
+      unreadable: `repo ${declared.lockName} unreadable`,
     }[declared.state];
     const versions = `${resolvedVersion || "version unreadable"}, ${declaredText}`;
     printDoctorLine(

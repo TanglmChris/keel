@@ -2373,6 +2373,68 @@ def validate_version_alignment_scenario() -> int:
             )
             return 1
 
+    # M5 — on Claude the marketplace entry is the manifest and names the
+    # package release it installs (#164), so both of its numbers are version
+    # markers, and the script that moves every marker has to move them.
+    def claude_entry_versions(root: Path) -> dict:
+        market = json.loads(
+            (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        )
+        entry = next(
+            (e for e in market.get("plugins", []) if e.get("name") == "keel"), {}
+        )
+        source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+        return {"version": entry.get("version"), "source.version": source.get("version")}
+
+    stale = {
+        k: v for k, v in claude_entry_versions(ROOT).items() if v != PACKAGE_VERSION
+    }
+    if stale:
+        report(
+            "version-alignment scenario claude marketplace entry version "
+            f"expected {PACKAGE_VERSION}: {stale!r}"
+        )
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-bump-") as raw:
+        scratch = Path(raw)
+        for relative in (
+            "package.json",
+            "npm-shrinkwrap.json",
+            ".claude-plugin/marketplace.json",
+            "plugins/keel/.claude-plugin/plugin.json",
+            "plugins/keel/.codex-plugin/plugin.json",
+            "scripts/bump_version.js",
+            "scripts/validate_plugin.py",
+            "AGENTS.md",
+            "keel/CHANGELOG.md",
+        ):
+            (scratch / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, scratch / relative)
+        bumped = subprocess.run(
+            ["node", str(scratch / "scripts/bump_version.js"), "99.0.0"],
+            cwd=scratch,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        if bumped.returncode != 0:
+            report("version-alignment scenario: bump_version.js failed in a scratch copy.")
+            report((bumped.stderr or bumped.stdout).strip())
+            return 1
+        left = {
+            k: v
+            for k, v in claude_entry_versions(scratch).items()
+            if v != "99.0.0"
+        }
+        if left:
+            report(
+                "version-alignment scenario claude marketplace entry version "
+                f"was not moved by bump_version.js: {left!r}"
+            )
+            return 1
+
     dependencies = package.get("dependencies")
     if (
         not isinstance(dependencies, dict)
@@ -8293,7 +8355,7 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     # lockfile resolves. Read from this repository, because the fact under test
     # is which program a developer's `keel` invokes here.
     locked = None
-    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    lock = json.loads((ROOT / "npm-shrinkwrap.json").read_text(encoding="utf-8"))
     for name, entry in lock.get("packages", {}).items():
         if name.endswith("@fission-ai/openspec"):
             locked = entry.get("version")
@@ -8345,7 +8407,7 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     if running.group(1) != locked:
         report(
             f"{label} M4 validation is running against OpenSpec "
-            f"{running.group(1)} while package-lock.json resolves {locked}. "
+            f"{running.group(1)} while npm-shrinkwrap.json resolves {locked}. "
             "Results describe a different program: run `npm ci` so the pinned "
             "OpenSpec is the one `keel openspec` resolves."
         )
@@ -8403,7 +8465,7 @@ def validate_doctor_reads_the_diagnosed_repository_scenario() -> int:
             report(f"{label} M1 `keel --doctor` emitted no openspec line.")
             report((doctor.stdout or doctor.stderr or "").strip())
             return 1
-        own_lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+        own_lock = json.loads((ROOT / "npm-shrinkwrap.json").read_text(encoding="utf-8"))
         own_declared = None
         for name, entry in own_lock.get("packages", {}).items():
             if name.endswith("@fission-ai/openspec"):
@@ -8486,6 +8548,41 @@ def validate_doctor_reads_the_diagnosed_repository_scenario() -> int:
                 f"{label} M1 a repository declaring nothing is reported as "
                 "disagreeing with the resolved binary. There is nothing for it "
                 "to disagree with."
+            )
+            report(f"  {line}")
+            return 1
+
+    # M4 — two lockfiles, the precedence npm applies. A repository that
+    # publishes itself carries `npm-shrinkwrap.json` (npm never publishes
+    # `package-lock.json`), and where both exist npm installs from the
+    # shrinkwrap, so that is the version the repository actually pins (#164).
+    with tempfile.TemporaryDirectory(prefix="keel-doctor-shrinkwrap-") as raw:
+        both = Path(raw).resolve()
+        for name, version in (
+            ("npm-shrinkwrap.json", "0.0.2"),
+            ("package-lock.json", "0.0.1"),
+        ):
+            write_text(
+                both / name,
+                json.dumps(
+                    {
+                        "name": "consumer",
+                        "lockfileVersion": 3,
+                        "packages": {
+                            "node_modules/@fission-ai/openspec": {"version": version}
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+            )
+        doctor = run_keel(both, "--doctor")
+        line = openspec_line(doctor.stdout or "")
+        if "repo pins 0.0.2" not in line:
+            report(
+                f"{label} M4 doctor read package-lock.json over "
+                "npm-shrinkwrap.json, while npm installs from the shrinkwrap "
+                "when both exist."
             )
             report(f"  {line}")
             return 1
@@ -14718,9 +14815,106 @@ def validate_native_plugin_manifests_scenario() -> int:
         ),
         None,
     )
-    if claude_entry is None or claude_entry.get("source") != "./plugins/keel":
-        report("native-plugin-manifests claude marketplace entry is invalid.")
+    # M1 — on Claude the plugin is the published package (#164): the entry
+    # fetches it from npm, pinned to the release it is labeled with, and acts
+    # as the manifest. An unpinned source would let a refresh between merge
+    # and publish cache the previous package under the new label.
+    source = (claude_entry or {}).get("source")
+    if (
+        not isinstance(source, dict)
+        or source.get("source") != "npm"
+        or source.get("package") != "@christang/keel"
+    ):
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            f"published package: source {source!r}"
+        )
         return 1
+    pinned = {
+        "version": claude_entry.get("version"),
+        "source.version": source.get("version"),
+    }
+    unpinned = {k: v for k, v in pinned.items() if v != package_version}
+    if unpinned:
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            f"published package at {package_version}: {unpinned!r}"
+        )
+        return 1
+    declared_paths = [
+        *claude_entry.get("skills", []),
+        *claude_entry.get("agents", []),
+    ]
+    unresolved = [
+        path for path in declared_paths if not (ROOT / path).exists()
+    ]
+    if not declared_paths or unresolved:
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            "published package's manifest: its skills and agents must resolve "
+            f"inside the package; declared {declared_paths!r}, unresolved "
+            f"{unresolved!r}"
+        )
+        return 1
+
+    # M2 — the entry states the hooks a second time, so it is held to the
+    # file Codex discovers: the same events, matchers, scripts, and timeouts,
+    # with each script path resolved from the package root instead.
+    plugin_hooks = json.loads(
+        (ROOT / PLUGIN_ROOT / "hooks/hooks.json").read_text(encoding="utf-8")
+    )["hooks"]
+    expected_hooks = json.loads(
+        json.dumps(plugin_hooks).replace(
+            "${CLAUDE_PLUGIN_ROOT}/scripts/",
+            "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/",
+        )
+    )
+    if claude_entry.get("hooks") != expected_hooks:
+        report(
+            "native-plugin-manifests claude marketplace entry hooks diverge "
+            f"from {PLUGIN_ROOT}/hooks/hooks.json after resolving script paths "
+            f"from the package root: {claude_entry.get('hooks')!r}"
+        )
+        return 1
+
+    # M3 — what the host needs from the package to run it as a plugin: a bare
+    # `keel` in `bin/` it can put on PATH, and a lockfile npm actually
+    # publishes so the pinned OpenSpec is installed beside it.
+    npm = shutil.which("npm")
+    if npm is not None:
+        packed = subprocess.run(
+            [npm, "pack", "--dry-run", "--json"],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        try:
+            modes = {
+                item["path"]: item.get("mode", 0)
+                for item in json.loads(packed.stdout)[0]["files"]
+            }
+        except (ValueError, KeyError, IndexError):
+            report("native-plugin-manifests could not read npm pack --json.")
+            report((packed.stderr or packed.stdout).strip()[:400])
+            return 1
+        lacking = [
+            name
+            for name, ok in (
+                ("bin/keel", modes.get("bin/keel", 0) & 0o111),
+                ("npm-shrinkwrap.json", "npm-shrinkwrap.json" in modes),
+            )
+            if not ok
+        ]
+        if lacking:
+            report(
+                "native-plugin-manifests packed set lacks what the host needs "
+                f"to run the package as a plugin: {lacking!r} (bin/keel must "
+                "be executable)"
+            )
+            return 1
 
     report("native-plugin-manifests scenario passed.")
     return 0
@@ -15867,20 +16061,89 @@ def validate_native_plugin_marketplaces_scenario() -> int:
             report("native-plugin-marketplaces claude plugin validate failed:")
             report((validated.stderr or validated.stdout).strip())
             return 1
-        claude_market_add = run_claude("plugin", "marketplace", "add", str(ROOT))
+        # The committed entry installs the published package at this release,
+        # which does not exist on the registry until the release lands (#164).
+        # So the smoke installs the package under test: this tree, packed the
+        # way npm publishes it, behind a copy of the committed entry whose
+        # source points at it and whose manifest fields are unchanged.
+        npm = shutil.which("npm")
+        if npm is None:
+            report("native-plugin-marketplaces needs npm to pack the package under test.")
+            return 1
+        packed = subprocess.run(
+            [npm, "pack", "--json", "--pack-destination", str(tmp)],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        if packed.returncode != 0:
+            report("native-plugin-marketplaces npm pack failed:")
+            report((packed.stderr or packed.stdout).strip())
+            return 1
+        tarball = tmp / json.loads(packed.stdout)[0]["filename"]
+        claude_market = tmp / "claude-market"
+        claude_market.mkdir()
+        subprocess.run(
+            ["tar", "-xzf", str(tarball), "-C", str(claude_market)], check=True
+        )
+        # A sentinel only the package under test carries: an install that
+        # quietly fetched the registry's copy of this version instead passes
+        # every other check here, and tests nothing this tree changed.
+        sentinel = ".keel-package-under-test"
+        write_text(claude_market / "package" / sentinel, "\n")
+        committed = json.loads(
+            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        )
+        for entry in committed.get("plugins", []):
+            if entry.get("name") == "keel":
+                entry["source"] = "./package"
+        write_text(
+            claude_market / ".claude-plugin/marketplace.json",
+            json.dumps(committed, indent=2) + "\n",
+        )
+        claude_market_add = run_claude(
+            "plugin", "marketplace", "add", str(claude_market)
+        )
         if claude_market_add.returncode != 0:
             report("native-plugin-marketplaces claude marketplace add failed:")
             report((claude_market_add.stderr or claude_market_add.stdout).strip())
             return 1
-        claude_market_name = json.loads(
-            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
-        )["name"]
+        claude_market_name = committed["name"]
         claude_install = run_claude(
             "plugin", "install", f"keel@{claude_market_name}"
         )
         if claude_install.returncode != 0:
             report("native-plugin-marketplaces claude plugin install failed:")
             report((claude_install.stderr or claude_install.stdout).strip())
+            return 1
+        installed = json.loads(
+            (claude_config / "plugins/installed_plugins.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        install_paths = [
+            record.get("installPath", "")
+            for record in installed.get("plugins", {}).get(
+                f"keel@{claude_market_name}", []
+            )
+        ]
+        if not any((Path(p) / sentinel).is_file() for p in install_paths):
+            report(
+                "native-plugin-marketplaces claude plugin install failed to use "
+                f"the package under test; it installed from {install_paths!r}, "
+                "which does not carry the sentinel the packed tree does."
+            )
+            return 1
+        claude_list = run_claude("plugin", "list")
+        if f"Version: {PACKAGE_VERSION}" not in (claude_list.stdout or ""):
+            report(
+                "native-plugin-marketplaces claude plugin list does not show "
+                f"keel {PACKAGE_VERSION} installed from the package under test."
+            )
+            report((claude_list.stderr or claude_list.stdout).strip())
             return 1
         claude_uninstall = run_claude("plugin", "uninstall", "keel")
         if claude_uninstall.returncode != 0:
