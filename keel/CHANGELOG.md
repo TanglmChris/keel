@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.73.0 - a heading is not indented
+
+A tasks file has two readers of "where does this end", and until now they disagreed about one line. `parseTasks()` ended a task body at `/^\s*##\s/`, so an indented `  ## …` line inside a task ended the task and every field declared after it was dropped. `sectionBody()` ended a change-level section at `/^##\s+/`, so the same line inside `## Invalidates` was text and the entries after it were still judged. Reported as #160, found while verifying the abandoned first attempt at #71 before deleting its branch.
+
+- **One heading test, column zero only, for both readers.** `isHeadingLine()` in `task-contract.js` is the only definition of a heading, and `parseTasks()` and `sectionBody()` both call it. An indented `##` line is now text in both places: in a task it joins the field that is open, and in a section it is not an entry and does not end the section. (keel-task-capsule, closes #160)
+- **This reverses the 5.26.0 decision to keep two patterns, in the direction 5.26.0 argued for.** 5.26.0 refused to unify the patterns because unifying on the *tolerant* one drops section entries silently, and it was right about that. What it left was the task side still tolerant. That side is quieter than it looked: a dropped required field surfaces as a refusal, but a dropped field with a documented default is replaced by that default. Measured before the fix: a task whose `Acceptance` carried an indented `##` line before its `Stop Rules` passed `keel gate task-start`, and its capsule had `"stop": []`, so the declared stop rule was simply gone. The owner decided on unifying in the strict direction, the one that drops nothing.
+- **The section half is now asserted, not only argued.** 5.26.0 recorded its reasoning in prose, and no fixture put an indented `##` inside a section, so the tidy-up it warned against would have passed the suite. `section-boundary` now plants that line in a tail-position `## Invalidates` and `## Expectation Coverage`, each followed by an unclosed entry, and requires the entry to be refused. Changing the shared test to the tolerant spelling makes it fail. `task-body-ends-at-heading` gains the task-side case.
+- **What it costs downstream.** A task in a live change whose body contains an indented `##` line compiles to a different capsule after upgrading, so its recorded fingerprint no longer matches, and the next gate stops for reauthorization. No `tasks.md` in this repository, archived or live, contains such a line, and both fingerprints pinned in the suite are unchanged.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.73.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.72.0 - the repository lands what passed
 
 **A correction to 5.70.0 first (#157).** Its changelog said `cancel-in-progress: false` was "the

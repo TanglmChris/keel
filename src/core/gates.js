@@ -13,6 +13,7 @@ const {
   declaredCommandLabels,
   field,
   isConcrete,
+  isHeadingLine,
   isPassingReviewStatus,
   parseTasks,
   unfilledToken,
@@ -1597,10 +1598,11 @@ function taskComplete(repo, options) {
 //
 // The task half is the task list already parsed for this file rather than a
 // second checkbox pattern, so it cannot drift from the boundary `parseTasks()`
-// applies to a task's own body. The heading half stays as it was: the two
-// spellings are not interchangeable, and unifying them truncates a tail-position
-// section at an indented `##` line inside its own body, which is this same
-// defect pointed the other way.
+// applies to a task's own body. The heading half is `isHeadingLine()`, the same
+// test `parseTasks()` uses. It must stay the column-zero one: the tolerant
+// spelling truncates a tail-position section at an indented `##` line inside
+// its own body and drops every entry after it, which is this same defect
+// pointed the other way (#160).
 function sectionBody(content, headingOffset, tasks) {
   const lines = content.split(/\r?\n/);
   const headingLine = content.slice(0, headingOffset).split(/\r?\n/).length - 1;
@@ -1609,7 +1611,7 @@ function sectionBody(content, headingOffset, tasks) {
     if (task.line > headingLine && task.line < end) end = task.line;
   }
   for (let cursor = headingLine + 1; cursor < end; cursor += 1) {
-    if (/^##\s+/.test(lines[cursor])) {
+    if (isHeadingLine(lines[cursor])) {
       end = cursor;
       break;
     }
