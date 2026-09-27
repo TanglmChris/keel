@@ -5,6 +5,7 @@
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
 - State the `Keel:` version that projection reports beside the protocol version in this file's `keel:start` marker, and say so plainly when they disagree. Do this whether or not the SessionStart hook said anything about versions: that check lives in the plugin, so a plugin too old to contain it stays silent, and its silence is indistinguishable from agreement. This file is read from the working tree and cannot be stale, which is why the comparison is asked for here.
+- When `keel context` prints a `Protocol:` line, this repository's managed protocol block is older than the running Keel and the line names its refresh. Run that refresh without asking only when `keel/config.yaml` standing-authorizes `protocol-refresh`, before other work and never while a task's write guard is active; report it, and leave the diff uncommitted, because committing it is a separate action. Without the authorization, ask.
 - `keel/HANDOFF.md` is an optional validated override for otherwise ambiguous human intent. An absent file is normal; never infer continuity from native memory, goals, transcripts, or Git dirty paths.
 
 ## Full/Lite routing

@@ -20,7 +20,7 @@
 #
 # authorize (optional): standing authorization for repository actions. The
 # accepted names are the whole vocabulary — commit, push, release, archive,
-# continuation, issue:<owner>/<repo> — and an unrecognized entry is reported
+# continuation, issue:<owner>/<repo>, protocol-refresh — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
@@ -38,6 +38,10 @@
 # A task that authors no `Autonomy boundary:` inherits what is declared here,
 # and the compiled capsule names this file as that entry's source. A task that
 # authors its own boundary keeps it; the declaration never overrides one.
+#
+# `protocol-refresh` covers running the refresh `keel context` names when this
+# repository's managed protocol block is older than the running Keel: never
+# while a task's write guard is active, and never the commit of what it wrote.
 #
 # `continuation` is the between-task name: it covers exactly the boundary
 # between a durably complete task and the next unchecked task of the same

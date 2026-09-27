@@ -145,7 +145,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>
+authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh
   - commit
   - push
 ```
@@ -174,6 +174,15 @@ capsule and **does not enforce it**: it invokes no tracker client and cannot obs
 as it never commits on your behalf either. Closing an issue is not in scope and does not need to
 be — a pull request body carrying `Closes #<n>` does that when it lands.
 
+`protocol-refresh`, the seventh name, covers the one piece of a release that a plugin update cannot
+carry: the managed protocol block in this repository's `AGENTS.md`, which moves only when
+`keel --install` runs here. When `keel context` reports that block as older than the running Keel,
+it prints a `Protocol:` line naming the refresh command, and with this name declared the agent runs
+it before other work without asking. It never runs while a task's write guard is active, because
+the refresh writes outside that task's `Touch`, and it never commits: the diff is left for you,
+and committing it is a separate action that a declared `commit` covers like any other. On an older
+Keel whose vocabulary predates the word, the declaration authorizes nothing until corrected.
+
 Three things the declaration is not:
 
 - **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
@@ -181,7 +190,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The six names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The seven names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 

@@ -67,7 +67,7 @@
     - Blocker: none
     - Reauthorizations: 2026-09-27 — D3 corrected and F6 added. A Codex-target install writes no `.codex/` surface into the repository, so the target is `codex` when neither the Claude import nor `.opencode/commands` is present. Measured by M5's first red, which named `--target claude` for a Codex repository. The evidence gathered so far is kept and re-measured after the fingerprint moved.
 
-- [ ] 1.2 The protocol, the bootstrap, and the vocabulary's documentation carry `protocol-refresh`
+- [x] 1.2 The protocol, the bootstrap, and the vocabulary's documentation carry `protocol-refresh`
   - Covers:
     - D6
     - F5
@@ -80,14 +80,13 @@
     - scripts/validate_plugin.py
   - Touch:
     - AGENTS.md
-    - assets/bootstrap/AGENTS.md
     - README.md
     - keel/config.yaml
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: vertical-tdd
     - M1: `continuation-docs` requires the README vocabulary comment and `keel/config.yaml`'s comment to name all seven names, including `protocol-refresh`, and requires a README paragraph for it. Fails with: `lacks: protocol-refresh`
-    - M2: a new cell in `continuation-docs` requires `AGENTS.md` `## Session Start` and `assets/bootstrap/AGENTS.md` to state the rule: run the named refresh under `protocol-refresh`, never while a write guard is active, and leave the diff uncommitted. Fails with: `does not carry the protocol-refresh rule`
+    - M2: a new cell in `continuation-docs` requires `AGENTS.md` `## Session Start` to state the rule: run the named refresh under `protocol-refresh`, never while a write guard is active, and leave the diff uncommitted. It also requires the bootstrap to keep `Start every session with \`keel context\``, the sentence through which the `Protocol:` line reaches a consumer. Fails with: `does not carry the protocol-refresh rule`
     - M3 (regression): `npm test` reports no failing scenario
   - Autonomy boundary:
     - Default: hard-stop
@@ -95,17 +94,21 @@
   - Stop Rules:
     - Stop if the bootstrap must grow past a size bound a scenario enforces, because the bootstrap is resident in every consumer session.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:0191ccb7b63b685245d13996e61cdd68f3611603b90d34f637f87ecbbd5c17fa
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario continuation-docs` reports the scenario passing. `README.md`'s example reads `accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh`, says `The seven names above are the whole vocabulary.`, and has a `` `protocol-refresh`, the seventh name `` paragraph. `keel/config.yaml`'s comment names the seven-name vocabulary and says what `protocol-refresh` covers.
+    - M1.red: fail, for the declared reason. `continuation-docs: README.md lacks: protocol-refresh, as 'accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh'`. Carries the declared signature `lacks: protocol-refresh`.
+    - M1.green: pass. After the README example, the count, the new paragraph, and the config comment were written, the same command moved past every M1 needle and stopped at M2.
+    - M2: pass. Same command. `AGENTS.md` `## Session Start` carries the rule: run the named refresh only under `protocol-refresh`, before other work, never while a task's write guard is active, report it, and leave the diff uncommitted; without the authorization, ask. The bootstrap still opens with `Start every session with \`keel context\``.
+    - M2.red: fail, for the declared reason. `continuation-docs: AGENTS.md Session Start does not carry the protocol-refresh rule; it lacks '\`protocol-refresh\`'.` Carries the declared signature `does not carry the protocol-refresh rule`.
+    - M2.green: pass. Same command after the Session Start bullet was added.
+    - M3: pass. `npm test` reports `validation --all passed: baseline plus 187 scenarios, 1 skipped: output-survives-the-pipe.` The bootstrap is unchanged at 1325 bytes, under its 1400-byte budget.
+    - Review:
+      - Status: pass
+      - Acceptance check: all four surfaces that spell out the vocabulary now spell all seven names: the README example, the README count, `keel/config.yaml`, and the code in 1.1. The old six-name needles were replaced rather than kept beside the new ones, so a stale list cannot pass. The rule lives where an agent reads it: `AGENTS.md` for this repository, and the `Protocol:` line itself for a consumer whose bootstrap has no room. That keeps the budget comment's argument intact.
+      - Scope check: `git status --short` shows `AGENTS.md`, `README.md`, `keel/config.yaml`, and `scripts/validate_plugin.py`, this task's reauthorized Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-09-27 — M2 no longer requires the rule in `assets/bootstrap/AGENTS.md`, and the bootstrap left Touch. The bootstrap block is 1325 bytes against a 1400-byte `BOOTSTRAP_BLOCK_BYTE_BUDGET`, whose comment rejects compressing other bullets to make room. A consumer is already served: the bootstrap opens with `Start every session with \`keel context\``, and 1.1's `Protocol:` line states in each of its three states what to do. That is how `full_mode_paths` routing reaches consumers. The Stop Rule was reached as a question and not triggered, because the budget does not move. No evidence had been recorded.
 
 ## 2. Close
 

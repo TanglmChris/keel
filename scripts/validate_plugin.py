@@ -20940,25 +20940,52 @@ def validate_continuation_docs_scenario() -> int:
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for needle in (
-        "accepted names: commit, push, release, archive, continuation, "
-        "issue:<owner>/<repo>",
         "next unchecked task of the same change",
         "the stop that re-asks for an approval already given",
-        "The six names above are the whole vocabulary.",
     ):
         if needle not in readme:
             report(f"{label}: README.md lacks: {needle}")
             return 1
+    # The seventh name (#164). Each surface that spells the vocabulary out has
+    # to spell all of it: a reader copies from the list they are shown.
+    for needle in (
+        "accepted names: commit, push, release, archive, continuation, "
+        "issue:<owner>/<repo>, protocol-refresh",
+        "The seven names above are the whole vocabulary.",
+        "`protocol-refresh`, the seventh name",
+    ):
+        if needle not in readme:
+            report(f"{label}: README.md lacks: protocol-refresh, as {needle!r}")
+            return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>" not in config_text:
+    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>, protocol-refresh" not in config_text:
         report(
-            f"{label}: keel/config.yaml's comment does not name the six-name "
-            "vocabulary."
+            f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
+            "seven-name vocabulary."
         )
         return 1
 
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    # M2 — the rule an agent follows when `keel context` names a refresh. The
+    # consumer bootstrap has no room for it (its byte budget is spent), and
+    # needs none: it opens with `keel context`, whose `Protocol:` line states
+    # the same rule in whichever state applies.
+    session = agents.split("## Session Start", 1)[-1].split("\n## ", 1)[0]
+    for needle in ("`protocol-refresh`", "write guard", "uncommitted"):
+        if needle not in session:
+            report(
+                f"{label}: AGENTS.md Session Start does not carry the "
+                f"protocol-refresh rule; it lacks {needle!r}."
+            )
+            return 1
+    bootstrap = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
+    if "Start every session with `keel context`" not in bootstrap:
+        report(
+            f"{label}: the bootstrap does not carry the protocol-refresh rule's "
+            "route to a consumer: it no longer opens with `keel context`."
+        )
+        return 1
     parts = agents.split("## Execution boundary", 1)
     if len(parts) != 2:
         report(f"{label}: AGENTS.md lost its Execution boundary section.")
