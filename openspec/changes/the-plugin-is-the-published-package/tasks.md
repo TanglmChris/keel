@@ -128,7 +128,7 @@
     - Blocker: none
     - Reauthorizations: 2026-09-27 — `package.json` added to Touch. npm 11.17.0 does not pack `npm-shrinkwrap.json` when `package.json` declares `files` (`npm pack --dry-run --json` listed only `LICENSE`, `README.md`, `README.zh-CN.md`, `package.json` at the root), so the lockfile has to be named in `files`. No evidence had been recorded, so none went stale.
 
-- [ ] 1.3 The install instructions say the Claude plugin carries its CLI
+- [x] 1.3 The install instructions say the Claude plugin carries its CLI
   - Covers:
     - E1
     - E4
@@ -149,10 +149,14 @@
   - Stop Rules:
     - Stop if the README would have to promise automatic updates, because enabling auto-update is the next change on #164 and not this one.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:8a0e170a029b1ad9ef8d2ce23d02d55e5e3a314e4da936e33513f52e480bdad8
+    - M1: `README.md` `## Install` now opens with **Claude Code**: the plugin is the whole install. It is the published `@christang/keel` package, carrying the CLI and bundled OpenSpec, and the agent's `keel` runs the plugin's copy. An update applies after `/reload-plugins` or at the next start. **Codex, and your own terminal** keep `npm install -g`. A closing paragraph says a global `keel` comes first on PATH, ahead of the plugin's copy, to keep it at the plugin's version or remove it with `npm rm -g @christang/keel`, and that the session-start line names it when the two disagree.
+    - M2: `README.zh-CN.md` `## 安装` states the same three points in Chinese, including `/reload-plugins` and `npm rm -g @christang/keel`.
+    - Review:
+      - Status: pass
+      - Acceptance check: the prose describes exactly what 1.1 and 1.2 made true, and nothing more. It does not mention automatic updates, because auto-update is still off for this marketplace until the next change on #164 declares it, so the Stop Rule held. The marketplace commands name `TanglmChris/keel` and `keel@keel-marketplace`, the name `.claude-plugin/marketplace.json` declares.
+      - Scope check: `git status --short` shows `README.md` and `README.zh-CN.md`, this task's Touch, plus this change's own directory.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
