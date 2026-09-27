@@ -14730,7 +14730,7 @@ def run_session_start_hook(
     repo: Path,
     event: dict,
     *,
-    keel_cli: str,
+    keel_cli: str | None,
     timeout_ms: int | None = None,
     panel: str | None = None,
     plugin_root: Path | None = None,
@@ -14741,7 +14741,11 @@ def run_session_start_hook(
     # suite decides rather than something it inherits from this working tree.
     root = Path(plugin_root) if plugin_root is not None else ROOT / PLUGIN_ROOT
     env = dict(os.environ)
-    env["KEEL_CLI"] = keel_cli
+    # None leaves the hook to choose its own CLI, which is the only way to
+    # observe that choice; every other caller pins one.
+    env.pop("KEEL_CLI", None)
+    if keel_cli is not None:
+        env["KEEL_CLI"] = keel_cli
     env["CLAUDE_PLUGIN_ROOT"] = str(root)
     # The suite must decide the panel's state rather than inherit whatever the
     # developer running it has exported, or the default-off assertion would
@@ -15234,7 +15238,12 @@ def validate_native_plugin_session_start_scenario() -> int:
 # shipping hook, the CLI's by what the fake CLI prints, and the repository's by
 # the managed block in its AGENTS.md.
 VERSION_DRIFT_STATEMENT = "runtime versions disagree"
-VERSION_DRIFT_RESTART_TOKENS = ("fixed at session start", "restart")
+# How an update applies: the hooks are fixed when the plugin loads, and the
+# host's `/reload-plugins` reloads it in the running session (#164). A restart
+# is one way to reach the next load, not the only one, so "only after
+# restarting" sends a reader to the expensive remedy and is refused by name.
+VERSION_DRIFT_APPLY_TOKENS = ("fixed when it loads the plugin", "/reload-plugins")
+VERSION_DRIFT_RETIRED_WORDING = "only after restarting"
 
 
 def plant_session_start_plugin(
@@ -15363,14 +15372,22 @@ def validate_runtime_version_drift_scenario() -> int:
                 return 1
             missing = [
                 token
-                for token in VERSION_DRIFT_RESTART_TOKENS
+                for token in VERSION_DRIFT_APPLY_TOKENS
                 if token not in lowered
             ]
             if missing:
                 report(
-                    f"runtime-version-drift {channel} omits the restart "
-                    f"requirement {missing}, so a reader who updates the plugin "
-                    f"and sees no change concludes the check is broken: {text!r}"
+                    f"runtime-version-drift {channel} omits how an update applies "
+                    f"{missing}, so a reader who updates the plugin and sees no "
+                    f"change concludes the check is broken: {text!r}"
+                )
+                return 1
+            if VERSION_DRIFT_RETIRED_WORDING in lowered:
+                report(
+                    f"runtime-version-drift {channel} omits how an update applies "
+                    f"and still says it applies {VERSION_DRIFT_RETIRED_WORDING!r}, "
+                    f"which sends the reader to a restart when a reload would "
+                    f"do: {text!r}"
                 )
                 return 1
 
@@ -15619,6 +15636,157 @@ def claude_cli() -> str | None:
         if probe.returncode == 0:
             return candidate
     return None
+
+
+def plant_path_keel(directory: Path, cli_script: Path) -> Path:
+    """A `keel` command on PATH that answers from the given fake CLI."""
+    node = shutil.which("node") or "node"
+    write_text(
+        directory / "keel",
+        f'#!/bin/sh\nexec "{node}" "{cli_script}" "$@"\n',
+    )
+    (directory / "keel").chmod(0o755)
+    write_text(
+        directory / "keel.cmd",
+        f'@"{node}" "{cli_script}" %*\r\n',
+    )
+    return directory
+
+
+def validate_plugin_runs_its_own_cli_scenario() -> int:
+    """Issue #164: on Claude the plugin is the published package.
+
+    The hook, running from inside that package, must run the CLI the package
+    ships rather than whatever `keel` is on PATH, and must report a PATH copy
+    that disagrees, because the host puts the user's PATH ahead of plugin
+    `bin/` directories and the agent's own commands resolve that copy first.
+    """
+    label = "plugin-runs-its-own-cli"
+    event = {"hook_event_name": "SessionStart", "source": "startup"}
+    with tempfile.TemporaryDirectory(
+        prefix="keel-own-cli-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        tmp = Path(raw_tmp)
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.80.0 Agent Protocol\n\n"
+            "<!-- keel:start version=5.80.0 -->\n## Session Start\n"
+            "<!-- keel:end -->\n",
+        )
+        package = tmp / "package"
+        write_text(
+            package / "package.json",
+            json.dumps({"name": "@christang/keel", "version": "5.80.0"}) + "\n",
+        )
+        fake_keel_cli(package / "bin/keel.js", "5.80.0")
+        plugin = plant_session_start_plugin(package / "plugins/keel", "5.80.0")
+
+        stale_path = plant_path_keel(
+            tmp / "stale-path", Path(fake_keel_cli(tmp / "path-cli.js", "5.70.0").split('"')[1])
+        )
+        spawn_log = tmp / "spawns.log"
+        shadowed = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={
+                "PATH": str(stale_path) + os.pathsep + os.environ.get("PATH", ""),
+                "NODE_OPTIONS": plant_spawn_recorder(tmp / "recorder.js"),
+                "KEEL_FIXTURE_SPAWN_LOG": str(spawn_log),
+            },
+        )
+        spawns = (
+            spawn_log.read_text(encoding="utf-8").splitlines()
+            if spawn_log.exists()
+            else []
+        )
+        own = str(package / "bin/keel.js")
+        answered = [line for line in spawns if own in line and "context" in line]
+        # M2 — which program answered the projection.
+        if not answered:
+            report(
+                f"{label} M2 ran the keel on PATH instead of the CLI its package "
+                f"ships ({own}): {spawns!r}"
+            )
+            return 1
+        # M3 — the PATH copy that disagrees is named, on both channels.
+        for channel, text in (
+            ("additionalContext", session_start_context(shadowed) or ""),
+            ("systemMessage", session_start_message(shadowed) or ""),
+        ):
+            lowered = text.lower()
+            absent = [
+                needle
+                for needle in (
+                    VERSION_DRIFT_STATEMENT,
+                    "5.70.0",
+                    "shadows",
+                    "npm rm -g @christang/keel",
+                )
+                if needle not in lowered
+            ]
+            if absent:
+                report(
+                    f"{label} M3 {channel} did not report the keel that shadows "
+                    f"the plugin's CLI; it lacks {absent!r}: {text!r}"
+                )
+                return 1
+
+        # A PATH copy at the plugin's own version shadows nothing that
+        # differs, and silence when aligned is the whole credibility argument.
+        aligned_path = plant_path_keel(
+            tmp / "aligned-path", Path(fake_keel_cli(tmp / "aligned-cli.js", "5.80.0").split('"')[1])
+        )
+        aligned = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={"PATH": str(aligned_path) + os.pathsep + os.environ.get("PATH", "")},
+        )
+        if VERSION_DRIFT_STATEMENT in (session_start_context(aligned) or "").lower():
+            report(
+                f"{label} M3 reported drift for a PATH keel at the plugin's own "
+                f"version: {session_start_context(aligned)!r}"
+            )
+            return 1
+
+        # M4 — the plugin-only install: nothing called `keel` on PATH at all.
+        # PATH holds only a directory with `node` in it, so no global install
+        # on the machine running the suite can answer.
+        bare_path = tmp / "bare-path"
+        bare_path.mkdir()
+        node = shutil.which("node")
+        if node:
+            try:
+                (bare_path / Path(node).name).symlink_to(node)
+            except OSError:
+                shutil.copy2(node, bare_path / Path(node).name)
+        alone = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={"PATH": str(bare_path)},
+        )
+        alone_context = session_start_context(alone) or ""
+        if "demo#1.1" not in alone_context:
+            report(
+                f"{label} M4 the projection fell back with no keel on PATH, "
+                f"which is the plugin-only install: {alone_context!r}"
+            )
+            return 1
+        if VERSION_DRIFT_STATEMENT in alone_context.lower():
+            report(
+                f"{label} M4 the projection reported drift with no keel on "
+                f"PATH, as if an absent copy disagreed: {alone_context!r}"
+            )
+            return 1
+    report(f"{label} scenario passed.")
+    return 0
 
 
 def validate_native_plugin_marketplaces_scenario() -> int:
@@ -30536,6 +30704,7 @@ SCENARIOS: tuple = (
     ("native-plugin-manifests", validate_native_plugin_manifests_scenario),
     ("native-plugin-session-start", validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
+    ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),

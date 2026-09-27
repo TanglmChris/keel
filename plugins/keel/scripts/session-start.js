@@ -160,13 +160,16 @@ function protocolVersion(cwd) {
 // stamped into its managed block. Keel reports the disagreement and stops
 // there — installing and updating are the host's, which already has commands
 // for both.
-function versionReport(cwd, cli) {
+function versionReport(cwd, cli, pathCli = null) {
   const plugin = pluginManifest();
   const found = [
     ["plugin", plugin.version],
     ["CLI", cli],
     ["protocol", protocolVersion(cwd)],
   ];
+  // A PATH copy is compared only when it exists. Its absence is the
+  // plugin-only install, which is not drift and not an unread version.
+  if (pathCli) found.push(["PATH keel", pathCli]);
   // Missing is not mismatched. A version nobody can discover never produces a
   // line on its own, or a repository with no managed block would be warned at
   // every session until its reader stopped looking — and fewer than two
@@ -184,10 +187,31 @@ function versionReport(cwd, cli) {
     .map(([name]) => name)
     .join(" and ");
   const missing = unread ? ` (${unread} undiscovered, not compared)` : "";
+  // Naming the reload rather than a restart (#164): the host's
+  // `/reload-plugins` swaps hooks in the running session, so "restart" sent
+  // the reader to the expensive remedy for a cheap one.
+  // The host puts the user's PATH ahead of plugin `bin/` directories, so a
+  // global install is what the agent's own `keel` commands run even though
+  // this hook ran the plugin's. Both remedies are named; neither is run.
+  const shadow = pathCli && pathCli !== cli
+    ? ` The \`keel\` on PATH (${pathCli}) shadows this plugin's CLI for the `
+      + "agent's commands, because the host puts your PATH first: remove it "
+      + "with `npm rm -g @christang/keel`, since the plugin carries its own, "
+      + `or align it with \`npm i -g @christang/keel@${cli}\`.`
+    : "";
   return `runtime versions disagree: ${named}${missing}. A session's hooks are `
-    + "fixed at session start, so an updated plugin applies only after "
-    + `restarting. Updating is ${plugin.remedy}, which Keel names and does `
-    + "not run.";
+    + "fixed when it loads the plugin, so an updated plugin applies after "
+    + "`/reload-plugins` or at the next session start. Updating is "
+    + `${plugin.remedy}, which Keel names and does not run.${shadow}`;
+}
+
+// The `keel` a bare command resolves, asked only when this hook ran its own
+// CLI; with no such command there is nothing to compare.
+function pathCliVersion(cwd) {
+  const probe = runKeel(cwd, ["--version"], "keel");
+  if (probe.error || probe.status !== 0) return null;
+  const match = String(probe.stdout || "").match(/\d+\.\d+\.\d+/);
+  return match ? match[0] : null;
 }
 
 // The Keel mark. A keel is the carina, the ridge on a bird's sternum, so the
@@ -244,8 +268,38 @@ function panel(lines) {
   ].join("\n");
 }
 
-function runKeel(cwd, args) {
-  const cli = (process.env.KEEL_CLI || "keel").trim();
+// On Claude the plugin is the published package (#164), so the CLI it shipped
+// with sits three levels above this script. It is recognized by the package's
+// name and not by the path alone: a Codex cache holds only `plugins/keel`, and
+// whatever lies above that is not this plugin's to run.
+function packagedCli() {
+  const root = path.join(__dirname, "..", "..", "..");
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf8")
+    );
+    const cli = path.join(root, "bin", "keel.js");
+    if (pkg.name === "@christang/keel" && fs.existsSync(cli)) return cli;
+  } catch {
+    // No package around this script: the plugin was copied on its own.
+  }
+  return null;
+}
+
+// An explicit KEEL_CLI first, then the CLI this plugin shipped with, then
+// whatever `keel` is on PATH. The packaged CLI runs under the node running
+// this hook, so it needs neither PATH nor an executable mode.
+function keelCommand() {
+  const explicit = (process.env.KEEL_CLI || "").trim();
+  if (explicit) return { command: explicit, packaged: false };
+  const own = packagedCli();
+  if (own) {
+    return { command: `"${process.execPath}" "${own}"`, packaged: true };
+  }
+  return { command: "keel", packaged: false };
+}
+
+function runKeel(cwd, args, cli) {
   return spawnSync(`${cli} ${args.join(" ")}`, {
     cwd,
     shell: true,
@@ -283,7 +337,8 @@ function main() {
     return 0;
   }
 
-  const version = runKeel(cwd, ["--version"]);
+  const cli = keelCommand();
+  const version = runKeel(cwd, ["--version"], cli.command);
   const versionMatch = String(version.stdout || "").match(/(\d+)\.\d+\.\d+/);
   if (
     version.error
@@ -298,7 +353,7 @@ function main() {
     return 0;
   }
 
-  const result = runKeel(cwd, ["context", "--json"]);
+  const result = runKeel(cwd, ["context", "--json"], cli.command);
   if (result.error || result.status !== 0 || !String(result.stdout || "").trim()) {
     fallback("`keel context --json` failed or timed out.");
     return 0;
@@ -375,7 +430,11 @@ function main() {
         + "does not guess among candidates."
     );
   }
-  const drift = versionReport(cwd, versionMatch[0]);
+  const drift = versionReport(
+    cwd,
+    versionMatch[0],
+    cli.packaged ? pathCliVersion(cwd) : null
+  );
   if (drift) {
     lines.push(`- ${drift}`);
     human.splice(human.length - 1, 0, drift[0].toUpperCase() + drift.slice(1));
