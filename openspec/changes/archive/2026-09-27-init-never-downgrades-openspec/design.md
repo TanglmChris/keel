@@ -5,9 +5,12 @@
 - F3 — `openspecReportedVersion(command)` already reads the resolved OpenSpec's version for doctor's `openspec` line.
 - F4 — In `rtl_ppa_prj`, `.claude/settings.json` declares `keel-marketplace` `autoUpdate: true` and is untracked (`?? .claude/settings.json`). Doctor reported `plugin auto-update: ok`.
 
+- F5 — Doctor's `protocol` warning for a repository behind its install says "run keel --init --target <t> to bring the protocol forward". Measured on 2026-09-27 in `rtl_ppa_prj`, where that is the command that caused #168.
+
 ## Decisions
 
 - D1 — **Surface generator version.** It is the highest `generatedBy` across `SKILL.md` files under `.claude/skills/openspec-*`, `.codex/skills/openspec-*`, `.agents/skills/openspec-*`, and `.opencode/skills/openspec-*`. Every root is read, because #169's layout is `.agents/skills` and a repository may carry more than one target. It is compared with the resolved OpenSpec numerically as `X.Y.Z`. No stamp means nothing to protect.
 - D2 — **The init guard.** When the surfaces are strictly newer, `runProjectInit()` skips both `openspec init --force` and `openspec update --force` and prints one `keel:` line naming both versions and #168. It still runs the installer and the overlay refresh, so the protocol and Keel's overlays move while OpenSpec's templates stay. A dry run prints the same decision. An equal or older generator changes nothing, so init behaves exactly as before.
 - D3 — **Doctor `OpenSpec surfaces` line.** Printed only when a stamp exists. It is `ok - written by X; Keel runs Y`. When the surfaces are newer, it is `warning - written by X, newer than the OpenSpec Keel runs (Y); keel --init leaves them unrewritten rather than downgrading them, and keel --install --target <t> refreshes the protocol without touching them`.
 - D4 — **Untracked declaration.** When `pluginAutoUpdateDeclaration()` finds `autoUpdate: true`, the repository is a Git work tree, and `git ls-files --error-unmatch .claude/settings.json` fails, the status is `warning`. The detail says only this checkout declares it and names `git add .claude/settings.json`. Outside a Git work tree the declaration is reported as before.
+- D5 — **Doctor's protocol remedy** for a behind repository names `keel --install --target <t>`, the refresh that leaves OpenSpec surfaces alone and the one `protocol-refresh` runs. The not-comparable branch, where the repository declares no protocol, keeps `keel --init`, because that repository has not been set up.

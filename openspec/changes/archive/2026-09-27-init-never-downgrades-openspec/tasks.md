@@ -54,9 +54,43 @@
     - Blocker: none
     - Reauthorizations: none
 
+- [x] 1.2 Doctor's protocol remedy names `keel --install`, not the `keel --init` that caused #168
+  - Covers:
+    - keel-target-surface-diagnostics / Doctor's protocol remedy does not rewrite OpenSpec surfaces / A repository behind its install is sent to install
+    - F1
+    - F5
+  - Read:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `marker-version-is-read` requires the behind-repository `protocol` warning to name `keel --install` and not `keel --init`. Fails with: `was told to run keel --init`
+    - M2 (regression): `npm test` reports no failing scenario
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if another surface also names `keel --init` as the refresh for a behind protocol, because that belongs in the same Touch.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b81c6160f74b9f29bc7cec29d14adf0b90adf259b0b7fbefa9699b992772e1f8
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario the-marker-version-is-read` reports the scenario passing. The behind-repository line reads `protocol: warning - repo declares 5.14.0, this CLI is 5.77.0 — the repository is behind its install; run keel --install --target claude to bring the protocol forward; it leaves OpenSpec's surfaces as they are (#168)`.
+    - M1.red: fail, for the declared reason. `the-marker-version-is-read scenario: a repository behind its install was told to run keel --init; got 'protocol: warning - … run keel --init --target claude to bring the protocol forward'.` Carries the declared signature `was told to run keel --init`. The first draft checked the `keel --install` needle before this check and failed on that instead, so the order was swapped to make the red name the defect.
+    - M1.green: pass. Same command after `printProtocolVersionDrift()` named `keel --install --target <t>`. A first wording that explained itself by mentioning `keel --init` failed the same check, and was reworded. The duplicate `compareVersions()` 1.1 had added was removed: the earlier definition, which is the one in effect, has the same sign semantics.
+    - M2: pass. `npm test` reports `validation --all passed: baseline plus 188 scenarios, 1 skipped: output-survives-the-pipe.`, run after 2.1 filled the 5.77.0 changelog stub. Before that, `version-alignment` refused the unfilled stub, and `validation-runner` failed as a knock-on of it. The Stop Rule held: `grep` found no other surface in `plugins/`, `src/core/`, or `AGENTS.md` naming `keel --init` as the refresh for a behind protocol. The not-comparable branch keeps `keel --init` for a repository that was never set up (D5).
+    - Review:
+      - Status: pass
+      - Acceptance check: this defect was found by 2.1's read-only doctor run in the affected repository. The remedy doctor printed there was the command that caused #168, so this repair is what makes E2 true for it. The check forbids `keel --init` on the line outright, which is why even an explanatory mention was refused.
+      - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, this task's Touch, plus this change's own directory and the version markers and changelog 2.1 had written.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
 ## 2. Close
 
-- [ ] 2.1 Release, and show what doctor now tells the affected repository
+- [x] 2.1 Release, and show what doctor now tells the affected repository
   - Covers:
     - E1
     - E2
@@ -99,19 +133,32 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:cf0d7050e7f1edb0cad391c9972f11eb0017da75b4196abbf87083050155e17a
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.76.0 to 5.77.0. `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.77.0 section written into the stub. The Stop Rule held.
+    - M2: pass. Running `node bin/keel.js --doctor` from inside `rtl_ppa_prj` printed three warnings, each with its remedy:
+      - `OpenSpec surfaces: warning - written by OpenSpec 1.13.2, newer than the OpenSpec Keel runs (1.6.0); keel --init leaves them unrewritten rather than downgrading them, and keel --install --target claude refreshes the protocol without touching them`;
+      - `protocol: warning - … run keel --install --target claude to bring the protocol forward; it leaves OpenSpec's surfaces as they are (#168)`;
+      - `plugin auto-update: warning - … Git does not track the file, so only this checkout declares it; commit it with \`git add .claude/settings.json\``.
+
+      A `shasum` of `git -C rtl_ppa_prj status --porcelain` taken before and after is identical. The `protocol` line's 5.77.0 is this working tree's, and becomes true once 5.77.0 is released.
+    - M3: pass. Four ADDED requirements are promoted: one into `keel-openspec-surface-overlay` and three into `keel-target-surface-diagnostics`. `node node_modules/.bin/openspec validate init-never-downgrades-openspec --strict` reports the change valid, `openspec validate --specs --strict` reports `26 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 188 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the owner's two constraints both hold. Nothing in `rtl_ppa_prj` changed, which the identical status hash shows, and every problem it has is now named by its own `keel --doctor` together with the command that fixes it. M2's first run is also what found 1.2's defect, a remedy that would have repeated #168, so the verification did its job before release rather than after.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and both promoted specs, this task's Touch, plus the files 1.2 declared complete and this change's own directory.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/169 — Keel still runs OpenSpec 1.6.0, so the `OpenSpec surfaces` warning will persist in the affected repository until Keel moves to 1.13.x.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-09-27 — Re-recorded after task 1.2 was added mid-release. 2.1's own M2 found doctor sending the affected repository to `keel --init`, and adding 1.2 changed E2's wording (`D5`, `Covered by: 1.1, 1.2, 2.1`), which 2.1 covers. No 2.1 evidence had been recorded.
 
 ## Invalidates
 
 - I1: "Update the shrinkwrap to the newest 1.x … and keep it moving with releases" — the proposed fix
   in issue #168's body, of which this change does only the second half.
   Durable owner: https://github.com/TanglmChris/keel/issues/169
+- I3: "the repository is behind its install; run keel --init --target ${target} to bring the protocol
+  forward" — `printProtocolVersionDrift()` in `bin/keel.js`, doctor's remedy for a behind protocol,
+  which sends the reader to the command that rewrote OpenSpec surfaces in #168.
+  Updated by: 1.2
 - I2: "plugin auto-update: ok - .claude/settings.json declares keel-marketplace autoUpdate: true" —
   doctor's line for a declaration in an untracked file, as 5.75.0 printed it.
   Updated by: 1.1
@@ -121,4 +168,4 @@
 - E1: A repository whose OpenSpec surfaces are newer than Keel's keeps them through `keel --init`
   (D1, D2). Covered by: 1.1
 - E2: `keel --doctor` run in the affected repository names each of its problems with the command
-  that fixes it, so that repository is repaired from its own session (D3, D4). Covered by: 1.1, 2.1
+  that fixes it, so that repository is repaired from its own session (D3, D4, D5). Covered by: 1.1, 1.2, 2.1

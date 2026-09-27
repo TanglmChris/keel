@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.76.0"
-PROTOCOL_VERSION = "5.76.0"
+PACKAGE_VERSION = "5.77.0"
+PROTOCOL_VERSION = "5.77.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -26258,7 +26258,15 @@ def validate_marker_version_is_read_scenario() -> int:
                 f"older protocol did not warn; got {line!r}."
             )
             return 1
-        for needed in ("5.14.0", PACKAGE_VERSION, "keel --init"):
+        # #168: `keel --init` also runs OpenSpec's `--force` rewrite, which is
+        # what downgraded a consumer's surfaces. The protocol refresh is install.
+        if "keel --init" in line:
+            report(
+                "the-marker-version-is-read scenario: a repository behind its "
+                f"install was told to run keel --init; got {line!r}."
+            )
+            return 1
+        for needed in ("5.14.0", PACKAGE_VERSION, "keel --install"):
             if needed not in line:
                 report(
                     "the-marker-version-is-read scenario: the behind-repository "

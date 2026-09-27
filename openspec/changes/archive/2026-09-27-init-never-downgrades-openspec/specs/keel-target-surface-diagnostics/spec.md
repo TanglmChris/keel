@@ -16,3 +16,11 @@ When `.claude/settings.json` declares Keel plugin auto-update and the repository
 - **WHEN** `.claude/settings.json` declares `autoUpdate: true` and is untracked
 - **THEN** the `plugin auto-update` line is a warning naming `git add .claude/settings.json`
 - **AND THEN** once the file is tracked, the line is `ok`
+
+### Requirement: Doctor's protocol remedy does not rewrite OpenSpec surfaces
+
+When the repository's managed protocol is behind the running Keel, `keel --doctor` MUST name `keel --install --target <t>` as the refresh. It MUST NOT name `keel --init`, which also rewrites OpenSpec's surfaces.
+
+#### Scenario: A repository behind its install is sent to install
+- **WHEN** the repository declares an older protocol than the running Keel
+- **THEN** doctor's `protocol` warning names `keel --install --target <t>` and does not name `keel --init`

@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.77.0 - init never downgrades OpenSpec
+
+A regression from 5.74.0, reported from a consumer repository on 2026-09-27 (#168). `keel --init` runs `openspec init --force` and `openspec update --force` with the OpenSpec Keel resolves. Since 5.74.0 the published `npm-shrinkwrap.json` pins that OpenSpec to 1.6.0 for every install, and consumers had been resolving `^1.4.1` to the newest 1.x, 1.13.2. So `keel --init` there rewrote ten OpenSpec skill and command files with 1.6.0 templates and deleted about 1000 lines, while doctor still said `openspec: ok`. The agent in that repository restored them by hand.
+
+- **`keel --init` never downgrades OpenSpec surfaces.** It reads the highest `generatedBy` stamp among the repository's OpenSpec skills. If that is newer than the OpenSpec it would run, it skips both OpenSpec `--force` runs and says which version wrote the surfaces and which it declined to run. It still refreshes the managed protocol and Keel's overlays. Older or unstamped surfaces are refreshed exactly as before. (keel-openspec-surface-overlay)
+- **Doctor names the OpenSpec that wrote the surfaces.** The new `OpenSpec surfaces` line is `ok` when Keel's OpenSpec is the same or newer. When the surfaces are newer it is a warning, saying that `keel --init` leaves them alone and that `keel --install --target <t>` refreshes the protocol without touching them. (keel-target-surface-diagnostics)
+- **Doctor sends a behind protocol to `keel --install`.** Its `protocol` warning used to say "run keel --init … to bring the protocol forward", which in the affected repository is the command that caused #168. It now names `keel --install`, the same refresh `protocol-refresh` runs.
+- **Doctor names an auto-update declaration only one checkout carries.** When `.claude/settings.json` declares `autoUpdate: true` but Git does not track the file, `plugin auto-update` is a warning naming `git add .claude/settings.json`. 5.75.0 reported it as `ok`.
+- The affected repository was not edited from here. Run there, read-only, doctor now prints both warnings with their commands, and that repository's own session applies them.
+- Keel itself still runs OpenSpec 1.6.0. Moving to 1.13.x changes where Codex's surfaces live (`.agents/skills`) and makes six placeholder spec Purposes fail strict validation. That is #169.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.77.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.76.0 - a standing protocol refresh
 
 5.74.0 and 5.75.0 carry a Keel release to a Claude project's plugin and CLI with nobody acting. The one piece they cannot carry is the managed protocol block in each repository's `AGENTS.md`, which moves only when `keel --install` runs there. The agent already noticed a stale block, because `AGENTS.md` asks it to compare `keel context`'s `Keel:` line with the stamp, and then it had to stop and ask every time. The owner decided the agent should refresh it under a standing authorization and leave only the commit (#164, change 3 of 3).

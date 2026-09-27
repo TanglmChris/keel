@@ -765,16 +765,6 @@ const OPENSPEC_SURFACE_ROOTS = [
   path.join(".opencode", "skills"),
 ];
 
-function compareVersions(a, b) {
-  const left = String(a).split(".").map(Number);
-  const right = String(b).split(".").map(Number);
-  for (let i = 0; i < 3; i += 1) {
-    const diff = (left[i] || 0) - (right[i] || 0);
-    if (diff !== 0) return diff < 0 ? -1 : 1;
-  }
-  return 0;
-}
-
 function surfaceGeneratorVersion(repo) {
   let newest = null;
   for (const root of OPENSPEC_SURFACE_ROOTS) {
@@ -1254,8 +1244,9 @@ function printProtocolVersionDrift(repo, target) {
     "warning",
     order < 0
       ? `repo declares ${declared}, this CLI is ${running} — the repository is `
-        + `behind its install; run keel --init --target ${target} to bring the `
-        + "protocol forward"
+        + `behind its install; run keel --install --target ${target} to bring `
+        + "the protocol forward; it leaves OpenSpec's surfaces as they are "
+        + "(#168)"
       : `repo declares ${declared}, this CLI is ${running} — the install is `
         + "behind the repository, which carries a protocol this CLI cannot "
         + "enforce; update the Keel package"
