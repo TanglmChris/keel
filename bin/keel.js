@@ -755,6 +755,42 @@ function openspecReportedVersion(command) {
   return match ? match[0] : null;
 }
 
+// The OpenSpec that wrote this repository's surfaces: the highest
+// `generatedBy` stamp among its OpenSpec skills (#168). Every target's root is
+// read, including `.agents/skills`, where OpenSpec 1.13 writes Codex's.
+const OPENSPEC_SURFACE_ROOTS = [
+  path.join(".claude", "skills"),
+  path.join(".codex", "skills"),
+  path.join(".agents", "skills"),
+  path.join(".opencode", "skills"),
+];
+
+function surfaceGeneratorVersion(repo) {
+  let newest = null;
+  for (const root of OPENSPEC_SURFACE_ROOTS) {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(repo, root));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.startsWith("openspec-")) continue;
+      let text;
+      try {
+        text = fs.readFileSync(path.join(repo, root, entry, "SKILL.md"), "utf8");
+      } catch {
+        continue;
+      }
+      const match = text.match(/generatedBy:\s*"?(\d+\.\d+\.\d+)/);
+      if (match && (!newest || compareVersions(match[1], newest) > 0)) {
+        newest = match[1];
+      }
+    }
+  }
+  return newest;
+}
+
 // What the project declares about Keel plugin auto-update (#164). Claude reads
 // it first from `autoUpdate` on the marketplace's `extraKnownMarketplaces`
 // entry, and `keel --install --target claude` writes it. The host reports no
@@ -774,6 +810,30 @@ function pluginAutoUpdateDeclaration(repo) {
     entry = undefined;
   }
   if (entry && entry.autoUpdate === true) {
+    // A declaration in a file Git does not track exists in this checkout only:
+    // every other clone of the project starts with auto-update off (#168).
+    const inWorkTree = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    const tracked = spawnSync(
+      "git",
+      ["ls-files", "--error-unmatch", ".claude/settings.json"],
+      { cwd: repo, encoding: "utf8" }
+    );
+    if (
+      !inWorkTree.error
+      && inWorkTree.status === 0
+      && String(inWorkTree.stdout).trim() === "true"
+      && tracked.status !== 0
+    ) {
+      return [
+        "warning",
+        ".claude/settings.json declares keel-marketplace autoUpdate: true, "
+          + "but Git does not track the file, so only this checkout declares "
+          + "it; commit it with `git add .claude/settings.json`",
+      ];
+    }
     return [
       "ok",
       `.claude/settings.json declares keel-marketplace autoUpdate: true; ${observation}`,
@@ -1066,7 +1126,25 @@ function runProjectInit(options) {
     fs.mkdirSync(repo, { recursive: true });
   }
 
-  const openspecTools = openspecToolsForTarget(options.target);
+  // Never downgrade (#168): surfaces a newer OpenSpec wrote keep their
+  // content. The protocol and Keel's overlays still move; only OpenSpec's own
+  // `--force` rewrite is skipped, and the reason is printed.
+  const surfaces = surfaceGeneratorVersion(repo);
+  const resolvedCommand = findOpenSpecCommand();
+  const resolved = resolvedCommand ? openspecReportedVersion(resolvedCommand) : null;
+  const keepSurfaces = Boolean(
+    surfaces && resolved && compareVersions(surfaces, resolved) > 0
+  );
+  if (keepSurfaces) {
+    process.stdout.write(
+      `keel: OpenSpec surfaces were written by OpenSpec ${surfaces}, newer `
+        + `than the ${resolved} Keel runs; skipped \`openspec init --force\` `
+        + "and `openspec update --force`, which would downgrade them (#168). "
+        + "The protocol and Keel's overlays are still refreshed.\n"
+    );
+  }
+
+  const openspecTools = keepSurfaces ? null : openspecToolsForTarget(options.target);
   if (openspecTools) {
     const initStatus = runOpenSpec(
       ["init", "--tools", openspecTools, "--force"],
@@ -1088,6 +1166,8 @@ function runProjectInit(options) {
     if (updateStatus !== 0) {
       return updateStatus;
     }
+  }
+  if (openspecTools || keepSurfaces) {
     return refreshOpenSpecSurfaceOverlay(repo, options.target, {
       dryRun: options.dryRun,
     }).status;
@@ -1164,8 +1244,9 @@ function printProtocolVersionDrift(repo, target) {
     "warning",
     order < 0
       ? `repo declares ${declared}, this CLI is ${running} — the repository is `
-        + `behind its install; run keel --init --target ${target} to bring the `
-        + "protocol forward"
+        + `behind its install; run keel --install --target ${target} to bring `
+        + "the protocol forward; it leaves OpenSpec's surfaces as they are "
+        + "(#168)"
       : `repo declares ${declared}, this CLI is ${running} — the install is `
         + "behind the repository, which carries a protocol this CLI cannot "
         + "enforce; update the Keel package"
@@ -1749,6 +1830,22 @@ function runDoctor(options) {
           + "and a red worktree look like. Keel reports which one answered "
           + "and selects none."
         : `${where} (${versions})`
+    );
+  }
+
+  const surfaces = surfaceGeneratorVersion(repo);
+  const running = openspec ? openspecReportedVersion(openspec) : null;
+  if (surfaces && running) {
+    const newer = compareVersions(surfaces, running) > 0;
+    printDoctorLine(
+      "OpenSpec surfaces",
+      newer ? "warning" : "ok",
+      newer
+        ? `written by OpenSpec ${surfaces}, newer than the OpenSpec Keel runs `
+          + `(${running}); keel --init leaves them unrewritten rather than `
+          + `downgrading them, and keel --install --target ${options.target} `
+          + "refreshes the protocol without touching them"
+        : `written by OpenSpec ${surfaces}; Keel runs ${running}`
     );
   }
 
