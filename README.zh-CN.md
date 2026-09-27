@@ -38,21 +38,26 @@ Node.js `>=20.19.0`（内置的 OpenSpec CLI 需要）。
 
 ## 安装
 
-两部分：`keel` CLI 和 `keel` 插件。
+**Claude Code** —— 装插件就够了。插件本身就是发布的 `@christang/keel` 包，技能和 hook 之外还带着
+`keel` CLI 和捆绑的 OpenSpec；agent 运行的 `keel` 就是插件带来的这一份：
 
-**CLI** —— 一条命令（同时装上捆绑的 OpenSpec CLI）：
+```bash
+claude plugin marketplace add TanglmChris/keel
+claude plugin install keel@keel-marketplace
+```
+
+更新之后，在当前会话执行 `/reload-plugins` 即可生效；不执行的话，下次启动时生效。
+
+**Codex，以及你自己的终端** —— 另外装一份 CLI（同时装上捆绑的 OpenSpec CLI）：
 
 ```bash
 npm install -g @christang/keel
 keel --version
-```
-
-**插件** —— 执行技能和运行时 hook：
-
-```bash
-claude plugin install keel@<marketplace>   # Claude Code
 codex plugin add keel@<marketplace>        # Codex
 ```
+
+全局装的 `keel` 在 PATH 里排在插件那份前面，所以在 Claude Code 里 agent 会用它。要么让它和插件同版本，
+要么卸掉（`npm rm -g @christang/keel`）；两者版本不一致时，会话启动那一行会指出来。
 
 > 捆绑的 OpenSpec 依赖在安装时会打印一行 opt-in 的 shell 补全提示。如果你的 npm 拦截安装脚本，
 > 这行提示会被跳过，它纯属装饰，keel 照常工作。

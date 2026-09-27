@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.73.1"
-PROTOCOL_VERSION = "5.73.1"
+PACKAGE_VERSION = "5.74.0"
+PROTOCOL_VERSION = "5.74.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2370,6 +2370,68 @@ def validate_version_alignment_scenario() -> int:
             report(
                 f"version-alignment scenario native manifest {runtime} expected "
                 f"{PACKAGE_VERSION}."
+            )
+            return 1
+
+    # M5 — on Claude the marketplace entry is the manifest and names the
+    # package release it installs (#164), so both of its numbers are version
+    # markers, and the script that moves every marker has to move them.
+    def claude_entry_versions(root: Path) -> dict:
+        market = json.loads(
+            (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        )
+        entry = next(
+            (e for e in market.get("plugins", []) if e.get("name") == "keel"), {}
+        )
+        source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+        return {"version": entry.get("version"), "source.version": source.get("version")}
+
+    stale = {
+        k: v for k, v in claude_entry_versions(ROOT).items() if v != PACKAGE_VERSION
+    }
+    if stale:
+        report(
+            "version-alignment scenario claude marketplace entry version "
+            f"expected {PACKAGE_VERSION}: {stale!r}"
+        )
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-bump-") as raw:
+        scratch = Path(raw)
+        for relative in (
+            "package.json",
+            "npm-shrinkwrap.json",
+            ".claude-plugin/marketplace.json",
+            "plugins/keel/.claude-plugin/plugin.json",
+            "plugins/keel/.codex-plugin/plugin.json",
+            "scripts/bump_version.js",
+            "scripts/validate_plugin.py",
+            "AGENTS.md",
+            "keel/CHANGELOG.md",
+        ):
+            (scratch / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, scratch / relative)
+        bumped = subprocess.run(
+            ["node", str(scratch / "scripts/bump_version.js"), "99.0.0"],
+            cwd=scratch,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        if bumped.returncode != 0:
+            report("version-alignment scenario: bump_version.js failed in a scratch copy.")
+            report((bumped.stderr or bumped.stdout).strip())
+            return 1
+        left = {
+            k: v
+            for k, v in claude_entry_versions(scratch).items()
+            if v != "99.0.0"
+        }
+        if left:
+            report(
+                "version-alignment scenario claude marketplace entry version "
+                f"was not moved by bump_version.js: {left!r}"
             )
             return 1
 
@@ -8293,7 +8355,7 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     # lockfile resolves. Read from this repository, because the fact under test
     # is which program a developer's `keel` invokes here.
     locked = None
-    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    lock = json.loads((ROOT / "npm-shrinkwrap.json").read_text(encoding="utf-8"))
     for name, entry in lock.get("packages", {}).items():
         if name.endswith("@fission-ai/openspec"):
             locked = entry.get("version")
@@ -8345,7 +8407,7 @@ def validate_runtime_versions_are_checked_scenario() -> int:
     if running.group(1) != locked:
         report(
             f"{label} M4 validation is running against OpenSpec "
-            f"{running.group(1)} while package-lock.json resolves {locked}. "
+            f"{running.group(1)} while npm-shrinkwrap.json resolves {locked}. "
             "Results describe a different program: run `npm ci` so the pinned "
             "OpenSpec is the one `keel openspec` resolves."
         )
@@ -8403,7 +8465,7 @@ def validate_doctor_reads_the_diagnosed_repository_scenario() -> int:
             report(f"{label} M1 `keel --doctor` emitted no openspec line.")
             report((doctor.stdout or doctor.stderr or "").strip())
             return 1
-        own_lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+        own_lock = json.loads((ROOT / "npm-shrinkwrap.json").read_text(encoding="utf-8"))
         own_declared = None
         for name, entry in own_lock.get("packages", {}).items():
             if name.endswith("@fission-ai/openspec"):
@@ -8486,6 +8548,41 @@ def validate_doctor_reads_the_diagnosed_repository_scenario() -> int:
                 f"{label} M1 a repository declaring nothing is reported as "
                 "disagreeing with the resolved binary. There is nothing for it "
                 "to disagree with."
+            )
+            report(f"  {line}")
+            return 1
+
+    # M4 — two lockfiles, the precedence npm applies. A repository that
+    # publishes itself carries `npm-shrinkwrap.json` (npm never publishes
+    # `package-lock.json`), and where both exist npm installs from the
+    # shrinkwrap, so that is the version the repository actually pins (#164).
+    with tempfile.TemporaryDirectory(prefix="keel-doctor-shrinkwrap-") as raw:
+        both = Path(raw).resolve()
+        for name, version in (
+            ("npm-shrinkwrap.json", "0.0.2"),
+            ("package-lock.json", "0.0.1"),
+        ):
+            write_text(
+                both / name,
+                json.dumps(
+                    {
+                        "name": "consumer",
+                        "lockfileVersion": 3,
+                        "packages": {
+                            "node_modules/@fission-ai/openspec": {"version": version}
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+            )
+        doctor = run_keel(both, "--doctor")
+        line = openspec_line(doctor.stdout or "")
+        if "repo pins 0.0.2" not in line:
+            report(
+                f"{label} M4 doctor read package-lock.json over "
+                "npm-shrinkwrap.json, while npm installs from the shrinkwrap "
+                "when both exist."
             )
             report(f"  {line}")
             return 1
@@ -14718,9 +14815,106 @@ def validate_native_plugin_manifests_scenario() -> int:
         ),
         None,
     )
-    if claude_entry is None or claude_entry.get("source") != "./plugins/keel":
-        report("native-plugin-manifests claude marketplace entry is invalid.")
+    # M1 — on Claude the plugin is the published package (#164): the entry
+    # fetches it from npm, pinned to the release it is labeled with, and acts
+    # as the manifest. An unpinned source would let a refresh between merge
+    # and publish cache the previous package under the new label.
+    source = (claude_entry or {}).get("source")
+    if (
+        not isinstance(source, dict)
+        or source.get("source") != "npm"
+        or source.get("package") != "@christang/keel"
+    ):
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            f"published package: source {source!r}"
+        )
         return 1
+    pinned = {
+        "version": claude_entry.get("version"),
+        "source.version": source.get("version"),
+    }
+    unpinned = {k: v for k, v in pinned.items() if v != package_version}
+    if unpinned:
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            f"published package at {package_version}: {unpinned!r}"
+        )
+        return 1
+    declared_paths = [
+        *claude_entry.get("skills", []),
+        *claude_entry.get("agents", []),
+    ]
+    unresolved = [
+        path for path in declared_paths if not (ROOT / path).exists()
+    ]
+    if not declared_paths or unresolved:
+        report(
+            "native-plugin-manifests claude marketplace entry is not the "
+            "published package's manifest: its skills and agents must resolve "
+            f"inside the package; declared {declared_paths!r}, unresolved "
+            f"{unresolved!r}"
+        )
+        return 1
+
+    # M2 — the entry states the hooks a second time, so it is held to the
+    # file Codex discovers: the same events, matchers, scripts, and timeouts,
+    # with each script path resolved from the package root instead.
+    plugin_hooks = json.loads(
+        (ROOT / PLUGIN_ROOT / "hooks/hooks.json").read_text(encoding="utf-8")
+    )["hooks"]
+    expected_hooks = json.loads(
+        json.dumps(plugin_hooks).replace(
+            "${CLAUDE_PLUGIN_ROOT}/scripts/",
+            "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/",
+        )
+    )
+    if claude_entry.get("hooks") != expected_hooks:
+        report(
+            "native-plugin-manifests claude marketplace entry hooks diverge "
+            f"from {PLUGIN_ROOT}/hooks/hooks.json after resolving script paths "
+            f"from the package root: {claude_entry.get('hooks')!r}"
+        )
+        return 1
+
+    # M3 — what the host needs from the package to run it as a plugin: a bare
+    # `keel` in `bin/` it can put on PATH, and a lockfile npm actually
+    # publishes so the pinned OpenSpec is installed beside it.
+    npm = shutil.which("npm")
+    if npm is not None:
+        packed = subprocess.run(
+            [npm, "pack", "--dry-run", "--json"],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        try:
+            modes = {
+                item["path"]: item.get("mode", 0)
+                for item in json.loads(packed.stdout)[0]["files"]
+            }
+        except (ValueError, KeyError, IndexError):
+            report("native-plugin-manifests could not read npm pack --json.")
+            report((packed.stderr or packed.stdout).strip()[:400])
+            return 1
+        lacking = [
+            name
+            for name, ok in (
+                ("bin/keel", modes.get("bin/keel", 0) & 0o111),
+                ("npm-shrinkwrap.json", "npm-shrinkwrap.json" in modes),
+            )
+            if not ok
+        ]
+        if lacking:
+            report(
+                "native-plugin-manifests packed set lacks what the host needs "
+                f"to run the package as a plugin: {lacking!r} (bin/keel must "
+                "be executable)"
+            )
+            return 1
 
     report("native-plugin-manifests scenario passed.")
     return 0
@@ -14730,7 +14924,7 @@ def run_session_start_hook(
     repo: Path,
     event: dict,
     *,
-    keel_cli: str,
+    keel_cli: str | None,
     timeout_ms: int | None = None,
     panel: str | None = None,
     plugin_root: Path | None = None,
@@ -14741,7 +14935,11 @@ def run_session_start_hook(
     # suite decides rather than something it inherits from this working tree.
     root = Path(plugin_root) if plugin_root is not None else ROOT / PLUGIN_ROOT
     env = dict(os.environ)
-    env["KEEL_CLI"] = keel_cli
+    # None leaves the hook to choose its own CLI, which is the only way to
+    # observe that choice; every other caller pins one.
+    env.pop("KEEL_CLI", None)
+    if keel_cli is not None:
+        env["KEEL_CLI"] = keel_cli
     env["CLAUDE_PLUGIN_ROOT"] = str(root)
     # The suite must decide the panel's state rather than inherit whatever the
     # developer running it has exported, or the default-off assertion would
@@ -15234,7 +15432,12 @@ def validate_native_plugin_session_start_scenario() -> int:
 # shipping hook, the CLI's by what the fake CLI prints, and the repository's by
 # the managed block in its AGENTS.md.
 VERSION_DRIFT_STATEMENT = "runtime versions disagree"
-VERSION_DRIFT_RESTART_TOKENS = ("fixed at session start", "restart")
+# How an update applies: the hooks are fixed when the plugin loads, and the
+# host's `/reload-plugins` reloads it in the running session (#164). A restart
+# is one way to reach the next load, not the only one, so "only after
+# restarting" sends a reader to the expensive remedy and is refused by name.
+VERSION_DRIFT_APPLY_TOKENS = ("fixed when it loads the plugin", "/reload-plugins")
+VERSION_DRIFT_RETIRED_WORDING = "only after restarting"
 
 
 def plant_session_start_plugin(
@@ -15363,14 +15566,22 @@ def validate_runtime_version_drift_scenario() -> int:
                 return 1
             missing = [
                 token
-                for token in VERSION_DRIFT_RESTART_TOKENS
+                for token in VERSION_DRIFT_APPLY_TOKENS
                 if token not in lowered
             ]
             if missing:
                 report(
-                    f"runtime-version-drift {channel} omits the restart "
-                    f"requirement {missing}, so a reader who updates the plugin "
-                    f"and sees no change concludes the check is broken: {text!r}"
+                    f"runtime-version-drift {channel} omits how an update applies "
+                    f"{missing}, so a reader who updates the plugin and sees no "
+                    f"change concludes the check is broken: {text!r}"
+                )
+                return 1
+            if VERSION_DRIFT_RETIRED_WORDING in lowered:
+                report(
+                    f"runtime-version-drift {channel} omits how an update applies "
+                    f"and still says it applies {VERSION_DRIFT_RETIRED_WORDING!r}, "
+                    f"which sends the reader to a restart when a reload would "
+                    f"do: {text!r}"
                 )
                 return 1
 
@@ -15621,6 +15832,214 @@ def claude_cli() -> str | None:
     return None
 
 
+def plant_path_keel(directory: Path, cli_script: Path) -> Path:
+    """A `keel` command on PATH that answers from the given fake CLI."""
+    node = shutil.which("node") or "node"
+    write_text(
+        directory / "keel",
+        f'#!/bin/sh\nexec "{node}" "{cli_script}" "$@"\n',
+    )
+    (directory / "keel").chmod(0o755)
+    write_text(
+        directory / "keel.cmd",
+        f'@"{node}" "{cli_script}" %*\r\n',
+    )
+    return directory
+
+
+def validate_plugin_runs_its_own_cli_scenario() -> int:
+    """Issue #164: on Claude the plugin is the published package.
+
+    The hook, running from inside that package, must run the CLI the package
+    ships rather than whatever `keel` is on PATH, and must report a PATH copy
+    that disagrees, because the host puts the user's PATH ahead of plugin
+    `bin/` directories and the agent's own commands resolve that copy first.
+    """
+    label = "plugin-runs-its-own-cli"
+    event = {"hook_event_name": "SessionStart", "source": "startup"}
+    with tempfile.TemporaryDirectory(
+        prefix="keel-own-cli-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        tmp = Path(raw_tmp)
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.80.0 Agent Protocol\n\n"
+            "<!-- keel:start version=5.80.0 -->\n## Session Start\n"
+            "<!-- keel:end -->\n",
+        )
+        package = tmp / "package"
+        write_text(
+            package / "package.json",
+            json.dumps({"name": "@christang/keel", "version": "5.80.0"}) + "\n",
+        )
+        fake_keel_cli(package / "bin/keel.js", "5.80.0")
+        plugin = plant_session_start_plugin(package / "plugins/keel", "5.80.0")
+
+        stale_path = plant_path_keel(
+            tmp / "stale-path", Path(fake_keel_cli(tmp / "path-cli.js", "5.70.0").split('"')[1])
+        )
+        spawn_log = tmp / "spawns.log"
+        shadowed = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={
+                "PATH": str(stale_path) + os.pathsep + os.environ.get("PATH", ""),
+                "NODE_OPTIONS": plant_spawn_recorder(tmp / "recorder.js"),
+                "KEEL_FIXTURE_SPAWN_LOG": str(spawn_log),
+            },
+        )
+        spawns = (
+            spawn_log.read_text(encoding="utf-8").splitlines()
+            if spawn_log.exists()
+            else []
+        )
+        own = str(package / "bin/keel.js")
+        answered = [line for line in spawns if own in line and "context" in line]
+        # M2 — which program answered the projection.
+        if not answered:
+            report(
+                f"{label} M2 ran the keel on PATH instead of the CLI its package "
+                f"ships ({own}): {spawns!r}"
+            )
+            return 1
+        # M3 — the PATH copy that disagrees is named, on both channels.
+        for channel, text in (
+            ("additionalContext", session_start_context(shadowed) or ""),
+            ("systemMessage", session_start_message(shadowed) or ""),
+        ):
+            lowered = text.lower()
+            absent = [
+                needle
+                for needle in (
+                    VERSION_DRIFT_STATEMENT,
+                    "5.70.0",
+                    "shadows",
+                    "npm rm -g @christang/keel",
+                )
+                if needle not in lowered
+            ]
+            if absent:
+                report(
+                    f"{label} M3 {channel} did not report the keel that shadows "
+                    f"the plugin's CLI; it lacks {absent!r}: {text!r}"
+                )
+                return 1
+
+        # A PATH copy at the plugin's own version shadows nothing that
+        # differs, and silence when aligned is the whole credibility argument.
+        aligned_path = plant_path_keel(
+            tmp / "aligned-path", Path(fake_keel_cli(tmp / "aligned-cli.js", "5.80.0").split('"')[1])
+        )
+        aligned = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={"PATH": str(aligned_path) + os.pathsep + os.environ.get("PATH", "")},
+        )
+        if VERSION_DRIFT_STATEMENT in (session_start_context(aligned) or "").lower():
+            report(
+                f"{label} M3 reported drift for a PATH keel at the plugin's own "
+                f"version: {session_start_context(aligned)!r}"
+            )
+            return 1
+
+        # M4 — the plugin-only install: nothing called `keel` on PATH at all.
+        # PATH holds only a directory with `node` in it, so no global install
+        # on the machine running the suite can answer.
+        bare_path = tmp / "bare-path"
+        bare_path.mkdir()
+        node = shutil.which("node")
+        if node:
+            try:
+                (bare_path / Path(node).name).symlink_to(node)
+            except OSError:
+                shutil.copy2(node, bare_path / Path(node).name)
+        alone = run_session_start_hook(
+            repo,
+            event,
+            keel_cli=None,
+            plugin_root=plugin,
+            extra_env={"PATH": str(bare_path)},
+        )
+        alone_context = session_start_context(alone) or ""
+        if "demo#1.1" not in alone_context:
+            report(
+                f"{label} M4 the projection fell back with no keel on PATH, "
+                f"which is the plugin-only install: {alone_context!r}"
+            )
+            return 1
+        if VERSION_DRIFT_STATEMENT in alone_context.lower():
+            report(
+                f"{label} M4 the projection reported drift with no keel on "
+                f"PATH, as if an absent copy disagreed: {alone_context!r}"
+            )
+            return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def stage_claude_market_under_test(tmp: Path) -> tuple[Path, str, str] | str:
+    """A Claude marketplace that installs this tree rather than the registry.
+
+    The committed entry installs the published package at this release, which
+    does not exist on the registry until the release lands (#164), and at a
+    version that does exist it installs the registry's copy and tests nothing
+    here. So an install smoke packs the tree the way npm publishes it and puts
+    it behind a copy of the committed entry whose source points at it and whose
+    manifest fields are unchanged. A sentinel only the packed tree carries lets
+    the caller prove which copy was installed. Returns the marketplace
+    directory, its name, and the sentinel, or a failure message.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        return "needs npm to pack the package under test."
+    packed = subprocess.run(
+        [npm, "pack", "--json", "--pack-destination", str(tmp)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    if packed.returncode != 0:
+        return "npm pack failed: " + (packed.stderr or packed.stdout).strip()
+    tarball = tmp / json.loads(packed.stdout)[0]["filename"]
+    market = tmp / "claude-market"
+    market.mkdir()
+    subprocess.run(["tar", "-xzf", str(tarball), "-C", str(market)], check=True)
+    sentinel = ".keel-package-under-test"
+    write_text(market / "package" / sentinel, "\n")
+    committed = json.loads(
+        (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+    )
+    for entry in committed.get("plugins", []):
+        if entry.get("name") == "keel":
+            entry["source"] = "./package"
+    write_text(
+        market / ".claude-plugin/marketplace.json",
+        json.dumps(committed, indent=2) + "\n",
+    )
+    return market, committed["name"], sentinel
+
+
+def installed_elsewhere(config: Path, market_name: str, sentinel: str) -> list | None:
+    """None when Keel was installed from the package under test, else the paths."""
+    installed = json.loads(
+        (config / "plugins/installed_plugins.json").read_text(encoding="utf-8")
+    )
+    paths = [
+        record.get("installPath", "")
+        for record in installed.get("plugins", {}).get(f"keel@{market_name}", [])
+    ]
+    return None if any((Path(p) / sentinel).is_file() for p in paths) else paths
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -15699,20 +16118,40 @@ def validate_native_plugin_marketplaces_scenario() -> int:
             report("native-plugin-marketplaces claude plugin validate failed:")
             report((validated.stderr or validated.stdout).strip())
             return 1
-        claude_market_add = run_claude("plugin", "marketplace", "add", str(ROOT))
+        staged = stage_claude_market_under_test(tmp)
+        if isinstance(staged, str):
+            report(f"native-plugin-marketplaces {staged}")
+            return 1
+        claude_market, claude_market_name, sentinel = staged
+        claude_market_add = run_claude(
+            "plugin", "marketplace", "add", str(claude_market)
+        )
         if claude_market_add.returncode != 0:
             report("native-plugin-marketplaces claude marketplace add failed:")
             report((claude_market_add.stderr or claude_market_add.stdout).strip())
             return 1
-        claude_market_name = json.loads(
-            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
-        )["name"]
         claude_install = run_claude(
             "plugin", "install", f"keel@{claude_market_name}"
         )
         if claude_install.returncode != 0:
             report("native-plugin-marketplaces claude plugin install failed:")
             report((claude_install.stderr or claude_install.stdout).strip())
+            return 1
+        elsewhere = installed_elsewhere(claude_config, claude_market_name, sentinel)
+        if elsewhere is not None:
+            report(
+                "native-plugin-marketplaces claude plugin install failed to use "
+                f"the package under test; it installed from {elsewhere!r}, "
+                "which does not carry the sentinel the packed tree does."
+            )
+            return 1
+        claude_list = run_claude("plugin", "list")
+        if f"Version: {PACKAGE_VERSION}" not in (claude_list.stdout or ""):
+            report(
+                "native-plugin-marketplaces claude plugin list does not show "
+                f"keel {PACKAGE_VERSION} installed from the package under test."
+            )
+            report((claude_list.stderr or claude_list.stdout).strip())
             return 1
         claude_uninstall = run_claude("plugin", "uninstall", "keel")
         if claude_uninstall.returncode != 0:
@@ -21801,14 +22240,25 @@ def validate_native_plugin_install_matrix_scenario() -> int:
         ).returncode != 0:
             report("native-plugin-install-matrix claude validate --strict failed.")
             return 1
-        claude_market = json.loads(
-            (ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
-        )["name"]
-        if run_claude("plugin", "marketplace", "add", str(ROOT)).returncode != 0:
+        staged = stage_claude_market_under_test(tmp)
+        if isinstance(staged, str):
+            report(f"native-plugin-install-matrix {staged}")
+            return 1
+        staged_market, claude_market, sentinel = staged
+        if run_claude(
+            "plugin", "marketplace", "add", str(staged_market)
+        ).returncode != 0:
             report("native-plugin-install-matrix claude marketplace add failed.")
             return 1
         if run_claude("plugin", "install", f"keel@{claude_market}").returncode != 0:
             report("native-plugin-install-matrix claude install failed.")
+            return 1
+        elsewhere = installed_elsewhere(claude_config, claude_market, sentinel)
+        if elsewhere is not None:
+            report(
+                "native-plugin-install-matrix claude install did not use the "
+                f"package under test; it installed from {elsewhere!r}."
+            )
             return 1
         if run_claude("plugin", "uninstall", "keel").returncode != 0:
             report("native-plugin-install-matrix claude uninstall failed.")
@@ -30536,6 +30986,7 @@ SCENARIOS: tuple = (
     ("native-plugin-manifests", validate_native_plugin_manifests_scenario),
     ("native-plugin-session-start", validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
+    ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),

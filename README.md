@@ -46,21 +46,30 @@ Node.js `>=20.19.0` (the bundled OpenSpec CLI needs it).
 
 ## Install
 
-Two pieces: the `keel` CLI and the `keel` plugin.
+**Claude Code** — the plugin is the whole install. It is the published `@christang/keel`
+package, so it carries the `keel` CLI and the bundled OpenSpec along with the skills and hooks,
+and the agent's `keel` commands run the copy the plugin brought:
 
-**CLI** — one command (also installs the bundled OpenSpec CLI):
+```bash
+claude plugin marketplace add TanglmChris/keel
+claude plugin install keel@keel-marketplace
+```
+
+After an update, `/reload-plugins` applies it in the running session; otherwise it applies at the
+next start.
+
+**Codex, and your own terminal** — install the CLI as well (it also installs the bundled
+OpenSpec CLI):
 
 ```bash
 npm install -g @christang/keel
 keel --version
-```
-
-**Plugin** — the execution skills and runtime hooks:
-
-```bash
-claude plugin install keel@<marketplace>   # Claude Code
 codex plugin add keel@<marketplace>        # Codex
 ```
+
+A global `keel` comes first on PATH, ahead of the plugin's copy, so on Claude Code the agent runs
+it instead. Keep it at the plugin's version or remove it (`npm rm -g @christang/keel`); the
+session-start line names it whenever the two disagree.
 
 <details>
 <summary>Install the latest unreleased build from GitHub</summary>

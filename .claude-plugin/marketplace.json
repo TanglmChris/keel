@@ -6,8 +6,50 @@
   "plugins": [
     {
       "name": "keel",
-      "source": "./plugins/keel",
-      "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code."
+      "version": "5.74.0",
+      "source": {
+        "source": "npm",
+        "package": "@christang/keel",
+        "version": "5.74.0"
+      },
+      "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
+      "skills": [
+        "./plugins/keel/skills/"
+      ],
+      "agents": [
+        "./plugins/keel/agents/keel-single-task-goal-claude.md"
+      ],
+      "hooks": {
+        "SessionStart": [
+          {
+            "hooks": [
+              {
+                "type": "command",
+                "command": "node",
+                "args": [
+                  "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/session-start.js"
+                ],
+                "timeout": 15
+              }
+            ]
+          }
+        ],
+        "PreToolUse": [
+          {
+            "matcher": "Edit|Write|NotebookEdit",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "node",
+                "args": [
+                  "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/pretooluse-guard.js"
+                ],
+                "timeout": 10
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

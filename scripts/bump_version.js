@@ -4,22 +4,23 @@
 // One-shot version bump across every place Keel pins its version.
 //
 // The Keel validation suite requires the same version in package.json,
-// package-lock.json, both native plugin manifests, the validator constants,
-// the protocol docs, and the changelog. This script updates all of them
-// together so a release never ships half-aligned.
+// npm-shrinkwrap.json, both native plugin manifests, the Claude marketplace
+// entry and the package release it pins, the validator constants, the
+// protocol docs, and the changelog. This script updates all of them together
+// so a release never ships half-aligned.
 //
 // Usage:
 //   node scripts/bump_version.js <patch|minor|major|explicit-version>
 //
-// After running: fill in the CHANGELOG entry, then `npm test`, commit,
-// tag `vX.Y.Z`, push, and publish a GitHub Release.
+// After running, follow the steps it prints: the release lands through a pull
+// request, and nothing is tagged by hand (#162).
 
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const PKG_PATH = path.join(ROOT, "package.json");
-const LOCK_PATH = path.join(ROOT, "package-lock.json");
+const LOCK_PATH = path.join(ROOT, "npm-shrinkwrap.json");
 const CHANGELOG_PATH = path.join(ROOT, "keel", "CHANGELOG.md");
 const CHANGELOG_HEADER = "# Keel Changelog\n\n";
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -58,7 +59,24 @@ function bumpPackageFiles(newVersion) {
     lock.packages[""].version = newVersion;
   }
   writeJson(LOCK_PATH, lock);
-  process.stdout.write("  updated package-lock.json\n");
+  process.stdout.write("  updated npm-shrinkwrap.json\n");
+}
+
+// On Claude the plugin is the published package (#164): the marketplace entry
+// is its manifest, labeled with the release and pinned to that same release of
+// `@christang/keel`. Both numbers move, or a refresh installs the old package.
+function bumpClaudeMarketplace(newVersion) {
+  const relPath = ".claude-plugin/marketplace.json";
+  const filePath = path.join(ROOT, relPath);
+  const market = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const entry = (market.plugins || []).find((plugin) => plugin.name === "keel");
+  if (!entry || !entry.source || typeof entry.source !== "object") {
+    fail(`expected an npm-sourced keel entry in ${relPath}`);
+  }
+  entry.version = newVersion;
+  entry.source.version = newVersion;
+  writeJson(filePath, market);
+  process.stdout.write(`  updated ${relPath}\n`);
 }
 
 function replaceInFile(relPath, replacements) {
@@ -145,6 +163,7 @@ function main() {
   process.stdout.write(`Bumping ${oldVersion} -> ${newVersion}\n`);
 
   bumpPackageFiles(newVersion);
+  bumpClaudeMarketplace(newVersion);
   replaceInFile("plugins/keel/.claude-plugin/plugin.json", [
     [`"version": "${oldVersion}"`, `"version": "${newVersion}"`],
   ]);

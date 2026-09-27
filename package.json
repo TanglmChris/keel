@@ -2,7 +2,7 @@
   "name": "@christang/keel",
   "displayName": "Keel",
   "description": "Keel OpenSpec execution discipline CLI for Claude Code, Codex, and OpenCode.",
-  "version": "5.73.1",
+  "version": "5.74.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,6 +17,7 @@
     "src/core/",
     "assets/",
     "README.md",
+    "npm-shrinkwrap.json",
     "plugins/",
     "!**/__pycache__",
     "!**/*.pyc"
