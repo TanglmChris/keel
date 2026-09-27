@@ -287,8 +287,8 @@ because the only thing the protocol says about merging is that the agent may not
 
 `merge: human` says the opposite. A bare `repository` is refused — "nobody reviews this" is only honest
 beside what replaced the reviewer. It is not a permission: `authorize:` has no `merge` entry and should
-not gain one. Keel reads the declaration and never GitHub, so it cannot check that auto-merge is really
-on; it reports what you declared.
+not gain one. Keel reads the declaration and never GitHub, so it cannot check that your repository really
+merges that way; it reports what you declared.
 
 ### Full vs Lite
 
