@@ -333,6 +333,8 @@ Naming the token MUST NOT change the verdict or the reported diagnostic code. A 
 ### Requirement: A task body ends at the next task or the next heading
 Task parsing MUST end a task's body at the next task or at the next `##` heading, whichever comes first, so that a change-level section is never read as a field of the preceding task. Every consumer of a task's extent MUST use that same boundary rather than recomputing one.
 
+A heading is a line that begins with `##` at column zero. An indented `##` line is not a heading: inside a task body it is text of the field that is open, and it MUST NOT end the task or drop any field declared after it. The task body and the change-level section MUST decide what a heading is through one shared test.
+
 #### Scenario: A change-level section is not the last task's Evidence
 - **WHEN** a tasks file declares `## Invalidates` or `## Expectation Coverage` after its last task
 - **THEN** that section's lines are not appended to any task field
@@ -350,6 +352,10 @@ Task parsing MUST end a task's body at the next task or at the next `##` heading
 #### Scenario: The anchor search uses the task's own extent
 - **WHEN** the `Contract` anchor of the last task is located for recording
 - **THEN** the search covers only that task's body and does not reach a trailing section
+
+#### Scenario: An indented heading does not end a task
+- **WHEN** a task body carries an indented `##` line before later fields
+- **THEN** the task compiles with every field declared after that line
 
 ### Requirement: A change-level section ends at the next heading or the next task
 A change-level section of tasks.md — `## Invalidates`, `## Expectation Coverage` — MUST end at the next `##` heading or at the next task, whichever comes first. A tasks file's dominant structure is a list, so a section bounded only by the next heading extends over the task list whenever it is not the file's last section. The task half of this bound MUST be the task list already parsed for the same file, so that it cannot drift from the boundary applied to a task's own body, and both change-level sections MUST be bounded by one shared computation rather than by two that agree today.
@@ -381,6 +387,10 @@ A line inside a task body MUST NOT close, satisfy, or contribute an entry to a c
 #### Scenario: The tail position is unchanged
 - **WHEN** a change-level section is the file's last section
 - **THEN** every verdict, problem code, and message is what it was before the boundary gained its task half
+
+#### Scenario: An indented heading does not end a section
+- **WHEN** a tail-position change-level section carries an indented `##` line followed by an entry with no closure
+- **THEN** the gate refuses that entry and names it
 
 ### Requirement: A check may declare the failure its red must show
 

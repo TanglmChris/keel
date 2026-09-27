@@ -59,6 +59,17 @@ function unfilledToken(value) {
   return match ? match[0] : null;
 }
 
+// A heading is a `##` line at column zero. An indented one is text: inside a
+// task it belongs to the field that is open, inside a change-level section it
+// is not an entry. Both readers decide through this one test — issue #160.
+// The tolerant spelling `/^\s*##\s/` ended a task at an indented line and
+// dropped every field after it, and a field with a documented default was
+// replaced by that default without a word; in a section it dropped the entries
+// after the line with no refusal at all.
+function isHeadingLine(line) {
+  return /^##\s/.test(line);
+}
+
 function parseTasks(content) {
   const lines = content.split(/\r?\n/);
   const tasks = [];
@@ -75,16 +86,17 @@ function parseTasks(content) {
     });
   }
   for (let index = 0; index < tasks.length; index += 1) {
-    // A task body ends at the next task or the next `##` heading, whichever
-    // comes first. Without the heading bound a change-level section such as
-    // `## Invalidates` was appended to whichever field was open last — the
-    // Evidence, in every shipped template — so a token quoted there made the
-    // Evidence non-concrete and the gate blamed a task that was fine.
+    // A task body ends at the next task or the next `##` heading (see
+    // `isHeadingLine`), whichever comes first. Without the heading bound a
+    // change-level section such as `## Invalidates` was appended to whichever
+    // field was open last — the Evidence, in every shipped template — so a
+    // token quoted there made the Evidence non-concrete and the gate blamed a
+    // task that was fine.
     const nextTask =
       index + 1 < tasks.length ? tasks[index + 1].line : lines.length;
     let end = nextTask;
     for (let cursor = tasks[index].line + 1; cursor < nextTask; cursor += 1) {
-      if (/^\s*##\s/.test(lines[cursor])) {
+      if (isHeadingLine(lines[cursor])) {
         end = cursor;
         break;
       }
@@ -1538,6 +1550,7 @@ module.exports = {
   isConcrete,
   isPassingReviewStatus,
   loadTaskContract,
+  isHeadingLine,
   parseTasks,
   taskStartContractProblems,
   unfilledToken,

@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.72.0"
-PROTOCOL_VERSION = "5.72.0"
+PACKAGE_VERSION = "5.73.0"
+PROTOCOL_VERSION = "5.73.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5031,6 +5031,71 @@ def validate_section_boundary_scenario() -> int:
             report(repr(problems_of(unstarted["tail"])))
             return 1
 
+        # Cells 5 and 6: the heading half of the boundary, in the tail, where
+        # it is the only half that applies. An indented `##` line inside the
+        # section's own body is not a heading, and the entry after it must still
+        # be judged. The tolerant spelling `parseTasks()` uses for task bodies
+        # ends the section there and drops that entry without a word — issue
+        # #160, measured on the abandoned first attempt at #71 as `7bd6448`.
+        # Both readers are covered because each slices its own section.
+        indented = "  ## an indented line is not a heading\n"
+        indented_invalidates = (
+            "## Invalidates\n\n"
+            '- I1: "the wording that is now wrong" — README.md. Updated by: 1.1\n'
+            + indented
+            + '- I2: "wording nothing updates" — README.md.\n'
+        )
+        payload = start(
+            "invalidates-indented-tail",
+            section_boundary_tasks_md(
+                section=indented_invalidates, task=start_task, position="tail"
+            ),
+        )
+        if not readable(payload, "invalidates-indented-tail", "task-start"):
+            return 1
+        if not [
+            message
+            for message in closure_problems(payload, "invalidation-closure")
+            if "I2" in message
+        ]:
+            report(
+                f"{label} accepted an invalidation that closes nothing because "
+                "it follows an indented `##` line; the section ended at a line "
+                "that is not a heading."
+            )
+            report(repr(payload.get("problems")))
+            return 1
+
+        indented_coverage = (
+            "## Invalidates\n\n- None.\n\n"
+            "## Expectation Coverage\n\n"
+            "- E1: The task owns its file. Covered by: 1.1\n"
+            + indented
+            + "- E3: Nothing closes this one.\n"
+        )
+        payload = close(
+            "coverage-indented-tail",
+            section_boundary_tasks_md(
+                section=indented_coverage,
+                task=section_boundary_task("1.1", checked=True),
+                position="tail",
+            ),
+        )
+        if not readable(payload, "coverage-indented-tail", "change-close"):
+            return 1
+        if not [
+            message
+            for message in closure_problems(payload, "expectation-closure")
+            if "E3" in message
+        ]:
+            report(
+                f"{label} accepted an expectation that closes nothing because "
+                "it follows an indented `##` line; the section ended at a line "
+                "that is not a heading."
+            )
+            report(repr(payload.get("problems")))
+            return 1
+
     report(f"{label} scenario passed.")
     return 0
 
@@ -10014,6 +10079,48 @@ def validate_task_body_ends_at_heading_scenario() -> int:
             report(
                 "task-body-ends-at-heading: the group heading leaked into the "
                 "preceding task's fields."
+            )
+            return 1
+        # An indented `##` line is not a heading — issue #160. The tolerant
+        # test ended the task there, and a field declared after it with a
+        # documented default was replaced by that default without a word: the
+        # stop rule below vanished and task-start still passed. The fields are
+        # ordered so the dropped one is exactly such a field.
+        write_text(
+            repo / "openspec/changes/indented/tasks.md",
+            header
+            + "- [ ] 1.1 Exercise task contract\n"
+            "  - Covers:\n"
+            "    - E1: Public behavior passes.\n"
+            "  - Touch:\n"
+            "    - src/feature.js\n"
+            "  - Verify:\n"
+            "    - Strategy: evidence-first\n"
+            "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
+            "    - M1: node test.js asserts the recorded feed status\n"
+            "  - Evidence:\n"
+            "    - Contract: pending\n"
+            "    - M1: pending\n"
+            "  - Acceptance:\n"
+            "    - Public behavior passes.\n"
+            "    ## an indented line is not a heading\n"
+            "  - Stop Rules:\n"
+            "    - Stop on the rule declared after the indented line.\n"
+            "\n## Invalidates\n\n- None.\n",
+        )
+        indented = json.loads(
+            run_keel(
+                repo, "gate", "task-start", "--change", "indented", "--task",
+                "1.1", "--no-guard", "--json",
+            ).stdout
+        )
+        if "Stop on the rule declared after the indented line." not in json.dumps(
+            indented
+        ):
+            report(
+                "task-body-ends-at-heading: task-start dropped the fields "
+                "declared after an indented `##` line; the task ended at a line "
+                f"that is not a heading (status {indented.get('status')!r})."
             )
             return 1
         # --record must anchor the last task's own Contract line, not the stray
