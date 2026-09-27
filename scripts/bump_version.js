@@ -165,13 +165,19 @@ function main() {
 
   prependChangelogEntry(newVersion);
 
+  // A version is released by landing its pull request: publish.yml's `land`
+  // job merges it once full-gate passes, then publishes, tags, and releases in
+  // the same run. It skips a version whose tag already exists, so a tag pushed
+  // by hand with no release means nothing publishes it at all (#162).
   process.stdout.write(
     `\nDone. Next:\n` +
-      `  1. Edit keel/CHANGELOG.md ${newVersion} entry.\n` +
+      `  1. Write the ${newVersion} entry into its stub in keel/CHANGELOG.md.\n` +
       `  2. npm test\n` +
-      `  3. git commit -am "${newVersion}"\n` +
-      `  4. git tag v${newVersion} && git push --follow-tags && git push origin v${newVersion}\n` +
-      `  5. gh release create v${newVersion} --title v${newVersion} --notes "..."\n`
+      `  3. Commit on a branch (git add -A, so an archived change is included),\n` +
+      `     push it, and open a pull request into main.\n` +
+      `  When full-gate passes, the land job merges it, publishes ${newVersion} to npm,\n` +
+      `  and creates tag v${newVersion} with its release. Do not tag by hand: the job\n` +
+      `  skips a version whose tag exists, and a pushed tag alone publishes nothing.\n`
   );
 }
 

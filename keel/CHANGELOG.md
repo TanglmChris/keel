@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.73.1 - the bump prints the flow in use
+
+`scripts/bump_version.js` still ended by telling the maintainer to tag and release by hand, which stopped being how a version ships in 5.72.0. It was worse than stale: the land job skips a version whose tag already exists, so pushing the tag without the release left the version published by nothing. Reported as #162.
+
+- **The closing hint now describes landing.** Write the changelog stub, `npm test`, commit on a branch, push, and open a pull request into `main`; the land job merges, publishes, tags, and releases. It says not to tag by hand, and why. The commit step says `git add -A`, because the old `commit -am` missed the archived change directory every Full-mode release adds. (closes #162)
+- The new text was exercised by producing this release: `node scripts/bump_version.js patch` printed it.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.73.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.73.0 - a heading is not indented
 
 A tasks file has two readers of "where does this end", and until now they disagreed about one line. `parseTasks()` ended a task body at `/^\s*##\s/`, so an indented `  ## …` line inside a task ended the task and every field declared after it was dropped. `sectionBody()` ended a change-level section at `/^##\s+/`, so the same line inside `## Invalidates` was text and the entries after it were still judged. Reported as #160, found while verifying the abandoned first attempt at #71 before deleting its branch.
