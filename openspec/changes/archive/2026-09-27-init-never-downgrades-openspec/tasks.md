@@ -57,6 +57,7 @@
 - [x] 1.2 Doctor's protocol remedy names `keel --install`, not the `keel --init` that caused #168
   - Covers:
     - keel-target-surface-diagnostics / Doctor's protocol remedy does not rewrite OpenSpec surfaces / A repository behind its install is sent to install
+    - D5
     - F1
     - F5
   - Read:
@@ -75,7 +76,7 @@
   - Stop Rules:
     - Stop if another surface also names `keel --init` as the refresh for a behind protocol, because that belongs in the same Touch.
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:b81c6160f74b9f29bc7cec29d14adf0b90adf259b0b7fbefa9699b992772e1f8
+    - Contract: keel-task-capsule/v1 sha256:066e7861cd15954660bd085b123f69feb5cbab0036b1050a5fbc77116a50e9d2
     - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario the-marker-version-is-read` reports the scenario passing. The behind-repository line reads `protocol: warning - repo declares 5.14.0, this CLI is 5.77.0 — the repository is behind its install; run keel --install --target claude to bring the protocol forward; it leaves OpenSpec's surfaces as they are (#168)`.
     - M1.red: fail, for the declared reason. `the-marker-version-is-read scenario: a repository behind its install was told to run keel --init; got 'protocol: warning - … run keel --init --target claude to bring the protocol forward'.` Carries the declared signature `was told to run keel --init`. The first draft checked the `keel --install` needle before this check and failed on that instead, so the order was swapped to make the red name the defect.
     - M1.green: pass. Same command after `printProtocolVersionDrift()` named `keel --install --target <t>`. A first wording that explained itself by mentioning `keel --init` failed the same check, and was reworded. The duplicate `compareVersions()` 1.1 had added was removed: the earlier definition, which is the one in effect, has the same sign semantics.
@@ -86,7 +87,7 @@
       - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, this task's Touch, plus this change's own directory and the version markers and changelog 2.1 had written.
       - Findings: none
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-09-27 — D5 added to Covers. `change-close` refused the change because E2 cites D5, the decision this task implements, and no task's Covers named it. The checks are unchanged, so M1 and M2 evidence is kept with `--keep-evidence`.
 
 ## 2. Close
 
