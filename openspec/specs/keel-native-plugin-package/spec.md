@@ -1,7 +1,7 @@
 # keel-native-plugin-package Specification
 
 ## Purpose
-TBD - created by archiving change native-plugin-packaging. Update Purpose after archive.
+Define how Keel ships as one native plugin for Codex and Claude: one canonical plugin source, the marketplaces that install and update it, how the plugin and its CLI stay compatible (on Claude, as the published package that carries its own CLI), the SessionStart and write-guard hooks it packages, and what project setup declares about keeping it current.
 ## Requirements
 ### Requirement: Keel has one canonical dual-runtime plugin source
 Keel MUST package one plugin at `plugins/keel` with native Codex and Claude manifests, one canonical portable skill/reference tree, and default-discovered hook assets. It MUST NOT generate per-target copies of the same skill or protocol authority.

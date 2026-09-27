@@ -1,7 +1,7 @@
 # keel-skill-sourcing-and-portability Specification
 
 ## Purpose
-TBD - created by archiving change skill-sourcing-and-portability-policy. Update Purpose after archive.
+Define how Keel's own skills are sourced and shipped: guidance led by authoritative evidence, one portable `SKILL.md` authority delivered by the plugin rather than installed by the CLI, target-native runtime discovery, and quality judged by progressive and behavioral evidence, kept separate from user-authored domain lenses.
 ## Requirements
 ### Requirement: Dedicated skill guidance is evidence-led
 

@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.77.0"
-PROTOCOL_VERSION = "5.77.0"
+PACKAGE_VERSION = "5.78.0"
+PROTOCOL_VERSION = "5.78.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1242,13 +1242,12 @@ def validate_target_surface_scenario() -> int:
             report((codex_init.stderr or codex_init.stdout).strip())
             return 1
         codex_doctor = run_keel(codex_repo, "--doctor", "--target", "codex", env=env)
-        codex_prompt_dir = str(codex_home / "prompts")
         if (
             codex_doctor.returncode != 0
             or "OpenSpec commands: ok" not in codex_doctor.stdout
-            or posix_paths(codex_prompt_dir) not in posix_paths(codex_doctor.stdout)
+            or "OpenSpec 1.13 surfaces Codex's workflows" not in codex_doctor.stdout
             or "OpenSpec action skills: ok" not in codex_doctor.stdout
-            or ".codex/skills" not in posix_paths(codex_doctor.stdout)
+            or ".agents/skills" not in posix_paths(codex_doctor.stdout)
             or "bootstrap: ok" not in codex_doctor.stdout
             or "native plugin runtime: manual" not in codex_doctor.stdout
             or "Target capabilities (codex):" not in codex_doctor.stdout
@@ -1265,16 +1264,15 @@ def validate_target_surface_scenario() -> int:
             report("target-surface scenario Codex init created Claude-only paths.")
             return 1
 
-        for prompt in (codex_home / "prompts").glob("opsx-*.md"):
-            prompt.unlink()
+        # OpenSpec 1.13 writes Codex's workflows as skills only (#169), so the
+        # surface that can go missing is a skill.
+        shutil.rmtree(codex_repo / ".agents/skills/openspec-propose")
         codex_missing = run_keel(codex_repo, "--doctor", "--target", "codex", env=env)
         if (
             codex_missing.returncode != 0
-            or "OpenSpec commands: missing" not in codex_missing.stdout
-            or "keel --init --target codex" not in codex_missing.stdout
-            or "openspec update --force" not in codex_missing.stdout
+            or "OpenSpec action skills: missing" not in codex_missing.stdout
         ):
-            report("target-surface scenario Codex doctor did not report missing prompts.")
+            report("target-surface scenario Codex doctor did not report a missing skill.")
             report((codex_missing.stderr or codex_missing.stdout).strip())
             return 1
 
@@ -2649,15 +2647,11 @@ def openspec_overlay_files(
         }
     if target == "codex":
         assert codex_home is not None
+        # OpenSpec 1.13, which Keel pins, writes Codex's workflows as skills
+        # under `.agents/skills` and no command files (#169).
         return {
-            "apply": [
-                repo / ".codex/skills/openspec-apply-change/SKILL.md",
-                codex_home / "prompts/opsx-apply.md",
-            ],
-            "archive": [
-                repo / ".codex/skills/openspec-archive-change/SKILL.md",
-                codex_home / "prompts/opsx-archive.md",
-            ],
+            "apply": [repo / ".agents/skills/openspec-apply-change/SKILL.md"],
+            "archive": [repo / ".agents/skills/openspec-archive-change/SKILL.md"],
         }
     return {
         "apply": [
@@ -2777,8 +2771,7 @@ def expected_overlay_surfaces(
             surfaces.append(repo / f".claude/commands/opsx/{action}.md")
         elif target == "codex":
             assert codex_home is not None
-            surfaces.append(repo / f".codex/skills/{skill}/SKILL.md")
-            surfaces.append(codex_home / f"prompts/opsx-{action}.md")
+            surfaces.append(repo / f".agents/skills/{skill}/SKILL.md")
         else:
             surfaces.append(repo / f".opencode/skills/{skill}/SKILL.md")
             surfaces.append(repo / f".opencode/commands/opsx-{action}.md")
@@ -3022,7 +3015,7 @@ def validate_sync_surface_overlay_scenario() -> int:
                 ".claude/skills/openspec-sync-specs/SKILL.md",
             ],
             "codex": [
-                ".codex/skills/openspec-sync-specs/SKILL.md",
+                ".agents/skills/openspec-sync-specs/SKILL.md",
             ],
         }
 
@@ -3236,13 +3229,12 @@ def validate_openspec_surface_overlay_scenario() -> int:
         if (
             codex_doctor.returncode != 0
             or "Keel apply/archive/sync overlay: ok" not in codex_doctor.stdout
-            or str(codex_home / "prompts") not in codex_doctor.stdout
         ):
             report("openspec-surface-overlay scenario Codex doctor missed overlay health.")
             report((codex_doctor.stderr or codex_doctor.stdout).strip())
             return 1
 
-        codex_apply_prompt = codex_home / "prompts/opsx-apply.md"
+        codex_apply_prompt = codex_repo / ".agents/skills/openspec-apply-change/SKILL.md"
         original_prompt = codex_apply_prompt.read_text(encoding="utf-8")
         outdated_prompt = re.sub(
             r"<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->"
@@ -3267,6 +3259,33 @@ def validate_openspec_surface_overlay_scenario() -> int:
             or strip_openspec_surface_overlay(refreshed_prompt).strip() == ""
         ):
             report("openspec-surface-overlay scenario Codex install did not refresh overlay idempotently.")
+            return 1
+
+        # M6 — a repository set up under OpenSpec 1.6 keeps its layout: skills
+        # under `.codex/skills` and commands as CODEX_HOME prompts (#169).
+        legacy_repo = tmp / "codex-legacy"
+        legacy_home = tmp / "codex-legacy-home"
+        legacy_env = os.environ.copy()
+        legacy_env["CODEX_HOME"] = str(legacy_home)
+        legacy_surfaces = []
+        for action, skill in OVERLAY_ACTION_SKILLS.items():
+            for surface in (
+                legacy_repo / f".codex/skills/{skill}/SKILL.md",
+                legacy_home / f"prompts/opsx-{action}.md",
+            ):
+                write_text(surface, f"---\nname: {skill}\n---\n\n# {action}\n")
+                legacy_surfaces.append(surface)
+        run_keel(legacy_repo, "--install", "--target", "codex", env=legacy_env)
+        lost = [
+            str(surface)
+            for surface in legacy_surfaces
+            if surface.read_text(encoding="utf-8").count(OPENSPEC_SURFACE_OVERLAY_START) != 1
+        ]
+        if lost:
+            report(
+                "openspec-surface-overlay scenario 1.6-layout Codex surfaces lost "
+                f"their overlay: {lost!r}"
+            )
             return 1
 
         opencode_repo = tmp / "opencode"
@@ -16617,8 +16636,7 @@ def validate_authoring_alignment_overlay_scenario() -> int:
             report((codex_init.stderr or codex_init.stdout).strip())
             return 1
         codex_surfaces = (
-            codex_repo / ".codex/skills/openspec-propose/SKILL.md",
-            codex_home / "prompts/opsx-propose.md",
+            codex_repo / ".agents/skills/openspec-propose/SKILL.md",
         )
         for surface in codex_surfaces:
             content = surface.read_text(encoding="utf-8")
@@ -16648,7 +16666,7 @@ def validate_authoring_alignment_overlay_scenario() -> int:
                 return 1
 
         apply_skill = (
-            codex_repo / ".codex/skills/openspec-apply-change/SKILL.md"
+            codex_repo / ".agents/skills/openspec-apply-change/SKILL.md"
         ).read_text(encoding="utf-8")
         if (
             "rerun `keel-align-expectations`" not in apply_skill

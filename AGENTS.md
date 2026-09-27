@@ -1,6 +1,6 @@
-# Keel v5.77.0 Agent Protocol
+# Keel v5.78.0 Agent Protocol
 
-<!-- keel:start version=5.77.0 -->
+<!-- keel:start version=5.78.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -50,7 +50,7 @@
 - tasks.md declares what the change makes stale in a `## Invalidates` section, which task-start requires before any task runs: one `- I<n>: "the wording that is now wrong" — where it lives.` entry closed by `Updated by:` naming tasks of this change, a `Durable owner:`, or a `Discard reason:`, or `- None.`. Quote the wording a reader would search for, not only the files you recalled — the text that goes stale is the text you were not thinking about. Declaring it during authoring is what lets the affected paths enter Touch instead of forcing a mid-task reauthorization.
 - Deterministic gates validate contract/evidence shape only. The current agent records semantic Review `Status`, `Acceptance check`, `Scope check`, and `Findings`, then runs `keel-review-checklist` at completion gates.
 - `/opsx:sync` and `/opsx:archive` completion is gated by `keel gate change-close --action sync|archive` plus `keel-review-checklist`, not a runtime hook; v5 ships no sync/archive hook, so this gate is capability-`manual` on every target. The `keel` plugin's only runtime hooks are SessionStart continuity and the PreToolUse write guard.
-- Target command surface differs by runtime: Codex OpenSpec commands are global prompts under `CODEX_HOME/prompts/opsx-*.md`, while OpenCode uses project-local `.opencode/commands/opsx-*.md`.
+- Target command surface differs by runtime: under the OpenSpec Keel pins (1.13), Codex's OpenSpec workflows are project-local skills under `.agents/skills/openspec-*`, with no command files; a repository set up under OpenSpec 1.6 keeps its global prompts under `CODEX_HOME/prompts/opsx-*.md`. OpenCode uses project-local `.opencode/commands/opsx-*.md`.
 - Target automation is capability-probed, not assumed by target name. Unverified activation, trust, version, blocking, or native projection remains `manual`; `keel project` creates only one-way views from OpenSpec, and goal/task/subagent projection requires explicit authorization.
 
 ## Unattended runs
@@ -96,7 +96,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.77.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.78.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions
