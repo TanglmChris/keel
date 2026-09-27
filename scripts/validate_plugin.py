@@ -16040,6 +16040,188 @@ def installed_elsewhere(config: Path, market_name: str, sentinel: str) -> list |
     return None if any((Path(p) / sentinel).is_file() for p in paths) else paths
 
 
+# Issue #164: project setup declares Claude plugin auto-update. Claude reads a
+# marketplace's auto-update first from `autoUpdate` on its
+# `extraKnownMarketplaces` entry in any settings file, and defaults it off for
+# every marketplace that is not Anthropic's own.
+KEEL_MARKETPLACE_NAME = "keel-marketplace"
+KEEL_MARKETPLACE_ENTRY = {
+    "source": {"source": "github", "repo": "TanglmChris/keel"},
+    "autoUpdate": True,
+}
+AUTO_UPDATE_LABEL = "init-declares-plugin-auto-update"
+
+
+def _settings(repo: Path) -> dict | None:
+    path = repo / ".claude/settings.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _marketplace_entry(repo: Path) -> dict | None:
+    settings = _settings(repo) or {}
+    return (settings.get("extraKnownMarketplaces") or {}).get(KEEL_MARKETPLACE_NAME)
+
+
+def _auto_update_m1(tmp: Path) -> str | None:
+    repo = tmp / "fresh"
+    repo.mkdir()
+    init = run_keel(repo, "--init", "--target", "claude")
+    if init.returncode != 0:
+        return f"M1 keel --init failed: {(init.stderr or init.stdout).strip()}"
+    entry = _marketplace_entry(repo)
+    if entry != KEEL_MARKETPLACE_ENTRY:
+        return (
+            f"M1 keel --init declared no plugin auto-update: {KEEL_MARKETPLACE_NAME} "
+            f"in .claude/settings.json is {entry!r}, expected "
+            f"{KEEL_MARKETPLACE_ENTRY!r}"
+        )
+    return None
+
+
+def _auto_update_m2(tmp: Path) -> str | None:
+    permissions = {"allow": ["Bash(git:*)"]}
+    local_source = {"source": "directory", "path": "/somewhere/keel"}
+    cases = {
+        "permissions-only": ({"permissions": permissions}, None),
+        "own-source": (
+            {"extraKnownMarketplaces": {KEEL_MARKETPLACE_NAME: {"source": local_source}}},
+            {"source": local_source, "autoUpdate": True},
+        ),
+        "declared-off": (
+            {
+                "extraKnownMarketplaces": {
+                    KEEL_MARKETPLACE_NAME: {**KEEL_MARKETPLACE_ENTRY, "autoUpdate": False}
+                }
+            },
+            {**KEEL_MARKETPLACE_ENTRY, "autoUpdate": False},
+        ),
+    }
+    for name, (existing, expected) in cases.items():
+        repo = tmp / name
+        write_text(repo / ".claude/settings.json", json.dumps(existing, indent=2) + "\n")
+        installed = run_keel(repo, "--install", "--target", "claude")
+        if installed.returncode != 0:
+            return f"M2 {name} keel --install failed: {(installed.stderr or installed.stdout).strip()}"
+        settings = _settings(repo) or {}
+        want = expected if expected is not None else KEEL_MARKETPLACE_ENTRY
+        if _marketplace_entry(repo) != want:
+            return (
+                f"M2 {name}: install did not merge into an existing "
+                f".claude/settings.json as declared; entry is "
+                f"{_marketplace_entry(repo)!r}, expected {want!r}"
+            )
+        if name == "permissions-only" and settings.get("permissions") != permissions:
+            return (
+                f"M2 {name}: the merge into an existing .claude/settings.json "
+                f"lost what the project wrote: {settings!r}"
+            )
+        again = run_keel(repo, "--install", "--target", "claude")
+        if "skip .claude/settings.json" not in (again.stdout or ""):
+            return (
+                f"M2 {name}: a second install did not skip the merge into an "
+                f"existing .claude/settings.json: {again.stdout!r}"
+            )
+    return None
+
+
+def _auto_update_m3(tmp: Path) -> str | None:
+    permissions = {"allow": ["Bash(git:*)"]}
+    ours = tmp / "uninstall-ours"
+    write_text(
+        ours / ".claude/settings.json",
+        json.dumps(
+            {
+                "permissions": permissions,
+                "extraKnownMarketplaces": {KEEL_MARKETPLACE_NAME: KEEL_MARKETPLACE_ENTRY},
+            },
+            indent=2,
+        )
+        + "\n",
+    )
+    run_keel(ours, "--uninstall", "--target", "claude")
+    settings = _settings(ours) or {}
+    if _marketplace_entry(ours) is not None:
+        return f"M3 uninstall left Keel's own marketplace entry behind: {settings!r}"
+    if settings.get("permissions") != permissions:
+        return f"M3 uninstall left the file without the project's permissions: {settings!r}"
+    changed = {**KEEL_MARKETPLACE_ENTRY, "autoUpdate": False}
+    theirs = tmp / "uninstall-theirs"
+    write_text(
+        theirs / ".claude/settings.json",
+        json.dumps({"extraKnownMarketplaces": {KEEL_MARKETPLACE_NAME: changed}}, indent=2)
+        + "\n",
+    )
+    run_keel(theirs, "--uninstall", "--target", "claude")
+    if _marketplace_entry(theirs) != changed:
+        return (
+            "M3 uninstall left the file without the entry the project changed; "
+            f"it removed what Keel did not write: {_settings(theirs)!r}"
+        )
+    return None
+
+
+def _auto_update_m4(tmp: Path) -> str | None:
+    states = {
+        "on": (KEEL_MARKETPLACE_ENTRY, "plugin auto-update: ok"),
+        "off": ({**KEEL_MARKETPLACE_ENTRY, "autoUpdate": False}, "plugin auto-update: manual"),
+        "absent": (None, "plugin auto-update: manual"),
+    }
+    for name, (entry, prefix) in states.items():
+        repo = tmp / f"doctor-{name}"
+        settings = {"extraKnownMarketplaces": {KEEL_MARKETPLACE_NAME: entry}} if entry else {}
+        write_text(repo / ".claude/settings.json", json.dumps(settings) + "\n")
+        doctor = run_keel(repo, "--doctor", "--target", "claude")
+        lines = [
+            line
+            for line in (doctor.stdout or "").splitlines()
+            if line.startswith("plugin auto-update:")
+        ]
+        if len(lines) != 1:
+            return f"M4 {name}: doctor printed no plugin auto-update line: {lines!r}"
+        line = lines[0]
+        if not line.startswith(prefix):
+            return f"M4 {name}: doctor's plugin auto-update line is not {prefix!r}: {line!r}"
+        if name == "off" and "false" not in line:
+            return f"M4 off: the line does not name the project's false: {line!r}"
+        if name == "absent" and "keel --install --target claude" not in line:
+            return f"M4 absent: the line does not name the command that declares it: {line!r}"
+    return None
+
+
+def _auto_update_m5(tmp: Path) -> str | None:
+    repo = tmp / "codex"
+    repo.mkdir()
+    run_keel(repo, "--init", "--target", "codex")
+    if (repo / ".claude/settings.json").exists():
+        return (
+            "M5 keel --init --target codex wrote .claude/settings.json for codex: "
+            f"{_settings(repo)!r}"
+        )
+    return None
+
+
+def validate_init_declares_plugin_auto_update_scenario() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="keel-auto-update-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+        for check in (
+            _auto_update_m1,
+            _auto_update_m2,
+            _auto_update_m3,
+            _auto_update_m4,
+            _auto_update_m5,
+        ):
+            problem = check(tmp)
+            if problem:
+                report(f"{AUTO_UPDATE_LABEL} {problem}")
+                return 1
+    report(f"{AUTO_UPDATE_LABEL} scenario passed.")
+    return 0
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -30987,6 +31169,7 @@ SCENARIOS: tuple = (
     ("native-plugin-session-start", validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
+    ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),

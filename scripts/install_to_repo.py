@@ -532,6 +532,13 @@ def collect_actions(repo: Path, target: str) -> list[InstallAction]:
         )
     if "claude" in targets and not unmanaged_keel_content_warning(repo, "CLAUDE.md"):
         actions.append(managed_content_action("CLAUDE.md", CLAUDE_IMPORT_BLOCK))
+    if "claude" in targets:
+        actions.append(
+            InstallAction(
+                relative_path=Path(".claude/settings.json"),
+                strategy="claude-marketplace-settings",
+            )
+        )
 
     actions.append(openspec_config_action())
     actions.append(keel_config_action())
@@ -923,6 +930,82 @@ def action_source_content(action: InstallAction) -> str:
     return action.content or ""
 
 
+# Claude reads a marketplace's auto-update setting first from `autoUpdate` on
+# its `extraKnownMarketplaces` entry in any settings file, and defaults it off
+# for every marketplace that is not Anthropic's own (#164). The project's
+# committed `.claude/settings.json` is such a file, so declaring it here is what
+# lets a Keel release reach a project with nobody toggling anything.
+KEEL_MARKETPLACE_NAME = "keel-marketplace"
+KEEL_MARKETPLACE_ENTRY = {
+    "source": {"source": "github", "repo": "TanglmChris/keel"},
+    "autoUpdate": True,
+}
+
+
+def load_settings_object(existing: str, purpose: str) -> dict:
+    if not existing.strip():
+        return {}
+    try:
+        settings = json.loads(existing)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"cannot {purpose} .claude/settings.json because it is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(settings, dict):
+        raise ValueError(
+            f"cannot {purpose} .claude/settings.json because it is not a JSON object"
+        )
+    return settings
+
+
+def merge_claude_marketplace_settings(existing: str) -> tuple[str, str]:
+    """Declare auto-update for the Keel marketplace, keeping the project's say.
+
+    An existing entry keeps its own source — a developer may have added the
+    marketplace from a local directory under this name — and any `autoUpdate`
+    it states, because a project that wrote `false` has decided.
+    """
+    settings = load_settings_object(existing, "declare plugin auto-update in")
+    markets = settings.get("extraKnownMarketplaces", {})
+    if not isinstance(markets, dict):
+        raise ValueError(
+            "cannot declare plugin auto-update because .claude/settings.json "
+            "field 'extraKnownMarketplaces' is not an object"
+        )
+    entry = markets.get(KEEL_MARKETPLACE_NAME)
+    if isinstance(entry, dict):
+        declared = dict(entry)
+        declared.setdefault("autoUpdate", True)
+    else:
+        declared = json.loads(json.dumps(KEEL_MARKETPLACE_ENTRY))
+    merged_settings = dict(settings)
+    merged_settings["extraKnownMarketplaces"] = {**markets, KEEL_MARKETPLACE_NAME: declared}
+    merged = json.dumps(merged_settings, indent=2, ensure_ascii=False) + "\n"
+    before = (
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+        if existing.strip()
+        else ""
+    )
+    return merged, "skip" if before == merged else "update"
+
+
+def remove_claude_marketplace_settings(existing: str) -> tuple[str | None, str]:
+    """Remove the entry only when it is exactly the one Keel writes."""
+    settings = load_settings_object(existing, "remove plugin auto-update from")
+    markets = settings.get("extraKnownMarketplaces")
+    if not isinstance(markets, dict) or markets.get(KEEL_MARKETPLACE_NAME) != KEEL_MARKETPLACE_ENTRY:
+        return existing, "skip"
+    remaining = {k: v for k, v in markets.items() if k != KEEL_MARKETPLACE_NAME}
+    updated = dict(settings)
+    if remaining:
+        updated["extraKnownMarketplaces"] = remaining
+    else:
+        updated.pop("extraKnownMarketplaces", None)
+    if not updated:
+        return None, "remove"
+    return json.dumps(updated, indent=2, ensure_ascii=False) + "\n", "remove-managed"
+
+
 def load_hook_config(content: str) -> dict:
     try:
         config = json.loads(content)
@@ -1047,6 +1130,15 @@ def plan_action(
     destination = require_inside_repo(repo, action.relative_path)
     source_content = action_source_content(action)
 
+    if action.strategy == "claude-marketplace-settings":
+        existing = destination.read_text(encoding="utf-8") if destination.exists() else ""
+        merged, kind = merge_claude_marketplace_settings(existing)
+        return PlannedAction(
+            "create" if not destination.exists() else kind,
+            action.relative_path,
+            merged if kind != "skip" or not destination.exists() else None,
+        )
+
     if action.strategy == "keel-hook-settings":
         existing = destination.read_text(encoding="utf-8") if destination.exists() else ""
         merged, kind = merge_keel_hook_settings(existing, source_content)
@@ -1111,6 +1203,17 @@ def plan_uninstall_managed(repo: Path, relative_path: str) -> PlannedAction:
     if not removed:
         return PlannedAction("skip", Path(relative_path))
     return PlannedAction("remove-managed", Path(relative_path), updated)
+
+
+def plan_uninstall_claude_marketplace_settings(repo: Path) -> PlannedAction:
+    relative = Path(".claude/settings.json")
+    path = require_inside_repo(repo, relative)
+    if not path.is_file():
+        return PlannedAction("skip", relative)
+    updated, kind = remove_claude_marketplace_settings(path.read_text(encoding="utf-8"))
+    if kind == "skip":
+        return PlannedAction("skip", relative)
+    return PlannedAction(kind, relative, updated)
 
 
 def plan_uninstall_template(
@@ -1242,6 +1345,10 @@ def plan_uninstall_actions(repo: Path, target: str) -> list[PlannedAction]:
     actions.append(plan_uninstall_managed(repo, "AGENTS.md"))
     if "claude" in targets:
         actions.append(plan_uninstall_managed(repo, "CLAUDE.md"))
+        actions.append(plan_uninstall_claude_marketplace_settings(repo))
+        # Removing the settings file can leave `.claude/` holding nothing that
+        # anyone wrote, and uninstall leaves no empty directory of its own.
+        actions.append(rmdir_if_empty_action(".claude"))
 
     for action in openspec_schema_actions():
         if action.source_path is not None:
