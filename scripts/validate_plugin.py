@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.71.0"
-PROTOCOL_VERSION = "5.71.0"
+PACKAGE_VERSION = "5.72.0"
+PROTOCOL_VERSION = "5.72.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -29777,6 +29777,13 @@ def publish_serialization_problem(workflow: str) -> str | None:
             "release would cancel a publish still waiting to run, losing that "
             "version outright rather than appearing to."
         )
+    if not re.search(r"^[ \t]+queue:\s*max\s*$", body, re.M):
+        return (
+            "a pending publish would be cancelled by the next one — the group "
+            "declares no `queue: max`, and the default `queue: single` keeps one "
+            "pending run and cancels it when a newer one arrives, so a burst of "
+            "three releases drops the middle version (#157)."
+        )
     group = re.search(r"^[ \t]+group:\s*(\S.*?)\s*$", body, re.M)
     if not group:
         return (
@@ -29832,6 +29839,25 @@ def validate_a_publish_waits_for_the_one_before_it_scenario() -> int:
             f"{label}: simultaneous releases publish concurrently — a workflow "
             "with no concurrency group was accepted, which is the configuration "
             "that let eleven releases publish at once."
+        )
+        return 1
+
+    # The pending half (#157). `cancel-in-progress: false` protects the running
+    # publish; the default `queue: single` still cancels a pending one when a
+    # newer run arrives, so a burst of three releases drops the middle version.
+    # A copy without `queue: max` is exactly what 5.70.0 shipped.
+    unqueued = workflow.replace("  queue: max\n", "")
+    if unqueued == workflow:
+        report(
+            f"{label}: a pending publish would be cancelled by the next one — "
+            "`queue: max` could not be located to remove, so the real file keeps "
+            "at most one pending run and cancels the rest."
+        )
+        return 1
+    if not publish_serialization_problem(unqueued):
+        report(
+            f"{label}: a pending publish would be cancelled by the next one — a "
+            "group without `queue: max` was accepted."
         )
         return 1
 
@@ -29994,6 +30020,172 @@ def validate_a_merge_names_who_makes_it_scenario() -> int:
                     f"not name {expected!r}; got {merge_doctor[0]!r}."
                 )
                 return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def workflow_job_block(workflow: str, job: str) -> str:
+    """The text of one job under `jobs:`, up to the next job at the same indent."""
+    match = re.search(
+        r"^  " + re.escape(job) + r":\n((?:(?:    [^\n]*|[ \t]*)\n)*)",
+        workflow,
+        re.M,
+    )
+    return match.group(1) if match else ""
+
+
+def landing_problem(workflow: str) -> str | None:
+    """Return the problem the landing path in `publish.yml` has, or None.
+
+    Takes text so each broken shape can be planted. The workflow runs only on
+    GitHub from the default branch; the repository's copy is the one input
+    guaranteed to be correct, so a rule that only read it would never be seen to
+    fire.
+    """
+    land = workflow_job_block(workflow, "land")
+    if not land:
+        return (
+            f"merges without confirming full-gate — {PUBLISH_WORKFLOW} has no "
+            "`land` job."
+        )
+    if "check_name=full-gate" not in land:
+        return (
+            "merges without confirming full-gate — the `land` job never reads "
+            "the `full-gate` check-run on the head commit before merging."
+        )
+    if "--match-head-commit" not in land:
+        return (
+            "merges without confirming full-gate — the merge is not pinned to the "
+            "tested head commit, so a push after the check could land untested."
+        )
+    if "actions/checkout" in land:
+        return (
+            "pull request code could run with a write token — the `land` job "
+            "checks out code, and it runs in the base repository's context with "
+            "write permission."
+        )
+    if '.user.login == \\"$OWNER\\"' not in land:
+        return (
+            "pull request code could run with a write token — the `land` job "
+            "does not restrict itself to the repository owner's pull requests."
+        )
+    if '.head.repo.full_name == \\"$REPO\\"' not in land:
+        return (
+            "pull request code could run with a write token — the `land` job "
+            "does not refuse pull requests from forks."
+        )
+    publish = workflow_job_block(workflow, "publish")
+    published_at = publish.find("npm publish")
+    released_at = publish.find("gh release create")
+    if published_at < 0 or released_at < 0:
+        return (
+            "a failed publish would be left tagged and never retried — the "
+            "`publish` job lacks `npm publish` or `gh release create`."
+        )
+    if released_at < published_at:
+        return (
+            "a failed publish would be left tagged and never retried — the "
+            "`publish` job creates the tag and release before `npm publish`, and "
+            "a tag is what tells the next run the version is already released."
+        )
+    return None
+
+
+def validate_the_repository_lands_what_passed_scenario() -> int:
+    """#155 follow-up: the repository merges, not the agent, with no stored secret.
+
+    Events made with `GITHUB_TOKEN` start no new workflow runs, so a chain of
+    workflows (merge, then release, then publish) needs a personal token at every
+    hand-off. One run that merges, publishes and releases has no hand-off. The
+    price is that the landing job runs with write permission in the base
+    repository's context — so it must run no pull-request code, land only the
+    owner's own pull requests, and merge only the commit `full-gate` passed.
+    """
+    label = "the-repository-lands-what-passed"
+    workflow = (ROOT / PUBLISH_WORKFLOW).read_text(encoding="utf-8")
+
+    problem = landing_problem(workflow)
+    if problem:
+        report(f"{label}: {problem}")
+        return 1
+    land = workflow_job_block(workflow, "land")
+    if not land:
+        report(
+            f"{label}: merges without confirming full-gate — {PUBLISH_WORKFLOW} "
+            "has no `land` job, so nothing lands a pull request that passed."
+        )
+        return 1
+
+    # M1 — the check is read and the tested commit is what merges.
+    for needle, why in (
+        ("check_name=full-gate", "without reading the `full-gate` check-run"),
+        ("--match-head-commit", "without pinning the merge to the tested head commit"),
+    ):
+        planted = workflow.replace(needle, "")
+        if planted == workflow:
+            report(f"{label}: merges without confirming full-gate — `{needle}` is absent.")
+            return 1
+        if not landing_problem(planted):
+            report(
+                f"{label}: merges without confirming full-gate — a landing job "
+                f"that merges {why} was accepted."
+            )
+            return 1
+
+    # M2 — no pull-request code under a write token, and only the owner's own
+    # pull requests from this repository. `workflow_run` and
+    # `pull_request_target` run in the base repository's context with the
+    # permissions the job asks for, so a checkout there hands the token to
+    # whatever the pull request contains.
+    checkout = workflow.replace(
+        "      - name: Land an owner's pull request whose head passed full-gate\n",
+        "      - uses: actions/checkout@v4\n"
+        "      - name: Land an owner's pull request whose head passed full-gate\n",
+    )
+    if checkout == workflow:
+        report(f"{label}: pull request code could run with a write token — the land step could not be located.")
+        return 1
+    if not landing_problem(checkout):
+        report(
+            f"{label}: pull request code could run with a write token — a "
+            "`land` job with a checkout step was accepted."
+        )
+        return 1
+    for needle, why in (
+        ('.user.login == \\"$OWNER\\"', "any author's pull request"),
+        ('.head.repo.full_name == \\"$REPO\\"', "a pull request from a fork"),
+    ):
+        planted = workflow.replace(" and " + needle, "")
+        if planted == workflow:
+            report(f"{label}: pull request code could run with a write token — `{needle}` is absent.")
+            return 1
+        if not landing_problem(planted):
+            report(
+                f"{label}: pull request code could run with a write token — a "
+                f"`land` job that would land {why} was accepted."
+            )
+            return 1
+
+    # M3 — publish before tagging. A tag is what tells the next run "already
+    # released", so a tag created before a publish that then fails marks a version
+    # released that never reached npm, and nothing would ever retry it.
+    publish_step = workflow[workflow.index("      - name: Publish\n"):workflow.index("      - name: Tag and release the landed version\n")]
+    tag_step = workflow[workflow.index("      - name: Tag and release the landed version\n"):]
+    swapped = workflow.replace(publish_step + tag_step, tag_step.rstrip("\n") + "\n\n" + publish_step.rstrip("\n") + "\n")
+    if swapped == workflow:
+        report(f"{label}: a failed publish would be left tagged and never retried — the two steps could not be swapped.")
+        return 1
+    if not landing_problem(swapped):
+        report(
+            f"{label}: a failed publish would be left tagged and never retried — "
+            "a `publish` job that creates the release before `npm publish` was "
+            "accepted."
+        )
+        return 1
 
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -30367,6 +30559,10 @@ SCENARIOS: tuple = (
     (
         "an-equivalence-claim-names-its-base",
         validate_an_equivalence_claim_names_its_base_scenario,
+    ),
+    (
+        "the-repository-lands-what-passed",
+        validate_the_repository_lands_what_passed_scenario,
     ),
     (
         "a-merge-names-who-makes-it",

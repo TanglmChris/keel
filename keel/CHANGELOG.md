@@ -1,5 +1,44 @@
 # Keel Changelog
 
+## 5.72.0 - the repository lands what passed
+
+**A correction to 5.70.0 first (#157).** Its changelog said `cancel-in-progress: false` was "the
+load-bearing half" and that releases would now publish "one at a time". Only half of that was true.
+`cancel-in-progress: false` protects the *running* publish; GitHub's default `queue: single` keeps one
+*pending* run per group and cancels it when a newer one arrives. A burst of three releases would have
+published the first and the last and dropped the middle one — worse than the read-side confusion 5.70.0
+set out to fix, where nothing had been lost. Nothing caught it because the only burst since had exactly
+two releases, one running and one pending, the one shape `queue: single` handles without loss. The group
+now declares `queue: max` (up to 100 pending runs, FIFO), and the scenario refuses a copy without it.
+
+**Then the change itself (#155).** The owner wants merge through publish with no human step. The first
+sketch chained three workflows — auto-merge, a push-to-`main` workflow, a release-triggered publish —
+and needed a stored personal token, because events made with `GITHUB_TOKEN` start no new workflow run,
+so every hand-off breaks. The chain was the problem, not the token.
+
+`publish.yml` now carries it in one run. When `Full gate` completes on a branch, or a pull request opens,
+the `land` job looks for an open pull request into `main` authored by the repository owner from this
+repository, reads the `full-gate` check-run on its exact head commit, and merges it with
+`--match-head-commit` so a later push cannot land untested. It checks out nothing: `workflow_run` and
+`pull_request_target` run with write permission in the base repository's context, and running
+pull-request code there would hand that code the token. The `publish` job then checks out the merge
+commit, and if the version has no tag it publishes to npm and only then creates the tag and release — a
+failed publish leaves no tag, so a re-run retries it. A refusal to publish over an existing version is
+treated as already published, because that is the write side's answer. The release this run creates
+does not re-trigger the workflow, for the same `GITHUB_TOKEN` reason that made the chain impossible —
+here it is what prevents a double publish. Hand-made releases publish exactly as before.
+
+Branch protection on `main` requiring `full-gate` is the second lock: if the `land` job's logic is ever
+wrong, GitHub refuses the merge. `keel/config.yaml` declares `merge: repository:full-gate`, so every
+session's `keel context` now says no human reviews before merge.
+
+This cannot be exercised before it lands: the workflow runs only on GitHub, from the default branch. What
+was established beforehand is everything that can be — the YAML parses to the intended structure, every
+script passes `bash -n`, both API filters were run against live data, and the changelog extraction
+produces the right section and title. The first pull request after this one is the first real run.
+
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.72.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.71.0 - a merge names who makes it
 
 The owner wants this repository to run fully automatically, merge included (#155). Two guards refuse

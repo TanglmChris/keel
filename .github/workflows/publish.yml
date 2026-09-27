@@ -1,12 +1,29 @@
 name: Publish to npm
 
+# Two ways in. A release published by hand publishes that release, as it always
+# has. And a pull request lands itself: when `Full gate` passes on a branch with
+# an open pull request from the repository owner into `main`, the `land` job
+# merges it and the `publish` job, in the same run, publishes the landed version
+# and creates its tag and release (#155).
+#
+# One run on purpose. Events made with `GITHUB_TOKEN` start no new workflow run,
+# so a chain — merge, then a push-to-main workflow, then a release-triggered one
+# — would need a stored personal token at every hand-off. With no hand-off,
+# `GITHUB_TOKEN` is enough and there is no secret to leak or rotate. The same
+# rule keeps the release this run creates from triggering this file again.
+# It stays in this file because npm's trusted publishing is bound to it by name.
 on:
   release:
     types: [published]
+  workflow_run:
+    workflows: ["Full gate"]
+    types: [completed]
+    branches-ignore: [main]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   contents: read
-  id-token: write
 
 # One group for the whole workflow, and one for the package it publishes to.
 # Eleven releases created in a loop are eleven simultaneous jobs against one npm
@@ -14,21 +31,76 @@ permissions:
 # reported published versions as missing for several minutes and two re-runs were
 # triggered on that false reading (#153).
 #
-# `cancel-in-progress: false` is the load-bearing half. The default is `true`,
-# which would cancel a queued publish when the next release fires — losing a
-# version for real rather than appearing to. A group keyed per release, such as
-# `publish-${{ github.ref }}`, would serialize nothing while looking like a fix:
-# the thing being protected is the package, and there is one of those.
+# Two settings carry the weight, and 5.70.0 shipped only one of them (#157).
+# `cancel-in-progress: false` keeps the *running* publish from being cancelled.
+# `queue: max` keeps the *pending* ones: GitHub's default `queue: single` holds
+# one pending run and cancels it when a newer one arrives, so a burst of three
+# releases would publish the first and the last and drop the middle one — worse
+# than the confusion this group was added to fix. A group keyed per release,
+# such as `publish-${{ github.ref }}`, would serialize nothing while looking
+# like a fix: the thing being protected is the package, and there is one of those.
 concurrency:
   group: publish
+  queue: max
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # Runs with write permission in the base repository's context, so it checks
+  # out nothing and executes no pull-request code: it only calls the API. It
+  # lands only the owner's own pull requests from this repository into `main`,
+  # only after reading the `full-gate` check-run on the exact head commit, and
+  # pins the merge to that commit so a later push cannot slip in untested. Branch
+  # protection requiring `full-gate` is the second lock: if this logic is wrong,
+  # GitHub still refuses the merge.
+  land:
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    outputs:
+      merged: ${{ steps.land.outputs.merged }}
+      sha: ${{ steps.land.outputs.sha }}
+    steps:
+      - name: Land an owner's pull request whose head passed full-gate
+        id: land
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "merged=false" >> "$GITHUB_OUTPUT"
+          pr="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --jq "[.[] | select(.state == \"open\" and .base.ref == \"main\" and .user.login == \"$OWNER\" and .head.repo.full_name == \"$REPO\")][0].number // empty")"
+          if [ -z "$pr" ]; then
+            echo "No open pull request from $OWNER into main at $HEAD_SHA."
+            exit 0
+          fi
+          gate="$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=full-gate" --jq '[.check_runs[].conclusion] | if length == 0 then "absent" elif all(. == "success") then "success" elif any(. == null) then "pending" else "failed" end')"
+          if [ "$gate" != "success" ]; then
+            echo "full-gate is $gate at $HEAD_SHA; not landing #$pr."
+            exit 0
+          fi
+          gh pr merge "$pr" --repo "$REPO" --merge --match-head-commit "$HEAD_SHA"
+          sha="$(gh pr view "$pr" --repo "$REPO" --json mergeCommit --jq .mergeCommit.oid)"
+          echo "Landed #$pr as $sha."
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: land
+    if: always() && (github.event_name == 'release' || needs.land.outputs.merged == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.ref || needs.land.outputs.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,17 +121,59 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The full validation suite is Windows/CLI-specific and runs in the
-      # pre-push hook before any release tag is pushed, so it is not re-run here.
+      # The full validation suite runs as `full-gate` before anything lands, and
+      # in the pre-push hook before a hand-made release; it is not re-run here.
 
-      - name: Verify tag matches package.json version
+      - name: Decide what to publish
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Release tag ($TAG_VERSION) does not match package.json version ($PKG_VERSION)." >&2
-            exit 1
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=false" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = release ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$tag" ]; then
+              echo "Release tag ($tag) does not match package.json version ($version)." >&2
+              exit 1
+            fi
+          elif git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released; the landed change publishes nothing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Publish before tagging. A failed publish leaves no tag, so a re-run tries
+      # again; a tag that exists means the version was released. A refusal to
+      # publish over an existing version is the write side saying it is already
+      # there — the only answer #153 found trustworthy.
       - name: Publish
-        run: npm publish --access public
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          set -uo pipefail
+          if out="$(npm publish --access public 2>&1)"; then
+            echo "$out"
+            exit 0
+          fi
+          echo "$out"
+          if grep -q "cannot publish over the previously published versions" <<<"$out"; then
+            echo "Already published: the write side says so."
+            exit 0
+          fi
+          exit 1
+
+      - name: Tag and release the landed version
+        if: steps.plan.outputs.skip != 'true' && steps.plan.outputs.tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SHA: ${{ needs.land.outputs.sha }}
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f = 1; next} /^## / && f {exit} f' keel/CHANGELOG.md > notes.md
+          title="$(awk -v v="$VERSION" 'index($0, "## " v " - ") == 1 {print substr($0, length("## " v " - ") + 1); exit}' keel/CHANGELOG.md)"
+          gh release create "v$VERSION" --target "$SHA" --title "v$VERSION: $title" --notes-file notes.md

@@ -205,4 +205,10 @@ triage:
 # whatever this says; `authorize:` has no `merge` entry and should not gain one.
 # Keel reads this claim and never GitHub, so it cannot verify auto-merge or
 # branch protection is actually on — it reports what the owner declared.
-# Undeclared here: this repository has not turned auto-merge on (#155).
+#
+# Declared here since 5.72.0. This repository does not use GitHub's auto-merge
+# setting: the `land` job in `.github/workflows/publish.yml` merges an owner's
+# pull request into `main` once its head commit passed `full-gate`, and branch
+# protection on `main` requiring `full-gate` refuses the merge if that job is
+# ever wrong. No person reviews before merge; `full-gate` is the last gate.
+merge: repository:full-gate

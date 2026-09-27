@@ -271,8 +271,11 @@ designed to — resist widening the policy until it stops happening.
 ### Who merges
 
 Keel never lets the agent merge — an unattended run opens a pull request and stops. A repository can
-still merge without a person, on a rule of its own: GitHub auto-merge behind a required status check.
-If yours does, say so:
+still merge without a person, on a rule of its own: GitHub auto-merge behind a required status check,
+or a workflow job that merges what passed. Keel's own repository does the second — the `land` job in
+`.github/workflows/publish.yml` merges the owner's pull request once `full-gate` passed on its head
+commit, then publishes and releases the version in the same run, with no stored secret. If your
+repository merges on its own, say so:
 
 ```yaml
 merge: repository:full-gate
