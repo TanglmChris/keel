@@ -16337,6 +16337,114 @@ def validate_context_names_the_protocol_refresh_scenario() -> int:
     return 0
 
 
+# Issue #168: 5.74.0's shrinkwrap pinned OpenSpec 1.6.0 for every install, and
+# `keel --init` ran `openspec update --force` over surfaces 1.13.2 had written,
+# deleting ~1000 lines in a consumer while doctor said `openspec: ok`.
+DOWNGRADE_LABEL = "init-never-downgrades-openspec"
+DOWNGRADE_SENTINEL = "keel-downgrade-sentinel: this line exists only in the planted surface"
+
+
+def _restamp_surfaces(repo: Path, version: str) -> Path:
+    """Stamp every OpenSpec skill `generatedBy: version` and plant a sentinel."""
+    skills = sorted((repo / ".claude/skills").glob("openspec-*/SKILL.md"))
+    for skill in skills:
+        text = skill.read_text(encoding="utf-8")
+        skill.write_text(
+            re.sub(r'generatedBy: "[^"]*"', f'generatedBy: "{version}"', text),
+            encoding="utf-8",
+        )
+    target = repo / ".claude/skills/openspec-propose/SKILL.md"
+    head, sep, body = target.read_text(encoding="utf-8").partition("\n---\n")
+    target.write_text(head + sep + DOWNGRADE_SENTINEL + "\n" + body, encoding="utf-8")
+    return target
+
+
+def _downgrade_m1(tmp: Path) -> str | None:
+    repo = tmp / "newer"
+    repo.mkdir()
+    run_keel(repo, "--init", "--target", "claude")
+    planted = _restamp_surfaces(repo, "99.0.0")
+    again = run_keel(repo, "--init", "--target", "claude")
+    output = (again.stdout or "") + (again.stderr or "")
+    if DOWNGRADE_SENTINEL not in planted.read_text(encoding="utf-8"):
+        return (
+            "M1 keel --init rewrote OpenSpec surfaces written by a newer OpenSpec "
+            "(99.0.0): the planted sentinel is gone."
+        )
+    if "99.0.0" not in output or "skip" not in output.lower():
+        return (
+            "M1 keel --init kept the surfaces but did not say it skipped the rewrite "
+            f"of OpenSpec surfaces written by a newer OpenSpec: {output[-600:]!r}"
+        )
+    return None
+
+
+def _downgrade_m2(tmp: Path) -> str | None:
+    repo = tmp / "doctor-newer"
+    repo.mkdir()
+    run_keel(repo, "--init", "--target", "claude")
+    _restamp_surfaces(repo, "99.0.0")
+    running = run_keel(repo, "openspec", "--version").stdout.strip()
+    doctor = run_keel(repo, "--doctor").stdout or ""
+    lines = [l for l in doctor.splitlines() if l.startswith("OpenSpec surfaces:")]
+    if len(lines) != 1 or not lines[0].startswith("OpenSpec surfaces: warning"):
+        return f"M2 doctor printed no OpenSpec surfaces warning for 99.0.0 surfaces: {lines!r}"
+    for needle in ("99.0.0", running, "keel --install --target claude"):
+        if needle not in lines[0]:
+            return f"M2 doctor printed no OpenSpec surfaces warning carrying {needle!r}: {lines[0]!r}"
+    return None
+
+
+def _downgrade_m3(tmp: Path) -> str | None:
+    repo = tmp / "older"
+    repo.mkdir()
+    run_keel(repo, "--init", "--target", "claude")
+    planted = _restamp_surfaces(repo, "1.0.0")
+    run_keel(repo, "--init", "--target", "claude")
+    if DOWNGRADE_SENTINEL in planted.read_text(encoding="utf-8"):
+        return (
+            "M3 keel --init skipped the OpenSpec refresh for surfaces older than "
+            "the OpenSpec it runs (1.0.0); only newer surfaces are protected."
+        )
+    return None
+
+
+def _downgrade_m4(tmp: Path) -> str | None:
+    repo = tmp / "git"
+    repo.mkdir()
+    git = ["git", "-c", "user.name=keel", "-c", "user.email=keel@example.invalid"]
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    run_keel(repo, "--install", "--target", "claude")
+
+    def line() -> str:
+        doctor = run_keel(repo, "--doctor", "--target", "claude").stdout or ""
+        return next((l for l in doctor.splitlines() if l.startswith("plugin auto-update:")), "")
+
+    untracked = line()
+    if not untracked.startswith("plugin auto-update: warning") or "git add .claude/settings.json" not in untracked:
+        return f"M4 doctor did not say .claude/settings.json is untracked: {untracked!r}"
+    subprocess.run([*git, "add", ".claude/settings.json"], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "declare"], cwd=repo, check=True)
+    tracked = line()
+    if not tracked.startswith("plugin auto-update: ok"):
+        return f"M4 doctor did not say .claude/settings.json is untracked only while it was: {tracked!r}"
+    return None
+
+
+def validate_init_never_downgrades_openspec_scenario() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="keel-downgrade-", ignore_cleanup_errors=True
+    ) as raw:
+        tmp = Path(raw)
+        for check in (_downgrade_m1, _downgrade_m2, _downgrade_m3, _downgrade_m4):
+            problem = check(tmp)
+            if problem:
+                report(f"{DOWNGRADE_LABEL} {problem}")
+                return 1
+    report(f"{DOWNGRADE_LABEL} scenario passed.")
+    return 0
+
+
 def validate_native_plugin_marketplaces_scenario() -> int:
     codex = shutil.which("codex")
     claude = claude_cli()
@@ -31314,6 +31422,7 @@ SCENARIOS: tuple = (
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
+    ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
     ("native-goal-projection", validate_native_goal_projection_scenario),
