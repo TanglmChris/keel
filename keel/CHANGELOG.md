@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.80.0 - the plugin installs from git
+
+The owner wants Keel in Anthropic's official plugin directory, with one release flow feeding npm, Keel's own marketplace, and that directory. That directory takes every third-party plugin from a git repository pinned to a commit, and none from npm. Keel's Claude plugin came from the npm package (#164, 5.74.0), and its skills, agent, and hooks were declared inside Keel's marketplace entry, which the directory would have had to copy. A bundled OpenSpec was planned for the git install and dropped: on Claude Code 2.1.283 the host installs a git-sourced plugin's dependencies from the committed `npm-shrinkwrap.json`, so the plugin arrives with the pinned OpenSpec either way.
+
+- **The plugin's manifest is at the repository root.** `.claude-plugin/plugin.json` declares the skills, the Claude agent, and the hooks. It is the only Claude manifest; an entry only has to say where the repository is. `native-plugin-manifests` holds it to `plugins/keel`'s manifest and `hooks.json`. (keel-native-plugin-package)
+- **Keel's marketplace installs the tagged tree from git.** The entry's source is `https://github.com/TanglmChris/keel.git` at `v<version>`, and it restates no component. `bump_version.js` moves the root manifest, the entry's version, and its tag together. An install made from the npm-sourced 5.79.0 entry updates to it with `claude plugin update`; that was checked in an isolated configuration before release.
+- **Every release states its official directory entry.** `scripts/official_entry.js <version> <sha>` prints the entry pinned to a commit, and the release job appends it to the release notes under `Official directory entry`. Submitting it is the owner's act; Keel submits nothing.
+- **The install smoke goes through git.** `native-plugin-marketplaces` stages the working tree as a scratch repository tagged like a release and installs it the way the host would from GitHub, then requires the skills, both hooks, and the OpenSpec the lockfile pins.
+- npm is unchanged: the same commit is still published as `@christang/keel`. Codex is unchanged.
+- Installing the Claude plugin now needs `git` and network access to GitHub, as well as `npm`, which the host runs to install the pinned OpenSpec.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.80.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.79.0 - the drift line names a pending reload
 
 Reported on 2026-09-28 (#172). The host had already auto-updated the Keel plugin to 5.78.0, but a session that had loaded 5.77.0 kept printing the SessionStart drift line after `/clear`, which does not reload hooks. The line named `claude plugin update`, which had already happened, and told the reader to align the global CLI with `npm i -g @christang/keel@5.77.0`, a downgrade to the stale loaded plugin. `/reload-plugins` was the whole remedy.

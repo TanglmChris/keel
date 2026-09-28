@@ -176,4 +176,9 @@ jobs:
           set -euo pipefail
           awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f = 1; next} /^## / && f {exit} f' keel/CHANGELOG.md > notes.md
           title="$(awk -v v="$VERSION" 'index($0, "## " v " - ") == 1 {print substr($0, length("## " v " - ") + 1); exit}' keel/CHANGELOG.md)"
+          # The entry Anthropic's official plugin directory would list, pinned
+          # to the commit this tag points at. Submitting it is the owner's act.
+          printf '\n## Official directory entry\n\n```json\n' >> notes.md
+          node scripts/official_entry.js "$VERSION" "$SHA" >> notes.md
+          printf '```\n' >> notes.md
           gh release create "v$VERSION" --target "$SHA" --title "v$VERSION: $title" --notes-file notes.md

@@ -137,7 +137,7 @@ function pluginManifest() {
   return { version: null, remedy: HOST_UPDATE };
 }
 
-// On Claude the plugin is the published package, cached at
+// On Claude the plugin is the repository's tagged tree, cached at
 // <plugins>/cache/<marketplace>/<plugin>/<version>, and the host records what
 // it installed in <plugins>/installed_plugins.json (#172). Another install of
 // this same plugin at a different version means the update already happened
@@ -315,7 +315,7 @@ function panel(lines) {
   ].join("\n");
 }
 
-// On Claude the plugin is the published package (#164), so the CLI it shipped
+// On Claude the plugin is the repository's tagged tree (#164), so the CLI it shipped
 // with sits three levels above this script. It is recognized by the package's
 // name and not by the path alone: a Codex cache holds only `plugins/keel`, and
 // whatever lies above that is not this plugin's to run.

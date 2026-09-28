@@ -46,9 +46,10 @@ Node.js `>=20.19.0` (the bundled OpenSpec CLI needs it).
 
 ## Install
 
-**Claude Code** — the plugin is the whole install. It is the published `@christang/keel`
-package, so it carries the `keel` CLI and the bundled OpenSpec along with the skills and hooks,
-and the agent's `keel` commands run the copy the plugin brought:
+**Claude Code** — the plugin is the whole install. It is this repository at the release's tag,
+the same tree npm publishes as `@christang/keel`, so it carries the `keel` CLI along with the
+skills and hooks, and Claude installs the pinned OpenSpec from its lockfile when it installs the
+plugin. The agent's `keel` commands run the copy the plugin brought:
 
 ```bash
 claude plugin marketplace add TanglmChris/keel
@@ -61,6 +62,10 @@ Updates arrive by themselves once a project is set up: `keel --init --target cla
 in the background after a session's first message; `/reload-plugins` applies it in the running
 session, and otherwise it applies at the next start. To opt out, set that entry's `autoUpdate` to
 `false`; Keel keeps a value the project states, and `keel --doctor` reports which one is declared.
+
+Each release's notes also carry the entry Anthropic's official plugin directory would list for it,
+pinned to the commit the release tag points at. The directory takes the same tagged tree this
+marketplace installs.
 
 **Codex, and your own terminal** — install the CLI as well (it also installs the bundled
 OpenSpec CLI):

@@ -38,8 +38,9 @@ Node.js `>=20.19.0`（内置的 OpenSpec CLI 需要）。
 
 ## 安装
 
-**Claude Code** —— 装插件就够了。插件本身就是发布的 `@christang/keel` 包，技能和 hook 之外还带着
-`keel` CLI 和捆绑的 OpenSpec；agent 运行的 `keel` 就是插件带来的这一份：
+**Claude Code** —— 装插件就够了。插件就是本仓库在发布 tag 上的那棵树，和 npm 发布的 `@christang/keel`
+是同一份，技能和 hook 之外还带着 `keel` CLI；安装插件时 Claude 会按锁文件装好锁定版本的 OpenSpec。
+agent 运行的 `keel` 就是插件带来的这一份：
 
 ```bash
 claude plugin marketplace add TanglmChris/keel
@@ -50,6 +51,9 @@ claude plugin install keel@keel-marketplace
 `.claude/settings.json` 里为 `keel-marketplace` 声明自动更新，Claude 先读这个声明，而不是它默认的"关闭"。
 新版本会在会话发出第一条消息后在后台下载；执行 `/reload-plugins` 即在当前会话生效，否则下次启动时生效。
 不想自动更新，就把那一项的 `autoUpdate` 设为 `false`；项目写明的值 Keel 会保留，`keel --doctor` 会报告当前声明的是哪一个。
+
+每个版本的 release notes 里还附有 Anthropic 官方插件目录对应的条目，锁定到该版本 tag 指向的 commit。
+官方目录装到的就是这个 marketplace 装的同一棵带 tag 的树。
 
 **Codex，以及你自己的终端** —— 另外装一份 CLI（同时装上捆绑的 OpenSpec CLI）：
 
