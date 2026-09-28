@@ -4,8 +4,8 @@
 // One-shot version bump across every place Keel pins its version.
 //
 // The Keel validation suite requires the same version in package.json,
-// npm-shrinkwrap.json, both native plugin manifests, the Claude marketplace
-// entry and the package release it pins, the validator constants, the
+// npm-shrinkwrap.json, the native plugin manifests, the Claude marketplace
+// entry and the release tag it installs, the validator constants, the
 // protocol docs, and the changelog. This script updates all of them together
 // so a release never ships half-aligned.
 //
@@ -62,19 +62,31 @@ function bumpPackageFiles(newVersion) {
   process.stdout.write("  updated npm-shrinkwrap.json\n");
 }
 
-// On Claude the plugin is the published package (#164): the marketplace entry
-// is its manifest, labeled with the release and pinned to that same release of
-// `@christang/keel`. Both numbers move, or a refresh installs the old package.
+// On Claude the plugin is the tagged repository tree. Its root manifest carries
+// the release version, and Keel's marketplace entry names that version and the
+// tag it installs from git. All three move, or a refresh installs the old tree.
 function bumpClaudeMarketplace(newVersion) {
+  const manifestRel = ".claude-plugin/plugin.json";
+  const manifestPath = path.join(ROOT, manifestRel);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.version = newVersion;
+  writeJson(manifestPath, manifest);
+  process.stdout.write(`  updated ${manifestRel}\n`);
+
   const relPath = ".claude-plugin/marketplace.json";
   const filePath = path.join(ROOT, relPath);
   const market = JSON.parse(fs.readFileSync(filePath, "utf8"));
   const entry = (market.plugins || []).find((plugin) => plugin.name === "keel");
-  if (!entry || !entry.source || typeof entry.source !== "object") {
-    fail(`expected an npm-sourced keel entry in ${relPath}`);
+  if (
+    !entry
+    || !entry.source
+    || typeof entry.source !== "object"
+    || entry.source.source !== "url"
+  ) {
+    fail(`expected a git-sourced keel entry in ${relPath}`);
   }
   entry.version = newVersion;
-  entry.source.version = newVersion;
+  entry.source.ref = `v${newVersion}`;
   writeJson(filePath, market);
   process.stdout.write(`  updated ${relPath}\n`);
 }

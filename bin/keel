@@ -2,7 +2,7 @@
 "use strict";
 
 // The bare `keel` a Claude plugin's `bin/` puts on the agent's PATH (#164).
-// On Claude the plugin is this published package, and the host adds `bin/`
+// On Claude the plugin is this repository's tagged tree, and the host adds `bin/`
 // to PATH by file name, so `keel.js` alone would answer to `keel.js`. npm's
 // own `bin` map keeps pointing at `keel.js`; this file only gives the plugin
 // the same name.

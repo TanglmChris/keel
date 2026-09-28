@@ -1,7 +1,7 @@
 # keel-native-plugin-package Specification
 
 ## Purpose
-Define how Keel ships as one native plugin for Codex and Claude: one canonical plugin source, the marketplaces that install and update it, how the plugin and its CLI stay compatible (on Claude, as the published package that carries its own CLI), the SessionStart and write-guard hooks it packages, and what project setup declares about keeping it current.
+Define how Keel ships as one native plugin for Codex and Claude: one canonical plugin source, the marketplaces that install and update it, how the plugin and its CLI stay compatible (on Claude, as the tagged repository tree that carries its own CLI), the SessionStart and write-guard hooks it packages, and what project setup declares about keeping it current.
 ## Requirements
 ### Requirement: Keel has one canonical dual-runtime plugin source
 Keel MUST package one plugin at `plugins/keel` with native Codex and Claude manifests, one canonical portable skill/reference tree, and default-discovered hook assets. It MUST NOT generate per-target copies of the same skill or protocol authority.
@@ -20,7 +20,7 @@ Keel MUST package one plugin at `plugins/keel` with native Codex and Claude mani
 - **THEN** every Keel skill and reference has one canonical source under `plugins/keel/skills`
 - **AND THEN** no `src/skills` or per-target skills copy is current authority
 ### Requirement: Native marketplaces install and update Keel in isolation
-Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Codex catalog MUST reference the `plugins/keel` source, and the Claude catalog MUST reference the published package that contains it. Keel MUST prove fresh install, update/cache refresh, discovery in a fresh session, disable/remove, and reinstall without mutating the developer's personal marketplace during tests.
+Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Codex catalog MUST reference the `plugins/keel` source, and the Claude catalog MUST reference the Keel repository at the release tag, whose tree contains it. Keel MUST prove fresh install, update/cache refresh, discovery in a fresh session, disable/remove, and reinstall without mutating the developer's personal marketplace during tests.
 
 #### Scenario: Codex marketplace installs Keel
 - **WHEN** an isolated Codex home adds the repo marketplace and installs Keel
@@ -28,7 +28,7 @@ Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Code
 - **AND THEN** a fresh task can discover its skills and hook source
 
 #### Scenario: Claude marketplace installs Keel
-- **WHEN** an isolated Claude configuration validates the marketplace and installs Keel from a local copy of the package under test
+- **WHEN** an isolated Claude configuration validates the marketplace and installs Keel from a git copy of the tree under test
 - **THEN** Claude lists one Keel plugin with the expected version and component inventory
 - **AND THEN** an updated plugin applies after `/reload-plugins` or at the next session start
 
@@ -45,7 +45,7 @@ On Claude, Keel's native plugin MUST run the CLI it ships with. On Codex, it MUS
 - **THEN** skills and hooks may invoke Keel Core commands
 
 #### Scenario: The Claude plugin runs its own CLI
-- **WHEN** the SessionStart hook runs from inside the published package and `KEEL_CLI` is unset
+- **WHEN** the SessionStart hook runs from inside the Claude plugin's tree and `KEEL_CLI` is unset
 - **THEN** it invokes the package's own `bin/keel.js` rather than the `keel` on PATH
 
 #### Scenario: CLI is missing or incompatible
@@ -160,22 +160,38 @@ git-type spec.
 - **THEN** update packs that explicit git spec instead of the registry default
 - **AND THEN** the explicit override takes precedence over the registry default
 
-### Requirement: The Claude plugin is the published package
+### Requirement: The Claude plugin is the tagged repository
 
-Keel's Claude marketplace entry MUST take the plugin from the published `@christang/keel` npm package. It MUST pin the package version to the entry's own version, and both MUST equal the release version. The entry MUST act as the plugin's manifest. It MUST declare the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved inside the package. The package MUST carry an extensionless executable `bin/keel` and a published lockfile, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
+Keel's Claude plugin MUST be described by a manifest at the repository root, `.claude-plugin/plugin.json`, which declares the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved from the repository root, and whose version is the release version. Keel's Claude marketplace entry MUST take the plugin from the Keel GitHub repository at the tag `v<version>` of the release version, MUST carry that version, and MUST NOT restate the manifest's components. The repository MUST carry an extensionless executable `bin/keel` and a committed lockfile, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
 
-#### Scenario: One artifact carries the plugin and its CLI
-- **WHEN** the Claude marketplace entry is inspected
-- **THEN** its source is the `@christang/keel` npm package, pinned to the release version, and its own version is that same release version
-- **AND THEN** its skills, agent, and hooks resolve to files the published package contains
+#### Scenario: One tree carries the plugin and its CLI
+- **WHEN** the root manifest and the Claude marketplace entry are inspected
+- **THEN** the manifest's skills and agent resolve inside the repository, its hooks equal `plugins/keel/hooks/hooks.json` after resolving script paths from the root, and its version is the release version
+- **AND THEN** the entry's source is the Keel repository at `v<version>`, and the entry declares no skills, agents, or hooks
 
-#### Scenario: The entry's hooks cannot drift from the plugin's
-- **WHEN** the entry's inline hooks are compared with `plugins/keel/hooks/hooks.json`
-- **THEN** each event, matcher, script, and timeout is equal after the entry's script paths are resolved from the package root
+#### Scenario: The git install carries the pinned OpenSpec
+- **WHEN** an isolated Claude configuration installs Keel from a git copy of the tree under test through the committed entry's shape
+- **THEN** the installed plugin lists the Keel skills and both hooks, and its `node_modules/.bin/openspec` reports the version the lockfile pins
 
-#### Scenario: The package runs as a plugin
-- **WHEN** the repository is packed
-- **THEN** the packed set contains `bin/keel` with an executable mode, and contains `npm-shrinkwrap.json`
+#### Scenario: An npm-sourced install updates to the git-sourced one
+- **WHEN** a configuration that installed Keel from the npm-sourced entry updates after the marketplace names the git-sourced one
+- **THEN** the updated plugin is the git-sourced tree and carries the pinned OpenSpec
+
+### Requirement: Each release states its official directory entry
+
+Keel MUST produce, for a release version and the commit its tag points at, the entry Anthropic's official plugin directory would list: the plugin name, the root manifest's description, a category, the homepage, and a `url` source naming the Keel repository pinned to that commit. The release job MUST append that entry to the release notes. Producing it MUST be local and MUST NOT submit anything.
+
+#### Scenario: The entry is pinned to the release commit
+- **WHEN** `scripts/official_entry.js` is run with a version and a 40-character commit sha
+- **THEN** it prints an entry whose source is the Keel repository URL pinned to that sha, and whose description equals the root manifest's
+
+#### Scenario: A malformed pin is refused
+- **WHEN** the version is not `X.Y.Z` or the sha is not 40 hexadecimal characters
+- **THEN** the script exits non-zero and prints no entry
+
+#### Scenario: The release notes carry the entry
+- **WHEN** the release job creates the release for a landed version
+- **THEN** it appends the entry for that version and the tag's commit to the notes
 
 ### Requirement: Project setup declares Claude plugin auto-update
 
