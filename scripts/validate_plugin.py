@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.78.0"
-PROTOCOL_VERSION = "5.78.0"
+PACKAGE_VERSION = "5.79.0"
+PROTOCOL_VERSION = "5.79.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -16002,6 +16002,135 @@ def validate_plugin_runs_its_own_cli_scenario() -> int:
     return 0
 
 
+def validate_drift_names_a_pending_reload_scenario() -> int:
+    """Issue #172: an update the host already installed needs only a reload.
+
+    The session keeps the hooks it loaded, and `/clear` does not reload them, so
+    a plugin the host has already updated keeps reporting drift until the
+    reader reloads. Naming the host's update command there sends them to an
+    action that already happened, and aligning the PATH copy with the loaded
+    plugin is a downgrade.
+    """
+    label = "drift-names-a-pending-reload"
+    event = {"hook_event_name": "SessionStart", "source": "clear"}
+    with tempfile.TemporaryDirectory(
+        prefix="keel-pending-reload-", ignore_cleanup_errors=True
+    ) as raw_tmp:
+        tmp = Path(raw_tmp)
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.81.0 Agent Protocol\n\n"
+            "<!-- keel:start version=5.81.0 -->\n## Session Start\n"
+            "<!-- keel:end -->\n",
+        )
+        # The host's layout: <plugins>/cache/<marketplace>/<plugin>/<version>,
+        # with its install record in <plugins>. The loaded copy is 5.80.0.
+        plugins_dir = tmp / "plugins"
+        package = plugins_dir / "cache/mkt/keel/5.80.0"
+        write_text(
+            package / "package.json",
+            json.dumps({"name": "@christang/keel", "version": "5.80.0"}) + "\n",
+        )
+        fake_keel_cli(package / "bin/keel.js", "5.80.0")
+        plugin = plant_session_start_plugin(package / "plugins/keel", "5.80.0")
+        record = plugins_dir / "installed_plugins.json"
+
+        def write_record(entries: dict) -> None:
+            write_text(record, json.dumps({"version": 2, "plugins": entries}) + "\n")
+
+        installed = str(plugins_dir / "cache/mkt/keel/5.81.0")
+        write_record(
+            {
+                "keel@mkt": [
+                    {"scope": "user", "installPath": installed, "version": "5.81.0"}
+                ]
+            }
+        )
+        path_cli = Path(fake_keel_cli(tmp / "path-cli.js", "5.81.0").split('"')[1])
+        path_dir = plant_path_keel(tmp / "path", path_cli)
+        env = {"PATH": str(path_dir) + os.pathsep + os.environ.get("PATH", "")}
+
+        def channels() -> dict[str, str]:
+            run = run_session_start_hook(
+                repo, event, keel_cli=None, plugin_root=plugin, extra_env=env
+            )
+            return {
+                "additionalContext": session_start_context(run) or "",
+                "systemMessage": session_start_message(run) or "",
+            }
+
+        pending = channels()
+        for channel, text in pending.items():
+            lowered = text.lower()
+            # M1 — the update is named as installed, and the reload as the remedy.
+            if "claude plugin update" in lowered:
+                report(
+                    f"{label} M1 {channel} named claude plugin update for an "
+                    f"update the host already installed: {text!r}"
+                )
+                return 1
+            if "already installed plugin 5.81.0" not in lowered:
+                report(
+                    f"{label} M1 {channel} does not say the host already "
+                    f"installed plugin 5.81.0: {text!r}"
+                )
+                return 1
+            if "/reload-plugins" not in lowered:
+                report(f"{label} M1 {channel} does not name /reload-plugins: {text!r}")
+                return 1
+            # M2 — a PATH copy at the installed version is not a shadow.
+            if "shadows" in lowered or "@christang/keel@5.80.0" in lowered:
+                report(
+                    f"{label} M2 {channel} called a PATH keel at the installed "
+                    f"version a shadow: {text!r}"
+                )
+                return 1
+
+        # M3 — another plugin's install is not this one's, and no record at
+        # all is the same as a record that names nothing of ours. Its directory
+        # exists, as the host's would, so the entry is excluded by being
+        # another plugin's and not by being unreadable.
+        (plugins_dir / "cache/mkt/other/9.9.9").mkdir(parents=True)
+        write_record(
+            {
+                "other@mkt": [
+                    {
+                        "scope": "user",
+                        "installPath": str(plugins_dir / "cache/mkt/other/9.9.9"),
+                        "version": "9.9.9",
+                    }
+                ]
+            }
+        )
+        unrelated = channels()
+        for channel, text in unrelated.items():
+            lowered = text.lower()
+            if "already installed" in lowered:
+                report(
+                    f"{label} M3 {channel} read another plugin's install as "
+                    f"this one's: {text!r}"
+                )
+                return 1
+            if "claude plugin update" not in lowered:
+                report(
+                    f"{label} M3 {channel} dropped the update command with no "
+                    f"install of this plugin recorded: {text!r}"
+                )
+                return 1
+        record.unlink()
+        absent = channels()
+        if absent != unrelated:
+            report(
+                f"{label} M3 a missing install record changed the report:\n"
+                f"  no record:      {absent!r}\n  other plugin:   {unrelated!r}"
+            )
+            return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def stage_claude_market_under_test(tmp: Path) -> tuple[Path, str, str] | str:
     """A Claude marketplace that installs this tree rather than the registry.
 
@@ -31446,6 +31575,7 @@ SCENARIOS: tuple = (
     ("native-plugin-session-start", validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
+    ("drift-names-a-pending-reload", validate_drift_names_a_pending_reload_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),

@@ -137,6 +137,44 @@ function pluginManifest() {
   return { version: null, remedy: HOST_UPDATE };
 }
 
+// On Claude the plugin is the published package, cached at
+// <plugins>/cache/<marketplace>/<plugin>/<version>, and the host records what
+// it installed in <plugins>/installed_plugins.json (#172). Another install of
+// this same plugin at a different version means the update already happened
+// and this session has not reloaded it. Located from this file's own path, like
+// the manifest; anything unexpected is no pending install, which leaves the
+// report exactly as it was.
+function pendingInstall(loaded) {
+  try {
+    const root = fs.realpathSync(path.resolve(__dirname, "..", "..", ".."));
+    const record = path.join(root, "..", "..", "..", "..", "installed_plugins.json");
+    const plugins = JSON.parse(fs.readFileSync(record, "utf8")).plugins;
+    const versions = new Set();
+    for (const entries of Object.values(plugins || {})) {
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        if (!entry || typeof entry.installPath !== "string") continue;
+        // Compared through the real path: node loads this file through its
+        // symlinks resolved, while the host records whatever path it chose.
+        const installPath = path.resolve(entry.installPath);
+        let parent;
+        try {
+          parent = fs.realpathSync(path.dirname(installPath));
+        } catch {
+          continue;
+        }
+        if (parent !== path.dirname(root)) continue;
+        if (path.join(parent, path.basename(installPath)) === root) continue;
+        if (typeof entry.version === "string") versions.add(entry.version.trim());
+      }
+    }
+    if (versions.size !== 1) return null;
+    const [version] = versions;
+    return version && version !== loaded ? version : null;
+  } catch {
+    return null;
+  }
+}
+
 // The repository states which protocol it runs in the managed block the
 // installer wrote. AGENTS.md is the canonical carrier; CLAUDE.md is read second
 // because a repository may carry only the target-native file.
@@ -193,16 +231,25 @@ function versionReport(cwd, cli, pathCli = null) {
   // The host puts the user's PATH ahead of plugin `bin/` directories, so a
   // global install is what the agent's own `keel` commands run even though
   // this hook ran the plugin's. Both remedies are named; neither is run.
-  const shadow = pathCli && pathCli !== cli
+  const pending = pendingInstall(plugin.version);
+  // With an installed update pending, the PATH copy is judged against what
+  // the reload will load: one that matches it shadows nothing afterwards, and
+  // aligning with the loaded plugin would be a downgrade (#172).
+  const target = pending || cli;
+  const shadow = pathCli && pathCli !== target
     ? ` The \`keel\` on PATH (${pathCli}) shadows this plugin's CLI for the `
       + "agent's commands, because the host puts your PATH first: remove it "
       + "with `npm rm -g @christang/keel`, since the plugin carries its own, "
-      + `or align it with \`npm i -g @christang/keel@${cli}\`.`
+      + `or align it with \`npm i -g @christang/keel@${target}\`.`
     : "";
+  // An update the host already installed needs only the reload (#172), so
+  // naming the update command there sends the reader to what already happened.
+  const remedy = pending
+    ? `The host has already installed plugin ${pending}, so nothing needs updating.`
+    : `Updating is ${plugin.remedy}, which Keel names and does not run.`;
   return `runtime versions disagree: ${named}${missing}. A session's hooks are `
     + "fixed when it loads the plugin, so an updated plugin applies after "
-    + "`/reload-plugins` or at the next session start. Updating is "
-    + `${plugin.remedy}, which Keel names and does not run.${shadow}`;
+    + `\`/reload-plugins\` or at the next session start. ${remedy}${shadow}`;
 }
 
 // The `keel` a bare command resolves, asked only when this hook ran its own
