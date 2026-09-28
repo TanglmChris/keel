@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.79.0 - the drift line names a pending reload
+
+Reported on 2026-09-28 (#172). The host had already auto-updated the Keel plugin to 5.78.0, but a session that had loaded 5.77.0 kept printing the SessionStart drift line after `/clear`, which does not reload hooks. The line named `claude plugin update`, which had already happened, and told the reader to align the global CLI with `npm i -g @christang/keel@5.77.0`, a downgrade to the stale loaded plugin. `/reload-plugins` was the whole remedy.
+
+- **An update the host already installed is named as needing only a reload.** On Claude the hook reads the host's `installed_plugins.json`, found from the hook's own path. When it records another install of this same plugin at a different version, the drift line says `The host has already installed plugin <v>, so nothing needs updating.` in place of the update command. (keel-native-runtime-projection)
+- **The PATH copy is judged against the installed version.** A global `keel` that matches the installed plugin is no longer called a shadow, and one that does not is told to align with the installed version rather than the loaded one.
+- An absent, unreadable, or unrecognized record leaves the line exactly as 5.78.0 printed it. The read is local and offline, and runs nothing.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.79.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.78.0 - Keel runs OpenSpec 1.13
 
 Since 5.74.0 Keel's published shrinkwrap had pinned OpenSpec 1.6.0 (released 2026-07-10) for every install, while consumers had been running 1.13.2 (2026-09-23). 5.77.0 stopped `keel --init` from downgrading their surfaces, and this release moves Keel itself forward (#169).
