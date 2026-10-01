@@ -343,6 +343,7 @@ function writeRecord(where, fields, date = new Date()) {
   };
   const target = path.join(groupDir(where, record.group), "log", `${record.id}.md`);
   writeAtomic(where.root, target, renderRecord(record));
+  refreshTranscript(where, record.group);
   // After the rename, so a host woken by the signal always finds the record.
   for (const role of signalTargets(record)) {
     const signal = path.join(where.root, "signal", role);
@@ -350,6 +351,17 @@ function writeRecord(where, fields, date = new Date()) {
     fs.appendFileSync(signal, `${record.id}\n`);
   }
   return record;
+}
+
+// The transcript is derived and local (D1): regenerated whole after each
+// write, and never a source of anything. A failure to write it fails nothing.
+function refreshTranscript(where, group) {
+  try {
+    const { renderTranscript } = require("./view");
+    writeAtomic(where.root, path.join(where.root, "transcripts", `${group}.md`), renderTranscript(group, readLog(where, group)));
+  } catch {
+    // Derived output only.
+  }
 }
 
 function directMembers(group) {

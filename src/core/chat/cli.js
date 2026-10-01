@@ -7,9 +7,10 @@
 const fs = require("fs");
 const path = require("path");
 const store = require("./store");
-const { displayRecords, formatLine } = require("./view");
+const { displayRecords, formatLine, parseSince, since } = require("./view");
 const { migrateIfNeeded } = require("./migrate");
 const notice = require("./notice");
+const { relativeAge } = require("./view");
 
 const { ChatError } = store;
 
@@ -21,7 +22,7 @@ const USAGE = [
   "keel chat group list [--all] [--json]   (also: keel chat list)",
   "keel chat post <group> <text...> [--reply-to <id>] [--json]   (also: keel chat <group> <text...>)",
   "keel chat dm <role> <text...> [--json]",
-  "keel chat <group> [--peek] [--json]   (view; advances your read position unless --peek)",
+  "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
   "keel chat read [<group>] [--json]",
   "keel chat show <id> [--json]",
@@ -44,12 +45,13 @@ const VALUED = {
   "--assignee": "assignee",
   "--issue": "issue",
   "--group": "group",
+  "--since": "since",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -162,15 +164,53 @@ function runGroup(where, options) {
   }
 }
 
+function presenceLine(where, members) {
+  const now = Date.now();
+  const parts = [...members].sort().map((role) => {
+    const { state, last_active: last } = notice.presenceOf(where, role, now);
+    if (!last) return `${role} (offline, never seen)`;
+    return state === "online" ? `${role} (online)` : `${role} (${state}, ${relativeAge(last, now)})`;
+  });
+  return `Members: ${parts.join(", ") || "none"}`;
+}
+
 function runView(where, group, options) {
   const role = store.currentRole(where);
-  const records = displayRecords(store.view(where, role, group, { peek: options.peek }).records);
-  if (options.json) {
-    out(JSON.stringify({ group, records: records.map(publicRecord) }));
-  } else {
-    out([`# ${group}`, ...records.map((record) => formatLine(record))].join("\n"));
+  let threshold = null;
+  if (options.since !== null) {
+    threshold = parseSince(options.since);
+    if (threshold === null) throw new ChatError(`--since ${JSON.stringify(options.since)} is not a duration (90s, 15m, 2h, 3d) or a date.`);
   }
+  const { records: raw, state } = store.view(where, role, group, { peek: options.peek });
+  const records = since(displayRecords(raw), threshold);
+  if (options.json) {
+    out(JSON.stringify({ group, members: [...state.members].sort(), records: records.map(publicRecord) }));
+  } else {
+    out([`# ${group}${state.archived ? " (archived)" : ""}`, presenceLine(where, state.members), ...records.map((record) => formatLine(record))].join("\n"));
+  }
+  if (options.follow) follow(where, role, group, raw, options);
   return 0;
+}
+
+// Keeps printing records as they arrive until interrupted. Polling the log
+// directory, rather than a file watcher, behaves the same on every platform
+// and over a synced folder.
+function follow(where, role, group, initial, options) {
+  let last = initial.length ? initial[initial.length - 1].id : "";
+  const timer = setInterval(() => {
+    const records = store.readLog(where, group);
+    const fresh = displayRecords(records).filter((record) => record.id > last);
+    if (!fresh.length) return;
+    for (const record of fresh) out(options.json ? JSON.stringify(publicRecord(record)) : formatLine(record));
+    last = records[records.length - 1].id;
+    if (!options.peek && role) store.advanceCursor(where, role, group, last);
+  }, 500);
+  const stop = () => {
+    clearInterval(timer);
+    process.exitCode = 0;
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
 }
 
 function dispatch(where, options) {

@@ -182,7 +182,7 @@
 
 ## 3. Human surfaces
 
-- [ ] 3.1 Terminal view with presence, `--since`, `--follow`, and a Markdown transcript
+- [x] 3.1 Terminal view with presence, `--since`, `--follow`, and a Markdown transcript
   - Covers:
     - keel-cross-host-mailbox / Humans can read and post from the terminal and a transcript
     - D20
@@ -197,16 +197,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-human-view`: **Posting and viewing:** `KEEL_CHAT_ROLE=owner keel chat soc "hello"` posts; `keel chat soc` prints the sender, local `HH:MM`, a mention marker, a reply marker, a `todo` marker, and each member's presence. **`--since`:** `--since 1m` omits a record back-dated two hours. **`--follow`:** a `keel chat soc --follow` subprocess prints a message posted from another worktree within five seconds, and is then terminated. **Transcript:** `transcripts/soc.md` has one day heading and one `HH:MM sender: text` line per record. Fails with: `chat-human-view:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:343c74ee62e418e97c23977e5b6bf63bf487e055955c624ddbfabdbc907a5c91
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-human-view` reports `chat-human-view scenario passed.`: `KEEL_CHAT_ROLE=owner keel chat soc "hello from the phone"` posts; `keel chat soc --peek` prints `owner: hello from the phone`, `@verify`, `↳ <root id>`, and `[todo → verify`, a local `YYYY-MM-DD HH:MM rtl` line, and a `Members:` line giving a state for `rtl` and `verify`; `--since 1m` drops a hand-written record created two hours ago and keeps one from just now; a `keel chat soc --follow --peek` subprocess in the `verify` worktree prints `followed message` posted from `rtl` within five seconds and is then terminated; `keel-chat/transcripts/soc.md` has unique `## YYYY-MM-DD` headings and an `HH:MM sender: text` line for each checked message.
+    - M1.red: fail. Before the presence line, `--since`, `--follow`, and the transcript existed, the scenario reported `chat-human-view: the view has no Members presence line:`, carrying the declared signature `chat-human-view:`.
+    - M1.green: pass. The same scenario passes against the working tree, and every earlier chat scenario still passes; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat` view and a real `--follow` process and reads the transcript a person would open, asserting each clause of the human-surface requirement: posting by the owner, the markers and local time, presence, the `--since` window in both directions, live following across worktrees, and the transcript's day headings and line shape.
+      - Scope check: The diff changes `src/core/chat/view.js` (`parseSince`, `since`, `renderTranscript`), `src/core/chat/store.js` (the transcript regenerated after each record), `src/core/chat/cli.js` (the presence line, `--since`, `--follow`), `scripts/validate_plugin.py` (the scenario, its registration, and the `threading`, `time`, and `datetime` imports), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory.
+      - Findings: Resolved here: M1 — the first draft of the follow check read the subprocess's pipe in non-blocking text mode, which raises instead of returning nothing; a reader thread now collects its lines, and M1 passes reading them.
     - Blocker: none
     - Reauthorizations: none
 

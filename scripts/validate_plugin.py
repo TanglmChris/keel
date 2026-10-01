@@ -12,7 +12,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import ast
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -2839,6 +2842,112 @@ def validate_chat_loop_guards_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-loop-guards scenario passed.")
+    return 0
+
+
+def validate_chat_human_view_scenario() -> int:
+    """Issue #187: a person reads and posts from the terminal and a transcript.
+
+    The owner posts by role; the group view shows local times, mention, reply,
+    and todo markers, and each member's presence; `--since` limits the window;
+    `--follow` prints a message posted from another worktree while it runs;
+    and the per-group Markdown transcript is regenerated after each write.
+    """
+    label = "chat-human-view:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-view-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str, role: str | None = None) -> subprocess.CompletedProcess[str]:
+            extra = {"KEEL_CHAT_ROLE": role} if role else {}
+            return run_keel(cwd, "chat", *args, env={**env, **extra})
+
+        hello = chat(rtl, "soc", "hello from the phone", role="owner")
+        if hello.returncode != 0:
+            report(f"{label} the owner could not post with keel chat soc <text>: {hello.stderr.strip()}")
+            return 1
+        root_id = chat_json(chat(rtl, "post", "soc", "@verify check the clock", "--json")).get("id", "")
+        chat(verify, "post", "soc", "on it", "--reply-to", root_id)
+        chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun the suite")
+        old_id = "20200101T000000000Z-rtl-0c0c0c"
+        old_created = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        write_text(
+            chat_log(rtl, "soc") / f"{old_id}.md",
+            f"---\nid: {old_id}\ngroup: soc\nkind: message\nfrom: rtl\ncreated: {old_created}\n---\n\nback-dated note\n",
+        )
+
+        view = chat(rtl, "soc", "--peek")
+        text = view.stdout
+        for needle, what in (
+            ("owner: hello from the phone", "the owner's message"),
+            ("@verify", "the mention marker"),
+            (f"↳ {root_id}", "the reply marker"),
+            ("[todo → verify", "the todo marker"),
+        ):
+            if needle not in text:
+                report(f"{label} the view lacks {what} ({needle!r}):\n{text}{view.stderr}")
+                return 1
+        if not re.search(r"^\d{4}-\d\d-\d\d \d\d:\d\d rtl", text, re.M):
+            report(f"{label} the view shows no local date and HH:MM before a sender:\n{text}")
+            return 1
+        presence = re.search(r"^Members: (.*)$", text, re.M)
+        if not presence:
+            report(f"{label} the view has no Members presence line:\n{text}")
+            return 1
+        for role in ("rtl", "verify"):
+            if not re.search(rf"{role} \((online|idle|offline)", presence.group(1)):
+                report(f"{label} the presence line gives no state for {role}: {presence.group(1)}")
+                return 1
+
+        recent = chat(rtl, "soc", "--peek", "--since", "1m")
+        if "back-dated note" in recent.stdout:
+            report(f"{label} --since 1m still shows a record from two hours ago.")
+            return 1
+        if "on it" not in recent.stdout:
+            report(f"{label} --since 1m dropped a record from just now:\n{recent.stdout}{recent.stderr}")
+            return 1
+
+        follower = subprocess.Popen(
+            ["node", str(ROOT / "bin" / "keel.js"), "chat", "soc", "--follow", "--peek"],
+            cwd=verify, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        lines_seen: list[str] = []
+        reader = threading.Thread(
+            target=lambda: lines_seen.extend(iter(follower.stdout.readline, "")), daemon=True,
+        )
+        reader.start()
+        try:
+            time.sleep(1.5)
+            chat(rtl, "post", "soc", "followed message")
+            deadline = time.time() + 5
+            while time.time() < deadline and not any("followed message" in line for line in lines_seen):
+                time.sleep(0.2)
+        finally:
+            follower.terminate()
+            follower.wait(timeout=5)
+        seen = "".join(lines_seen)
+        if "followed message" not in seen:
+            report(f"{label} --follow did not print a message posted from another worktree within five seconds: {seen!r}")
+            return 1
+
+        transcript = mailbox_common_dir(rtl) / "keel-chat" / "transcripts" / "soc.md"
+        if not transcript.is_file():
+            report(f"{label} no transcript at {transcript}.")
+            return 1
+        lines = transcript.read_text(encoding="utf-8").splitlines()
+        headings = [line for line in lines if re.match(r"^## \d{4}-\d\d-\d\d$", line)]
+        if not headings or len(headings) != len(set(headings)):
+            report(f"{label} the transcript's day headings are missing or repeated: {headings!r}")
+            return 1
+        for message in ("hello from the phone", "followed message", "on it"):
+            if not any(re.match(rf"^\d\d:\d\d \S+: .*{re.escape(message)}", line) for line in lines):
+                report(f"{label} the transcript has no `HH:MM sender: text` line for {message!r}.")
+                return 1
+
+    if "chat-human-view" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-human-view scenario passed.")
     return 0
 
 
@@ -32814,6 +32923,10 @@ SCENARIOS: tuple = (
     (
         "chat-loop-guards",
         validate_chat_loop_guards_scenario,
+    ),
+    (
+        "chat-human-view",
+        validate_chat_human_view_scenario,
     ),
     (
         "record-derives-skeleton",
