@@ -2765,6 +2765,83 @@ def validate_chat_claude_hooks_scenario() -> int:
     return 0
 
 
+def validate_chat_loop_guards_scenario() -> int:
+    """Issue #187: a rate limit and a ping-pong breaker stop runaway agents.
+
+    Two agents answering each other eight times in a row are stopped, the
+    owner is called with one system record, and the owner's post clears the
+    block. A role over its configured post rate is refused by name; the owner
+    never is.
+    """
+    label = "chat-loop-guards:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-guards-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        lint = chat_worktree(rtl, base / "lint")
+        run_keel(lint, "chat", "role", "--set", "lint", env=env)
+        run_keel(rtl, "chat", "group", "add", "soc", "lint", env=env)
+
+        def chat(cwd: Path, *args: str, role: str | None = None) -> subprocess.CompletedProcess[str]:
+            extra = {"KEEL_CHAT_ROLE": role} if role else {}
+            return run_keel(cwd, "chat", *args, env={**env, **extra})
+
+        for index in range(8):
+            cwd = rtl if index % 2 == 0 else verify
+            turn = chat(cwd, "post", "soc", f"round {index}")
+            if turn.returncode != 0:
+                report(f"{label} alternating post {index} was refused before the threshold: {turn.stderr.strip()}")
+                return 1
+        ninth = chat(rtl, "post", "soc", "round 8")
+        if ninth.returncode == 0:
+            report(f"{label} a ninth alternating post was accepted.")
+            return 1
+        if "loop guard" not in ninth.stderr:
+            report(f"{label} the ping-pong refusal does not name the loop guard: {ninth.stderr.strip()}")
+            return 1
+        chat(verify, "post", "soc", "round 8 again")
+        records = [p.read_text(encoding="utf-8") for p in chat_log(rtl, "soc").glob("*.md")]
+        system = [r for r in records if "kind: system" in r]
+        if len(system) != 1:
+            report(f"{label} expected one system record after two refused posts, found {len(system)}.")
+            return 1
+        if "  - owner" not in system[0]:
+            report(f"{label} the system record does not mention owner:\n{system[0]}")
+            return 1
+        owner = chat(rtl, "post", "soc", "Stop and summarize, please.", role="owner")
+        if owner.returncode != 0:
+            report(f"{label} the owner's post was refused: {owner.stderr.strip()}")
+            return 1
+        resumed = chat(rtl, "post", "soc", "Summary: the clock fix is in.")
+        if resumed.returncode != 0:
+            report(f"{label} rtl could not post after the owner did: {resumed.stderr.strip()}")
+            return 1
+
+        write_text(lint / "keel" / "chat.json", json.dumps({"limits": {"rate": 3, "window_minutes": 10}}) + "\n")
+        for index in range(3):
+            within = chat(lint, "post", "soc", f"lint note {index}")
+            if within.returncode != 0:
+                report(f"{label} lint post {index} was refused within the limit: {within.stderr.strip()}")
+                return 1
+        over = chat(lint, "post", "soc", "lint note 3")
+        if over.returncode == 0:
+            report(f"{label} a fourth post within ten minutes was accepted with limits.rate 3.")
+            return 1
+        if "limits.rate" not in over.stderr:
+            report(f"{label} the rate refusal does not name limits.rate: {over.stderr.strip()}")
+            return 1
+        for index in range(4):
+            boss = chat(lint, "post", "soc", f"owner note {index}", role="owner")
+            if boss.returncode != 0:
+                report(f"{label} the owner was rate-limited: {boss.stderr.strip()}")
+                return 1
+
+    if "chat-loop-guards" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-loop-guards scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -32733,6 +32810,10 @@ SCENARIOS: tuple = (
     (
         "chat-claude-hooks",
         validate_chat_claude_hooks_scenario,
+    ),
+    (
+        "chat-loop-guards",
+        validate_chat_loop_guards_scenario,
     ),
     (
         "record-derives-skeleton",

@@ -153,6 +153,8 @@ function writeRoles(where, roles) {
 
 function setRole(where, name) {
   checkName(name, "Role");
+  // `keel` signs the loop guard's system records, so no member may take it.
+  if (name === "keel") throw new ChatError("Role name keel is reserved for Keel's own system records.");
   const roles = readRoles(where.root);
   roles[where.worktree] = name;
   writeRoles(where, roles);
@@ -513,9 +515,11 @@ function post(where, options) {
   checkName(group, "Group");
   const text = String(options.text || "");
   if (!text.trim()) throw new ChatError("A post needs text: give it after the group, or on stdin.");
-  const { state } = loadGroup(where, group);
+  const { records, state } = loadGroup(where, group);
   requireOpenMembership(group, state, from);
   const mentions = resolveMentions(where, group, state, text);
+  // Loaded here rather than at the top: the guards read the store's own API.
+  require("./guards").checkPost(module.exports, where, from, group, records);
   if (options.replyTo) {
     const parent = findRecord(where, options.replyTo);
     if (!parent || parent.group !== group) {
@@ -737,6 +741,7 @@ module.exports = {
   groupState,
   isoLocal,
   listGroups,
+  listGroupNames,
   locate,
   post,
   readCursor,

@@ -150,7 +150,7 @@
   - Stop if:
     - A chat hook would have to enter `plugins/keel/hooks/hooks.json`, which Codex also loads.
 
-- [ ] 2.2 Rate limit and ping-pong breaker
+- [x] 2.2 Rate limit and ping-pong breaker
   - Covers:
     - keel-cross-host-mailbox / Loop guards stop runaway agent traffic
     - D11
@@ -167,16 +167,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-loop-guards`: **Ping-pong:** `rtl` and `verify` alternate eight messages in `soc`; `rtl`'s ninth post fails naming the loop guard; exactly one `system` record mentioning `owner` is written; after `owner` posts, `rtl` posts successfully. **Rate limit:** with `keel/chat.json` setting `limits.rate` to 3 per 10 minutes, the fourth post from `lint` is refused by name, and `owner` is never rate-limited. Fails with: `chat-loop-guards:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:63db3159f2d0298157f177ac0cceaba527017733ea4d703e11e2813acff00427
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-loop-guards` reports `chat-loop-guards scenario passed.`: `rtl` and `verify` alternate eight posts in `soc`, all accepted; `rtl`'s ninth is refused naming `loop guard`, and a refused `verify` post after it adds no second `system` record, so the log holds exactly one, mentioning `owner`; after `owner` posts, `rtl` posts again. With `keel/chat.json` setting `limits.rate` 3 and `window_minutes` 10, `lint`'s first three posts are accepted and the fourth is refused naming `limits.rate`, while four `owner` posts from the same worktree are all accepted.
+    - M1.red: fail. Before `src/core/chat/guards.js` existed the scenario reported `chat-loop-guards: a ninth alternating post was accepted.`, carrying the declared signature `chat-loop-guards:`.
+    - M1.green: pass. The same scenario passes against the working tree, with `chat-core`, `chat-records`, `chat-mail-migration`, and `chat-claude-hooks` still passing.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and asserts each clause of the loop-guard requirement — refusal by name at the ping-pong threshold, exactly one owner-mentioning `system` record however many posts are refused, the block clearing when another member posts, the configured rate refusal by name, and the owner's exemption. A1's thresholds are exercised through the configuration that makes them tunable.
+      - Scope check: The diff adds `src/core/chat/guards.js` and changes `src/core/chat/store.js` (the guard call in `post`, `listGroupNames` exported, and `keel` reserved as a role name), `scripts/validate_plugin.py` (the scenario and registration), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `src/core/chat/cli.js` and `src/core/chat/config.js` needed no edit: the guard reaches every posting command through `post`, and the existing loader reads `limits`.
+      - Findings: Resolved here: src/core/chat/store.js — the system record is signed `keel`, which a member could also have taken as a role and then been mistaken for Keel; `setRole` now refuses `keel`. M1 shows the system record written under that name; no check asserts the refusal itself, which a manual `keel chat role --set keel` confirmed exits 2 naming the reservation.
     - Blocker: none
     - Reauthorizations: none
 
