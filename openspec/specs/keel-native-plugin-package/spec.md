@@ -9,7 +9,7 @@ Keel MUST package one plugin at `plugins/keel` with native Codex and Claude mani
 #### Scenario: Codex manifest is native
 - **WHEN** the plugin source is inspected or installed by the supported Codex baseline
 - **THEN** `plugins/keel/.codex-plugin/plugin.json` has valid native metadata, name `keel`, the package version, and the canonical skills path
-- **AND THEN** it uses default hook discovery rather than an unsupported explicit hooks field
+- **AND THEN** it explicitly selects `hooks/codex.json` with complete executable command strings
 
 #### Scenario: Claude manifest is native
 - **WHEN** the plugin source is validated or installed by the supported Claude baseline
@@ -162,7 +162,7 @@ git-type spec.
 
 ### Requirement: The Claude plugin is the tagged repository
 
-Keel's Claude plugin MUST be described by a manifest at the repository root, `.claude-plugin/plugin.json`, which declares the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved from the repository root plus the Claude-only chat hooks — UserPromptSubmit, FileChanged, and SessionEnd groups, and a second SessionStart hook, each running `mail-hook.js` — and whose version is the release version. The Claude-only hooks MUST NOT appear in `plugins/keel/hooks/hooks.json`, which Codex also loads. Keel's Claude marketplace entry MUST take the plugin from the Keel GitHub repository at the tag `v<version>` of the release version, MUST carry that version, and MUST NOT restate the manifest's components. The repository MUST carry an extensionless executable `bin/keel` and a committed lockfile, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
+Keel's Claude plugin MUST be described by a manifest at the repository root, `.claude-plugin/plugin.json`, which declares the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved from the repository root plus the Claude-only chat hooks — UserPromptSubmit, FileChanged, and SessionEnd groups, and a second SessionStart hook, each running `mail-hook.js` — and whose version is the release version. The Claude-only hooks MUST NOT appear in `plugins/keel/hooks/hooks.json`, while Codex explicitly selects its host-compatible `plugins/keel/hooks/codex.json`. Keel's Claude marketplace entry MUST take the plugin from the Keel GitHub repository at the tag `v<version>` of the release version, MUST carry that version, and MUST NOT restate the manifest's components. The repository MUST carry an extensionless executable `bin/keel` and a committed lockfile, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
 
 #### Scenario: One tree carries the plugin and its CLI
 - **WHEN** the root manifest and the Claude marketplace entry are inspected
@@ -221,3 +221,16 @@ On the Claude target, `keel --init` and `keel --install` MUST declare auto-updat
 #### Scenario: Other targets are untouched
 - **WHEN** `keel --init --target codex` runs
 - **THEN** no `.claude/settings.json` is written
+
+
+### Requirement: Codex declares executable host-compatible hook commands
+
+The Codex plugin manifest MUST explicitly select a Codex hook configuration whose command strings include the executable, script path and arguments. It MUST retain continuity and existing guard declarations and add mailbox receiving at SessionStart and UserPromptSubmit. It MUST NOT register FileChanged, watchPaths or asyncRewake; Claude's existing manifest and hook declarations MUST remain unchanged by this Codex-specific adaptation.
+
+#### Scenario: Native Codex discovery preserves script arguments
+- **WHEN** Codex discovers the installed plugin's hooks
+- **THEN** its reported commands include the declared script paths and event arguments rather than only `node`
+
+#### Scenario: No trust is silently granted
+- **WHEN** the plugin is newly installed or a hook definition changes
+- **THEN** its non-managed hooks remain subject to Codex's trust review and Keel documents the manual review step
