@@ -43,7 +43,7 @@
   - Stop if:
     - Any design point needs a shared file to be rewritten in place, or a gate would have to read the chat store.
 
-- [ ] 1.2 Todos, edits and retractions, search, and local-time display
+- [x] 1.2 Todos, edits and retractions, search, and local-time display
   - Covers:
     - keel-cross-host-mailbox / Todos are lightweight records that can link an issue
     - keel-cross-host-mailbox / Records can be edited, retracted, and searched without losing history
@@ -62,16 +62,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-records` drives public `keel chat`: **Todos:** `rtl` writes a `todo` record for `verify` with `--issue 42`; `keel chat todos --mine` for `verify` lists it with `#42`; after `verify` replies `✅ merged` it is no longer listed; a second `todo` record closed by `keel chat done <id>` is also gone. **Edits:** an edit by its author shows the new text marked edited, and the original record file is unchanged; an edit by another role is refused. **Retractions:** a retract shows the record as retracted. **Search:** `keel chat search` finds a record in an archived group. **Time:** a record whose `created` is `2026-10-01T06:00:00+00:00`, viewed with `TZ=Asia/Shanghai`, shows `2026-10-01 14:00` and no raw stamp. Fails with: `chat-records:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:11618c195678ed20ebfccda7a8d3bab5688c77b25e46ddb7f49532da9b24e470
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-records` reports `chat-records scenario passed.`: `keel chat todo soc --assignee verify --issue 42` is listed by `todos --mine` for `verify` with `issue: #42`, and is gone after `verify` replies `✅ merged` to it; a second `todo` record closed with `keel chat done <id>` is gone too; `verify`'s edit of `rtl`'s message is refused, `rtl`'s edit shows `Clock is 200MHz` with `edited: true` while the original record file stays byte-identical; a retracted message shows `retracted: true`; `search PLL` returns exactly the record in archived group `old`; a hand-written record with `created: 2026-10-01T06:00:00+00:00`, viewed under `TZ=Asia/Shanghai`, prints `2026-10-01 14:00` and not `06:00:00+00:00`.
+    - M1.red: fail. Before the `todo` record, edit, search, and view code existed, the scenario reported `chat-records: keel chat todo did not report an id:  keel chat: Unknown option for keel chat: --assignee`, carrying the declared signature `chat-records:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-core` still passes.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and asserts each Covers requirement at its surface — the `todo` record's listing, issue link, and both closing paths (`todo` records); author-only edit with the original file untouched, retraction marking, and search reaching an archived group (edits and search); and local-time conversion of a stored offset with no raw stamp (times). The hand-written record stands in for one synced from another machine, which is exactly how such a record arrives.
+      - Scope check: The diff adds `src/core/chat/view.js` and changes `src/core/chat/store.js` (`todo` record, done, amend, openTodos, search, and the ✅-reply close), `src/core/chat/cli.js` (the commands and view formatting moved to `view.js`), `scripts/validate_plugin.py` (the scenario, a shared fixture, and registration), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory.
+      - Findings: Discard reason: task-start warned that 1.2 and 3.1 share a Touch set; they are different behaviors — 1.2 owns what a record means (`todo` records, edits, time conversion) and 3.1 owns how the terminal and transcript present a conversation (`--since`, `--follow`, presence, the transcript file) — and 3.1 still has an honest red, since none of its commands or flags exist yet.
     - Blocker: none
     - Reauthorizations: none
 

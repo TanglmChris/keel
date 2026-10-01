@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Issue #187: `keel chat` turns the one-to-one mailbox into a work group. Roles share named groups through an append-only store in the repository's git common directory (`keel-chat/`): one immutable record file per message or event, membership and archive derived by replaying the log, and one read-cursor file per member, so no shared file is ever rewritten. `role --set` and `role --alias` bind a worktree and its case-insensitive aliases; `group create|add|remove|archive|list` maintain groups; `post` (or `keel chat <group> <text>`) resolves `@role`, `@alias`, `@all`, and `@owner` and refuses a mention outside the group by name; `dm <role>` writes to a two-person direct group; `<group>` views and advances the reader's cursor (`--peek` does not); `unread`, `read`, and `show` give each member its own unread state and receipts. Records store `created` with the local UTC offset, and ids sort by UTC time across machines. A chat record is data and gates nothing.
+- Issue #187: chat todos, edits, search, and local time. `keel chat todo <group> --assignee <role> [--issue <n>]` writes a todo that `todos [--mine]` lists until `done <id>`, or a reply opening with `done` or ✅, closes it. `edit` and `retract` are allowed only to the author and are records of their own: views show the latest text marked edited or retracted, and the original file is untouched. `search` covers archived groups. Every view shows times in the viewer's local time zone (`YYYY-MM-DD HH:MM`), never the stored stamp.
 
 ## 5.84.0 - the record is derived, the judgment is not
 

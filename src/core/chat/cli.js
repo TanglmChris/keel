@@ -7,6 +7,7 @@
 const fs = require("fs");
 const path = require("path");
 const store = require("./store");
+const { displayRecords, formatLine } = require("./view");
 
 const { ChatError } = store;
 
@@ -22,6 +23,12 @@ const USAGE = [
   "keel chat unread [--json]",
   "keel chat read [<group>] [--json]",
   "keel chat show <id> [--json]",
+  "keel chat todo <group> --assignee <role> [--issue <n>] <text...> [--json]",
+  "keel chat todos [<group>] [--mine] [--json]",
+  "keel chat done <id>",
+  "keel chat edit <id> <text...>",
+  "keel chat retract <id>",
+  "keel chat search <text...> [--group <group>] [--json]",
   "Every command takes --repo <path> to act on another repository.",
 ];
 
@@ -30,12 +37,15 @@ const VALUED = {
   "--alias": "alias",
   "--reply-to": "replyTo",
   "--repo": "repo",
+  "--assignee": "assignee",
+  "--issue": "issue",
+  "--group": "group",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -91,24 +101,6 @@ function publicRecord(record) {
   return refs && refs.length ? record : rest;
 }
 
-function hhmm(record) {
-  const match = String(record.created || "").match(/T(\d\d:\d\d)/);
-  return match ? match[1] : "--:--";
-}
-
-function formatLine(record) {
-  switch (record.kind) {
-    case "join":
-      return `${hhmm(record)} ${record.from} added ${record.target}`;
-    case "leave":
-      return `${hhmm(record)} ${record.from} removed ${record.target}`;
-    case "archive":
-      return `${hhmm(record)} ${record.from} archived the group`;
-    default:
-      return `${hhmm(record)} ${record.from}: ${record.text}  [${record.id}]`;
-  }
-}
-
 function postResult(record, json) {
   if (json) {
     out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions }));
@@ -157,11 +149,11 @@ function runGroup(where, options) {
 
 function runView(where, group, options) {
   const role = store.currentRole(where);
-  const { records } = store.view(where, role, group, { peek: options.peek });
+  const records = displayRecords(store.view(where, role, group, { peek: options.peek }).records);
   if (options.json) {
     out(JSON.stringify({ group, records: records.map(publicRecord) }));
   } else {
-    out([`# ${group}`, ...records.map(formatLine)].join("\n"));
+    out([`# ${group}`, ...records.map((record) => formatLine(record))].join("\n"));
   }
   return 0;
 }
@@ -220,6 +212,40 @@ function dispatch(where, options) {
       const readers = store.readersOf(where, record);
       if (options.json) out(JSON.stringify({ record: publicRecord(record), readers }));
       else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`].join("\n"));
+      return 0;
+    }
+    case "todo": {
+      const [group, ...words] = rest;
+      if (!group) throw new ChatError("keel chat todo needs a group.");
+      if (options.assignee === null) throw new ChatError("keel chat todo needs --assignee <role>.");
+      postResult(store.todo(where, { group, assignee: options.assignee, issue: options.issue, text: textFrom(words), replyTo: options.replyTo }), options.json);
+      return 0;
+    }
+    case "todos": {
+      const assignee = options.mine ? store.requireRole(where) : null;
+      const todos = store.openTodos(where, { group: rest[0] || null, assignee });
+      if (options.json) out(JSON.stringify({ todos: todos.map(publicRecord) }));
+      else out(todos.length ? todos.map((r) => `${r.group} ${formatLine(r)}`).join("\n") : "No open todos.");
+      return 0;
+    }
+    case "done": {
+      if (!rest[0]) throw new ChatError("keel chat done needs a todo id.");
+      const record = store.done(where, rest[0]);
+      out(options.json ? JSON.stringify({ id: record.id, target: record.target }) : `Closed todo ${record.target}.`);
+      return 0;
+    }
+    case "edit":
+    case "retract": {
+      const [id, ...words] = rest;
+      if (!id) throw new ChatError(`keel chat ${command} needs a record id.`);
+      const record = store.amend(where, id, command, command === "edit" ? textFrom(words) : "");
+      out(options.json ? JSON.stringify({ id: record.id, target: record.target }) : `${command === "edit" ? "Edited" : "Retracted"} ${id}; the original record is kept.`);
+      return 0;
+    }
+    case "search": {
+      const results = store.search(where, rest.join(" "), { group: options.group });
+      if (options.json) out(JSON.stringify({ results: results.map(publicRecord) }));
+      else out(results.length ? results.map((r) => `${r.group} ${formatLine(r)}`).join("\n") : "No matches.");
       return 0;
     }
     case "help":

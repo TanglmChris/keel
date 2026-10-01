@@ -2691,6 +2691,123 @@ def validate_chat_core_scenario() -> int:
     return 0
 
 
+def chat_scratch_group(base: Path) -> tuple[Path, Path, dict[str, str]]:
+    """A repository with `rtl` and a `verify` worktree sharing group `soc`."""
+    rtl = mailbox_repository(base / "rtl")
+    verify = chat_worktree(rtl, base / "verify")
+    env = chat_environment()
+    for cwd, role in ((rtl, "rtl"), (verify, "verify")):
+        run_keel(cwd, "chat", "role", "--set", role, env=env)
+    run_keel(rtl, "chat", "group", "create", "soc", "--member", "verify", env=env)
+    return rtl, verify, env
+
+
+def validate_chat_records_scenario() -> int:
+    """Issue #187: todos, edits, retractions, search, and local-time display.
+
+    A todo links an issue and closes by `done` or a ✅ reply; an edit keeps
+    the original file; search reaches archived groups; and a stored offset is
+    shown in the viewer's local time, never as the raw stamp.
+    """
+    label = "chat-records:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-records-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str, extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env={**env, **(extra or {})})
+
+        todo = chat(rtl, "todo", "soc", "--assignee", "verify", "--issue", "42", "Rerun the regression", "--json")
+        todo_id = chat_json(todo).get("id", "")
+        if not todo_id:
+            report(f"{label} keel chat todo did not report an id: {todo.stdout.strip()} {todo.stderr.strip()}")
+            return 1
+        mine = chat_json(chat(verify, "todos", "--mine", "--json")).get("todos", [])
+        listed = [t for t in mine if t.get("id") == todo_id]
+        if not listed:
+            report(f"{label} todos --mine for verify does not list the todo: {mine!r}")
+            return 1
+        if listed[0].get("issue") != "#42":
+            report(f"{label} the todo does not carry issue #42: {listed[0]!r}")
+            return 1
+        closed = chat(verify, "post", "soc", "✅ merged", "--reply-to", todo_id)
+        if closed.returncode != 0:
+            report(f"{label} the ✅ reply failed: {closed.stderr.strip()}")
+            return 1
+        open_ids = [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]
+        if todo_id in open_ids:
+            report(f"{label} a todo answered with ✅ is still listed: {open_ids!r}")
+            return 1
+        second_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Update the spec", "--json")).get("id", "")
+        done = chat(verify, "done", second_id)
+        if done.returncode != 0:
+            report(f"{label} keel chat done failed: {done.stderr.strip()}")
+            return 1
+        open_ids = [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]
+        if second_id in open_ids:
+            report(f"{label} a todo closed with keel chat done is still listed: {open_ids!r}")
+            return 1
+
+        message_id = chat_json(chat(rtl, "post", "soc", "Clock is 100MHz", "--json")).get("id", "")
+        message_file = chat_log(rtl, "soc") / f"{message_id}.md"
+        original = message_file.read_bytes()
+        foreign = chat(verify, "edit", message_id, "Clock is 50MHz")
+        if foreign.returncode == 0:
+            report(f"{label} a role edited another role's message.")
+            return 1
+        edited = chat(rtl, "edit", message_id, "Clock is 200MHz")
+        if edited.returncode != 0:
+            report(f"{label} keel chat edit failed: {edited.stderr.strip()}")
+            return 1
+        shown = {r.get("id"): r for r in chat_json(chat(verify, "soc", "--peek", "--json")).get("records", [])}
+        if shown.get(message_id, {}).get("text") != "Clock is 200MHz":
+            report(f"{label} the view does not show the edited text: {shown.get(message_id)!r}")
+            return 1
+        if not shown[message_id].get("edited"):
+            report(f"{label} the view does not mark the edited message: {shown[message_id]!r}")
+            return 1
+        if message_file.read_bytes() != original:
+            report(f"{label} the edit changed the original record file.")
+            return 1
+        retract_id = chat_json(chat(rtl, "post", "soc", "Wrong channel", "--json")).get("id", "")
+        retracted = chat(rtl, "retract", retract_id)
+        if retracted.returncode != 0:
+            report(f"{label} keel chat retract failed: {retracted.stderr.strip()}")
+            return 1
+        shown = {r.get("id"): r for r in chat_json(chat(verify, "soc", "--peek", "--json")).get("records", [])}
+        if not shown.get(retract_id, {}).get("retracted"):
+            report(f"{label} the view does not mark the retracted message: {shown.get(retract_id)!r}")
+            return 1
+
+        chat(rtl, "group", "create", "old", "--member", "verify")
+        chat(rtl, "post", "old", "Legacy PLL notes live here")
+        chat(rtl, "group", "archive", "old")
+        found = chat_json(chat(verify, "search", "PLL", "--json")).get("results", [])
+        if [r.get("group") for r in found] != ["old"]:
+            report(f"{label} search did not find the record in the archived group: {found!r}")
+            return 1
+
+        stamp_id = "20261001T060000000Z-rtl-0a0b0c"
+        write_text(
+            chat_log(rtl, "soc") / f"{stamp_id}.md",
+            f"---\nid: {stamp_id}\ngroup: soc\nkind: message\nfrom: rtl\n"
+            "created: 2026-10-01T06:00:00+00:00\n---\n\nMorning sync\n",
+        )
+        local = chat(verify, "soc", "--peek", extra={"TZ": "Asia/Shanghai"})
+        if "2026-10-01 14:00" not in local.stdout:
+            report(f"{label} a 06:00 UTC record is not shown as 2026-10-01 14:00 in Asia/Shanghai: {local.stdout.strip()} {local.stderr.strip()}")
+            return 1
+        if "06:00:00+00:00" in local.stdout:
+            report(f"{label} the view prints the raw stored stamp.")
+            return 1
+
+    if "chat-records" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-records scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -32653,6 +32770,10 @@ SCENARIOS: tuple = (
     (
         "chat-core",
         validate_chat_core_scenario,
+    ),
+    (
+        "chat-records",
+        validate_chat_records_scenario,
     ),
     (
         "record-derives-skeleton",

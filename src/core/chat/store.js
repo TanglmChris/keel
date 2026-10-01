@@ -488,7 +488,11 @@ function post(where, options) {
       throw new ChatError(`No record ${options.replyTo} in group ${group} to reply to.`);
     }
   }
-  return writeRecord(where, {
+  let parent = null;
+  if (options.replyTo) {
+    parent = findRecord(where, options.replyTo);
+  }
+  const record = writeRecord(where, {
     group,
     kind: options.kind || "message",
     from,
@@ -499,6 +503,102 @@ function post(where, options) {
     refs: options.refs || [],
     text: text.replace(/\s+$/, ""),
   });
+  // A reply that opens with `done` or ✅ closes the todo it answers (D6).
+  if (parent && parent.kind === "todo" && DONE_REPLY.test(text) && !isDone(where, parent)) {
+    writeRecord(where, { group, kind: "done", from, target: parent.id });
+  }
+  return record;
+}
+
+const DONE_REPLY = /^\s*(done\b|✅)/i;
+
+function isDone(where, todo) {
+  return readLog(where, todo.group).some((record) => record.kind === "done" && record.target === todo.id);
+}
+
+function normalizeIssue(issue) {
+  if (issue === null || issue === undefined || issue === "") return null;
+  const match = String(issue).match(/^#?(\d+)$/);
+  if (!match) throw new ChatError(`--issue ${JSON.stringify(issue)} is not an issue number.`);
+  return `#${match[1]}`;
+}
+
+function todo(where, options) {
+  checkName(options.assignee, "Assignee");
+  const { state } = loadGroup(where, options.group);
+  if (!canAct(state, options.assignee)) {
+    throw new ChatError(`Assignee ${options.assignee} is not a member of group ${options.group}.`);
+  }
+  return post(where, { ...options, kind: "todo", issue: normalizeIssue(options.issue) });
+}
+
+// The record a follow-up acts on, in an open group the actor belongs to.
+function targetFor(where, id, actor, kinds) {
+  const target = findRecord(where, id);
+  if (!target) throw new ChatError(`No record ${id}.`);
+  if (!kinds.includes(target.kind)) {
+    throw new ChatError(`Record ${id} is a ${target.kind}, not a ${kinds.join(" or ")}.`);
+  }
+  const { state } = loadGroup(where, target.group);
+  requireOpenMembership(target.group, state, actor);
+  return target;
+}
+
+function done(where, id) {
+  const from = requireRole(where);
+  const target = targetFor(where, id, from, ["todo"]);
+  if (isDone(where, target)) throw new ChatError(`Todo ${id} is already done.`);
+  return writeRecord(where, { group: target.group, kind: "done", from, target: id });
+}
+
+// Only the author may edit or retract, and the original record stays (D2).
+function amend(where, id, kind, text) {
+  const from = requireRole(where);
+  const target = targetFor(where, id, from, ["message", "todo"]);
+  if (target.from !== from) {
+    throw new ChatError(`Record ${id} was written by ${target.from}; only its author may ${kind} it.`);
+  }
+  if (kind === "edit" && !String(text || "").trim()) throw new ChatError("keel chat edit needs the new text.");
+  return writeRecord(where, {
+    group: target.group,
+    kind,
+    from,
+    target: id,
+    text: kind === "edit" ? String(text).replace(/\s+$/, "") : "",
+  });
+}
+
+// Open todos: every `todo` record in an open group with no `done` record.
+function openTodos(where, { group = null, assignee = null } = {}) {
+  const todos = [];
+  for (const name of group ? [group] : listGroupNames(where)) {
+    const records = readLog(where, name);
+    const state = groupState(records);
+    if (!state.exists || state.archived) continue;
+    const closed = new Set(records.filter((r) => r.kind === "done").map((r) => r.target));
+    for (const record of records) {
+      if (record.kind !== "todo" || closed.has(record.id)) continue;
+      if (assignee && record.assignee !== assignee) continue;
+      todos.push(record);
+    }
+  }
+  return todos;
+}
+
+// Case-insensitive substring search over readable records, archived groups
+// included, with edits applied so a reader finds what the group now says.
+function search(where, text, { group = null } = {}) {
+  const needle = String(text || "").toLowerCase();
+  if (!needle.trim()) throw new ChatError("keel chat search needs text to look for.");
+  const { displayRecords } = require("./view");
+  const results = [];
+  for (const name of group ? [group] : listGroupNames(where)) {
+    for (const record of displayRecords(readLog(where, name))) {
+      if (!readable(record) || record.retracted) continue;
+      if (String(record.text || "").toLowerCase().includes(needle)) results.push(record);
+    }
+  }
+  return results;
 }
 
 function directPost(where, target, text) {
@@ -588,6 +688,11 @@ module.exports = {
   OWNER,
   addAlias,
   advanceCursor,
+  amend,
+  done,
+  openTodos,
+  search,
+  todo,
   archiveGroup,
   changeMember,
   createGroup,
