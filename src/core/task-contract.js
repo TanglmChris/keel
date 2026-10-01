@@ -1033,18 +1033,22 @@ function criticalAuthority(repo, change, reference) {
     };
   }
   const content = fs.readFileSync(designPath, "utf8");
-  // Accepted line shapes: an optional CommonMark list bullet, the identifier
-  // bare or wrapped in balanced `**`, then the dash and statement. Authors
-  // overwhelmingly write the bulleted and bold shapes (issue #49).
-  const matches = [
-    ...content.matchAll(
-      new RegExp(
-        `^\\s*(?:[-*+]\\s+)?(?:\\*\\*${reference}\\*\\*|${reference})`
-        + `\\s*[—-]\\s*(.+?)\\s*$`,
-        "gmi"
-      )
-    ),
-  ];
+  // Resolve the opener by line, then collect its owned indented lines. A
+  // multiline regex matched only the opener (issue #177), so changing a nested
+  // decision detail left the contract fingerprint unchanged. Keep the accepted
+  // bullet/bold/dash opener shapes from issue #49; colon remains unparsed.
+  const lines = content.split(/\r?\n/);
+  const opener = new RegExp(
+    `^([ \\t]*)((?:[-*+][ \\t]+)?)(?:\\*\\*${reference}\\*\\*|${reference})`
+    + `[ \\t]*[—-][ \\t]*(.+?)[ \\t]*$`,
+    "i"
+  );
+  const matches = lines.flatMap((line, index) => {
+    const match = line.match(opener);
+    return match
+      ? [{ index, indent: match[1], bullet: match[2], text: match[3] }]
+      : [];
+  });
   if (matches.length !== 1) {
     // Zero matches is ambiguous: the identifier may never appear in design.md,
     // or it may appear in some other shape (bulleted, bold) that the strict
@@ -1062,7 +1066,7 @@ function criticalAuthority(repo, change, reference) {
             `Unparsed Covers critical statement: ${reference}. It appears in `
             + "design.md but not in an accepted line shape — write it as a "
             + "line opening with the identifier and a dash, "
-            + `\`${reference} — one-line statement\`, optionally as a list `
+            + `\`${reference} — statement\`, optionally as a list `
             + `bullet (\`- ${reference} — …\`) and/or with the identifier `
             + `bold (\`**${reference}** — …\`).`,
         },
@@ -1077,13 +1081,53 @@ function criticalAuthority(repo, change, reference) {
       },
     };
   }
+  const indentColumns = (prefix) => {
+    let columns = 0;
+    for (const character of prefix) {
+      columns += character === "\t" ? 4 - (columns % 4) : 1;
+    }
+    return columns;
+  };
+  const match = matches[0];
+  const openerIndent = indentColumns(match.indent);
+  // A heading shallower than the item's content column closes the item; one
+  // at or past it is nested inside the item and stays owned, as does a deeper
+  // `#` line such as a code sample's comment. An unbulleted opener has no
+  // content column beyond itself, so CommonMark's three-space heading indent
+  // applies there.
+  const headingLimit = match.bullet
+    ? openerIndent + indentColumns(match.bullet)
+    : openerIndent + 4;
+  // A line opening with another critical identifier and a dash is a peer
+  // statement even without a bullet, never a lazy continuation of this one.
+  const blockStart = new RegExp(
+    "^[ \\t]*(?:[-*+][ \\t]|\\d+[.)][ \\t]|>|```|~~~|#{1,6}(?:[ \\t]|$)"
+    + "|(?:\\*\\*)?[DFAQ]\\d+(?:\\*\\*)?[ \\t]*[—-])",
+    "i"
+  );
+  const statementLines = [match.text];
+  let previousBlank = false;
+  for (const line of lines.slice(match.index + 1)) {
+    if (!line.trim()) {
+      previousBlank = true;
+      continue;
+    }
+    const columns = indentColumns(line.match(/^[ \t]*/)[0]);
+    if (/^[ \t]*#{1,6}(?:[ \t]|$)/.test(line) && columns < headingLimit) break;
+    // A shallower line directly after owned text, starting no block of its
+    // own, is a lazy paragraph continuation; after a blank line it is a peer.
+    const lazy = !previousBlank && !blockStart.test(line);
+    if (columns <= openerIndent && !lazy) break;
+    previousBlank = false;
+    statementLines.push(line.trim());
+  }
   return {
     authority: {
       kind: "critical-statement",
       reference,
       source:
         `${path.relative(repo, designPath).replace(/\\/g, "/")}#${reference}`,
-      text: normalizeText(matches[0][1]),
+      text: normalizeText(statementLines.join("\n")),
       acceptance: [],
     },
   };
@@ -1133,6 +1177,30 @@ function resolveAuthority(repo, change, task) {
     if (spec) {
       if (spec.diagnostic) diagnostics.push(spec.diagnostic);
       if (spec.authority) authority.push(spec.authority);
+      continue;
+    }
+    // A combined citation that missed the supported ASCII-comma expansion
+    // must not become unlinked legacy prose (issue #177). This scan excludes
+    // hyphenated words such as `D2-compatible`, and preserves the existing
+    // colon-form legacy entry and closed-question note beside a fact. Valid
+    // opening references and their annotations already continued above.
+    const criticalMentions = [
+      ...entry.matchAll(/(?:^|[^A-Za-z0-9_-])([DFAQ]\d+)(?![A-Za-z0-9_-])/g),
+    ].map((match) => match[1]);
+    const colonLegacy =
+      criticalMentions.length === 1
+      && /^[DFAQ]\d+\s*:\s*.+$/.test(entry);
+    const closedQuestionNote =
+      criticalMentions.length === 2
+      && /^F\d+\s*\(\s*Q\d+\s+resolved\s*:/i.test(entry);
+    if (criticalMentions.length > 0 && !colonLegacy && !closedQuestionNote) {
+      diagnostics.push({
+        code: "unresolved-covers",
+        message:
+          `Covers critical references are not linked: ${entry}. `
+          + "Write each identifier as its own Covers entry, or use an "
+          + "ASCII-comma list such as `D1, D2`.",
+      });
       continue;
     }
     const match = entry.match(/^([A-Za-z]\d+)\s*:\s*(.+)$/);

@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.80.0"
-PROTOCOL_VERSION = "5.80.0"
+PACKAGE_VERSION = "5.81.0"
+PROTOCOL_VERSION = "5.81.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1702,7 +1702,7 @@ def validate_unparsed_covers_critical_statement_scenario() -> int:
                 f"must report Unparsed, got: {message!r}"
             )
             return 1
-        if "D2 — one-line statement" not in message:
+        if "D2 — statement" not in message:
             report(
                 "unparsed-covers-critical-statement: the Unparsed message must "
                 f"name the required shape, got: {message!r}"
@@ -1870,6 +1870,248 @@ def validate_widened_critical_statement_shapes_scenario() -> int:
         )
         return 1
     report("widened-critical-statement-shapes scenario passed.")
+    return 0
+
+
+def validate_whole_critical_statement_authority_scenario() -> int:
+    """Issue #177: every owned line, but no sibling, binds cited authority."""
+    task = task_capsule_compact_fixture().replace(
+        "    - E1: Public behavior passes.\n", "    - D1\n"
+    )
+    base = (
+        "## Decisions\n\n"
+        "- D1 — Preserve semantics.\n"
+        "  continuation alpha\n"
+        "  - nested detail alpha\n\n"
+        "- D2 — Peer decision.\n\n"
+        "Independent paragraph.\n\n"
+        "## Following heading\n"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-whole-critical-") as raw:
+        repo = Path(raw)
+        design_path = repo / "openspec/changes/demo/design.md"
+        write_text(repo / "openspec/changes/demo/tasks.md", task)
+
+        def start(design: str, *extra: str) -> tuple[int, dict]:
+            write_text(design_path, design)
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                *extra, "--json",
+            )
+            return result.returncode, json.loads(result.stdout)
+
+        code, initial = start(base)
+        if code != 0:
+            report("whole-critical-statement-authority: accepted D1 did not compile.")
+            report(str(initial))
+            return 1
+        authority = initial["contract"]["capsule"]["authority"]
+        if authority[0]["text"] != (
+            "Preserve semantics. continuation alpha - nested detail alpha"
+        ):
+            report(
+                "whole-critical-statement-authority: the D1 authority omitted "
+                f"an owned line: {authority[0]['text']!r}"
+            )
+            return 1
+        fingerprint = initial["contract"]["fingerprint"]["value"]
+
+        for old, new, label in (
+            ("continuation alpha", "continuation beta", "continuation"),
+            ("nested detail alpha", "nested detail beta", "nested bullet"),
+        ):
+            code, changed = start(base.replace(old, new))
+            if code != 0:
+                report(f"whole-critical-statement-authority: {label} edit failed to compile.")
+                return 1
+            if changed["contract"]["fingerprint"]["value"] == fingerprint:
+                report(
+                    f"whole-critical-statement-authority: {label} edit left "
+                    "the cited contract fingerprint unchanged."
+                )
+                return 1
+
+        for old, new, label in (
+            ("Peer decision", "Changed peer", "peer bullet"),
+            ("Independent paragraph", "Changed paragraph", "peer paragraph"),
+            ("Following heading", "Changed heading", "heading"),
+        ):
+            code, changed = start(base.replace(old, new))
+            if code != 0:
+                report(f"whole-critical-statement-authority: {label} edit failed to compile.")
+                return 1
+            if changed["contract"]["fingerprint"]["value"] != fingerprint:
+                report(
+                    f"whole-critical-statement-authority: {label} edit "
+                    "incorrectly changed D1 authority."
+                )
+                return 1
+
+        # A `#` line nested inside the item is owned content (a code sample's
+        # comment, a heading inside the list item), and an unindented line
+        # with no blank before it continues the paragraph lazily. Neither may
+        # cut the statement short; a blank-separated paragraph still ends it.
+        for design, old, new, label in (
+            (
+                "## Decisions\n\n- D1 — Opener.\n  - detail one\n"
+                "    # sample comment\n  - detail after hash\n",
+                "detail after hash", "detail changed", "detail after a nested #",
+            ),
+            (
+                "## Decisions\n\n- D1 — Opener wraps\nlazily onto this line.\n\n"
+                "Separate paragraph.\n",
+                "lazily onto", "lazily into", "lazy continuation",
+            ),
+        ):
+            before_code, before = start(design)
+            after_code, after = start(design.replace(old, new))
+            if before_code != 0 or after_code != 0:
+                report(f"whole-critical-statement-authority: {label} case failed to compile.")
+                return 1
+            if before["contract"]["fingerprint"]["value"] == after["contract"]["fingerprint"]["value"]:
+                report(
+                    f"whole-critical-statement-authority: {label} edit left "
+                    "the cited contract fingerprint unchanged."
+                )
+                return 1
+            if "Separate paragraph" not in design:
+                continue
+            _, peer = start(design.replace("Separate paragraph", "Changed paragraph"))
+            if peer["contract"]["fingerprint"]["value"] != before["contract"]["fingerprint"]["value"]:
+                report(
+                    f"whole-critical-statement-authority: {label} case let a "
+                    "blank-separated paragraph change D1 authority."
+                )
+                return 1
+
+        # Consecutive unbulleted openers are one CommonMark paragraph, but
+        # each is its own decision: a peer opener is never a lazy line.
+        adjacent = "## Decisions\n\nD1 — First.\n**D2** — Second.\n"
+        before_code, before = start(adjacent)
+        after_code, after = start(adjacent.replace("Second", "Changed"))
+        if before_code != 0 or after_code != 0:
+            report("whole-critical-statement-authority: adjacent-opener case failed to compile.")
+            return 1
+        if before["contract"]["fingerprint"]["value"] != after["contract"]["fingerprint"]["value"]:
+            report(
+                "whole-critical-statement-authority: an adjacent unbulleted "
+                "peer opener was absorbed into D1 authority."
+            )
+            return 1
+
+        code, recorded = start(base, "--record", "--no-guard")
+        if code != 0 or recorded.get("record", {}).get("status") != "recorded":
+            report("whole-critical-statement-authority: could not record D1 anchor.")
+            return 1
+        write_text(design_path, base.replace("nested detail alpha", "nested detail beta"))
+        completion = run_keel(
+            repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json"
+        )
+        problems = json.loads(completion.stdout).get("problems", [])
+        if not any(item.get("code") == "contract-drift" for item in problems):
+            report(
+                "whole-critical-statement-authority: task-complete missed "
+                "drift after a nested detail changed."
+            )
+            report(completion.stdout.strip())
+            return 1
+
+        code, colon = start("## Decisions\n\n- D1: colon shape.\n")
+        messages = [item.get("message", "") for item in colon.get("problems", [])]
+        if code == 0 or not any(
+            "Unparsed Covers critical statement: D1." in message
+            and "D1 —" in message
+            for message in messages
+        ):
+            report("whole-critical-statement-authority: colon shape lost its actionable refusal.")
+            return 1
+
+    if "whole-critical-statement-authority" not in {name for name, _ in SCENARIOS}:
+        report("whole-critical-statement-authority: scenario is not registered.")
+        return 1
+    report("whole-critical-statement-authority scenario passed.")
+    return 0
+
+
+def validate_unlinked_critical_covers_scenario() -> int:
+    """Issue #177: critical citations must not silently become legacy prose."""
+    design = (
+        "## Decisions\n\n"
+        "- D1 — First decision.\n"
+        "- D2 — Second decision.\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-unlinked-critical-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/demo/design.md", design)
+
+        def start(covers: str) -> tuple[int, dict]:
+            write_text(
+                repo / "openspec/changes/demo/tasks.md",
+                task_capsule_compact_fixture().replace(
+                    "    - E1: Public behavior passes.\n", f"    - {covers}\n"
+                ),
+            )
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json"
+            )
+            return result.returncode, json.loads(result.stdout)
+
+        for covers in (
+            "D1、D2",
+            "D1，D2",
+            "D1 D2",
+            "Implement both decisions（D1、D2）",
+        ):
+            code, payload = start(covers)
+            messages = [item.get("message", "") for item in payload.get("problems", [])]
+            if code == 0:
+                report(f"unlinked-critical-covers: {covers!r} passed as unlinked prose.")
+                return 1
+            if not any(covers in message and "D1, D2" in message for message in messages):
+                report(
+                    f"unlinked-critical-covers: {covers!r} lacks a diagnostic "
+                    "naming the entry and the supported list form."
+                )
+                report(str(messages))
+                return 1
+
+        for covers, expected in (
+            ("D1", ["D1"]),
+            ("D1, D2", ["D1", "D2"]),
+            ("D1 — annotation", ["D1"]),
+        ):
+            code, payload = start(covers)
+            if code != 0:
+                report(f"unlinked-critical-covers: supported {covers!r} failed.")
+                report(str(payload.get("problems", [])))
+                return 1
+            authority = payload["contract"]["capsule"]["authority"]
+            actual = [item["reference"] for item in authority]
+            if actual != expected or any(
+                item["kind"] != "critical-statement" for item in authority
+            ):
+                report(
+                    f"unlinked-critical-covers: supported {covers!r} lost "
+                    f"linked authority: {authority!r}"
+                )
+                return 1
+
+        for covers in (
+            "F13 (Q1 resolved: the answer is recorded)",
+            "D2: colon-form legacy description",
+            "D2-compatible fixture text",
+        ):
+            code, payload = start(covers)
+            if code != 0:
+                report(f"unlinked-critical-covers: existing free text {covers!r} was rejected.")
+                report(str(payload.get("problems", [])))
+                return 1
+
+    if "unlinked-critical-covers" not in {name for name, _ in SCENARIOS}:
+        report("unlinked-critical-covers: scenario is not registered.")
+        return 1
+    report("unlinked-critical-covers scenario passed.")
     return 0
 
 
@@ -31594,6 +31836,14 @@ SCENARIOS: tuple = (
     (
         "widened-critical-statement-shapes",
         validate_widened_critical_statement_shapes_scenario,
+    ),
+    (
+        "whole-critical-statement-authority",
+        validate_whole_critical_statement_authority_scenario,
+    ),
+    (
+        "unlinked-critical-covers",
+        validate_unlinked_critical_covers_scenario,
     ),
     (
         "covers-annotation-entry",

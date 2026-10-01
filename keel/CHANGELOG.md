@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.81.0 - a cited decision is fingerprinted whole
+
+A task's contract fingerprint promises that the authority a task was implemented under is the authority it is judged against. For a `design.md` decision written over several lines — the usual way — that promise held only for the first line: editing a sub-bullet or a continuation after the task was authorized moved nothing, and neither `task-complete` nor `change-close` noticed (#177). A Covers entry such as `D1、D2` was worse: it passed as free text, anchoring nothing while looking anchored.
+
+- Issue #177: a task that cites a multi-line `D<n>`/`F<n>`/`A<n>`/`Q<n>` statement now fingerprints its indented continuation, nested bullets (including a `#` line nested inside them), and an unindented line that continues its paragraph, not only the opener. Editing an owned detail moves the contract anchor; editing an unrelated peer — another bullet, another `D<n> —` opener, a blank-separated paragraph, or a heading — does not. Combined or prose-wrapped critical citations that Keel cannot link are refused with an instruction to use separate Covers entries or an ASCII-comma list.
+- A colon-shaped `design.md` statement remains unparsed with an actionable dash-shape diagnostic. A fact's resolved-question supporting note, a single annotated critical reference, and colon-form legacy Covers text retain their existing behavior.
+- **Existing active tasks:** after an upgrade, a recorded anchor for a cited multi-line statement may report `contract-drift`. Inspect the newly compiled authority, then reauthorize with `keel gate task-start --record`; clear or re-run evidence produced under the former contract. Use `--keep-evidence M<n>` only for a check whose assertion truly did not move, and state the reason in `Reauthorizations`. Keel records that judgment but does not prove causal nonimpact. Do not bypass `task-complete` drift or infer that old evidence is automatically valid.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.81.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.80.0 - the plugin installs from git
 
 The owner wants Keel in Anthropic's official plugin directory, with one release flow feeding npm, Keel's own marketplace, and that directory. That directory takes every third-party plugin from a git repository pinned to a commit, and none from npm. Keel's Claude plugin came from the npm package (#164, 5.74.0), and its skills, agent, and hooks were declared inside Keel's marketplace entry, which the directory would have had to copy. A bundled OpenSpec was planned for the git install and dropped: on Claude Code 2.1.283 the host installs a git-sourced plugin's dependencies from the committed `npm-shrinkwrap.json`, so the plugin arrives with the pinned OpenSpec either way.
