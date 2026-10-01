@@ -2,7 +2,7 @@
 
 ## 1. Local group chat
 
-- [ ] 1.1 Groups, roles, mentions, and per-member cursors in an append-only store
+- [x] 1.1 Groups, roles, mentions, and per-member cursors in an append-only store
   - Covers:
     - keel-cross-host-mailbox / Chat records are immutable files in a repository-shared store
     - keel-cross-host-mailbox / Roles are bound to a worktree and may carry aliases
@@ -28,18 +28,18 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-core` drives public `keel chat` in a scratch repository with three worktrees bound to `rtl`, `verify`, and `lint` plus a separate repository: **Refusals:** an unbound poster is refused naming `keel chat role --set`; `Bad Name` is refused naming the pattern and writes nothing; a taken alias is refused naming its holder; `@stranger` is refused and writes nothing; a removed member's post and a post to an archived group are refused by name. **Sharing:** `rtl` creates `soc` with `verify` and `lint` and posts; `verify` sees it with `--peek`; exactly one record file exists under `<git common dir>/keel-chat/groups/soc/log/` with an offset in `created`, and a second post leaves the first file byte-identical. **Mentions:** `@CM` resolves to `claude-maint` through an alias. **Cursors and receipts:** after `verify` views `soc`, `keel chat unread --json` reports the message for `lint` and not for `verify`, and `keel chat show <id> --json` lists `verify` as a reader. **Direct groups:** `keel chat dm` creates `dm-rtl--verify`. **Isolation:** the separate repository lists no `soc`. **No gate:** `keel context --json` reports the same status and next action with unread chat as without. Fails with: `chat-core: keel chat`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:0578a7723cb8ed398c2a26fb5f20fca59aa147831a426c8db640b09195e92302
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-core` reports `chat-core scenario passed.` across worktrees bound to `rtl`, `verify`, `lint`, and `claude-maint` plus a separate repository: an unbound post is refused naming `keel chat role --set`; `Bad Name` is refused naming `[a-z0-9]` with no `keel-chat/` written; `--alias CM` from `lint` is refused naming `claude-maint`; `@stranger` is refused by name with the log file count unchanged; after `group remove soc lint`, `lint`'s post is refused naming membership and `group list` drops `lint`; after `group archive soc`, a post is refused naming `archived` while `--peek` still prints history. The posted message is `groups/soc/log/<id>.md` with frontmatter and an offset `created`, and stays byte-identical after later posts; `@CM` is stored as `mentions: [claude-maint]`; after `verify` views `soc`, `unread --json` still lists the message for `lint` and nothing for `verify`, and `show --json` lists `verify` and not `lint` as readers; `dm verify` creates `dm-rtl--verify` with exactly both roles; the separate repository lists no `soc`; `keel context --json` status and next action are equal before and after the unread chat.
+    - M1.red: fail. Before `src/core/chat/` and the `chat` dispatch existed, the scenario reported `chat-core: keel chat the unbound-poster refusal does not name `keel chat role --set`: keel: repo path was provided more than once`, carrying the declared signature `chat-core: keel chat`.
+    - M1.green: pass. The same scenario passes against the working tree.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and `keel context` and asserts each Covers requirement at its observable surface — record files and their immutability and offset stamp (store requirement), refusals and alias resolution (roles), membership, direct group, and archive refusals with readable history (groups), per-member unread and receipts (cursors), unchanged context (grants nothing). D13's `keel/chat.json` loader exists for 2.2 and 4.x, and nothing in 1.1 reads it, so no behavior of it is claimed here.
+      - Scope check: The diff adds `src/core/chat/store.js`, `src/core/chat/config.js`, and `src/core/chat/cli.js`, and changes `bin/keel.js` (a `chat` dispatch and one usage line), `scripts/validate_plugin.py` (the scenario, its helpers, and registration), and `keel/CHANGELOG.md` (an Unreleased entry) — all in Touch — plus this change's own directory. `npm test` at this point fails only `authored-scenario-names-are-registered`, for the later tasks' unregistered scenarios, and `the-tarball-is-the-repository`, which passed once the new files were tracked; M2 therefore defers to C1, which runs once every scenario of the change exists.
+      - Findings: Resolved here: M1 — two scenario checks guarded a missing group and a wrong member list behind one condition, so a missing `soc` would have been reported as `lint` still present; each now reports its own cause.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: D2's id stamp was changed from local time to UTC before any implementation, because local stamps from machines in different time zones do not sort; task-start was re-run and the anchor re-recorded with no evidence yet written.
   - Stop if:
     - Any design point needs a shared file to be rewritten in place, or a gate would have to read the chat store.
 

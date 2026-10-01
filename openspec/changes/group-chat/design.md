@@ -47,7 +47,7 @@ Issue #187 records a design the owner froze on 2026-10-01; after that, only bugs
     - `.tmp/` is used for write-then-rename.
   
   Basis: owner, 2026-10-01 ("no shared file is ever rewritten").
-- **D2** — One record per file, with frontmatter. A record's id is `<local stamp yyyymmddThhmmss±hhmm>-<role>-<6 hex>`, which is unique and sorts by time. Its frontmatter carries:
+- **D2** — One record per file, with frontmatter. A record's id is `<UTC stamp yyyymmddThhmmssSSSZ>-<role>-<6 hex>`, which is unique and sorts by time across machines in different time zones; ids are compared as strings everywhere ordering matters (logs, cursors). Display time comes from `created`, never from the id. Its frontmatter carries:
   - always: `id`, `group`, `kind`, `from`, and `created`;
   - optionally: `mentions` (a list of roles, or `all`), `reply_to`, `assignee`, `issue`, `target`, `refs`, `origin` (`local`, `slack`, or `remote:<project>`), and `slack` (channel and ts);
   - a body.

@@ -2460,6 +2460,237 @@ def validate_mailbox_claude_hooks_scenario() -> int:
     return 0
 
 
+CHAT_ROLE_VARIABLES = ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")
+
+
+def chat_environment(**extra: str) -> dict[str, str]:
+    """The test process's environment without any inherited chat role."""
+    env = {key: value for key, value in os.environ.items() if key not in CHAT_ROLE_VARIABLES}
+    env.update(extra)
+    return env
+
+
+def chat_worktree(repo: Path, path: Path) -> Path:
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", path.name, str(path)],
+        cwd=repo, check=True, capture_output=True,
+    )
+    return path
+
+
+def chat_log(repo: Path, group: str) -> Path:
+    return mailbox_common_dir(repo) / "keel-chat" / "groups" / group / "log"
+
+
+def chat_json(result: subprocess.CompletedProcess[str]) -> dict:
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def validate_chat_core_scenario() -> int:
+    """Issue #187: roles share groups through an append-only store.
+
+    Everything goes through public `keel chat` across four worktrees of one
+    repository and a separate repository: role and alias binding and their
+    refusals, group membership and its refusals, immutable record files,
+    mention resolution through an alias, per-member cursors and receipts, a
+    direct group, archive, isolation, and that unread chat changes no context.
+    """
+    label = "chat-core: keel chat"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-core-") as raw:
+        base = Path(raw)
+        rtl = mailbox_repository(base / "rtl")
+        verify = chat_worktree(rtl, base / "verify")
+        lint = chat_worktree(rtl, base / "lint")
+        maint = chat_worktree(rtl, base / "maint")
+        other = mailbox_repository(base / "other")
+        env = chat_environment()
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        unbound = chat(rtl, "post", "soc", "hello")
+        if unbound.returncode == 0:
+            report(f"{label} a post from an unbound worktree succeeded.")
+            return 1
+        if "keel chat role --set" not in unbound.stderr:
+            report(f"{label} the unbound-poster refusal does not name `keel chat role --set`: {(unbound.stderr or unbound.stdout).strip()}")
+            return 1
+        bad = chat(rtl, "role", "--set", "Bad Name")
+        if bad.returncode == 0:
+            report(f"{label} role --set accepted the invalid name 'Bad Name'.")
+            return 1
+        if "[a-z0-9]" not in bad.stderr:
+            report(f"{label} the invalid-role refusal does not name the pattern: {bad.stderr.strip()}")
+            return 1
+        if (mailbox_common_dir(rtl) / "keel-chat").exists():
+            report(f"{label} a refused role wrote to the chat store.")
+            return 1
+
+        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (lint, "lint"), (maint, "claude-maint"), (other, "verify")):
+            bound = chat(cwd, "role", "--set", role)
+            if bound.returncode != 0:
+                report(f"{label} role --set {role} failed: {bound.stderr.strip()}")
+                return 1
+        shown = chat(verify, "role", "--json")
+        if chat_json(shown).get("role") != "verify":
+            report(f"{label} role --json did not report the bound role: {shown.stdout.strip()} {shown.stderr.strip()}")
+            return 1
+        aliased = chat(maint, "role", "--alias", "cm")
+        if aliased.returncode != 0:
+            report(f"{label} role --alias cm failed: {aliased.stderr.strip()}")
+            return 1
+        taken = chat(lint, "role", "--alias", "CM")
+        if taken.returncode == 0:
+            report(f"{label} a second role took the alias 'cm'.")
+            return 1
+        if "claude-maint" not in taken.stderr:
+            report(f"{label} the taken-alias refusal does not name its holder: {taken.stderr.strip()}")
+            return 1
+
+        context_before = run_keel(verify, "context", "--json", env=env)
+
+        created = chat(rtl, "group", "create", "soc", "--member", "verify", "--member", "lint", "--member", "claude-maint")
+        if created.returncode != 0:
+            report(f"{label} group create failed: {created.stderr.strip()}")
+            return 1
+        first = chat(rtl, "post", "soc", "Stimulus misreads the spec.", "--json")
+        first_id = chat_json(first).get("id", "")
+        if not first_id:
+            report(f"{label} post did not report an id: {first.stdout.strip()} {first.stderr.strip()}")
+            return 1
+        peek = chat(verify, "soc", "--peek", "--json")
+        texts = [(r.get("from"), r.get("text")) for r in chat_json(peek).get("records", [])]
+        if ("rtl", "Stimulus misreads the spec.") not in texts:
+            report(f"{label} the verify worktree did not see rtl's message: {peek.stdout.strip()} {peek.stderr.strip()}")
+            return 1
+        record_file = chat_log(rtl, "soc") / f"{first_id}.md"
+        if not record_file.is_file():
+            report(f"{label} no record file {record_file} for the posted message.")
+            return 1
+        original = record_file.read_bytes()
+        if not re.search(rb"^created: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", original, re.M):
+            report(f"{label} the record's created stamp carries no UTC offset:\n{original.decode()}")
+            return 1
+        if not original.startswith(b"---\n"):
+            report(f"{label} the record file has no frontmatter.")
+            return 1
+
+        mention = chat(verify, "post", "soc", "@CM please check the waveform", "--json")
+        mention_id = chat_json(mention).get("id", "")
+        if not mention_id:
+            report(f"{label} the aliased mention was not posted: {mention.stderr.strip()}")
+            return 1
+        mentions = chat_json(chat(rtl, "show", mention_id, "--json")).get("record", {}).get("mentions")
+        if mentions != ["claude-maint"]:
+            report(f"{label} @CM did not resolve to claude-maint: {mentions!r}")
+            return 1
+        if record_file.read_bytes() != original:
+            report(f"{label} a later post changed an earlier record file.")
+            return 1
+
+        count = len(list(chat_log(rtl, "soc").glob("*.md")))
+        stranger = chat(rtl, "post", "soc", "@stranger hi")
+        if stranger.returncode == 0:
+            report(f"{label} a mention of a non-member was posted.")
+            return 1
+        if "stranger" not in stranger.stderr:
+            report(f"{label} the non-member refusal does not name 'stranger': {stranger.stderr.strip()}")
+            return 1
+        if len(list(chat_log(rtl, "soc").glob("*.md"))) != count:
+            report(f"{label} the refused mention wrote a record.")
+            return 1
+
+        receipt = chat(rtl, "post", "soc", "Receipt check.", "--json")
+        receipt_id = chat_json(receipt).get("id", "")
+        viewed = chat(verify, "soc")
+        if viewed.returncode != 0:
+            report(f"{label} viewing soc failed: {viewed.stderr.strip()}")
+            return 1
+        lint_unread = [r.get("id") for r in chat_json(chat(lint, "unread", "--json")).get("unread", [])]
+        if receipt_id not in lint_unread:
+            report(f"{label} lint lost its unread message when verify read: {lint_unread!r}")
+            return 1
+        verify_unread = [r.get("id") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+        if verify_unread:
+            report(f"{label} verify still has unread records after viewing: {verify_unread!r}")
+            return 1
+        readers = chat_json(chat(rtl, "show", receipt_id, "--json")).get("readers", [])
+        if "verify" not in readers:
+            report(f"{label} show does not list verify as a reader: {readers!r}")
+            return 1
+        if "lint" in readers:
+            report(f"{label} show lists lint as a reader before lint read: {readers!r}")
+            return 1
+
+        context_after = run_keel(verify, "context", "--json", env=env)
+        before, after = chat_json(context_before), chat_json(context_after)
+        if (before.get("status"), before.get("nextAction")) != (after.get("status"), after.get("nextAction")):
+            report(f"{label} unread chat changed keel context.")
+            return 1
+
+        direct = chat(rtl, "dm", "verify", "Ping in private.")
+        if direct.returncode != 0:
+            report(f"{label} dm failed: {direct.stderr.strip()}")
+            return 1
+        groups = {g.get("name"): g for g in chat_json(chat(verify, "group", "list", "--json")).get("groups", [])}
+        if "dm-rtl--verify" not in groups:
+            report(f"{label} dm did not create dm-rtl--verify: {sorted(groups)!r}")
+            return 1
+        if sorted(groups["dm-rtl--verify"].get("members", [])) != ["rtl", "verify"]:
+            report(f"{label} dm-rtl--verify does not hold exactly rtl and verify: {groups['dm-rtl--verify']!r}")
+            return 1
+
+        removed = chat(rtl, "group", "remove", "soc", "lint")
+        if removed.returncode != 0:
+            report(f"{label} group remove failed: {removed.stderr.strip()}")
+            return 1
+        outsider = chat(lint, "post", "soc", "Still here?")
+        if outsider.returncode == 0:
+            report(f"{label} a removed member could still post.")
+            return 1
+        if "member" not in outsider.stderr:
+            report(f"{label} the removed-member refusal does not name membership: {outsider.stderr.strip()}")
+            return 1
+        groups = {g.get("name"): g for g in chat_json(chat(rtl, "group", "list", "--json")).get("groups", [])}
+        if "soc" not in groups:
+            report(f"{label} group list no longer shows soc after a removal: {sorted(groups)!r}")
+            return 1
+        if "lint" in groups["soc"].get("members", []):
+            report(f"{label} group list still shows lint in soc: {groups.get('soc')!r}")
+            return 1
+
+        archived = chat(rtl, "group", "archive", "soc")
+        if archived.returncode != 0:
+            report(f"{label} group archive failed: {archived.stderr.strip()}")
+            return 1
+        late = chat(verify, "post", "soc", "One more thing.")
+        if late.returncode == 0:
+            report(f"{label} a post to an archived group succeeded.")
+            return 1
+        if "archived" not in late.stderr:
+            report(f"{label} the archived-group refusal does not name the archive: {late.stderr.strip()}")
+            return 1
+        history = chat(verify, "soc", "--peek")
+        if "Stimulus misreads the spec." not in history.stdout:
+            report(f"{label} an archived group's history is not readable: {history.stdout.strip()} {history.stderr.strip()}")
+            return 1
+
+        elsewhere = chat_json(chat(other, "group", "list", "--json", "--all")).get("groups", [])
+        if any(g.get("name") == "soc" for g in elsewhere):
+            report(f"{label} a separate repository lists soc.")
+            return 1
+
+    if "chat-core" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-core scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -32418,6 +32649,10 @@ SCENARIOS: tuple = (
     (
         "mailbox-claude-hooks",
         validate_mailbox_claude_hooks_scenario,
+    ),
+    (
+        "chat-core",
+        validate_chat_core_scenario,
     ),
     (
         "record-derives-skeleton",

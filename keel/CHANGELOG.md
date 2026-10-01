@@ -1,5 +1,9 @@
 # Keel Changelog
 
+## Unreleased
+
+- Issue #187: `keel chat` turns the one-to-one mailbox into a work group. Roles share named groups through an append-only store in the repository's git common directory (`keel-chat/`): one immutable record file per message or event, membership and archive derived by replaying the log, and one read-cursor file per member, so no shared file is ever rewritten. `role --set` and `role --alias` bind a worktree and its case-insensitive aliases; `group create|add|remove|archive|list` maintain groups; `post` (or `keel chat <group> <text>`) resolves `@role`, `@alias`, `@all`, and `@owner` and refuses a mention outside the group by name; `dm <role>` writes to a two-person direct group; `<group>` views and advances the reader's cursor (`--peek` does not); `unread`, `read`, and `show` give each member its own unread state and receipts. Records store `created` with the local UTC offset, and ids sort by UTC time across machines. A chat record is data and gates nothing.
+
 ## 5.84.0 - the record is derived, the judgment is not
 
 Issue #179 asked Keel to stop making an agent type what the CLI already knows, and to keep every check that can prove the agent wrong. The largest such cost was the record skeleton: a task could not start until its author had hand-written a `Contract` slot and one slot per check, plus the `.red`/`.green`, Review, and log slots the strategy would later demand, all of it implied by the capsule.
