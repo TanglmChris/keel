@@ -34,6 +34,7 @@ const USAGE = [
   "keel chat search <text...> [--group <group>] [--json]",
   "keel chat bridge add|remove [--repo <path>]   (list or unlist this project for this machine's Slack bridge)",
   "keel chat bridge run [--once]   (the bridge process; --once sends what is pending and exits; Node 22+)",
+  "keel chat bridge status [--json]",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "Every command takes --repo <path> to act on another repository.",
@@ -342,9 +343,16 @@ function runBridge(where, rest, options) {
     case "remove":
       out(`This machine's bridge no longer serves ${bridge.removeProject(where)}.`);
       return 0;
+    case "status": {
+      const status = bridge.readStatus();
+      if (options.json) out(JSON.stringify(status));
+      else if (!status.running) out("keel chat bridge: not running on this machine; Slack messages are not reaching it.");
+      else out(`keel chat bridge: running (pid ${status.pid}), ${status.connected ? "connected" : "not connected"}, serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}; ${status.unposted} waiting to send, ${status.ignored} ignored from unregistered senders.`);
+      return 0;
+    }
     case "run": {
       const log = (line) => process.stderr.write(`keel chat bridge: ${line}\n`);
-      bridge.runOnce(log).then(
+      (options.once ? bridge.runOnce(log) : bridge.run(log)).then(
         (code) => { process.exitCode = code; },
         (error) => {
           process.stderr.write(`keel chat: ${error.message}\n`);
@@ -354,7 +362,7 @@ function runBridge(where, rest, options) {
       return undefined;
     }
     default:
-      throw new ChatError(`Unknown keel chat bridge action ${JSON.stringify(action)}: use add, remove, or run.`);
+      throw new ChatError(`Unknown keel chat bridge action ${JSON.stringify(action)}: use add, remove, status, or run.`);
   }
 }
 

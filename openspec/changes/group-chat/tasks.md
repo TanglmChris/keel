@@ -251,7 +251,7 @@
   - Stop if:
     - The bridge would need any npm dependency, or a token would have to be written to disk.
 
-- [ ] 4.2 Inbound: registered people and Keel posts only, exact rebuild, threads, edits, reactions, catch-up, shared channels
+- [x] 4.2 Inbound: registered people and Keel posts only, exact rebuild, threads, edits, reactions, catch-up, shared channels
   - Covers:
     - keel-chat-slack-bridge / Inbound messages are imported only from registered people and Keel posts
     - keel-chat-slack-bridge / Missed traffic is caught up after downtime
@@ -262,6 +262,7 @@
     - src/core/chat/bridge.js
     - src/core/chat/slack.js
     - src/core/chat/store.js
+    - src/core/chat/cli.js
     - scripts/fake_slack.py
     - scripts/validate_plugin.py
     - keel/CHANGELOG.md
@@ -270,16 +271,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-inbound` pushes Socket Mode envelopes from the fake server and asserts every envelope is acknowledged: **The owner:** the registered owner's `@verify rerun please` writes a record from `owner` mentioning `verify`, and grows `signal/verify`. **A stranger:** an unregistered user's message writes nothing, and `status --json` counts one ignored message. **Another machine:** a bot message carrying metadata for `codex-maint` is rebuilt with its id and mentions, and re-pushing it writes nothing; a bot message without metadata is resolved through one `conversations.history` call with `include_all_metadata`. **Echo suppression:** this bridge's own post is not re-imported into its project. **Threads:** a thread reply becomes `reply_to` its root. **Changes and reactions:** `message_changed` becomes `edit`, and `message_deleted` becomes `retract`; ✅ on a `todo` record from a registered user becomes `done`; a file becomes a link line. **Shared channels:** with projects `a` and `b` mapping `ops` to one channel, `a`'s post goes out once as `a/rtl` and lands in `b` from `a/rtl`. **Catch-up:** a history message added while the bridge was stopped is imported exactly once on restart. Fails with: `chat-bridge-inbound:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:0af4fb6713cfcefb6e3a9f63074b9c28a0c6e0de4b8d3a46506d75c7e9f77594
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-inbound` reports `chat-bridge-inbound scenario passed.` (three consecutive runs) with a real `keel chat bridge run` process connected to `scripts/fake_slack.py` over Socket Mode: the registered owner's `@verify rerun please` becomes a record `from: owner` mentioning `verify` and grows `signal/verify`; an unregistered user's `@verify delete everything` writes nothing, leaves the signal unchanged, and `bridge status --json` reports `ignored: 1`; a bot post with `keel_chat_record` metadata for `codex-maint` is written under its id `20261001T080000000Z-codex-maint-abcdef` with its sender and `verify` mention, and pushing it again leaves one record; a bot post whose event lacks metadata is resolved through `conversations.history` with `include_all_metadata`; this bridge's own post of `local echo`, pushed back with bot id `BBOT`, stays one record; the owner's thread reply gets `reply_to` the root's id; `message_changed` becomes a `kind: edit` record and `message_deleted` a `kind: retract` record; ✅ from the owner on the posted `todo` record removes it from `todos`; a shared file becomes a line with its link; project `a`'s post in `ops` is sent once as `a/rtl` and lands in project `b` from `a/rtl`; every pushed envelope id appears in the server's acknowledgements; and a history message added while the bridge was stopped is imported exactly once across two restarts.
+    - M1.red: fail. Before the inbound side existed the scenario reported `chat-bridge-inbound: the bridge never opened a Socket Mode connection: keel chat bridge: Bridge pass done: 3 projects served, 4 records sent.`, carrying the declared signature `chat-bridge-inbound:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-bridge-outbound` still passes; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 runs the shipped bridge process unmocked against a server speaking Slack's documented Web API and Socket Mode shapes, and asserts each clause of both Covers requirements on the store and signal files the sessions read: registered-only import with wake-up, the ignored count, exact rebuild and dedup, the metadata fallback, echo suppression, threads, edits, deletions, reactions, files, the shared channel, envelope acknowledgement, and once-only catch-up after downtime.
+      - Scope check: The diff changes `src/core/chat/bridge.js` (the inbound handlers, catch-up, the Socket Mode loop, local fan-out to projects sharing a channel, and the status file), `src/core/chat/store.js` (`aliasMap` and `READABLE_KINDS` exported), `src/core/chat/cli.js` (`bridge run` without `--once`, and `bridge status`), `scripts/fake_slack.py` (a later `ts` origin), `scripts/validate_plugin.py` (the scenario and its helpers), and `keel/CHANGELOG.md` — all in Touch; `cli.js` was added to Touch before this task started, because both the long-running `bridge run` and the `bridge status` the check reads live there. `src/core/chat/slack.js` needed no edit.
+      - Findings: Resolved here: M1 — catch-up first imported nothing, because the fake server assigned `ts` values below the ones the test wrote by hand, so the last-seen position already lay past them; the server now starts above every hand-written `ts`, and M1's restart check passes. Resolved here: M1 — one check guarded a lost sender and lost mentions behind one message; each now reports its own cause.
     - Blocker: none
     - Reauthorizations: none
   - Stop if:

@@ -52,7 +52,9 @@ class FakeSlack:
         self.messages: dict[str, list[dict]] = {}
         self.rate_limit_next: list[tuple[str, int]] = []
         self.lock = threading.Lock()
-        self.next_ts = 1_700_000_000
+        # Later than any `ts` a test writes by hand, so what this server assigns
+        # always sorts after the events a test pushed itself.
+        self.next_ts = 1_900_000_000
         self.sockets: list[socket.socket] = []
         self.acks: list[str] = []
         self.connections_opened = 0

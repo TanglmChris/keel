@@ -3148,6 +3148,231 @@ def validate_chat_bridge_outbound_scenario() -> int:
     return 0
 
 
+def chat_records_with(repo: Path, group: str, needle: str) -> list[str]:
+    """Record files in `group` whose text contains `needle`."""
+    log = chat_log(repo, group)
+    if not log.is_dir():
+        return []
+    return [p.read_text(encoding="utf-8") for p in sorted(log.glob("*.md")) if needle in p.read_text(encoding="utf-8")]
+
+
+def start_chat_bridge(cwd: Path, env: dict[str, str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        ["node", str(ROOT / "bin" / "keel.js"), "chat", "bridge", "run"],
+        cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+def stop_chat_bridge(process: subprocess.Popen) -> str:
+    process.terminate()
+    try:
+        _, stderr = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _, stderr = process.communicate()
+    return stderr or ""
+
+
+def slack_event(channel: str, **fields: object) -> dict:
+    return {"type": "event_callback", "event": {"type": "message", "channel": channel, **fields}}
+
+
+def validate_chat_bridge_inbound_scenario() -> int:
+    """Issue #187: what arrives from Slack, and only that, reaches the store.
+
+    A running `keel chat bridge run` against the fake server: a registered
+    person's message is imported and wakes the session it mentions; a
+    stranger's is ignored and counted; another machine's post is rebuilt from
+    its metadata exactly once, fetching metadata the event lacked; this
+    bridge's own post is not re-imported; threads, edits, deletions, ✅, and
+    files map onto records; two projects sharing a channel both get a post;
+    and what was missed while stopped is caught up once.
+    """
+    label = "chat-bridge-inbound:"
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-in-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        shared = []
+        for name in ("a", "b"):
+            repo = mailbox_repository(base / name)
+            run_keel(repo, "chat", "role", "--set", "rtl", env=env)
+            run_keel(repo, "chat", "group", "create", "ops", env=env)
+            chat_slack_config(repo, {"ops": "COPS"})
+            shared.append(repo)
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=benv)
+
+        for project in (rtl, *shared):
+            chat(project, "bridge", "add")
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "verify"
+        envelopes: list[str] = []
+
+        def push(payload: dict, kind: str = "events_api") -> None:
+            envelopes.append(slack.push(payload, kind))
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge never opened a Socket Mode connection: {stop_chat_bridge(bridge).strip()}")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="@verify rerun please", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "@verify rerun please")):
+                report(f"{label} the registered owner's message was not imported.")
+                return 1
+            owner_record = chat_records_with(rtl, "soc", "@verify rerun please")[0]
+            if "from: owner" not in owner_record:
+                report(f"{label} the owner's message was not imported as role owner:\n{owner_record}")
+                return 1
+            if "  - verify" not in owner_record:
+                report(f"{label} the owner's @verify did not become a mention:\n{owner_record}")
+                return 1
+            if not signal.exists() or not signal.stat().st_size:
+                report(f"{label} the owner's mention did not touch verify's signal file.")
+                return 1
+
+            size = signal.stat().st_size
+            push(slack_event("CSOC", user="USTRANGER", text="@verify delete everything", ts="1800000002.000100"))
+            if not slack.wait_for(lambda: chat_json(chat(rtl, "bridge", "status", "--json")).get("ignored") == 1):
+                report(f"{label} bridge status does not count the stranger's message: {chat(rtl, 'bridge', 'status', '--json').stdout.strip()}")
+                return 1
+            if chat_records_with(rtl, "soc", "delete everything"):
+                report(f"{label} an unregistered user's message reached the store.")
+                return 1
+            if signal.stat().st_size != size:
+                report(f"{label} an unregistered user's message touched a signal file.")
+                return 1
+
+            remote_id = "20261001T080000000Z-codex-maint-abcdef"
+            remote = {
+                "subtype": "bot_message", "bot_id": "BOTHER", "username": "codex-maint",
+                "text": "from codex", "ts": "1800000003.000100",
+                "metadata": {"event_type": "keel_chat_record", "event_payload": {
+                    "project": "rtl", "id": remote_id, "kind": "message", "from": "codex-maint",
+                    "group": "soc", "mentions": ["verify"]}},
+            }
+            push(slack_event("CSOC", **remote))
+            remote_file = chat_log(rtl, "soc") / f"{remote_id}.md"
+            if not slack.wait_for(remote_file.is_file):
+                report(f"{label} another machine's post was not rebuilt under its record id.")
+                return 1
+            rebuilt = remote_file.read_text(encoding="utf-8")
+            if "from: codex-maint" not in rebuilt:
+                report(f"{label} the rebuilt record lost its sender:\n{rebuilt}")
+                return 1
+            if "  - verify" not in rebuilt:
+                report(f"{label} the rebuilt record lost its mentions:\n{rebuilt}")
+                return 1
+            push(slack_event("CSOC", **remote))
+            time.sleep(1.0)
+            if len(chat_records_with(rtl, "soc", "from codex")) != 1:
+                report(f"{label} a repeated event imported the same record twice.")
+                return 1
+
+            bare_id = "20261001T080100000Z-codex-maint-fedcba"
+            stored = slack.add_history("CSOC", {
+                "subtype": "bot_message", "bot_id": "BOTHER", "username": "codex-maint", "text": "metadata later",
+                "metadata": {"event_type": "keel_chat_record", "event_payload": {
+                    "project": "rtl", "id": bare_id, "kind": "message", "from": "codex-maint", "group": "soc"}},
+            })
+            push(slack_event("CSOC", subtype="bot_message", bot_id="BOTHER", username="codex-maint", text="metadata later", ts=stored["ts"]))
+            if not slack.wait_for((chat_log(rtl, "soc") / f"{bare_id}.md").is_file):
+                report(f"{label} a bot message without metadata in its event was not resolved through history.")
+                return 1
+            if not any(str(c["params"].get("include_all_metadata")).lower() in ("1", "true") for c in slack.calls_to("conversations.history")):
+                report(f"{label} metadata was not fetched with include_all_metadata.")
+                return 1
+
+            echo_id = chat_json(chat(rtl, "post", "soc", "local echo", "--json")).get("id", "")
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == echo_id for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the running bridge did not post a new local record.")
+                return 1
+            echo = next(m for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == echo_id)
+            push(slack_event("CSOC", subtype="bot_message", bot_id="BBOT", username="rtl", text="local echo", ts=echo["ts"], metadata=echo["metadata"]))
+            time.sleep(1.0)
+            if len(chat_records_with(rtl, "soc", "local echo")) != 1:
+                report(f"{label} this bridge's own post was imported back into its project.")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="noted", ts="1800000010.000100", thread_ts=echo["ts"]))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "noted")):
+                report(f"{label} the owner's thread reply was not imported.")
+                return 1
+            if f"reply_to: {echo_id}" not in chat_records_with(rtl, "soc", "noted")[0]:
+                report(f"{label} the thread reply does not point at its root {echo_id}.")
+                return 1
+
+            push(slack_event("CSOC", subtype="message_changed", message={"user": "UOWNER", "text": "@verify rerun now", "ts": "1800000001.000100"}, previous_message={"user": "UOWNER", "ts": "1800000001.000100"}))
+            if not slack.wait_for(lambda: any("kind: edit" in r for r in chat_records_with(rtl, "soc", "rerun now"))):
+                report(f"{label} a Slack edit did not become an edit record.")
+                return 1
+            push(slack_event("CSOC", subtype="message_deleted", deleted_ts="1800000010.000100", previous_message={"user": "UOWNER", "ts": "1800000010.000100"}))
+            if not slack.wait_for(lambda: any("kind: retract" in p.read_text(encoding="utf-8") for p in chat_log(rtl, "soc").glob("*.md"))):
+                report(f"{label} a Slack deletion did not become a retract record.")
+                return 1
+
+            todo_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun", "--json")).get("id", "")
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == todo_id for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the todo was not posted.")
+                return 1
+            todo_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == todo_id)
+            push({"type": "event_callback", "event": {"type": "reaction_added", "user": "UOWNER", "reaction": "white_check_mark", "item": {"type": "message", "channel": "CSOC", "ts": todo_ts}}})
+            if not slack.wait_for(lambda: todo_id not in [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]):
+                report(f"{label} a ✅ from a registered user did not close the todo.")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="waveform", ts="1800000020.000100", files=[{"name": "wave.vcd", "permalink": "https://files.example/wave.vcd"}]))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "https://files.example/wave.vcd")):
+                report(f"{label} a shared file did not become a link line.")
+                return 1
+
+            a, b = shared
+            ops_id = chat_json(chat(a, "post", "ops", "shared hello", "--json")).get("id", "")
+            if not slack.wait_for(lambda: chat_records_with(b, "ops", "shared hello")):
+                report(f"{label} project b did not receive project a's post in the shared channel.")
+                return 1
+            ops_posts = [c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == ops_id]
+            if len(ops_posts) != 1:
+                report(f"{label} the shared-channel post was sent {len(ops_posts)} times, not once.")
+                return 1
+            if ops_posts[0]["params"].get("username") != "a/rtl":
+                report(f"{label} the shared-channel post is not under a/rtl: {ops_posts[0]['params'].get('username')!r}")
+                return 1
+            if "from: a/rtl" not in chat_records_with(b, "ops", "shared hello")[0]:
+                report(f"{label} project b's copy is not from a/rtl.")
+                return 1
+
+            missing = [e for e in envelopes if e not in slack.acks]
+            if missing:
+                report(f"{label} envelopes were not acknowledged: {missing!r}")
+                return 1
+        finally:
+            log = stop_chat_bridge(bridge)
+
+        slack.add_history("CSOC", {"user": "UOWNER", "text": "while you were away"})
+        for _ in range(2):
+            bridge = start_chat_bridge(rtl, benv)
+            try:
+                slack.wait_for(lambda: chat_records_with(rtl, "soc", "while you were away"), 10)
+                time.sleep(1.0)
+            finally:
+                log = stop_chat_bridge(bridge)
+        caught = chat_records_with(rtl, "soc", "while you were away")
+        if len(caught) != 1:
+            report(f"{label} a message sent while the bridge was down was imported {len(caught)} times, not once: {log.strip()}")
+            return 1
+
+    if "chat-bridge-inbound" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-inbound scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -33128,6 +33353,10 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-outbound",
         validate_chat_bridge_outbound_scenario,
+    ),
+    (
+        "chat-bridge-inbound",
+        validate_chat_bridge_inbound_scenario,
     ),
     (
         "record-derives-skeleton",
