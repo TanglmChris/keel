@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 "use strict";
 
-// Keel plugin mailbox hook (issue #180), Claude Code only: SessionStart and
-// UserPromptSubmit announce unread cross-host mail, and FileChanged — declared
-// with `asyncRewake` and watching the role's signal file — wakes an idle
-// session when mail arrives. The work is `keel mail hook <event>`; this script
-// only finds the CLI the way session-start.js does and relays its stdin,
-// output, and exit code, because exit 2 from FileChanged is the wake signal.
+// Keel plugin chat hook (issues #180, #187), Claude Code only: SessionStart
+// and UserPromptSubmit announce what is unread in the role's groups, FileChanged
+// — declared with `asyncRewake` and watching the role's signal file, which only
+// a mention, an assigned todo, or a direct message touches — wakes an idle
+// session, and SessionEnd marks the role offline. The work is
+// `keel chat hook <event>`; this script only finds the CLI the way
+// session-start.js does and relays its stdin, output, and exit code, because
+// exit 2 from FileChanged is the wake signal.
 //
-// Nothing here reads or moves a message, and a worktree with no mail role gets
+// Nothing here advances a read position, and a worktree with no chat role gets
 // no output. A failure to run the CLI exits 0 silently: a missing notice costs
 // a late read, while a spurious exit 2 would wake the session for nothing.
 
@@ -16,7 +18,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-const EVENTS = new Set(["session-start", "user-prompt-submit", "file-changed"]);
+const EVENTS = new Set(["session-start", "user-prompt-submit", "file-changed", "session-end"]);
 const TIMEOUT_MS = Number(process.env.KEEL_HOOK_TIMEOUT_MS || 8000) || 8000;
 
 function readStdin() {
@@ -58,7 +60,7 @@ function main() {
   } catch {
     // Keep the process cwd.
   }
-  const result = spawnSync(`${keelCommand()} mail hook ${event}`, {
+  const result = spawnSync(`${keelCommand()} chat hook ${event}`, {
     cwd,
     shell: true,
     input,

@@ -616,6 +616,10 @@ This changes only what Keel *recommends*. No gate, the write guard, and completi
 exactly as they would without it, and `keel context --change <paused>` still selects it — you asked
 for it by name. Keel never pauses a change on its own.
 
+## Group chat between sessions
+
+Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. Each member has its own unread state, and history is kept. Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention: see [the Slack setup guide](docs/chat-slack-setup.md). The 5.83 `keel mail` commands keep working on direct groups.
+
 ## Commands
 
 ```bash
@@ -636,6 +640,15 @@ keel guard clear  --json
 # (the other user-authored surface is the precedent store; see above)
 keel lenses list
 keel lenses add <name> [--force]
+
+# Group chat between sessions (see docs/chat-slack-setup.md for Slack)
+keel chat role --set <role> [--alias <a>]
+keel chat group create <g> [--member <r>]... | add | remove | archive | list
+keel chat <g> [<text>] [--since 2h] [--follow]     # read, or post
+keel chat dm <role> <text> | todo <g> --assignee <r> <text> | todos [--mine]
+keel chat unread | read | notice | search <text>
+keel chat bridge add | install | status | pause <2h> | stop | start | uninstall
+keel chat archive sync | pull
 
 # Unattended triage — may this issue start work without asking?
 # Keel never fetches the issue; pass what gh returned. At least one of the two.

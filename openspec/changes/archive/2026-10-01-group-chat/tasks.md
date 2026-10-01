@@ -1,0 +1,515 @@
+# Tasks
+
+## 1. Local group chat
+
+- [x] 1.1 Groups, roles, mentions, and per-member cursors in an append-only store
+  - Covers:
+    - keel-cross-host-mailbox / Chat records are immutable files in a repository-shared store
+    - keel-cross-host-mailbox / Roles are bound to a worktree and may carry aliases
+    - keel-cross-host-mailbox / Groups have maintained membership, direct groups, and archive
+    - keel-cross-host-mailbox / Cursors give every member their own unread state and receipts
+    - keel-cross-host-mailbox / Chat grants nothing and gates nothing
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+    - D12
+    - D13
+  - Touch:
+    - src/core/chat/store.js
+    - src/core/chat/config.js
+    - src/core/chat/cli.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-core` drives public `keel chat` in a scratch repository with three worktrees bound to `rtl`, `verify`, and `lint` plus a separate repository: **Refusals:** an unbound poster is refused naming `keel chat role --set`; `Bad Name` is refused naming the pattern and writes nothing; a taken alias is refused naming its holder; `@stranger` is refused and writes nothing; a removed member's post and a post to an archived group are refused by name. **Sharing:** `rtl` creates `soc` with `verify` and `lint` and posts; `verify` sees it with `--peek`; exactly one record file exists under `<git common dir>/keel-chat/groups/soc/log/` with an offset in `created`, and a second post leaves the first file byte-identical. **Mentions:** `@CM` resolves to `claude-maint` through an alias. **Cursors and receipts:** after `verify` views `soc`, `keel chat unread --json` reports the message for `lint` and not for `verify`, and `keel chat show <id> --json` lists `verify` as a reader. **Direct groups:** `keel chat dm` creates `dm-rtl--verify`. **Isolation:** the separate repository lists no `soc`. **No gate:** `keel context --json` reports the same status and next action with unread chat as without. Fails with: `chat-core: keel chat`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:0578a7723cb8ed398c2a26fb5f20fca59aa147831a426c8db640b09195e92302
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-core` reports `chat-core scenario passed.` across worktrees bound to `rtl`, `verify`, `lint`, and `claude-maint` plus a separate repository: an unbound post is refused naming `keel chat role --set`; `Bad Name` is refused naming `[a-z0-9]` with no `keel-chat/` written; `--alias CM` from `lint` is refused naming `claude-maint`; `@stranger` is refused by name with the log file count unchanged; after `group remove soc lint`, `lint`'s post is refused naming membership and `group list` drops `lint`; after `group archive soc`, a post is refused naming `archived` while `--peek` still prints history. The posted message is `groups/soc/log/<id>.md` with frontmatter and an offset `created`, and stays byte-identical after later posts; `@CM` is stored as `mentions: [claude-maint]`; after `verify` views `soc`, `unread --json` still lists the message for `lint` and nothing for `verify`, and `show --json` lists `verify` and not `lint` as readers; `dm verify` creates `dm-rtl--verify` with exactly both roles; the separate repository lists no `soc`; `keel context --json` status and next action are equal before and after the unread chat.
+    - M1.red: fail. Before `src/core/chat/` and the `chat` dispatch existed, the scenario reported `chat-core: keel chat the unbound-poster refusal does not name `keel chat role --set`: keel: repo path was provided more than once`, carrying the declared signature `chat-core: keel chat`.
+    - M1.green: pass. The same scenario passes against the working tree.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and `keel context` and asserts each Covers requirement at its observable surface — record files and their immutability and offset stamp (store requirement), refusals and alias resolution (roles), membership, direct group, and archive refusals with readable history (groups), per-member unread and receipts (cursors), unchanged context (grants nothing). D13's `keel/chat.json` loader exists for 2.2 and 4.x, and nothing in 1.1 reads it, so no behavior of it is claimed here.
+      - Scope check: The diff adds `src/core/chat/store.js`, `src/core/chat/config.js`, and `src/core/chat/cli.js`, and changes `bin/keel.js` (a `chat` dispatch and one usage line), `scripts/validate_plugin.py` (the scenario, its helpers, and registration), and `keel/CHANGELOG.md` (an Unreleased entry) — all in Touch — plus this change's own directory. `npm test` at this point fails only `authored-scenario-names-are-registered`, for the later tasks' unregistered scenarios, and `the-tarball-is-the-repository`, which passed once the new files were tracked; M2 therefore defers to C1, which runs once every scenario of the change exists.
+      - Findings: Resolved here: M1 — two scenario checks guarded a missing group and a wrong member list behind one condition, so a missing `soc` would have been reported as `lint` still present; each now reports its own cause.
+    - Blocker: none
+    - Reauthorizations: D2's id stamp was changed from local time to UTC before any implementation, because local stamps from machines in different time zones do not sort; task-start was re-run and the anchor re-recorded with no evidence yet written.
+  - Stop if:
+    - Any design point needs a shared file to be rewritten in place, or a gate would have to read the chat store.
+
+- [x] 1.2 Todos, edits and retractions, search, and local-time display
+  - Covers:
+    - keel-cross-host-mailbox / Todos are lightweight records that can link an issue
+    - keel-cross-host-mailbox / Records can be edited, retracted, and searched without losing history
+    - keel-cross-host-mailbox / Times are stored with offset and shown in local time
+    - D2
+    - D6
+    - D8
+  - Touch:
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/chat/view.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-records` drives public `keel chat`: **Todos:** `rtl` writes a `todo` record for `verify` with `--issue 42`; `keel chat todos --mine` for `verify` lists it with `#42`; after `verify` replies `✅ merged` it is no longer listed; a second `todo` record closed by `keel chat done <id>` is also gone. **Edits:** an edit by its author shows the new text marked edited, and the original record file is unchanged; an edit by another role is refused. **Retractions:** a retract shows the record as retracted. **Search:** `keel chat search` finds a record in an archived group. **Time:** a record whose `created` is `2026-10-01T06:00:00+00:00`, viewed with `TZ=Asia/Shanghai`, shows `2026-10-01 14:00` and no raw stamp. Fails with: `chat-records:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:11618c195678ed20ebfccda7a8d3bab5688c77b25e46ddb7f49532da9b24e470
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-records` reports `chat-records scenario passed.`: `keel chat todo soc --assignee verify --issue 42` is listed by `todos --mine` for `verify` with `issue: #42`, and is gone after `verify` replies `✅ merged` to it; a second `todo` record closed with `keel chat done <id>` is gone too; `verify`'s edit of `rtl`'s message is refused, `rtl`'s edit shows `Clock is 200MHz` with `edited: true` while the original record file stays byte-identical; a retracted message shows `retracted: true`; `search PLL` returns exactly the record in archived group `old`; a hand-written record with `created: 2026-10-01T06:00:00+00:00`, viewed under `TZ=Asia/Shanghai`, prints `2026-10-01 14:00` and not `06:00:00+00:00`.
+    - M1.red: fail. Before the `todo` record, edit, search, and view code existed, the scenario reported `chat-records: keel chat todo did not report an id:  keel chat: Unknown option for keel chat: --assignee`, carrying the declared signature `chat-records:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-core` still passes.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and asserts each Covers requirement at its surface — the `todo` record's listing, issue link, and both closing paths (`todo` records); author-only edit with the original file untouched, retraction marking, and search reaching an archived group (edits and search); and local-time conversion of a stored offset with no raw stamp (times). The hand-written record stands in for one synced from another machine, which is exactly how such a record arrives.
+      - Scope check: The diff adds `src/core/chat/view.js` and changes `src/core/chat/store.js` (`todo` record, done, amend, openTodos, search, and the ✅-reply close), `src/core/chat/cli.js` (the commands and view formatting moved to `view.js`), `scripts/validate_plugin.py` (the scenario, a shared fixture, and registration), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory.
+      - Findings: Discard reason: task-start warned that 1.2 and 3.1 share a Touch set; they are different behaviors — 1.2 owns what a record means (`todo` records, edits, time conversion) and 3.1 owns how the terminal and transcript present a conversation (`--since`, `--follow`, presence, the transcript file) — and 3.1 still has an honest red, since none of its commands or flags exist yet.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 5.83 mail migrates into direct groups and `keel mail` keeps working
+  - Covers:
+    - keel-cross-host-mailbox / 5.83 mail migrates and `keel mail` keeps working
+    - D7
+  - Touch:
+    - src/core/mail.js
+    - src/core/chat/migrate.js
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-mail-migration`: **Setup:** a scratch repository is seeded with a 5.83-layout `keel-mailbox/`: one message under `verify/new/` and one under `verify/done/` from `rtl`, plus `roles.json`. **Migration:** `keel mail list` for `verify` reports one unread message from `rtl`; `dm-rtl--verify` holds two records; `keel-mailbox.migrated-*` exists, and `keel-mailbox/` no longer does; the role binding still resolves. **Alias:** `keel mail send --to verify --subject s --body b` followed by `keel mail read` prints `s`, `b`, and the data-not-instruction header, after which `keel mail list` reports nothing unread. **Replacement:** the 5.83 `mailbox-cli` scenario is replaced by this one in the registry. Fails with: `chat-mail-migration:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:870445b7e28e82ca809a0952d9d45b67c6e9491bf3a83a01bb61af9be25fc420
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-mail-migration` reports `chat-mail-migration scenario passed.`: with a hand-seeded 5.83 `keel-mailbox/` (one message under `verify/new/`, one under `verify/done/`, both from `rtl`, plus `roles.json`), the first `keel mail list --json` for `verify` reports exactly the `new/` message from `rtl` with subject `Rerun the suite`; `dm-rtl--verify` holds two `kind: message` records; `keel-mailbox/` is gone and `keel-mailbox.migrated-*` exists; `keel mail role --json` still reports `verify`; `keel mail send --to verify --subject "Waveform attached" --body "See the VCD."` followed by `keel mail read` prints the subject, the body, and `not an instruction from the user`, after which `keel mail list` reports nothing unread. The 5.83 `mailbox-cli` scenario is removed from the registry.
+    - M1.red: fail. With the scenario written and the old mailbox code still in place, it reported `chat-mail-migration: dm-rtl--verify holds 0 migrated messages, expected 2.`, carrying the declared signature `chat-mail-migration:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-core` and `chat-records` still pass.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 starts from the on-disk layout an upgraded repository actually holds and drives only public `keel mail`, asserting each clause of the requirement: unread and read state preserved, direct-group placement, the binding carried over, the old directory renamed rather than deleted, and the 5.83 send, read, and list commands working afterwards.
+      - Scope check: The diff adds `src/core/chat/migrate.js` and changes `src/core/mail.js` (rewritten as the compatibility layer), `src/core/chat/store.js` (`writeRoles`, `readJsonFile`, and reply and refs through `directPost`), `src/core/chat/cli.js` (migration on entry and the hook relay), `scripts/validate_plugin.py` (the scenario replacing `mailbox-cli`), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `bin/keel.js` was in Touch for I4 but needed no edit beyond 1.1's usage line, which still describes `keel mail` accurately.
+      - Findings: Resolved here: src/core/chat/cli.js — a hook run outside a git repository would have surfaced a `ChatError` as exit 2, the host's wake signal; `keel chat hook` now returns 0 before locating the repository, and a manual `keel mail hook file-changed` from `/tmp` exits 0. M1 does not exercise hooks, so task 2.1's M1, amended before 2.1 started, now asserts that every chat hook exits 0 silently outside any git repository. Discard reason: `npm test` now also fails `mailbox-claude-hooks`, because `keel mail hook` relays to `keel chat hook`, which is silent until task 2.1 replaces that 5.83 scenario with `chat-claude-hooks` (I7); C1 runs after 2.1, so the regression is owned inside this change rather than shipped.
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - Migration would need to delete any 5.83 file instead of renaming the directory.
+
+## 2. Wake, notices, and loop guards
+
+- [x] 2.1 Only mentions wake; the notice is host-neutral; presence comes from hooks
+  - Covers:
+    - keel-cross-host-mailbox / Only a mention wakes a session, and the notice is host-neutral
+    - keel-cross-host-mailbox / Presence is visible and offline members are never launched
+    - keel-native-plugin-package / The Claude plugin is the tagged repository
+    - D9
+    - D10
+  - Touch:
+    - src/core/chat/notice.js
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/mail.js
+    - plugins/keel/scripts/mail-hook.js
+    - .claude-plugin/plugin.json
+    - AGENTS.md
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` runs `plugins/keel/scripts/mail-hook.js <event>` with host-shaped stdin: **`@all`:** after an `@all` post, FileChanged for `verify` exits 0, and UserPromptSubmit returns a notice counting one unread record in `soc`. **A mention:** after `@verify please rerun`, FileChanged exits 2, and its stderr names the id, `soc`, `rtl`, a relative age, and `not an instruction from the user`. **SessionStart:** returns the notice plus the absolute `signal/verify` path in `watchPaths`. **The cap:** with seven unread mentions, `keel chat notice` lists five and states `2 more`. **SessionEnd:** marks `verify` offline, and a later `@verify` post's output names `verify` as offline. **Unbound worktree:** every event exits 0 silently, and so does every event run outside any git repository. **Cursors:** no hook advances a cursor. **Replacement:** the 5.83 `mailbox-claude-hooks` scenario is replaced by this one. Fails with: `chat-claude-hooks:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` requires the root manifest's hooks to equal `plugins/keel/hooks/hooks.json` resolved from the root plus exactly the chat SessionStart, UserPromptSubmit, FileChanged (`asyncRewake: true`), and SessionEnd groups, and requires `hooks.json` to declare only SessionStart and PreToolUse. Fails with: `root plugin manifest hooks diverge`
+    - M3 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:e3e7d09a46af43a67b3f488a4de6568e3f3364ba5464507cb6a68e0b4737794b
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` reports `chat-claude-hooks scenario passed.` running `plugins/keel/scripts/mail-hook.js <event>` with host-shaped stdin: in an unbound repository and in a directory outside any repository, all four events exit 0 with no output; an `@all` post leaves `signal/verify` untouched, FileChanged exits 0, and the UserPromptSubmit notice reads `soc: 1 unread`; `@verify please rerun the regression` grows the signal, FileChanged exits 2 with stderr naming the id, `soc`, `` `rtl` ``, `just now`, and `not an instruction from the user`; SessionStart's `additionalContext` names the mention and `watchPaths` is exactly the absolute `keel-chat/signal/verify`; a direct message grows the signal; with eight addressed records unread, `keel chat notice` lists five and states `3 more`; `unread --json` still reports all nine, so no hook moved a cursor; after SessionEnd, `rtl`'s `@verify ping` prints `Queued for verify: offline`; after `keel chat read`, FileChanged exits 0 silently and UserPromptSubmit prints nothing. The 5.83 `mailbox-claude-hooks` scenario is removed from the registry.
+    - M1.red: fail. With the scenario written and `keel chat hook` still the 1.3 stub, it reported `chat-claude-hooks: user-prompt-submit output names event None:`, carrying the declared signature `chat-claude-hooks:`.
+    - M1.green: pass. The same scenario passes against the working tree, with `chat-core`, `chat-records`, and `chat-mail-migration` still passing.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` reports the scenario passing: the root manifest's hooks equal `hooks.json` resolved from the root plus the chat SessionStart, UserPromptSubmit, FileChanged (`asyncRewake: true`), and SessionEnd groups, and `hooks.json` declares only PreToolUse and SessionStart.
+    - M2.red: fail. With the expectation extended and the manifest unchanged, it reported `native-plugin-manifests root plugin manifest hooks diverge from plugins/keel/hooks/hooks.json after resolving script paths from the repository root, plus the Claude-only chat hooks: …`, carrying the declared signature `root plugin manifest hooks diverge`.
+    - M2.green: pass. The same scenario passes after the root manifest gained the SessionEnd group.
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 exercises the shipped hook script, the entry point the host runs, and asserts each clause of the notice requirement — which records touch the signal, the exit code that wakes, the notice's contents and five-record cap, `watchPaths`, silence without a role or a repository, and that no hook moves a cursor — plus the presence requirement's offline report after SessionEnd. M2 holds the manifest to the modified packaging requirement. Wake-up itself is the host's file watcher, probed on Claude Code 2.1.283 for #180 and unchanged here.
+      - Scope check: The diff adds `src/core/chat/notice.js` and changes `src/core/chat/store.js` (signals after each readable record, `wakes`, `writeJsonAtomic`), `src/core/chat/cli.js` (`notice`, `hook`, presence on every command, the offline report), `plugins/keel/scripts/mail-hook.js` (relays `keel chat hook`, adds `session-end`), `.claude-plugin/plugin.json` (the SessionEnd group), `AGENTS.md` (the I1 sentence), `scripts/validate_plugin.py` (the scenario replacing `mailbox-claude-hooks`, and the manifest expectation), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `src/core/mail.js` already relayed `keel mail hook` to `keel chat hook` in 1.3, so it needed no edit. `npm test` now fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - A chat hook would have to enter `plugins/keel/hooks/hooks.json`, which Codex also loads.
+
+- [x] 2.2 Rate limit and ping-pong breaker
+  - Covers:
+    - keel-cross-host-mailbox / Loop guards stop runaway agent traffic
+    - D11
+    - A1
+  - Touch:
+    - src/core/chat/guards.js
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/chat/config.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-loop-guards`: **Ping-pong:** `rtl` and `verify` alternate eight messages in `soc`; `rtl`'s ninth post fails naming the loop guard; exactly one `system` record mentioning `owner` is written; after `owner` posts, `rtl` posts successfully. **Rate limit:** with `keel/chat.json` setting `limits.rate` to 3 per 10 minutes, the fourth post from `lint` is refused by name, and `owner` is never rate-limited. Fails with: `chat-loop-guards:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:63db3159f2d0298157f177ac0cceaba527017733ea4d703e11e2813acff00427
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-loop-guards` reports `chat-loop-guards scenario passed.`: `rtl` and `verify` alternate eight posts in `soc`, all accepted; `rtl`'s ninth is refused naming `loop guard`, and a refused `verify` post after it adds no second `system` record, so the log holds exactly one, mentioning `owner`; after `owner` posts, `rtl` posts again. With `keel/chat.json` setting `limits.rate` 3 and `window_minutes` 10, `lint`'s first three posts are accepted and the fourth is refused naming `limits.rate`, while four `owner` posts from the same worktree are all accepted.
+    - M1.red: fail. Before `src/core/chat/guards.js` existed the scenario reported `chat-loop-guards: a ninth alternating post was accepted.`, carrying the declared signature `chat-loop-guards:`.
+    - M1.green: pass. The same scenario passes against the working tree, with `chat-core`, `chat-records`, `chat-mail-migration`, and `chat-claude-hooks` still passing.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives only public `keel chat` and asserts each clause of the loop-guard requirement — refusal by name at the ping-pong threshold, exactly one owner-mentioning `system` record however many posts are refused, the block clearing when another member posts, the configured rate refusal by name, and the owner's exemption. A1's thresholds are exercised through the configuration that makes them tunable.
+      - Scope check: The diff adds `src/core/chat/guards.js` and changes `src/core/chat/store.js` (the guard call in `post`, `listGroupNames` exported, and `keel` reserved as a role name), `scripts/validate_plugin.py` (the scenario and registration), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `src/core/chat/cli.js` and `src/core/chat/config.js` needed no edit: the guard reaches every posting command through `post`, and the existing loader reads `limits`.
+      - Findings: Resolved here: src/core/chat/store.js — the system record is signed `keel`, which a member could also have taken as a role and then been mistaken for Keel; `setRole` now refuses `keel`. M1 shows the system record written under that name; no check asserts the refusal itself, which a manual `keel chat role --set keel` confirmed exits 2 naming the reservation.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 3. Human surfaces
+
+- [x] 3.1 Terminal view with presence, `--since`, `--follow`, and a Markdown transcript
+  - Covers:
+    - keel-cross-host-mailbox / Humans can read and post from the terminal and a transcript
+    - D20
+  - Touch:
+    - src/core/chat/view.js
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-human-view`: **Posting and viewing:** `KEEL_CHAT_ROLE=owner keel chat soc "hello"` posts; `keel chat soc` prints the sender, local `HH:MM`, a mention marker, a reply marker, a `todo` marker, and each member's presence. **`--since`:** `--since 1m` omits a record back-dated two hours. **`--follow`:** a `keel chat soc --follow` subprocess prints a message posted from another worktree within five seconds, and is then terminated. **Transcript:** `transcripts/soc.md` has one day heading and one `HH:MM sender: text` line per record. Fails with: `chat-human-view:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:343c74ee62e418e97c23977e5b6bf63bf487e055955c624ddbfabdbc907a5c91
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-human-view` reports `chat-human-view scenario passed.`: `KEEL_CHAT_ROLE=owner keel chat soc "hello from the phone"` posts; `keel chat soc --peek` prints `owner: hello from the phone`, `@verify`, `↳ <root id>`, and `[todo → verify`, a local `YYYY-MM-DD HH:MM rtl` line, and a `Members:` line giving a state for `rtl` and `verify`; `--since 1m` drops a hand-written record created two hours ago and keeps one from just now; a `keel chat soc --follow --peek` subprocess in the `verify` worktree prints `followed message` posted from `rtl` within five seconds and is then terminated; `keel-chat/transcripts/soc.md` has unique `## YYYY-MM-DD` headings and an `HH:MM sender: text` line for each checked message.
+    - M1.red: fail. Before the presence line, `--since`, `--follow`, and the transcript existed, the scenario reported `chat-human-view: the view has no Members presence line:`, carrying the declared signature `chat-human-view:`.
+    - M1.green: pass. The same scenario passes against the working tree, and every earlier chat scenario still passes; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat` view and a real `--follow` process and reads the transcript a person would open, asserting each clause of the human-surface requirement: posting by the owner, the markers and local time, presence, the `--since` window in both directions, live following across worktrees, and the transcript's day headings and line shape.
+      - Scope check: The diff changes `src/core/chat/view.js` (`parseSince`, `since`, `renderTranscript`), `src/core/chat/store.js` (the transcript regenerated after each record), `src/core/chat/cli.js` (the presence line, `--since`, `--follow`), `scripts/validate_plugin.py` (the scenario, its registration, and the `threading`, `time`, and `datetime` imports), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory.
+      - Findings: Resolved here: M1 — the first draft of the follow check read the subprocess's pipe in non-blocking text mode, which raises instead of returning nothing; a reader thread now collects its lines, and M1 passes reading them.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 4. Slack bridge
+
+- [x] 4.1 Outbound: opted-in projects post with role identity, exact metadata, threads, owner mention, and redaction
+  - Covers:
+    - keel-chat-slack-bridge / One bridge per machine relays opted-in projects
+    - keel-chat-slack-bridge / Outbound posts carry the role and the exact record
+    - keel-chat-slack-bridge / Secrets are redacted before anything leaves the machine
+    - D13
+    - D14
+    - D15
+    - F1
+    - F4
+  - Touch:
+    - src/core/chat/slack.js
+    - src/core/chat/bridge.js
+    - src/core/chat/redact.js
+    - src/core/chat/config.js
+    - src/core/chat/cli.js
+    - scripts/fake_slack.py
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-outbound` starts `scripts/fake_slack.py`, a local Web API and Socket Mode server, and runs `keel chat bridge run --once` with `KEEL_HOME`, `KEEL_SLACK_API_BASE`, and test tokens: **Opt-in:** of two registered projects, only the one with `slack.enabled: true` is posted. **A post:** has `username` `rtl` and `keel_chat_record` metadata with the record's id. **A reply:** carries the root's `thread_ts`, and `@owner` adds `<@` plus the configured owner id. **Long text:** a 5,000-character body is truncated with `keel chat show`. **Redaction:** a body with `xoxb-123-456-abcdef` arrives as `[redacted]`, while the local record keeps it. **Rate limiting:** a 429 with `Retry-After: 1` is retried after at least one second, and the record is posted exactly once. **Records that are not messages:** `done`, `edit`, and `retract` reach `reactions.add`, `chat.update`, and `chat.delete`. **Node version:** with `globalThis.WebSocket` deleted through `--require`, `bridge run` exits non-zero naming Node 22. Fails with: `chat-bridge-outbound:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f6c16d4a224b11c310c62f154bcbb66d2861f49c8b1eba25eb8ff17e5973de17
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-outbound` reports `chat-bridge-outbound scenario passed.` against `scripts/fake_slack.py` with `KEEL_HOME`, `KEEL_SLACK_API_BASE`, and test tokens: of two projects added with `keel chat bridge add`, the one with `slack.enabled: false` sends nothing to its channel `COPS`; `keel chat bridge run --once` posts each of six records exactly once to `CSOC`, the root with `username` `rtl` and `keel_chat_record` metadata whose payload carries `from: rtl` and `kind: message`; the reply's `thread_ts` equals the root's ts and its text contains `<@UOWNER>`; a 5,000-character body arrives at most 3,200 characters long with `keel chat show`; `xoxb-123-456-abcdef` arrives as `[redacted]` while the local record keeps it; the fake server's 429 with `Retry-After: 1` was answered and the run took at least one second; `done`, `edit`, and `retract` reach `reactions.add` (`white_check_mark` on the `todo` record's ts), `chat.update` (the root's ts, new text), and `chat.delete`; a second run posts nothing; with `globalThis.WebSocket` deleted through `NODE_OPTIONS=--require`, `bridge run` exits non-zero naming `Node 22`.
+    - M1.red: fail. Before the bridge existed the scenario reported `chat-bridge-outbound: bridge add failed in rtl: keel chat: No group bridge. Create it with `keel chat group create bridge`.`, carrying the declared signature `chat-bridge-outbound:`.
+    - M1.green: pass. The same scenario passes against the working tree; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat bridge` commands against a server that answers with Slack's documented shapes and asserts each Covers requirement on the calls that server received: opt-in only, one post per record under the role with the exact record in metadata, threading, the owner mention, truncation with a pointer, redaction out and preservation in, the 429 wait, the non-message records, idempotence, and the Node 22 refusal. The fake server is the system-boundary mock; Keel's modules run unmocked. Whether real Slack agrees with those shapes is A2, owned by 4.3's Review.
+      - Scope check: The diff adds `src/core/chat/slack.js`, `src/core/chat/bridge.js`, `src/core/chat/redact.js`, and `scripts/fake_slack.py`, and changes `src/core/chat/config.js` (`slackSettings`), `src/core/chat/cli.js` (`bridge add|remove|run`), `scripts/validate_plugin.py` (the scenario and its helpers), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. No dependency was added.
+      - Findings: Resolved here: M1 — the first draft imported `fake_slack` by name, which the baseline refuses because the validator must import only the standard library; it is now loaded from its file path, and `fake_slack.py` itself uses only the standard library. Resolved here: M1 — two of its checks each guarded two failures behind one message, which `assertion-shape-count` refused; each failure now reports its own cause.
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - The bridge would need any npm dependency, or a token would have to be written to disk.
+
+- [x] 4.2 Inbound: registered people and Keel posts only, exact rebuild, threads, edits, reactions, catch-up, shared channels
+  - Covers:
+    - keel-chat-slack-bridge / Inbound messages are imported only from registered people and Keel posts
+    - keel-chat-slack-bridge / Missed traffic is caught up after downtime
+    - D16
+    - F2
+    - F3
+  - Touch:
+    - src/core/chat/bridge.js
+    - src/core/chat/slack.js
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - scripts/fake_slack.py
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-inbound` pushes Socket Mode envelopes from the fake server and asserts every envelope is acknowledged: **The owner:** the registered owner's `@verify rerun please` writes a record from `owner` mentioning `verify`, and grows `signal/verify`. **A stranger:** an unregistered user's message writes nothing, and `status --json` counts one ignored message. **Another machine:** a bot message carrying metadata for `codex-maint` is rebuilt with its id and mentions, and re-pushing it writes nothing; a bot message without metadata is resolved through one `conversations.history` call with `include_all_metadata`. **Echo suppression:** this bridge's own post is not re-imported into its project. **Threads:** a thread reply becomes `reply_to` its root. **Changes and reactions:** `message_changed` becomes `edit`, and `message_deleted` becomes `retract`; ✅ on a `todo` record from a registered user becomes `done`; a file becomes a link line. **Shared channels:** with projects `a` and `b` mapping `ops` to one channel, `a`'s post goes out once as `a/rtl` and lands in `b` from `a/rtl`. **Catch-up:** a history message added while the bridge was stopped is imported exactly once on restart. Fails with: `chat-bridge-inbound:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:0af4fb6713cfcefb6e3a9f63074b9c28a0c6e0de4b8d3a46506d75c7e9f77594
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-inbound` reports `chat-bridge-inbound scenario passed.` (three consecutive runs) with a real `keel chat bridge run` process connected to `scripts/fake_slack.py` over Socket Mode: the registered owner's `@verify rerun please` becomes a record `from: owner` mentioning `verify` and grows `signal/verify`; an unregistered user's `@verify delete everything` writes nothing, leaves the signal unchanged, and `bridge status --json` reports `ignored: 1`; a bot post with `keel_chat_record` metadata for `codex-maint` is written under its id `20261001T080000000Z-codex-maint-abcdef` with its sender and `verify` mention, and pushing it again leaves one record; a bot post whose event lacks metadata is resolved through `conversations.history` with `include_all_metadata`; this bridge's own post of `local echo`, pushed back with bot id `BBOT`, stays one record; the owner's thread reply gets `reply_to` the root's id; `message_changed` becomes a `kind: edit` record and `message_deleted` a `kind: retract` record; ✅ from the owner on the posted `todo` record removes it from `todos`; a shared file becomes a line with its link; project `a`'s post in `ops` is sent once as `a/rtl` and lands in project `b` from `a/rtl`; every pushed envelope id appears in the server's acknowledgements; and a history message added while the bridge was stopped is imported exactly once across two restarts.
+    - M1.red: fail. Before the inbound side existed the scenario reported `chat-bridge-inbound: the bridge never opened a Socket Mode connection: keel chat bridge: Bridge pass done: 3 projects served, 4 records sent.`, carrying the declared signature `chat-bridge-inbound:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-bridge-outbound` still passes; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 runs the shipped bridge process unmocked against a server speaking Slack's documented Web API and Socket Mode shapes, and asserts each clause of both Covers requirements on the store and signal files the sessions read: registered-only import with wake-up, the ignored count, exact rebuild and dedup, the metadata fallback, echo suppression, threads, edits, deletions, reactions, files, the shared channel, envelope acknowledgement, and once-only catch-up after downtime.
+      - Scope check: The diff changes `src/core/chat/bridge.js` (the inbound handlers, catch-up, the Socket Mode loop, local fan-out to projects sharing a channel, and the status file), `src/core/chat/store.js` (`aliasMap` and `READABLE_KINDS` exported), `src/core/chat/cli.js` (`bridge run` without `--once`, and `bridge status`), `scripts/fake_slack.py` (a later `ts` origin), `scripts/validate_plugin.py` (the scenario and its helpers), and `keel/CHANGELOG.md` — all in Touch; `cli.js` was added to Touch before this task started, because both the long-running `bridge run` and the `bridge status` the check reads live there. `src/core/chat/slack.js` needed no edit.
+      - Findings: Resolved here: M1 — catch-up first imported nothing, because the fake server assigned `ts` values below the ones the test wrote by hand, so the last-seen position already lay past them; the server now starts above every hand-written `ts`, and M1's restart check passes. Resolved here: M1 — one check guarded a lost sender and lost mentions behind one message; each now reports its own cause.
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - A message from an unregistered Slack user would have to reach a record or a signal.
+
+- [x] 4.3 Lifecycle: tokens, LaunchAgent, pause, status, reconnect, upgrade restart, and the session-start status line
+  - Covers:
+    - keel-chat-slack-bridge / Tokens never enter the repository or a record
+    - keel-chat-slack-bridge / The bridge runs unattended but stays visible and controllable
+    - D17
+    - D18
+    - A2
+  - Touch:
+    - src/core/chat/lifecycle.js
+    - src/core/chat/bridge.js
+    - src/core/chat/notice.js
+    - src/core/chat/cli.js
+    - scripts/fake_slack.py
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-lifecycle`: **Missing tokens:** with no token environment and `KEEL_CHAT_SECURITY` pointed at a double that finds nothing, `bridge run` fails naming `KEEL_SLACK_APP_TOKEN` and `keel-chat-slack`; with the double returning tokens, it connects, and no file under `KEEL_HOME` or the store contains either token. **Install:** `install` with `KEEL_CHAT_LAUNCHCTL` and `KEEL_CHAT_LAUNCH_AGENTS_DIR` doubles writes a plist containing `RunAtLoad`, `KeepAlive`, and `chat bridge run` and asks the double to bootstrap it; `uninstall` asks it to boot out and removes the plist. **Pause:** `pause 2s` holds a post made during the pause, then delivers it once. **Reconnect:** a fake `refresh_requested` and a dropped socket each reconnect. **Online and stopped posts:** the online notice is posted on start, and the stopped notice on SIGTERM. **Upgrade restart:** changing the version in a copied `package.json` makes `run` exit for restart. **Status:** `status --json` reports connected, projects, last event, ignored, and unposted counts. **Session start:** the SessionStart chat hook in a Slack-enabled project with no running bridge prints a line stating the bridge is not running. Fails with: `chat-bridge-lifecycle:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a5f97d8838ba3b575ec330403b740c6246e1e8db690d3a4a47f126efd5a0b133
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-lifecycle` reports `chat-bridge-lifecycle scenario passed.`: with no token in the environment and a `KEEL_CHAT_SECURITY` double that finds nothing, `bridge run` fails naming `KEEL_SLACK_APP_TOKEN` and `keel-chat-slack`; the SessionStart hook in the Slack-enabled project, with no bridge running, says the bridge is `not running`; with a double that returns tokens the bridge connects using `Bearer xapp-from-keychain-0000`, posts `bridge online`, and `status --json` carries `connected: true` plus `projects`, `last_event`, `ignored`, `unposted`, `installed`, and `paused`; it reconnects after a pushed `refresh_requested` and after the server drops the socket; `pause 3s` holds a record posted during the pause and then sends it exactly once; SIGTERM posts `bridge stopped`; no file under `KEEL_HOME` or the store contains either token; a bridge started from a copied Keel tree exits after that copy's `package.json` changes to `99.0.0`, naming the new version; `install` with `KEEL_CHAT_LAUNCHCTL` and `KEEL_CHAT_LAUNCH_AGENTS_DIR` doubles writes one plist with `RunAtLoad` and `KeepAlive` true, `ProgramArguments` ending `chat bridge run`, and no token, and asks the double to `bootstrap` it; `status` then reports `installed: true`; `uninstall` asks for `bootout` and removes the plist.
+    - M1.red: fail. Before `src/core/chat/lifecycle.js` existed the scenario reported `chat-bridge-lifecycle: the missing-token refusal does not name KEEL_SLACK_APP_TOKEN: keel chat: No Slack bot token: set KEEL_SLACK_BOT_TOKEN.`, carrying the declared signature `chat-bridge-lifecycle:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-bridge-outbound` and `chat-bridge-inbound` still pass; `npm test` fails only `authored-scenario-names-are-registered`, for the archive scenario still to come.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat bridge` commands, the shipped SessionStart hook, and a real bridge process, with only `launchctl`, `security`, the LaunchAgents directory, and Slack replaced at the system boundary, and asserts each clause of both Covers requirements: tokens from either source and never on disk, a named failure when absent, the LaunchAgent's shape and load/unload, pause holding and then delivering once, reconnection on both triggers, the online and stopped notices, the version-change exit, the status fields, and the session's not-running line. The idle cost #187 asked to measure was taken outside the checks: `python3 openspec/changes/group-chat/evidence/measure_idle.py "$PWD"` ran a connected bridge serving three projects of 50 records each against the fake server, sampled `ps -o rss=,time=` every 5s for 60s, and printed `idle rss: min 81.2 MB, max 90.0 MB over 60s, 3 projects x 50 records; cpu time 0.44s in 60s wall = 0.73% of one core`.
+      - Scope check: The diff adds `src/core/chat/lifecycle.js` and changes `src/core/chat/bridge.js` (Keychain tokens, notices, pause, version watch, and full status), `src/core/chat/notice.js` (the bridge line at session start), `src/core/chat/cli.js` (`install`, `uninstall`, `start`, `stop`, `pause`, `resume`, and the fuller `status`), `scripts/validate_plugin.py` (the scenario), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory, which now holds the measurement script. `scripts/fake_slack.py` needed no edit.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — A2, whether real Slack agrees with the event and API shapes the fake server models, can only be shown by the owner's first run with real tokens; that comment lists the four things to confirm. Discard reason: the idle bridge uses 0.7% of one core because it re-reads each served project's mapped logs every second to find records to send; that is acceptable for one process per machine, and watching the log directories instead is an optimization rather than a defect.
+    - Blocker: none
+    - Reauthorizations: the idle-cost measurement was authored as an untagged vertical-tdd check, which owes a red no measurement can honestly have; it was removed from Verify and its result moved into the Review's acceptance check, the regression check renumbered M2, and task-start re-run with M1's evidence kept, because M1's text did not change.
+  - Stop if:
+    - Any check would have to run the real `launchctl` or `security`, or touch the real `~/Library/LaunchAgents`: those are the owner's system configuration.
+
+## 5. Archive
+
+- [x] 5.1 Orphan-branch archive with union merge and the public-repository guard
+  - Covers:
+    - keel-chat-slack-bridge / The chat store is archived to an orphan branch without exposing it publicly
+    - D19
+    - F6
+  - Touch:
+    - src/core/chat/archive.js
+    - src/core/chat/bridge.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-archive` uses a scratch repository with a bare local remote: **Committing:** with a dirty worktree, `keel chat archive sync` creates `refs/heads/keel-chat` containing `groups/soc/log/*.md` and no `roles.json`, `signal/`, or `bridge/` path, and `git status --porcelain` is byte-identical before and after. **The guard:** with visibility reported `PUBLIC` through a `gh` double and nothing declared, no push reaches the remote, and the output names `archive_public` and `archive.remote`; with `archive.remote` declared, the push lands. **Merging:** a second clone posting a different record syncs, and the first clone's next sync holds both records. **Restoring:** a fresh clone's `keel chat archive pull` makes `keel chat soc --peek` show the archived messages. Fails with: `chat-archive:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b3e8589cc015d3e9ec8b758015bac66339c3377484f6d79ca7600110f25b03a2
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-archive` reports `chat-archive scenario passed.` in a scratch repository with a bare local remote: with an untracked file in the worktree and `gh` doubled to report `PUBLIC`, `keel chat archive sync` creates `refs/heads/keel-chat` holding `groups/soc/log/*.md` and no `roles.json`, `signal/`, `bridge/`, `transcripts/`, or `.tmp/` path; `git status --porcelain` and the bytes of `.git/index` are identical before and after; the remote has no `keel-chat` branch, and the output names `archive_public` and `archive.remote`; with `archive.remote` set to `origin` the branch is pushed; a fresh clone's `keel chat archive pull` makes `keel chat soc --peek` show `first archived message`; after the clone posts and syncs and the first repository posts and syncs again, the first repository's `keel-chat` holds both new record files and its store shows `from the second machine`.
+    - M1.red: fail. Before `src/core/chat/archive.js` existed the scenario reported `chat-archive: archive sync failed: keel chat: No group archive. Create it with `keel chat group create archive`.`, carrying the declared signature `chat-archive:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `npm test` now reports `validation --all passed: baseline plus 205 scenarios, 1 skipped: output-survives-the-pipe.`
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat archive` commands against real git repositories and a real remote, with only `gh` doubled, and asserts each clause of the archive requirement: plumbing commits that leave the worktree and index untouched, the synced layer only, the public-repository refusal naming both ways to allow it, the declared-remote push, union merge across two clones, and restoration in a fresh clone.
+      - Scope check: The diff adds `src/core/chat/archive.js` and changes `src/core/chat/cli.js` (`archive sync|pull`), `src/core/chat/bridge.js` (the ten-minute sync while connected), `scripts/validate_plugin.py` (the scenario), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. The fetch writes only `FETCH_HEAD`, so no ref other than `refs/heads/keel-chat` is created; the Stop rule held.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — the bridge's ten-minute archive sync is not exercised by a check, since waiting ten minutes in a scenario is not practical; it calls the same `sync` M1 proves, and the owner's first real run (that comment) is where it is seen working.
+    - Blocker: none
+    - Reauthorizations: none
+  - Stop if:
+    - Archiving would need to touch the worktree, the index, or any branch other than `keel-chat`.
+
+## 6. Close
+
+- [x] 6.1 Slack setup guide
+  - Covers:
+    - D13
+    - D17
+    - D18
+    - D19
+  - Touch:
+    - docs/chat-slack-setup.md
+    - docs/chat-slack-setup.zh-CN.md
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: the guide is prose for the owner's manual Slack setup, and nothing in it executes; its claims are checked against the commands shipped in 4.x and 5.1.
+    - M1: every `keel chat` command and flag the guide names appears in `keel chat help` output, checked by a one-off script that greps them, with its output quoted in Evidence. The guide covers creating the app from a manifest (Socket Mode, the bot scopes, `chat:write.customize`, metadata subscriptions), storing tokens with `security add-generic-password -s keel-chat-slack`, `keel/chat.json`, binding the `owner` role, `bridge add` and `install`, the public-repository and CI warnings, and stopping or uninstalling.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:ff2407f7c3facf2809b1c81a5d7e18b704711aaa4c07398778108e464c8a0d47
+    - M1: pass. `python3 openspec/changes/group-chat/evidence/check_guide.py "$PWD"` reads every `keel chat …` command in `docs/chat-slack-setup.md`, `docs/chat-slack-setup.zh-CN.md`, `README.md`, and `README.zh-CN.md` — subcommands, `bridge` actions, and `--` flags — and checks each against `keel chat help`; it printed `checked 51 mentions` and `missing: none`. Run against a copy whose guide named `keel chat frobnicate`, `--sparkle`, and `bridge explode`, it reported all three in both languages, so it does detect a command the CLI lacks. The guide covers creating one app per machine from a manifest (Socket Mode, the bot scopes including `chat:write.customize`, the `keel_chat_record` metadata subscription), the app-level token's `connections:write`, `security add-generic-password -s keel-chat-slack -a app|bot -w`, `bridge install` and where it shows in Login Items, the channel and member IDs, a `keel/chat.json` example with `members` as the relay allowlist, binding roles and the `owner` role from a terminal, `bridge add` and `status`, daily use, the archive and its public-repository guard, the CI `branches-ignore: [keel-chat]` warning, and pausing, stopping, uninstalling, and deleting the tokens. Checker: artifact openspec/changes/group-chat/evidence/check_guide.py sha256:3d245a2eb2efce140ec4cac0a8ebbf7b2907fba8e24217d10c9b998844c3cbbc
+    - Review:
+      - Status: pass
+      - Acceptance check: The guide is prose for steps only the owner can take; M1 proves every command it tells the owner to run exists in the shipped CLI, in both languages and in both READMEs, and the negative run shows the check would have caught one that did not. Each decision it relies on is the one D13, D17, D18, and D19 record.
+      - Scope check: The diff adds `docs/chat-slack-setup.md` and `docs/chat-slack-setup.zh-CN.md` and changes `README.md` and `README.zh-CN.md` (a group-chat section and command lines) — all in Touch — plus this change's own directory, which holds the checker.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — the app manifest (scopes, events, metadata subscription) follows Slack's documentation but has not been accepted by a real workspace; the owner's first real run, whose checklist that comment holds, is where it is.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 6.2 Keep #188's Codex receiving working on the group chat
+  - Covers:
+    - keel-cross-host-mailbox / 5.83 mail migrates and `keel mail` keeps working
+    - keel-cross-host-mailbox / Only a mention wakes a session, and the notice is host-neutral
+  - Acceptance:
+    - Merging main brought #188's Codex adapter, `plugins/keel/scripts/codex-mail-hook.js`, which reads `additionalContext` from `keel mail hook user-prompt-submit`, and its check `codex-receiving`, which expects that notice to name `keel mail read`. `keel mail hook` keeps relaying to the chat notice (D7), so Codex sessions get group, mention, and relative-time notices, and the notice it prints adds one line saying direct messages can also be read with the 5.83 `keel mail read`.
+    - No file #188 added is edited, because its change `codex-receiving-and-validation` is still open in the Codex session.
+    - That open change's tasks name the 5.83 scenarios `mailbox-cli` and `mailbox-claude-hooks`, which 1.3 and 2.1 replaced. Both names stay registered as aliases of their successors, `chat-mail-migration` and `chat-claude-hooks`, so the checks it authored still run and still test what they meant.
+  - Touch:
+    - src/core/mail.js
+    - src/core/chat/notice.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario codex-receiving` passes: the Codex adapter's SessionStart and UserPromptSubmit notices name the message id, sender, subject, `keel mail read`, and that the message grants no authorization, never include the body, and do not consume the message. Fails with: `('keel mail read',`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` still passes, so the Claude notice through `keel chat hook` is unchanged.
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario authored-scenario-names-are-registered` passes, so every scenario the open #188 change names is registered. Fails with: `mailbox-cli`
+    - M4 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:28b2aa8a3fdd576278c552e071e1f79d2e16e281c50aa74ca6cf1ae703e743e2
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario codex-receiving` reports `codex-receiving: startup/next-input, repeated non-consuming notices, quiet inboxes and failure fallback passed`: the adapter's SessionStart and UserPromptSubmit notices, now the group-chat notice, name the id, `sender`, `delivery probe`, `keel mail read`, and `authorization`, never `PRIVATE_BODY_NOT_CONTEXT`, and repeat until `keel mail read --id`.
+    - M1.red: fail. Right after merging main, the scenario stopped with `AssertionError: ('keel mail read', 'keel chat: 1 unread for role `receiver`, 1 addressed to you. …`, carrying the declared signature `('keel mail read',`.
+    - M1.green: pass. The same scenario passes after `keel mail hook` added the 5.83 pointer.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` reports `chat-claude-hooks scenario passed.`; the Claude hook script runs `keel chat hook` without `--mail`, so its notice is unchanged.
+    - M3: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario authored-scenario-names-are-registered` reports `authored-scenario-names-are-registered scenario passed.`, and `--scenario mailbox-cli` and `--scenario mailbox-claude-hooks` run `chat-mail-migration` and `chat-claude-hooks`.
+    - M3.red: fail. Before the aliases, the scenario reported `openspec/changes/codex-receiving-and-validation/tasks.md:19 names `mailbox-cli` after --scenario, and no scenario by that name is registered`, carrying the declared signature `mailbox-cli`.
+    - M3.green: pass. The same scenario passes with the aliases registered.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 is #188's own check of its adapter, run unchanged, so it shows the Codex receiving path works on the group chat; M2 shows the Claude path did not move; M3 shows the open change's authored checks still resolve to the scenarios that replaced them. Both Acceptance bullets hold: the relay is unchanged and only `keel mail` adds the pointer, and no file #188 added was edited.
+      - Scope check: The diff changes `src/core/mail.js` (passes `--mail` to the chat hook), `src/core/chat/cli.js` (the `--mail` switch), `src/core/chat/notice.js` (the pointer line), `scripts/validate_plugin.py` (the two aliases), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. The merge of `origin/main` that brought #188 in was its own merge commit, made before this task started; it merged without conflicts.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/183#issuecomment-5926958707 — #188's `validate_codex_receiving.py` snapshots `.git/keel-mailbox` to prove a notice consumes nothing; after migration that directory is gone, so the assertion compares two empty snapshots. Its file belongs to the open Codex change, so the fix is left there, with the two ways to restore the proof.
+    - Blocker: none
+    - Reauthorizations: after task-start, `npm test` showed the open #188 change naming the replaced scenarios `mailbox-cli` and `mailbox-claude-hooks`; `scripts/validate_plugin.py` was added to Touch, with an Acceptance bullet and checks M3 and M4, and task-start re-run before any evidence was written.
+
+- [x] 6.3 Release
+  - Covers:
+    - E1
+    - E2
+    - E3
+    - E4
+    - E5
+    - E6
+    - E7
+    - E8
+    - E10
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-cross-host-mailbox/spec.md
+    - openspec/specs/keel-chat-slack-bridge/spec.md
+    - openspec/specs/keel-native-plugin-package/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and promoted specs. The behavior was proven in 1.1–5.1, and nothing written here can fail before it is written.
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes after `node scripts/bump_version.js minor`, with the new section written into the stub.
+    - M2: the deltas are promoted (the `keel-cross-host-mailbox` Purpose rewritten for group chat, and the `keel-native-plugin-package` Purpose naming the Claude-only chat hooks); `node node_modules/.bin/openspec validate group-chat --strict` passes; and `npm test` reports no failing scenario.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a version marker exists that `version-alignment` does not check.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f1e61bc252fbd50b506611b2415813862403ab0f6f824ca643428e9c812996ac
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.84.0 to 5.85.0, the Unreleased #187 notes were folded into the 5.85.0 section with a title and summary, a line was added for #188's Codex receiving (merged to main without a changelog entry, and released with this version), and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` The Stop Rule held.
+    - M2: pass. The deltas are promoted: `openspec/specs/keel-cross-host-mailbox/spec.md` now holds the 13 group-chat requirements under a rewritten Purpose (I3), `openspec/specs/keel-chat-slack-bridge/spec.md` is published with its 8 requirements and a Purpose, and the modified requirement replaces its predecessor in `keel-native-plugin-package`, whose Purpose now names the Claude-only chat hooks (I2). `node node_modules/.bin/openspec validate group-chat --strict` reports `Change 'group-chat' is valid`, `openspec validate --specs --strict` reports `Totals: 28 passed, 0 failed (28 items)`, and `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: E1–E8 and E10 were proven by 1.1–6.2; this task carries them into 5.85.0 with the specs promoted where the next reader finds them. E9 stays owned by #183.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the three specs — this task's Touch — plus this change's own directory. `scripts/validate_plugin.py` is in Touch for the version bump and was changed only by `bump_version.js`.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## Change Verify
+
+- Strategy: regression-first
+- C1: `npm test` passes the baseline and every registered scenario once the change's scenarios all exist, including `chat-core`, `chat-records`, `chat-mail-migration`, `chat-claude-hooks`, `chat-loop-guards`, `chat-human-view`, `chat-bridge-outbound`, `chat-bridge-inbound`, `chat-bridge-lifecycle`, `chat-archive`, and `native-plugin-manifests`.
+
+## Change Evidence
+
+- C1: pass. After 6.3's version bump and spec promotion, `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.` (macOS `F_SETPIPE_SZ`, unrelated), including `chat-core`, `chat-records`, `chat-mail-migration`, `chat-claude-hooks`, `chat-loop-guards`, `chat-human-view`, `chat-bridge-outbound`, `chat-bridge-inbound`, `chat-bridge-lifecycle`, `chat-archive`, `native-plugin-manifests`, and #188's `codex-receiving`.
+
+## Invalidates
+
+- I1: "on Claude only, the cross-host mailbox notices (SessionStart, UserPromptSubmit, and an idle-waking FileChanged)" — `AGENTS.md` Completion gates. Updated by: 2.1
+- I2: "the SessionStart and write-guard hooks it packages for both hosts and the Claude-only mailbox hooks" — `openspec/specs/keel-native-plugin-package/spec.md` Purpose. Updated by: 6.3
+- I3: "Define how sessions on different hosts exchange Markdown messages through a repository-shared mailbox" — `openspec/specs/keel-cross-host-mailbox/spec.md` Purpose. Updated by: 6.3
+- I4: "keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)" — `bin/keel.js` usage. Updated by: 1.1, 1.3
+- I5: "reading is the receipt" and the `keel-mailbox/` layout comment — `src/core/mail.js` header. Updated by: 1.3
+- I6: "SessionStart and UserPromptSubmit announce unread cross-host mail" — `plugins/keel/scripts/mail-hook.js` header. Updated by: 2.1
+- I7: "mailbox-cli: keel mail" and "mailbox-claude-hooks:" — the 5.83 scenarios in `scripts/validate_plugin.py` asserting `keel-mailbox/<role>/new/` and that reading moves a file to `done/`. Updated by: 1.3, 2.1
+
+## Expectation Coverage
+
+- E1: Several roles share a group, can mention one member or `@all`, keep lightweight todos, and maintain membership across several groups. Covered by: 1.1, 1.2
+- E2: The owner can take part and read the history in local time from the terminal, a transcript, and Slack. Covered by: 1.2, 3.1, 4.2
+- E3: Only a mention wakes a Claude session, and the notice is host-neutral so other hosts can reuse it. Covered by: 2.1
+- E4: Runaway agent loops are stopped, and no message, including the owner's, grants authorization or gates anything. Covered by: 1.1, 2.2
+- E5: Sessions on different machines and the owner's phone exchange messages in real time through Slack, with only registered people relayed. Covered by: 4.1, 4.2
+- E6: The bridge runs without attention but the owner can see it and stop, pause, or remove it. Covered by: 4.3
+- E7: History outlives Slack's retention in the project's own repository, and is never pushed to a public repository without explicit acceptance. Covered by: 5.1
+- E8: 5.83 mail and `keel mail` keep working after the upgrade, including for the Codex adapter #188 built on them. Covered by: 1.3, 6.2
+- E9: Codex's receiving side is not built here. Durable owner: https://github.com/TanglmChris/keel/issues/183
+- E10: No dependency is added, and Slack tokens never enter the repository, a record, or any output. Covered by: 4.1, 4.3

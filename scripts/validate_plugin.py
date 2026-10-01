@@ -12,7 +12,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import ast
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -38,8 +41,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.84.0"
-PROTOCOL_VERSION = "5.84.0"
+PACKAGE_VERSION = "5.85.0"
+PROTOCOL_VERSION = "5.85.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2191,170 +2194,455 @@ def mailbox_common_dir(repo: Path) -> Path:
     return Path(raw)
 
 
-def validate_mailbox_cli_scenario() -> int:
-    """Issue #180: worktrees of one repository exchange Markdown mail by role.
+CHAT_ROLE_VARIABLES = ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")
 
-    Everything goes through public `keel mail`: binding roles, sending from
-    one worktree, listing and reading in another, isolation from a second
-    repository, the reply link, and that unread mail changes no context.
+
+def chat_environment(**extra: str) -> dict[str, str]:
+    """The test process's environment without any inherited chat role."""
+    env = {key: value for key, value in os.environ.items() if key not in CHAT_ROLE_VARIABLES}
+    env.update(extra)
+    return env
+
+
+def chat_worktree(repo: Path, path: Path) -> Path:
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", path.name, str(path)],
+        cwd=repo, check=True, capture_output=True,
+    )
+    return path
+
+
+def chat_log(repo: Path, group: str) -> Path:
+    return mailbox_common_dir(repo) / "keel-chat" / "groups" / group / "log"
+
+
+def chat_json(result: subprocess.CompletedProcess[str]) -> dict:
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def validate_chat_core_scenario() -> int:
+    """Issue #187: roles share groups through an append-only store.
+
+    Everything goes through public `keel chat` across four worktrees of one
+    repository and a separate repository: role and alias binding and their
+    refusals, group membership and its refusals, immutable record files,
+    mention resolution through an alias, per-member cursors and receipts, a
+    direct group, archive, isolation, and that unread chat changes no context.
     """
-    label = "mailbox-cli: keel mail"
-    with tempfile.TemporaryDirectory(prefix="keel-mailbox-") as raw:
+    label = "chat-core: keel chat"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-core-") as raw:
         base = Path(raw)
         rtl = mailbox_repository(base / "rtl")
-        verify = base / "verify"
-        subprocess.run(
-            ["git", "worktree", "add", "-q", "-b", "verify", str(verify)],
-            cwd=rtl, check=True, capture_output=True,
-        )
+        verify = chat_worktree(rtl, base / "verify")
+        lint = chat_worktree(rtl, base / "lint")
+        maint = chat_worktree(rtl, base / "maint")
         other = mailbox_repository(base / "other")
-        env = {key: value for key, value in os.environ.items() if key != "KEEL_MAIL_ROLE"}
+        env = chat_environment()
 
-        def mail(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-            return run_keel(cwd, "mail", *args, env=env)
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
 
-        unbound = mail(rtl, "send", "--to", "verify", "--subject", "s", "--body", "b")
+        unbound = chat(rtl, "post", "soc", "hello")
         if unbound.returncode == 0:
-            report(f"{label} send from an unbound worktree succeeded.")
+            report(f"{label} a post from an unbound worktree succeeded.")
             return 1
-        if "keel mail role --set" not in unbound.stderr:
-            report(f"{label} the unbound-sender refusal does not name `keel mail role --set`.")
-            report((unbound.stderr or unbound.stdout).strip())
+        if "keel chat role --set" not in unbound.stderr:
+            report(f"{label} the unbound-poster refusal does not name `keel chat role --set`: {(unbound.stderr or unbound.stdout).strip()}")
             return 1
-        bad = mail(rtl, "role", "--set", "Bad Name")
+        bad = chat(rtl, "role", "--set", "Bad Name")
         if bad.returncode == 0:
             report(f"{label} role --set accepted the invalid name 'Bad Name'.")
             return 1
         if "[a-z0-9]" not in bad.stderr:
             report(f"{label} the invalid-role refusal does not name the pattern: {bad.stderr.strip()}")
             return 1
-        if (mailbox_common_dir(rtl) / "keel-mailbox").exists():
-            report(f"{label} a refused role wrote to the mailbox.")
+        if (mailbox_common_dir(rtl) / "keel-chat").exists():
+            report(f"{label} a refused role wrote to the chat store.")
             return 1
 
-        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (other, "verify")):
-            bound = mail(cwd, "role", "--set", role)
+        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (lint, "lint"), (maint, "claude-maint"), (other, "verify")):
+            bound = chat(cwd, "role", "--set", role)
             if bound.returncode != 0:
                 report(f"{label} role --set {role} failed: {bound.stderr.strip()}")
                 return 1
-        shown = mail(verify, "role", "--json")
-        if shown.returncode != 0:
-            report(f"{label} role --json failed: {shown.stderr.strip()}")
+        shown = chat(verify, "role", "--json")
+        if chat_json(shown).get("role") != "verify":
+            report(f"{label} role --json did not report the bound role: {shown.stdout.strip()} {shown.stderr.strip()}")
             return 1
-        if json.loads(shown.stdout).get("role") != "verify":
-            report(f"{label} role did not report the bound role: {shown.stdout.strip()}")
+        aliased = chat(maint, "role", "--alias", "cm")
+        if aliased.returncode != 0:
+            report(f"{label} role --alias cm failed: {aliased.stderr.strip()}")
+            return 1
+        taken = chat(lint, "role", "--alias", "CM")
+        if taken.returncode == 0:
+            report(f"{label} a second role took the alias 'cm'.")
+            return 1
+        if "claude-maint" not in taken.stderr:
+            report(f"{label} the taken-alias refusal does not name its holder: {taken.stderr.strip()}")
             return 1
 
         context_before = run_keel(verify, "context", "--json", env=env)
 
-        sent = mail(
-            rtl, "send", "--to", "verify", "--subject", "Stimulus misreads spec",
-            "--body", "Fix the testcase and rerun.", "--ref", "abc1234", "--json",
-        )
-        if sent.returncode != 0:
-            report(f"{label} send failed: {sent.stderr.strip()}")
+        created = chat(rtl, "group", "create", "soc", "--member", "verify", "--member", "lint", "--member", "claude-maint")
+        if created.returncode != 0:
+            report(f"{label} group create failed: {created.stderr.strip()}")
             return 1
-        message_id = json.loads(sent.stdout).get("id", "")
-
-        listed = mail(verify, "list", "--json")
-        unread = json.loads(listed.stdout).get("unread", []) if listed.returncode == 0 else []
-        if [(m.get("from"), m.get("subject")) for m in unread] != [("rtl", "Stimulus misreads spec")]:
-            report(f"{label} list in the verify worktree did not show the message: {listed.stdout.strip()}")
+        first = chat(rtl, "post", "soc", "Stimulus misreads the spec.", "--json")
+        first_id = chat_json(first).get("id", "")
+        if not first_id:
+            report(f"{label} post did not report an id: {first.stdout.strip()} {first.stderr.strip()}")
             return 1
-        box = mailbox_common_dir(rtl) / "keel-mailbox" / "verify"
-        files = list((box / "new").glob("*.md"))
-        if len(files) != 1:
-            report(f"{label} expected one message file under {box / 'new'}, found {len(files)}.")
+        peek = chat(verify, "soc", "--peek", "--json")
+        texts = [(r.get("from"), r.get("text")) for r in chat_json(peek).get("records", [])]
+        if ("rtl", "Stimulus misreads the spec.") not in texts:
+            report(f"{label} the verify worktree did not see rtl's message: {peek.stdout.strip()} {peek.stderr.strip()}")
             return 1
-        if not (box / ".signal").is_file():
-            report(f"{label} the signal file {box / '.signal'} is missing.")
+        record_file = chat_log(rtl, "soc") / f"{first_id}.md"
+        if not record_file.is_file():
+            report(f"{label} no record file {record_file} for the posted message.")
             return 1
-        text = files[0].read_text(encoding="utf-8")
-        for needle in (
-            f"id: {message_id}", "from: rtl", "to: verify", "created: ",
-            "subject: Stimulus misreads spec", "refs:", "abc1234",
-            "Fix the testcase and rerun.",
-        ):
-            if needle not in text:
-                report(f"{label} message file lacks {needle!r}:\n{text}")
-                return 1
-        if not text.startswith("---\n"):
-            report(f"{label} message file has no frontmatter.")
+        original = record_file.read_bytes()
+        if not re.search(rb"^created: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", original, re.M):
+            report(f"{label} the record's created stamp carries no UTC offset:\n{original.decode()}")
+            return 1
+        if not original.startswith(b"---\n"):
+            report(f"{label} the record file has no frontmatter.")
             return 1
 
-        elsewhere = mail(other, "list", "--json")
-        if elsewhere.returncode != 0:
-            report(f"{label} list failed in the separate repository: {elsewhere.stderr.strip()}")
+        mention = chat(verify, "post", "soc", "@CM please check the waveform", "--json")
+        mention_id = chat_json(mention).get("id", "")
+        if not mention_id:
+            report(f"{label} the aliased mention was not posted: {mention.stderr.strip()}")
             return 1
-        if json.loads(elsewhere.stdout).get("unread"):
-            report(f"{label} a separate repository saw the message.")
+        mentions = chat_json(chat(rtl, "show", mention_id, "--json")).get("record", {}).get("mentions")
+        if mentions != ["claude-maint"]:
+            report(f"{label} @CM did not resolve to claude-maint: {mentions!r}")
+            return 1
+        if record_file.read_bytes() != original:
+            report(f"{label} a later post changed an earlier record file.")
+            return 1
+
+        count = len(list(chat_log(rtl, "soc").glob("*.md")))
+        stranger = chat(rtl, "post", "soc", "@stranger hi")
+        if stranger.returncode == 0:
+            report(f"{label} a mention of a non-member was posted.")
+            return 1
+        if "stranger" not in stranger.stderr:
+            report(f"{label} the non-member refusal does not name 'stranger': {stranger.stderr.strip()}")
+            return 1
+        if len(list(chat_log(rtl, "soc").glob("*.md"))) != count:
+            report(f"{label} the refused mention wrote a record.")
+            return 1
+
+        receipt = chat(rtl, "post", "soc", "Receipt check.", "--json")
+        receipt_id = chat_json(receipt).get("id", "")
+        viewed = chat(verify, "soc")
+        if viewed.returncode != 0:
+            report(f"{label} viewing soc failed: {viewed.stderr.strip()}")
+            return 1
+        lint_unread = [r.get("id") for r in chat_json(chat(lint, "unread", "--json")).get("unread", [])]
+        if receipt_id not in lint_unread:
+            report(f"{label} lint lost its unread message when verify read: {lint_unread!r}")
+            return 1
+        verify_unread = [r.get("id") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+        if verify_unread:
+            report(f"{label} verify still has unread records after viewing: {verify_unread!r}")
+            return 1
+        readers = chat_json(chat(rtl, "show", receipt_id, "--json")).get("readers", [])
+        if "verify" not in readers:
+            report(f"{label} show does not list verify as a reader: {readers!r}")
+            return 1
+        if "lint" in readers:
+            report(f"{label} show lists lint as a reader before lint read: {readers!r}")
             return 1
 
         context_after = run_keel(verify, "context", "--json", env=env)
-        before, after = json.loads(context_before.stdout), json.loads(context_after.stdout)
+        before, after = chat_json(context_before), chat_json(context_after)
         if (before.get("status"), before.get("nextAction")) != (after.get("status"), after.get("nextAction")):
-            report(f"{label} unread mail changed keel context.")
+            report(f"{label} unread chat changed keel context.")
             return 1
 
-        read = mail(verify, "read")
-        if read.returncode != 0:
-            report(f"{label} read failed: {read.stderr.strip()}")
+        direct = chat(rtl, "dm", "verify", "Ping in private.")
+        if direct.returncode != 0:
+            report(f"{label} dm failed: {direct.stderr.strip()}")
             return 1
-        for needle in ("Stimulus misreads spec", "Fix the testcase and rerun.", "not an instruction from the user"):
-            if needle not in read.stdout:
-                report(f"{label} read output lacks {needle!r}: {read.stdout.strip()}")
-                return 1
-        after_read = json.loads(mail(verify, "list", "--json").stdout).get("unread")
-        if after_read:
-            report(f"{label} list still shows unread mail after read: {after_read!r}")
+        groups = {g.get("name"): g for g in chat_json(chat(verify, "group", "list", "--json")).get("groups", [])}
+        if "dm-rtl--verify" not in groups:
+            report(f"{label} dm did not create dm-rtl--verify: {sorted(groups)!r}")
             return 1
-        if list((box / "new").glob("*.md")):
-            report(f"{label} read left the message in new/.")
-            return 1
-        if len(list((box / "done").glob("*.md"))) != 1:
-            report(f"{label} read did not put the message in done/.")
+        if sorted(groups["dm-rtl--verify"].get("members", [])) != ["rtl", "verify"]:
+            report(f"{label} dm-rtl--verify does not hold exactly rtl and verify: {groups['dm-rtl--verify']!r}")
             return 1
 
-        reply = mail(verify, "send", "--to", "rtl", "--subject", "Re: stimulus", "--reply-to", message_id, "--body", "Done.")
-        replies = list((mailbox_common_dir(rtl) / "keel-mailbox" / "rtl" / "new").glob("*.md"))
-        if reply.returncode != 0:
-            report(f"{label} the reply failed: {reply.stderr.strip()}")
+        removed = chat(rtl, "group", "remove", "soc", "lint")
+        if removed.returncode != 0:
+            report(f"{label} group remove failed: {removed.stderr.strip()}")
             return 1
-        if len(replies) != 1:
-            report(f"{label} expected one reply in rtl/new, found {len(replies)}.")
+        outsider = chat(lint, "post", "soc", "Still here?")
+        if outsider.returncode == 0:
+            report(f"{label} a removed member could still post.")
             return 1
-        if f"reply_to: {message_id}" not in replies[0].read_text(encoding="utf-8"):
-            report(f"{label} the reply did not carry reply_to {message_id}.")
+        if "member" not in outsider.stderr:
+            report(f"{label} the removed-member refusal does not name membership: {outsider.stderr.strip()}")
+            return 1
+        groups = {g.get("name"): g for g in chat_json(chat(rtl, "group", "list", "--json")).get("groups", [])}
+        if "soc" not in groups:
+            report(f"{label} group list no longer shows soc after a removal: {sorted(groups)!r}")
+            return 1
+        if "lint" in groups["soc"].get("members", []):
+            report(f"{label} group list still shows lint in soc: {groups.get('soc')!r}")
             return 1
 
-    if "mailbox-cli" not in {name for name, _ in SCENARIOS}:
-        report("mailbox-cli: scenario is not registered.")
+        archived = chat(rtl, "group", "archive", "soc")
+        if archived.returncode != 0:
+            report(f"{label} group archive failed: {archived.stderr.strip()}")
+            return 1
+        late = chat(verify, "post", "soc", "One more thing.")
+        if late.returncode == 0:
+            report(f"{label} a post to an archived group succeeded.")
+            return 1
+        if "archived" not in late.stderr:
+            report(f"{label} the archived-group refusal does not name the archive: {late.stderr.strip()}")
+            return 1
+        history = chat(verify, "soc", "--peek")
+        if "Stimulus misreads the spec." not in history.stdout:
+            report(f"{label} an archived group's history is not readable: {history.stdout.strip()} {history.stderr.strip()}")
+            return 1
+
+        elsewhere = chat_json(chat(other, "group", "list", "--json", "--all")).get("groups", [])
+        if any(g.get("name") == "soc" for g in elsewhere):
+            report(f"{label} a separate repository lists soc.")
+            return 1
+
+    if "chat-core" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
         return 1
-    report("mailbox-cli scenario passed.")
+    report("chat-core scenario passed.")
     return 0
 
 
-def validate_mailbox_claude_hooks_scenario() -> int:
-    """Issue #180: Claude Code learns of mail at start, per prompt, and idle.
+def chat_scratch_group(base: Path) -> tuple[Path, Path, dict[str, str]]:
+    """A repository with `rtl` and a `verify` worktree sharing group `soc`."""
+    rtl = mailbox_repository(base / "rtl")
+    verify = chat_worktree(rtl, base / "verify")
+    env = chat_environment()
+    for cwd, role in ((rtl, "rtl"), (verify, "verify")):
+        run_keel(cwd, "chat", "role", "--set", role, env=env)
+    run_keel(rtl, "chat", "group", "create", "soc", "--member", "verify", env=env)
+    return rtl, verify, env
+
+
+def validate_chat_records_scenario() -> int:
+    """Issue #187: todos, edits, retractions, search, and local-time display.
+
+    A todo links an issue and closes by `done` or a ✅ reply; an edit keeps
+    the original file; search reaches archived groups; and a stored offset is
+    shown in the viewer's local time, never as the raw stamp.
+    """
+    label = "chat-records:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-records-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str, extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env={**env, **(extra or {})})
+
+        todo = chat(rtl, "todo", "soc", "--assignee", "verify", "--issue", "42", "Rerun the regression", "--json")
+        todo_id = chat_json(todo).get("id", "")
+        if not todo_id:
+            report(f"{label} keel chat todo did not report an id: {todo.stdout.strip()} {todo.stderr.strip()}")
+            return 1
+        mine = chat_json(chat(verify, "todos", "--mine", "--json")).get("todos", [])
+        listed = [t for t in mine if t.get("id") == todo_id]
+        if not listed:
+            report(f"{label} todos --mine for verify does not list the todo: {mine!r}")
+            return 1
+        if listed[0].get("issue") != "#42":
+            report(f"{label} the todo does not carry issue #42: {listed[0]!r}")
+            return 1
+        closed = chat(verify, "post", "soc", "✅ merged", "--reply-to", todo_id)
+        if closed.returncode != 0:
+            report(f"{label} the ✅ reply failed: {closed.stderr.strip()}")
+            return 1
+        open_ids = [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]
+        if todo_id in open_ids:
+            report(f"{label} a todo answered with ✅ is still listed: {open_ids!r}")
+            return 1
+        second_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Update the spec", "--json")).get("id", "")
+        done = chat(verify, "done", second_id)
+        if done.returncode != 0:
+            report(f"{label} keel chat done failed: {done.stderr.strip()}")
+            return 1
+        open_ids = [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]
+        if second_id in open_ids:
+            report(f"{label} a todo closed with keel chat done is still listed: {open_ids!r}")
+            return 1
+
+        message_id = chat_json(chat(rtl, "post", "soc", "Clock is 100MHz", "--json")).get("id", "")
+        message_file = chat_log(rtl, "soc") / f"{message_id}.md"
+        original = message_file.read_bytes()
+        foreign = chat(verify, "edit", message_id, "Clock is 50MHz")
+        if foreign.returncode == 0:
+            report(f"{label} a role edited another role's message.")
+            return 1
+        edited = chat(rtl, "edit", message_id, "Clock is 200MHz")
+        if edited.returncode != 0:
+            report(f"{label} keel chat edit failed: {edited.stderr.strip()}")
+            return 1
+        shown = {r.get("id"): r for r in chat_json(chat(verify, "soc", "--peek", "--json")).get("records", [])}
+        if shown.get(message_id, {}).get("text") != "Clock is 200MHz":
+            report(f"{label} the view does not show the edited text: {shown.get(message_id)!r}")
+            return 1
+        if not shown[message_id].get("edited"):
+            report(f"{label} the view does not mark the edited message: {shown[message_id]!r}")
+            return 1
+        if message_file.read_bytes() != original:
+            report(f"{label} the edit changed the original record file.")
+            return 1
+        retract_id = chat_json(chat(rtl, "post", "soc", "Wrong channel", "--json")).get("id", "")
+        retracted = chat(rtl, "retract", retract_id)
+        if retracted.returncode != 0:
+            report(f"{label} keel chat retract failed: {retracted.stderr.strip()}")
+            return 1
+        shown = {r.get("id"): r for r in chat_json(chat(verify, "soc", "--peek", "--json")).get("records", [])}
+        if not shown.get(retract_id, {}).get("retracted"):
+            report(f"{label} the view does not mark the retracted message: {shown.get(retract_id)!r}")
+            return 1
+
+        chat(rtl, "group", "create", "old", "--member", "verify")
+        chat(rtl, "post", "old", "Legacy PLL notes live here")
+        chat(rtl, "group", "archive", "old")
+        found = chat_json(chat(verify, "search", "PLL", "--json")).get("results", [])
+        if [r.get("group") for r in found] != ["old"]:
+            report(f"{label} search did not find the record in the archived group: {found!r}")
+            return 1
+
+        stamp_id = "20261001T060000000Z-rtl-0a0b0c"
+        write_text(
+            chat_log(rtl, "soc") / f"{stamp_id}.md",
+            f"---\nid: {stamp_id}\ngroup: soc\nkind: message\nfrom: rtl\n"
+            "created: 2026-10-01T06:00:00+00:00\n---\n\nMorning sync\n",
+        )
+        local = chat(verify, "soc", "--peek", extra={"TZ": "Asia/Shanghai"})
+        if "2026-10-01 14:00" not in local.stdout:
+            report(f"{label} a 06:00 UTC record is not shown as 2026-10-01 14:00 in Asia/Shanghai: {local.stdout.strip()} {local.stderr.strip()}")
+            return 1
+        if "06:00:00+00:00" in local.stdout:
+            report(f"{label} the view prints the raw stored stamp.")
+            return 1
+
+    if "chat-records" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-records scenario passed.")
+    return 0
+
+
+def validate_chat_mail_migration_scenario() -> int:
+    """Issue #187: 5.83 mail migrates into direct groups; `keel mail` still works.
+
+    A scratch repository is seeded with the 5.83 mailbox layout by hand, as an
+    upgraded repository would hold it. The first `keel mail` command migrates
+    it — unread stays unread, read stays read, the binding carries over, and
+    the old directory is renamed rather than deleted — and the 5.83 commands
+    then work on the direct groups.
+    """
+    label = "chat-mail-migration:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-migration-") as raw:
+        base = Path(raw)
+        rtl = mailbox_repository(base / "rtl")
+        verify = chat_worktree(rtl, base / "verify")
+        env = chat_environment()
+        common = mailbox_common_dir(rtl)
+        box = common / "keel-mailbox"
+        old_unread = "20261001T010000Z-rtl-aaaaaa"
+        old_read = "20261001T000000Z-rtl-bbbbbb"
+        write_text(
+            box / "verify" / "new" / f"{old_unread}.md",
+            f"---\nid: {old_unread}\nfrom: rtl\nto: verify\ncreated: 2026-10-01T01:00:00.000Z\n"
+            "subject: Rerun the suite\n---\n\nThe clock fix landed.\n",
+        )
+        write_text(
+            box / "verify" / "done" / f"{old_read}.md",
+            f"---\nid: {old_read}\nfrom: rtl\nto: verify\ncreated: 2026-10-01T00:00:00.000Z\n"
+            "subject: Hello\n---\n\nAlready read.\n",
+        )
+        write_text(box / "roles.json", json.dumps({str(rtl.resolve()): "rtl", str(verify.resolve()): "verify"}) + "\n")
+
+        def mail(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "mail", *args, env=env)
+
+        listed = mail(verify, "list", "--json")
+        unread = chat_json(listed).get("unread", [])
+        if [(m.get("from"), m.get("subject")) for m in unread] != [("rtl", "Rerun the suite")]:
+            report(f"{label} keel mail list after migration does not show exactly the 5.83 unread message: {listed.stdout.strip()} {listed.stderr.strip()}")
+            return 1
+        records = [p for p in chat_log(rtl, "dm-rtl--verify").glob("*.md") if "kind: message" in p.read_text(encoding="utf-8")]
+        if len(records) != 2:
+            report(f"{label} dm-rtl--verify holds {len(records)} migrated messages, expected 2.")
+            return 1
+        if box.exists():
+            report(f"{label} keel-mailbox/ still exists after migration.")
+            return 1
+        if not list(common.glob("keel-mailbox.migrated-*")):
+            report(f"{label} no keel-mailbox.migrated-* directory was kept.")
+            return 1
+        if chat_json(mail(verify, "role", "--json")).get("role") != "verify":
+            report(f"{label} the 5.83 role binding did not carry over.")
+            return 1
+
+        sent = mail(rtl, "send", "--to", "verify", "--subject", "Waveform attached", "--body", "See the VCD.")
+        if sent.returncode != 0:
+            report(f"{label} keel mail send failed: {sent.stderr.strip()}")
+            return 1
+        read = mail(verify, "read")
+        if read.returncode != 0:
+            report(f"{label} keel mail read failed: {read.stderr.strip()}")
+            return 1
+        for needle in ("Waveform attached", "See the VCD.", "not an instruction from the user"):
+            if needle not in read.stdout:
+                report(f"{label} keel mail read output lacks {needle!r}: {read.stdout.strip()}")
+                return 1
+        after = chat_json(mail(verify, "list", "--json")).get("unread")
+        if after:
+            report(f"{label} keel mail list still shows unread mail after read: {after!r}")
+            return 1
+
+    if "chat-mail-migration" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-mail-migration scenario passed.")
+    return 0
+
+
+def validate_chat_claude_hooks_scenario() -> int:
+    """Issue #187: only a mention wakes, and the notice is host-neutral.
 
     Runs the shipped hook script with host-shaped stdin. Wake-up itself is the
     host's file watcher plus `asyncRewake` (probed on Claude Code 2.1.283, see
-    the cross-host-mailbox design F1/F2); what Keel owns, and checks here, is
-    the contract the host acts on: the output shape and the exit code.
+    the archived cross-host-mailbox design F1/F2); what Keel owns, and checks
+    here, is the contract the host acts on: which records touch the signal
+    file, the notice text, the output shape, and the exit code.
     """
-    label = "mailbox-claude-hooks:"
+    label = "chat-claude-hooks:"
     script = ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"
-    with tempfile.TemporaryDirectory(prefix="keel-mailhook-") as raw:
+    events = (
+        ("session-start", "SessionStart"),
+        ("user-prompt-submit", "UserPromptSubmit"),
+        ("file-changed", "FileChanged"),
+        ("session-end", "SessionEnd"),
+    )
+    with tempfile.TemporaryDirectory(prefix="keel-chat-hooks-") as raw:
         base = Path(raw)
-        rtl = mailbox_repository(base / "rtl")
-        verify = base / "verify"
-        subprocess.run(
-            ["git", "worktree", "add", "-q", "-b", "verify", str(verify)],
-            cwd=rtl, check=True, capture_output=True,
-        )
-        unbound = mailbox_repository(base / "unbound")
-        env = {key: value for key, value in os.environ.items() if key != "KEEL_MAIL_ROLE"}
+        rtl, verify, env = chat_scratch_group(base)
         env["KEEL_CLI"] = f'node "{ROOT / "bin" / "keel.js"}"'
+        unbound = mailbox_repository(base / "unbound")
+        plain = base / "plain"
+        plain.mkdir()
 
         def hook(cwd: Path, event: str, host_event: str) -> subprocess.CompletedProcess[str]:
             return subprocess.run(
@@ -2363,100 +2651,1056 @@ def validate_mailbox_claude_hooks_scenario() -> int:
                 input=json.dumps({"hook_event_name": host_event, "cwd": str(cwd)}),
             )
 
-        events = (
-            ("session-start", "SessionStart"),
-            ("user-prompt-submit", "UserPromptSubmit"),
-            ("file-changed", "FileChanged"),
-        )
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
         if not script.is_file():
             report(f"{label} {script.relative_to(ROOT)} does not exist.")
             return 1
-        for event, host_event in events:
-            quiet = hook(unbound, event, host_event)
-            if quiet.returncode != 0:
-                report(f"{label} {event} exited {quiet.returncode} in an unbound worktree.")
-                return 1
-            if quiet.stdout.strip() or quiet.stderr.strip():
-                report(f"{label} {event} wrote output in an unbound worktree: {(quiet.stdout + quiet.stderr).strip()!r}")
-                return 1
+        for cwd in (unbound, plain):
+            for event, host_event in events:
+                quiet = hook(cwd, event, host_event)
+                if quiet.returncode != 0:
+                    report(f"{label} {event} exited {quiet.returncode} in {cwd.name}, which has no role.")
+                    return 1
+                if quiet.stdout.strip() or quiet.stderr.strip():
+                    report(f"{label} {event} wrote output in {cwd.name}, which has no role: {(quiet.stdout + quiet.stderr).strip()!r}")
+                    return 1
 
-        for cwd, role in ((rtl, "rtl"), (verify, "verify")):
-            run_keel(cwd, "mail", "role", "--set", role, env=env)
-        sent = run_keel(
-            rtl, "mail", "send", "--to", "verify", "--subject", "Rerun the regression",
-            "--body", "Spec section 4 was misread.", "--json", env=env,
-        )
-        if sent.returncode != 0:
-            report(f"{label} could not send the fixture message: {sent.stderr.strip()}")
-            return 1
-        message_id = json.loads(sent.stdout)["id"]
-        signal = mailbox_common_dir(rtl) / "keel-mailbox" / "verify" / ".signal"
-        inbox = mailbox_common_dir(rtl) / "keel-mailbox" / "verify" / "new"
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "verify"
 
-        def names_the_message(text: str) -> str | None:
-            for needle in (message_id, "`rtl`", "Rerun the regression", "keel mail read", "not an instruction from the user"):
-                if needle not in text:
-                    return needle
-            return None
+        def signal_size() -> int:
+            return signal.stat().st_size if signal.exists() else 0
 
-        start = hook(verify, "session-start", "SessionStart")
-        if start.returncode != 0:
-            report(f"{label} session-start exited {start.returncode}: {start.stderr.strip()}")
+        chat(rtl, "post", "soc", "@all standup in five")
+        if signal_size():
+            report(f"{label} an @all post touched verify's signal file.")
             return 1
-        output = json.loads(start.stdout).get("hookSpecificOutput", {})
-        if output.get("hookEventName") != "SessionStart":
-            report(f"{label} session-start output names event {output.get('hookEventName')!r}.")
+        broadcast = hook(verify, "file-changed", "FileChanged")
+        if broadcast.returncode != 0:
+            report(f"{label} file-changed exited {broadcast.returncode} after an @all post; only a mention wakes.")
             return 1
-        missing = names_the_message(output.get("additionalContext", ""))
-        if missing:
-            report(f"{label} session-start additionalContext lacks {missing!r}.")
-            return 1
-        if output.get("watchPaths") != [str(signal)]:
-            report(f"{label} session-start watchPaths is {output.get('watchPaths')!r}, not [{str(signal)!r}].")
-            return 1
-
         prompt = hook(verify, "user-prompt-submit", "UserPromptSubmit")
-        if prompt.returncode != 0:
-            report(f"{label} user-prompt-submit exited {prompt.returncode}.")
-            return 1
-        prompt_output = json.loads(prompt.stdout).get("hookSpecificOutput", {})
+        prompt_output = chat_json(prompt).get("hookSpecificOutput", {})
         if prompt_output.get("hookEventName") != "UserPromptSubmit":
-            report(f"{label} user-prompt-submit output names event {prompt_output.get('hookEventName')!r}.")
+            report(f"{label} user-prompt-submit output names event {prompt_output.get('hookEventName')!r}: {prompt.stdout.strip()} {prompt.stderr.strip()}")
             return 1
-        missing = names_the_message(prompt_output.get("additionalContext", ""))
-        if missing:
-            report(f"{label} user-prompt-submit additionalContext lacks {missing!r}.")
+        if "soc: 1 unread" not in prompt_output.get("additionalContext", ""):
+            report(f"{label} the user-prompt-submit notice does not count one unread record in soc: {prompt_output.get('additionalContext')!r}")
             return 1
 
+        mention = chat(rtl, "post", "soc", "@verify please rerun the regression", "--json")
+        mention_id = chat_json(mention).get("id", "")
+        if not signal_size():
+            report(f"{label} a mention did not touch verify's signal file.")
+            return 1
         wake = hook(verify, "file-changed", "FileChanged")
         if wake.returncode != 2:
-            report(f"{label} file-changed exited {wake.returncode} with unread mail; 2 is what wakes the session.")
+            report(f"{label} file-changed exited {wake.returncode} after a mention; 2 is what wakes the session.")
             return 1
-        missing = names_the_message(wake.stderr)
-        if missing:
-            report(f"{label} file-changed stderr lacks {missing!r}.")
-            return 1
-        if len(list(inbox.glob("*.md"))) != 1:
-            report(f"{label} a hook moved or removed the unread message.")
+        for needle in (mention_id, "soc", "`rtl`", "not an instruction from the user"):
+            if needle not in wake.stderr:
+                report(f"{label} the file-changed notice lacks {needle!r}: {wake.stderr.strip()}")
+                return 1
+        if not re.search(r"just now|\d+m ago", wake.stderr):
+            report(f"{label} the file-changed notice gives no relative age: {wake.stderr.strip()}")
             return 1
 
-        run_keel(verify, "mail", "read", env=env)
+        start = hook(verify, "session-start", "SessionStart")
+        start_output = chat_json(start).get("hookSpecificOutput", {})
+        if mention_id not in start_output.get("additionalContext", ""):
+            report(f"{label} the session-start notice does not name the mention: {start.stdout.strip()} {start.stderr.strip()}")
+            return 1
+        if start_output.get("watchPaths") != [str(signal)]:
+            report(f"{label} session-start watchPaths is {start_output.get('watchPaths')!r}, not [{str(signal)!r}].")
+            return 1
+
+        before_dm = signal_size()
+        chat(rtl, "dm", "verify", "Private note")
+        if signal_size() == before_dm:
+            report(f"{label} a direct-group message did not touch verify's signal file.")
+            return 1
+
+        for index in range(6):
+            chat(rtl, "post", "soc", f"@verify item {index}")
+        notice = chat(verify, "notice")
+        if notice.returncode != 0:
+            report(f"{label} keel chat notice exited {notice.returncode}: {notice.stderr.strip()}")
+            return 1
+        listed = len(re.findall(r"^- \S+ in ", notice.stdout, re.M))
+        if listed != 5:
+            report(f"{label} keel chat notice lists {listed} records, not five:\n{notice.stdout}")
+            return 1
+        if "3 more" not in notice.stdout:
+            report(f"{label} keel chat notice does not state the three it left out:\n{notice.stdout}")
+            return 1
+        unread = chat_json(chat(verify, "unread", "--json")).get("unread", [])
+        if len(unread) != 9:
+            report(f"{label} a hook or notice advanced verify's cursor: {len(unread)} unread, expected 9.")
+            return 1
+
+        ended = hook(verify, "session-end", "SessionEnd")
+        if ended.returncode != 0:
+            report(f"{label} session-end exited {ended.returncode}: {ended.stderr.strip()}")
+            return 1
+        queued = chat(rtl, "post", "soc", "@verify ping")
+        if "verify" not in queued.stdout or "offline" not in queued.stdout:
+            report(f"{label} a mention of an offline member does not report it offline: {queued.stdout.strip()} {queued.stderr.strip()}")
+            return 1
+
+        chat(verify, "read")
         after = hook(verify, "file-changed", "FileChanged")
         if after.returncode != 0:
-            report(f"{label} file-changed exited {after.returncode} after the mail was read.")
+            report(f"{label} file-changed exited {after.returncode} with nothing unread.")
             return 1
         if after.stderr.strip():
-            report(f"{label} file-changed wrote {after.stderr.strip()!r} with no unread mail.")
+            report(f"{label} file-changed wrote {after.stderr.strip()!r} with nothing unread.")
             return 1
         quiet_prompt = hook(verify, "user-prompt-submit", "UserPromptSubmit")
         if quiet_prompt.stdout.strip():
-            report(f"{label} user-prompt-submit still announced mail after it was read.")
+            report(f"{label} user-prompt-submit still announced records after they were read.")
             return 1
 
-    if "mailbox-claude-hooks" not in {name for name, _ in SCENARIOS}:
+    if "chat-claude-hooks" not in {name for name, _ in SCENARIOS}:
         report(f"{label} scenario is not registered.")
         return 1
-    report("mailbox-claude-hooks scenario passed.")
+    report("chat-claude-hooks scenario passed.")
+    return 0
+
+
+def validate_chat_loop_guards_scenario() -> int:
+    """Issue #187: a rate limit and a ping-pong breaker stop runaway agents.
+
+    Two agents answering each other eight times in a row are stopped, the
+    owner is called with one system record, and the owner's post clears the
+    block. A role over its configured post rate is refused by name; the owner
+    never is.
+    """
+    label = "chat-loop-guards:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-guards-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        lint = chat_worktree(rtl, base / "lint")
+        run_keel(lint, "chat", "role", "--set", "lint", env=env)
+        run_keel(rtl, "chat", "group", "add", "soc", "lint", env=env)
+
+        def chat(cwd: Path, *args: str, role: str | None = None) -> subprocess.CompletedProcess[str]:
+            extra = {"KEEL_CHAT_ROLE": role} if role else {}
+            return run_keel(cwd, "chat", *args, env={**env, **extra})
+
+        for index in range(8):
+            cwd = rtl if index % 2 == 0 else verify
+            turn = chat(cwd, "post", "soc", f"round {index}")
+            if turn.returncode != 0:
+                report(f"{label} alternating post {index} was refused before the threshold: {turn.stderr.strip()}")
+                return 1
+        ninth = chat(rtl, "post", "soc", "round 8")
+        if ninth.returncode == 0:
+            report(f"{label} a ninth alternating post was accepted.")
+            return 1
+        if "loop guard" not in ninth.stderr:
+            report(f"{label} the ping-pong refusal does not name the loop guard: {ninth.stderr.strip()}")
+            return 1
+        chat(verify, "post", "soc", "round 8 again")
+        records = [p.read_text(encoding="utf-8") for p in chat_log(rtl, "soc").glob("*.md")]
+        system = [r for r in records if "kind: system" in r]
+        if len(system) != 1:
+            report(f"{label} expected one system record after two refused posts, found {len(system)}.")
+            return 1
+        if "  - owner" not in system[0]:
+            report(f"{label} the system record does not mention owner:\n{system[0]}")
+            return 1
+        owner = chat(rtl, "post", "soc", "Stop and summarize, please.", role="owner")
+        if owner.returncode != 0:
+            report(f"{label} the owner's post was refused: {owner.stderr.strip()}")
+            return 1
+        resumed = chat(rtl, "post", "soc", "Summary: the clock fix is in.")
+        if resumed.returncode != 0:
+            report(f"{label} rtl could not post after the owner did: {resumed.stderr.strip()}")
+            return 1
+
+        write_text(lint / "keel" / "chat.json", json.dumps({"limits": {"rate": 3, "window_minutes": 10}}) + "\n")
+        for index in range(3):
+            within = chat(lint, "post", "soc", f"lint note {index}")
+            if within.returncode != 0:
+                report(f"{label} lint post {index} was refused within the limit: {within.stderr.strip()}")
+                return 1
+        over = chat(lint, "post", "soc", "lint note 3")
+        if over.returncode == 0:
+            report(f"{label} a fourth post within ten minutes was accepted with limits.rate 3.")
+            return 1
+        if "limits.rate" not in over.stderr:
+            report(f"{label} the rate refusal does not name limits.rate: {over.stderr.strip()}")
+            return 1
+        for index in range(4):
+            boss = chat(lint, "post", "soc", f"owner note {index}", role="owner")
+            if boss.returncode != 0:
+                report(f"{label} the owner was rate-limited: {boss.stderr.strip()}")
+                return 1
+
+    if "chat-loop-guards" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-loop-guards scenario passed.")
+    return 0
+
+
+def validate_chat_human_view_scenario() -> int:
+    """Issue #187: a person reads and posts from the terminal and a transcript.
+
+    The owner posts by role; the group view shows local times, mention, reply,
+    and todo markers, and each member's presence; `--since` limits the window;
+    `--follow` prints a message posted from another worktree while it runs;
+    and the per-group Markdown transcript is regenerated after each write.
+    """
+    label = "chat-human-view:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-view-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str, role: str | None = None) -> subprocess.CompletedProcess[str]:
+            extra = {"KEEL_CHAT_ROLE": role} if role else {}
+            return run_keel(cwd, "chat", *args, env={**env, **extra})
+
+        hello = chat(rtl, "soc", "hello from the phone", role="owner")
+        if hello.returncode != 0:
+            report(f"{label} the owner could not post with keel chat soc <text>: {hello.stderr.strip()}")
+            return 1
+        root_id = chat_json(chat(rtl, "post", "soc", "@verify check the clock", "--json")).get("id", "")
+        chat(verify, "post", "soc", "on it", "--reply-to", root_id)
+        chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun the suite")
+        old_id = "20200101T000000000Z-rtl-0c0c0c"
+        old_created = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        write_text(
+            chat_log(rtl, "soc") / f"{old_id}.md",
+            f"---\nid: {old_id}\ngroup: soc\nkind: message\nfrom: rtl\ncreated: {old_created}\n---\n\nback-dated note\n",
+        )
+
+        view = chat(rtl, "soc", "--peek")
+        text = view.stdout
+        for needle, what in (
+            ("owner: hello from the phone", "the owner's message"),
+            ("@verify", "the mention marker"),
+            (f"↳ {root_id}", "the reply marker"),
+            ("[todo → verify", "the todo marker"),
+        ):
+            if needle not in text:
+                report(f"{label} the view lacks {what} ({needle!r}):\n{text}{view.stderr}")
+                return 1
+        if not re.search(r"^\d{4}-\d\d-\d\d \d\d:\d\d rtl", text, re.M):
+            report(f"{label} the view shows no local date and HH:MM before a sender:\n{text}")
+            return 1
+        presence = re.search(r"^Members: (.*)$", text, re.M)
+        if not presence:
+            report(f"{label} the view has no Members presence line:\n{text}")
+            return 1
+        for role in ("rtl", "verify"):
+            if not re.search(rf"{role} \((online|idle|offline)", presence.group(1)):
+                report(f"{label} the presence line gives no state for {role}: {presence.group(1)}")
+                return 1
+
+        recent = chat(rtl, "soc", "--peek", "--since", "1m")
+        if "back-dated note" in recent.stdout:
+            report(f"{label} --since 1m still shows a record from two hours ago.")
+            return 1
+        if "on it" not in recent.stdout:
+            report(f"{label} --since 1m dropped a record from just now:\n{recent.stdout}{recent.stderr}")
+            return 1
+
+        follower = subprocess.Popen(
+            ["node", str(ROOT / "bin" / "keel.js"), "chat", "soc", "--follow", "--peek"],
+            cwd=verify, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        lines_seen: list[str] = []
+        reader = threading.Thread(
+            target=lambda: lines_seen.extend(iter(follower.stdout.readline, "")), daemon=True,
+        )
+        reader.start()
+        try:
+            time.sleep(1.5)
+            chat(rtl, "post", "soc", "followed message")
+            deadline = time.time() + 5
+            while time.time() < deadline and not any("followed message" in line for line in lines_seen):
+                time.sleep(0.2)
+        finally:
+            follower.terminate()
+            follower.wait(timeout=5)
+        seen = "".join(lines_seen)
+        if "followed message" not in seen:
+            report(f"{label} --follow did not print a message posted from another worktree within five seconds: {seen!r}")
+            return 1
+
+        transcript = mailbox_common_dir(rtl) / "keel-chat" / "transcripts" / "soc.md"
+        if not transcript.is_file():
+            report(f"{label} no transcript at {transcript}.")
+            return 1
+        lines = transcript.read_text(encoding="utf-8").splitlines()
+        headings = [line for line in lines if re.match(r"^## \d{4}-\d\d-\d\d$", line)]
+        if not headings or len(headings) != len(set(headings)):
+            report(f"{label} the transcript's day headings are missing or repeated: {headings!r}")
+            return 1
+        for message in ("hello from the phone", "followed message", "on it"):
+            if not any(re.match(rf"^\d\d:\d\d \S+: .*{re.escape(message)}", line) for line in lines):
+                report(f"{label} the transcript has no `HH:MM sender: text` line for {message!r}.")
+                return 1
+
+    if "chat-human-view" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-human-view scenario passed.")
+    return 0
+
+
+def chat_bridge_node_missing(label: str) -> bool:
+    """Whether this Node lacks the WebSocket the bridge needs (Node 22+).
+
+    On the Node 20 floor the bridge scenarios report themselves skipped; the
+    full-gate workflow runs them again on Node 22 in the same job.
+    """
+    probe = subprocess.run(
+        ["node", "-p", "typeof globalThis.WebSocket"], capture_output=True, text=True,
+    )
+    if probe.stdout.strip() == "function":
+        return False
+    report(f"{label} skipped: keel chat bridge needs Node 22 or newer for its built-in WebSocket; this Node has none.")
+    return True
+
+
+def fake_slack_class():
+    """The local Slack stand-in, loaded by path from beside this script.
+
+    `scripts/fake_slack.py` uses the standard library only; it is loaded from
+    its file rather than imported by name, so this validator keeps importing
+    nothing but the standard library.
+    """
+    import importlib.util  # noqa: PLC0415 - only the Slack scenarios need it
+
+    spec = importlib.util.spec_from_file_location("keel_fake_slack", ROOT / "scripts" / "fake_slack.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.FakeSlack
+
+
+def chat_slack_config(repo: Path, channels: dict[str, str], *, enabled: bool = True, **extra: object) -> None:
+    config = {
+        "slack": {
+            "enabled": enabled,
+            "owner": "UOWNER",
+            "members": {"UOWNER": "owner"},
+            "channels": channels,
+            **extra,
+        }
+    }
+    write_text(repo / "keel" / "chat.json", json.dumps(config, indent=2) + "\n")
+
+
+def chat_bridge_environment(env: dict[str, str], home: Path, slack) -> dict[str, str]:
+    return {
+        **env,
+        "KEEL_HOME": str(home),
+        "KEEL_SLACK_API_BASE": slack.api_base,
+        "KEEL_SLACK_BOT_TOKEN": "xoxb-test-bot",
+        "KEEL_SLACK_APP_TOKEN": "xapp-test-app",
+        "KEEL_CHAT_MACHINE": "mac-test",
+    }
+
+
+def slack_payload(call: dict) -> dict:
+    metadata = call["params"].get("metadata") or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    return (metadata or {}).get("event_payload") or {}
+
+
+def validate_chat_bridge_outbound_scenario() -> int:
+    """Issue #187: the bridge posts an opted-in project's records to Slack.
+
+    Runs `keel chat bridge run --once` against a local fake Slack. Each record
+    is posted once, under its role's name, with the exact record in message
+    metadata; replies thread; a mention of the owner becomes a Slack mention;
+    secrets are redacted on the way out and kept locally; long text is cut
+    with a pointer; a 429 is waited out; done, edit, and retract follow their
+    message; a project that did not opt in sends nothing; and a Node without
+    WebSocket is told it needs Node 22.
+    """
+    label = "chat-bridge-outbound:"
+    if chat_bridge_node_missing("chat-bridge-outbound"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-out-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        quiet = mailbox_repository(base / "quiet")
+        run_keel(quiet, "chat", "role", "--set", "rtl", env=env)
+        run_keel(quiet, "chat", "group", "create", "ops", env=env)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        chat_slack_config(quiet, {"ops": "COPS"}, enabled=False)
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=benv)
+
+        for project in (rtl, quiet):
+            added = chat(project, "bridge", "add")
+            if added.returncode != 0:
+                report(f"{label} bridge add failed in {project.name}: {added.stderr.strip()}")
+                return 1
+        chat(quiet, "post", "ops", "not for slack")
+        root_id = chat_json(chat(rtl, "post", "soc", "Clock fix is in", "--json")).get("id", "")
+        reply_id = chat_json(chat(verify, "post", "soc", "@owner done?", "--reply-to", root_id, "--json")).get("id", "")
+        long_id = chat_json(chat(rtl, "post", "soc", "x" * 5000, "--json")).get("id", "")
+        secret_id = chat_json(chat(rtl, "post", "soc", "token is xoxb-123-456-abcdef ok", "--json")).get("id", "")
+        todo_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun", "--json")).get("id", "")
+        chat(verify, "done", todo_id)
+        chat(rtl, "edit", root_id, "Clock fix is in (v2)")
+        gone_id = chat_json(chat(rtl, "post", "soc", "wrong group", "--json")).get("id", "")
+        chat(rtl, "retract", gone_id)
+        slack.rate_limit("chat.postMessage", 1)
+
+        started = time.time()
+        run = chat(rtl, "bridge", "run", "--once")
+        elapsed = time.time() - started
+        if run.returncode != 0:
+            report(f"{label} bridge run --once failed: {run.stderr.strip()} {run.stdout.strip()}")
+            return 1
+
+        posts = slack.calls_to("chat.postMessage")
+        by_id: dict[str, list[dict]] = {}
+        for call in posts:
+            by_id.setdefault(slack_payload(call).get("id", ""), []).append(call)
+        for record_id in (root_id, reply_id, long_id, secret_id, todo_id, gone_id):
+            if len(by_id.get(record_id, [])) != 1:
+                report(f"{label} record {record_id} was posted {len(by_id.get(record_id, []))} times, not once.")
+                return 1
+        root = by_id[root_id][0]
+        if root["params"].get("username") != "rtl":
+            report(f"{label} the post is not under the role's name: username {root['params'].get('username')!r}.")
+            return 1
+        if root["params"].get("channel") != "CSOC":
+            report(f"{label} the post went to {root['params'].get('channel')!r}, not the mapped CSOC.")
+            return 1
+        metadata = root["params"].get("metadata")
+        metadata = json.loads(metadata) if isinstance(metadata, str) else metadata
+        if (metadata or {}).get("event_type") != "keel_chat_record":
+            report(f"{label} the post's metadata is not a keel_chat_record: {metadata!r}")
+            return 1
+        payload = slack_payload(root)
+        if payload.get("from") != "rtl":
+            report(f"{label} the metadata payload does not carry the record's sender: {payload!r}")
+            return 1
+        if payload.get("kind") != "message":
+            report(f"{label} the metadata payload does not carry the record's kind: {payload!r}")
+            return 1
+        root_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == root_id)
+        reply = by_id[reply_id][0]["params"]
+        if reply.get("thread_ts") != root_ts:
+            report(f"{label} the reply's thread_ts is {reply.get('thread_ts')!r}, not the root's {root_ts!r}.")
+            return 1
+        if "<@UOWNER>" not in reply.get("text", ""):
+            report(f"{label} a mention of owner did not become a Slack mention: {reply.get('text')!r}")
+            return 1
+        long_text = by_id[long_id][0]["params"].get("text", "")
+        if len(long_text) > 3200:
+            report(f"{label} a 5,000-character body was sent at {len(long_text)} characters, not cut.")
+            return 1
+        if "keel chat show" not in long_text:
+            report(f"{label} the cut body carries no keel chat show pointer.")
+            return 1
+        secret_text = by_id[secret_id][0]["params"].get("text", "")
+        if "xoxb-123" in secret_text:
+            report(f"{label} a token was sent to Slack: {secret_text!r}")
+            return 1
+        if "[redacted]" not in secret_text:
+            report(f"{label} the redacted text carries no [redacted] marker: {secret_text!r}")
+            return 1
+        if "xoxb-123-456-abcdef" not in (chat_log(rtl, "soc") / f"{secret_id}.md").read_text(encoding="utf-8"):
+            report(f"{label} redaction changed the local record.")
+            return 1
+        if not any(call.get("rate_limited") for call in slack.calls if call["method"] == "chat.postMessage"):
+            report(f"{label} the fake server never answered 429, so the retry was not exercised.")
+            return 1
+        if elapsed < 1.0:
+            report(f"{label} the run finished in {elapsed:.2f}s, before the 1s Retry-After passed.")
+            return 1
+        if any(call["params"].get("channel") == "COPS" for call in slack.calls):
+            report(f"{label} a project without slack.enabled was posted to Slack.")
+            return 1
+        todo_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == todo_id)
+        reactions = slack.calls_to("reactions.add")
+        if not any(c["params"].get("timestamp") == todo_ts and c["params"].get("name") == "white_check_mark" for c in reactions):
+            report(f"{label} the done todo did not get a ✅ reaction: {reactions!r}")
+            return 1
+        updates = slack.calls_to("chat.update")
+        if not any(c["params"].get("ts") == root_ts and "v2" in c["params"].get("text", "") for c in updates):
+            report(f"{label} the edit did not call chat.update on the root: {updates!r}")
+            return 1
+        gone_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == gone_id)
+        if not any(c["params"].get("ts") == gone_ts for c in slack.calls_to("chat.delete")):
+            report(f"{label} the retraction did not call chat.delete.")
+            return 1
+
+        before = len(slack.calls_to("chat.postMessage"))
+        again = chat(rtl, "bridge", "run", "--once")
+        if again.returncode != 0:
+            report(f"{label} a second bridge run failed: {again.stderr.strip()}")
+            return 1
+        if len(slack.calls_to("chat.postMessage")) != before:
+            report(f"{label} a second run posted records again.")
+            return 1
+
+        no_ws = base / "no-websocket.js"
+        write_text(no_ws, "delete globalThis.WebSocket;\n")
+        old_node = run_keel(rtl, "chat", "bridge", "run", "--once", env={**benv, "NODE_OPTIONS": f"--require {no_ws}"})
+        if old_node.returncode == 0:
+            report(f"{label} bridge run started without a WebSocket implementation.")
+            return 1
+        if "Node 22" not in old_node.stderr:
+            report(f"{label} the missing-WebSocket refusal does not name Node 22: {old_node.stderr.strip()}")
+            return 1
+
+    if "chat-bridge-outbound" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-outbound scenario passed.")
+    return 0
+
+
+def chat_records_with(repo: Path, group: str, needle: str) -> list[str]:
+    """Record files in `group` whose text contains `needle`."""
+    log = chat_log(repo, group)
+    if not log.is_dir():
+        return []
+    return [p.read_text(encoding="utf-8") for p in sorted(log.glob("*.md")) if needle in p.read_text(encoding="utf-8")]
+
+
+def start_chat_bridge(cwd: Path, env: dict[str, str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        ["node", str(ROOT / "bin" / "keel.js"), "chat", "bridge", "run"],
+        cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+def stop_chat_bridge(process: subprocess.Popen) -> str:
+    process.terminate()
+    try:
+        _, stderr = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _, stderr = process.communicate()
+    return stderr or ""
+
+
+def slack_event(channel: str, **fields: object) -> dict:
+    return {"type": "event_callback", "event": {"type": "message", "channel": channel, **fields}}
+
+
+def validate_chat_bridge_inbound_scenario() -> int:
+    """Issue #187: what arrives from Slack, and only that, reaches the store.
+
+    A running `keel chat bridge run` against the fake server: a registered
+    person's message is imported and wakes the session it mentions; a
+    stranger's is ignored and counted; another machine's post is rebuilt from
+    its metadata exactly once, fetching metadata the event lacked; this
+    bridge's own post is not re-imported; threads, edits, deletions, ✅, and
+    files map onto records; two projects sharing a channel both get a post;
+    and what was missed while stopped is caught up once.
+    """
+    label = "chat-bridge-inbound:"
+    if chat_bridge_node_missing("chat-bridge-inbound"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-in-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        shared = []
+        for name in ("a", "b"):
+            repo = mailbox_repository(base / name)
+            run_keel(repo, "chat", "role", "--set", "rtl", env=env)
+            run_keel(repo, "chat", "group", "create", "ops", env=env)
+            chat_slack_config(repo, {"ops": "COPS"})
+            shared.append(repo)
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=benv)
+
+        for project in (rtl, *shared):
+            chat(project, "bridge", "add")
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "verify"
+        envelopes: list[str] = []
+
+        def push(payload: dict, kind: str = "events_api") -> None:
+            envelopes.append(slack.push(payload, kind))
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge never opened a Socket Mode connection: {stop_chat_bridge(bridge).strip()}")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="@verify rerun please", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "@verify rerun please")):
+                report(f"{label} the registered owner's message was not imported.")
+                return 1
+            owner_record = chat_records_with(rtl, "soc", "@verify rerun please")[0]
+            if "from: owner" not in owner_record:
+                report(f"{label} the owner's message was not imported as role owner:\n{owner_record}")
+                return 1
+            if "  - verify" not in owner_record:
+                report(f"{label} the owner's @verify did not become a mention:\n{owner_record}")
+                return 1
+            if not signal.exists() or not signal.stat().st_size:
+                report(f"{label} the owner's mention did not touch verify's signal file.")
+                return 1
+
+            size = signal.stat().st_size
+            push(slack_event("CSOC", user="USTRANGER", text="@verify delete everything", ts="1800000002.000100"))
+            if not slack.wait_for(lambda: chat_json(chat(rtl, "bridge", "status", "--json")).get("ignored") == 1):
+                report(f"{label} bridge status does not count the stranger's message: {chat(rtl, 'bridge', 'status', '--json').stdout.strip()}")
+                return 1
+            if chat_records_with(rtl, "soc", "delete everything"):
+                report(f"{label} an unregistered user's message reached the store.")
+                return 1
+            if signal.stat().st_size != size:
+                report(f"{label} an unregistered user's message touched a signal file.")
+                return 1
+
+            remote_id = "20261001T080000000Z-codex-maint-abcdef"
+            remote = {
+                "subtype": "bot_message", "bot_id": "BOTHER", "username": "codex-maint",
+                "text": "from codex", "ts": "1800000003.000100",
+                "metadata": {"event_type": "keel_chat_record", "event_payload": {
+                    "project": "rtl", "id": remote_id, "kind": "message", "from": "codex-maint",
+                    "group": "soc", "mentions": ["verify"]}},
+            }
+            push(slack_event("CSOC", **remote))
+            remote_file = chat_log(rtl, "soc") / f"{remote_id}.md"
+            if not slack.wait_for(remote_file.is_file):
+                report(f"{label} another machine's post was not rebuilt under its record id.")
+                return 1
+            rebuilt = remote_file.read_text(encoding="utf-8")
+            if "from: codex-maint" not in rebuilt:
+                report(f"{label} the rebuilt record lost its sender:\n{rebuilt}")
+                return 1
+            if "  - verify" not in rebuilt:
+                report(f"{label} the rebuilt record lost its mentions:\n{rebuilt}")
+                return 1
+            push(slack_event("CSOC", **remote))
+            time.sleep(1.0)
+            if len(chat_records_with(rtl, "soc", "from codex")) != 1:
+                report(f"{label} a repeated event imported the same record twice.")
+                return 1
+
+            bare_id = "20261001T080100000Z-codex-maint-fedcba"
+            stored = slack.add_history("CSOC", {
+                "subtype": "bot_message", "bot_id": "BOTHER", "username": "codex-maint", "text": "metadata later",
+                "metadata": {"event_type": "keel_chat_record", "event_payload": {
+                    "project": "rtl", "id": bare_id, "kind": "message", "from": "codex-maint", "group": "soc"}},
+            })
+            push(slack_event("CSOC", subtype="bot_message", bot_id="BOTHER", username="codex-maint", text="metadata later", ts=stored["ts"]))
+            if not slack.wait_for((chat_log(rtl, "soc") / f"{bare_id}.md").is_file):
+                report(f"{label} a bot message without metadata in its event was not resolved through history.")
+                return 1
+            if not any(str(c["params"].get("include_all_metadata")).lower() in ("1", "true") for c in slack.calls_to("conversations.history")):
+                report(f"{label} metadata was not fetched with include_all_metadata.")
+                return 1
+
+            echo_id = chat_json(chat(rtl, "post", "soc", "local echo", "--json")).get("id", "")
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == echo_id for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the running bridge did not post a new local record.")
+                return 1
+            echo = next(m for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == echo_id)
+            push(slack_event("CSOC", subtype="bot_message", bot_id="BBOT", username="rtl", text="local echo", ts=echo["ts"], metadata=echo["metadata"]))
+            time.sleep(1.0)
+            if len(chat_records_with(rtl, "soc", "local echo")) != 1:
+                report(f"{label} this bridge's own post was imported back into its project.")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="noted", ts="1800000010.000100", thread_ts=echo["ts"]))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "noted")):
+                report(f"{label} the owner's thread reply was not imported.")
+                return 1
+            if f"reply_to: {echo_id}" not in chat_records_with(rtl, "soc", "noted")[0]:
+                report(f"{label} the thread reply does not point at its root {echo_id}.")
+                return 1
+
+            push(slack_event("CSOC", subtype="message_changed", message={"user": "UOWNER", "text": "@verify rerun now", "ts": "1800000001.000100"}, previous_message={"user": "UOWNER", "ts": "1800000001.000100"}))
+            if not slack.wait_for(lambda: any("kind: edit" in r for r in chat_records_with(rtl, "soc", "rerun now"))):
+                report(f"{label} a Slack edit did not become an edit record.")
+                return 1
+            push(slack_event("CSOC", subtype="message_deleted", deleted_ts="1800000010.000100", previous_message={"user": "UOWNER", "ts": "1800000010.000100"}))
+            if not slack.wait_for(lambda: any("kind: retract" in p.read_text(encoding="utf-8") for p in chat_log(rtl, "soc").glob("*.md"))):
+                report(f"{label} a Slack deletion did not become a retract record.")
+                return 1
+
+            todo_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun", "--json")).get("id", "")
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == todo_id for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the todo was not posted.")
+                return 1
+            todo_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == todo_id)
+            push({"type": "event_callback", "event": {"type": "reaction_added", "user": "UOWNER", "reaction": "white_check_mark", "item": {"type": "message", "channel": "CSOC", "ts": todo_ts}}})
+            if not slack.wait_for(lambda: todo_id not in [t.get("id") for t in chat_json(chat(rtl, "todos", "--json")).get("todos", [])]):
+                report(f"{label} a ✅ from a registered user did not close the todo.")
+                return 1
+
+            push(slack_event("CSOC", user="UOWNER", text="waveform", ts="1800000020.000100", files=[{"name": "wave.vcd", "permalink": "https://files.example/wave.vcd"}]))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "https://files.example/wave.vcd")):
+                report(f"{label} a shared file did not become a link line.")
+                return 1
+
+            a, b = shared
+            ops_id = chat_json(chat(a, "post", "ops", "shared hello", "--json")).get("id", "")
+            if not slack.wait_for(lambda: chat_records_with(b, "ops", "shared hello")):
+                report(f"{label} project b did not receive project a's post in the shared channel.")
+                return 1
+            ops_posts = [c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == ops_id]
+            if len(ops_posts) != 1:
+                report(f"{label} the shared-channel post was sent {len(ops_posts)} times, not once.")
+                return 1
+            if ops_posts[0]["params"].get("username") != "a/rtl":
+                report(f"{label} the shared-channel post is not under a/rtl: {ops_posts[0]['params'].get('username')!r}")
+                return 1
+            if "from: a/rtl" not in chat_records_with(b, "ops", "shared hello")[0]:
+                report(f"{label} project b's copy is not from a/rtl.")
+                return 1
+
+            missing = [e for e in envelopes if e not in slack.acks]
+            if missing:
+                report(f"{label} envelopes were not acknowledged: {missing!r}")
+                return 1
+        finally:
+            log = stop_chat_bridge(bridge)
+
+        slack.add_history("CSOC", {"user": "UOWNER", "text": "while you were away"})
+        for _ in range(2):
+            bridge = start_chat_bridge(rtl, benv)
+            try:
+                slack.wait_for(lambda: chat_records_with(rtl, "soc", "while you were away"), 10)
+                time.sleep(1.0)
+            finally:
+                log = stop_chat_bridge(bridge)
+        caught = chat_records_with(rtl, "soc", "while you were away")
+        if len(caught) != 1:
+            report(f"{label} a message sent while the bridge was down was imported {len(caught)} times, not once: {log.strip()}")
+            return 1
+
+    if "chat-bridge-inbound" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-inbound scenario passed.")
+    return 0
+
+
+def validate_chat_bridge_lifecycle_scenario() -> int:
+    """Issue #187: the bridge runs unattended but stays visible and controllable.
+
+    Tokens come from the environment or the Keychain and land in no file;
+    `install` and `uninstall` drive launchctl for a user LaunchAgent; `pause`
+    queues and then delivers; the bridge reconnects after a refresh request
+    or a dropped socket, announces itself online and stopped, exits for a
+    restart when Keel's version changes, reports its state through `status`,
+    and a session in a Slack-enabled project is told when it is not running.
+    The system boundary — `launchctl`, `security`, and the LaunchAgents
+    directory — is replaced by test doubles; nothing touches the real ones.
+    """
+    import plistlib  # noqa: PLC0415 - only this scenario reads a plist
+
+    label = "chat-bridge-lifecycle:"
+    if chat_bridge_node_missing("chat-bridge-lifecycle"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-life-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        home = base / "home"
+        benv = chat_bridge_environment(env, home, slack)
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+
+        empty_security = base / "security-empty"
+        write_text(empty_security, "#!/bin/sh\nexit 44\n")
+        empty_security.chmod(0o755)
+        keychain = base / "security-keychain"
+        write_text(
+            keychain,
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  *"-a app"*) echo xapp-from-keychain-0000 ;;\n'
+            '  *"-a bot"*) echo xoxb-from-keychain-0000 ;;\n'
+            "  *) exit 44 ;;\n"
+            "esac\n",
+        )
+        keychain.chmod(0o755)
+        no_tokens = {k: v for k, v in benv.items() if k not in ("KEEL_SLACK_BOT_TOKEN", "KEEL_SLACK_APP_TOKEN")}
+
+        missing = run_keel(rtl, "chat", "bridge", "run", env={**no_tokens, "KEEL_CHAT_SECURITY": str(empty_security)})
+        if missing.returncode == 0:
+            report(f"{label} bridge run started with no token anywhere.")
+            return 1
+        for needle in ("KEEL_SLACK_APP_TOKEN", "keel-chat-slack"):
+            if needle not in missing.stderr:
+                report(f"{label} the missing-token refusal does not name {needle}: {missing.stderr.strip()}")
+                return 1
+
+        session = subprocess.run(
+            ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
+            cwd=rtl, env={**benv, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
+            text=True, capture_output=True, check=False,
+            input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(rtl)}),
+        )
+        context = chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+        if "bridge" not in context or "not running" not in context:
+            report(f"{label} a session in a Slack-enabled project is not told the bridge is not running: {session.stdout.strip()} {session.stderr.strip()}")
+            return 1
+
+        keyed_env = {**no_tokens, "KEEL_CHAT_SECURITY": str(keychain)}
+        bridge = start_chat_bridge(rtl, keyed_env)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge did not connect with Keychain tokens: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            if not any("Bearer xapp-from-keychain-0000" == c["params"].get("_auth") for c in slack.calls_to("apps.connections.open")):
+                report(f"{label} the Socket Mode connection did not use the Keychain app token.")
+                return 1
+            if not slack.wait_for(lambda: any("bridge online" in c["params"].get("text", "") for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the bridge did not announce itself online.")
+                return 1
+
+            status = chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=keyed_env))
+            for key in ("connected", "projects", "last_event", "ignored", "unposted", "installed", "paused"):
+                if key not in status:
+                    report(f"{label} bridge status --json lacks {key!r}: {status!r}")
+                    return 1
+            if status.get("connected") is not True:
+                report(f"{label} bridge status does not report the connection: {status!r}")
+                return 1
+
+            opened = slack.connections_opened
+            slack.push_raw({"type": "disconnect", "reason": "refresh_requested"})
+            if not slack.wait_for(lambda: slack.connections_opened > opened and slack.sockets, 10):
+                report(f"{label} the bridge did not reconnect after refresh_requested.")
+                return 1
+            opened = slack.connections_opened
+            slack.drop_connections()
+            if not slack.wait_for(lambda: slack.connections_opened > opened and slack.sockets, 15):
+                report(f"{label} the bridge did not reconnect after the socket dropped.")
+                return 1
+
+            paused = run_keel(rtl, "chat", "bridge", "pause", "3s", env=keyed_env)
+            if paused.returncode != 0:
+                report(f"{label} bridge pause failed: {paused.stderr.strip()}")
+                return 1
+            time.sleep(1.5)
+            held_id = chat_json(run_keel(rtl, "chat", "post", "soc", "held during pause", "--json", env=keyed_env)).get("id", "")
+            time.sleep(1.0)
+            if any(slack_payload(c).get("id") == held_id for c in slack.calls_to("chat.postMessage")):
+                report(f"{label} a record was sent while the bridge was paused.")
+                return 1
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == held_id for c in slack.calls_to("chat.postMessage")), 10):
+                report(f"{label} the record held during the pause was not sent after it.")
+                return 1
+            if len([c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == held_id]) != 1:
+                report(f"{label} the held record was sent more than once.")
+                return 1
+        finally:
+            log = stop_chat_bridge(bridge)
+        if not any("bridge stopped" in c["params"].get("text", "") for c in slack.calls_to("chat.postMessage")):
+            report(f"{label} the bridge did not announce a clean stop: {log.strip()}")
+            return 1
+        tokens = ("xoxb-from-keychain-0000", "xapp-from-keychain-0000")
+        for root in (home, mailbox_common_dir(rtl) / "keel-chat"):
+            for path in root.rglob("*"):
+                if path.is_file() and any(token in path.read_text(encoding="utf-8", errors="replace") for token in tokens):
+                    report(f"{label} a Slack token was written to {path}.")
+                    return 1
+
+        tree = base / "keel-copy"
+        for part in ("bin", "src", "scripts"):
+            shutil.copytree(ROOT / part, tree / part)
+        shutil.copy(ROOT / "package.json", tree / "package.json")
+        copied = subprocess.Popen(
+            ["node", str(tree / "bin" / "keel.js"), "chat", "bridge", "run"],
+            cwd=rtl, env=benv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            slack.wait_for(lambda: slack.sockets, 10)
+            manifest = json.loads((tree / "package.json").read_text(encoding="utf-8"))
+            manifest["version"] = "99.0.0"
+            write_text(tree / "package.json", json.dumps(manifest, indent=2) + "\n")
+            copied.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            copied.kill()
+            report(f"{label} the bridge kept running after Keel's version changed.")
+            return 1
+        restart_log = copied.stderr.read() if copied.stderr else ""
+        if "99.0.0" not in restart_log:
+            report(f"{label} the version-change exit does not name the new version: {restart_log.strip()}")
+            return 1
+
+        agents = base / "LaunchAgents"
+        calls = base / "launchctl.log"
+        launchctl = base / "launchctl"
+        write_text(launchctl, f'#!/bin/sh\necho "$@" >> "{calls}"\nexit 0\n')
+        launchctl.chmod(0o755)
+        lenv = {**benv, "KEEL_CHAT_LAUNCHCTL": str(launchctl), "KEEL_CHAT_LAUNCH_AGENTS_DIR": str(agents)}
+        installed = run_keel(rtl, "chat", "bridge", "install", env=lenv)
+        if installed.returncode != 0:
+            report(f"{label} bridge install failed: {installed.stderr.strip()}")
+            return 1
+        plists = list(agents.glob("*.plist"))
+        if len(plists) != 1:
+            report(f"{label} install wrote {len(plists)} plists, not one.")
+            return 1
+        plist = plistlib.loads(plists[0].read_bytes())
+        if plist.get("RunAtLoad") is not True:
+            report(f"{label} the LaunchAgent does not start at login: {plist!r}")
+            return 1
+        if plist.get("KeepAlive") is not True:
+            report(f"{label} the LaunchAgent is not kept alive: {plist!r}")
+            return 1
+        if " ".join(plist.get("ProgramArguments", [])[-3:]) != "chat bridge run":
+            report(f"{label} the LaunchAgent does not run `chat bridge run`: {plist.get('ProgramArguments')!r}")
+            return 1
+        if any(token in plists[0].read_text(encoding="utf-8") for token in ("xoxb-", "xapp-")):
+            report(f"{label} the LaunchAgent carries a Slack token.")
+            return 1
+        if "bootstrap" not in calls.read_text(encoding="utf-8"):
+            report(f"{label} install did not ask launchctl to bootstrap the agent: {calls.read_text(encoding='utf-8')!r}")
+            return 1
+        if chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=lenv)).get("installed") is not True:
+            report(f"{label} bridge status does not report the installed agent.")
+            return 1
+        removed = run_keel(rtl, "chat", "bridge", "uninstall", env=lenv)
+        if removed.returncode != 0:
+            report(f"{label} bridge uninstall failed: {removed.stderr.strip()}")
+            return 1
+        if "bootout" not in calls.read_text(encoding="utf-8"):
+            report(f"{label} uninstall did not ask launchctl to boot the agent out.")
+            return 1
+        if list(agents.glob("*.plist")):
+            report(f"{label} uninstall left the plist behind.")
+            return 1
+
+    if "chat-bridge-lifecycle" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-lifecycle scenario passed.")
+    return 0
+
+
+def validate_chat_archive_scenario() -> int:
+    """Issue #187: chat history is archived to an orphan branch, never exposed.
+
+    `keel chat archive sync` commits the shared layer of the store to
+    `refs/heads/keel-chat` with plumbing, leaving the worktree and index as
+    they were; refuses to push a repository reported public unless the
+    project declared a remote or accepted publication; merges another clone's
+    records by union; and `archive pull` restores history in a fresh clone.
+    """
+    label = "chat-archive:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-archive-") as raw:
+        base = Path(raw)
+        remote = base / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True, capture_output=True)
+        rtl, verify, env = chat_scratch_group(base)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-q", "origin", "main"], cwd=rtl, check=True, capture_output=True)
+        gh = base / "gh"
+        write_text(gh, "#!/bin/sh\necho PUBLIC\n")
+        gh.chmod(0o755)
+        aenv = {**env, "KEEL_CHAT_GH": str(gh)}
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=aenv)
+
+        def remote_has_branch() -> bool:
+            listed = subprocess.run(["git", "ls-remote", str(remote), "refs/heads/keel-chat"], capture_output=True, text=True)
+            return bool(listed.stdout.strip())
+
+        def branch_files(repo: Path) -> list[str]:
+            listed = subprocess.run(["git", "ls-tree", "-r", "--name-only", "refs/heads/keel-chat"], cwd=repo, capture_output=True, text=True)
+            return listed.stdout.split()
+
+        chat(rtl, "post", "soc", "first archived message")
+        chat(verify, "post", "soc", "second archived message")
+        write_text(rtl / "scratch.txt", "untracked work in progress\n")
+        write_text(rtl / "keel" / "chat.json", json.dumps({"slack": {"enabled": True, "channels": {}}}) + "\n")
+        before = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        index_before = (mailbox_common_dir(rtl) / "index").read_bytes()
+
+        refused = chat(rtl, "archive", "sync")
+        if refused.returncode != 0:
+            report(f"{label} archive sync failed: {refused.stderr.strip()}")
+            return 1
+        files = branch_files(rtl)
+        logs = [f for f in files if f.startswith("groups/soc/log/") and f.endswith(".md")]
+        if len(logs) < 2:
+            report(f"{label} refs/heads/keel-chat does not hold the group's records: {files!r}")
+            return 1
+        local_only = [f for f in files if f == "roles.json" or f.split("/")[0] in ("signal", "bridge", "transcripts", ".tmp")]
+        if local_only:
+            report(f"{label} the archive carries local-only files: {local_only!r}")
+            return 1
+        after = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        if after != before:
+            report(f"{label} archive sync changed the worktree status:\nbefore {before!r}\nafter {after!r}")
+            return 1
+        if (mailbox_common_dir(rtl) / "index").read_bytes() != index_before:
+            report(f"{label} archive sync changed the index.")
+            return 1
+        if remote_has_branch():
+            report(f"{label} a repository reported public was pushed with no declaration.")
+            return 1
+        for needle in ("archive_public", "archive.remote"):
+            if needle not in refused.stdout + refused.stderr:
+                report(f"{label} the refused push does not name {needle}: {(refused.stdout + refused.stderr).strip()}")
+                return 1
+
+        write_text(rtl / "keel" / "chat.json", json.dumps({"slack": {"enabled": True, "channels": {}}, "archive": {"remote": "origin"}}) + "\n")
+        pushed = chat(rtl, "archive", "sync")
+        if pushed.returncode != 0:
+            report(f"{label} archive sync with archive.remote failed: {pushed.stderr.strip()}")
+            return 1
+        if not remote_has_branch():
+            report(f"{label} archive.remote was declared and nothing was pushed: {(pushed.stdout + pushed.stderr).strip()}")
+            return 1
+
+        clone = base / "clone"
+        subprocess.run(["git", "clone", "-q", str(remote), str(clone)], check=True, capture_output=True)
+        run_keel(clone, "chat", "role", "--set", "verify", env=aenv)
+        pulled = chat(clone, "archive", "pull")
+        if pulled.returncode != 0:
+            report(f"{label} archive pull failed in a fresh clone: {pulled.stderr.strip()}")
+            return 1
+        restored = chat(clone, "soc", "--peek")
+        if "first archived message" not in restored.stdout:
+            report(f"{label} a fresh clone does not show the archived history after pull: {restored.stdout.strip()} {restored.stderr.strip()}")
+            return 1
+
+        write_text(clone / "keel" / "chat.json", json.dumps({"archive": {"remote": "origin"}}) + "\n")
+        clone_id = chat_json(chat(clone, "post", "soc", "from the second machine", "--json")).get("id", "")
+        if chat(clone, "archive", "sync").returncode != 0:
+            report(f"{label} archive sync failed in the second clone.")
+            return 1
+        third = chat_json(chat(rtl, "post", "soc", "third from the first machine", "--json")).get("id", "")
+        merged = chat(rtl, "archive", "sync")
+        if merged.returncode != 0:
+            report(f"{label} archive sync failed when merging the second clone's history: {merged.stderr.strip()}")
+            return 1
+        files = branch_files(rtl)
+        for record_id, where in ((clone_id, "the second clone"), (third, "the first clone")):
+            if f"groups/soc/log/{record_id}.md" not in files:
+                report(f"{label} the merged archive lacks the record from {where}.")
+                return 1
+        if "from the second machine" not in chat(rtl, "soc", "--peek").stdout:
+            report(f"{label} the first clone's store did not gain the second clone's record on sync.")
+            return 1
+
+    if "chat-archive" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-archive scenario passed.")
     return 0
 
 
@@ -15679,8 +16923,9 @@ def validate_native_plugin_manifests_scenario() -> int:
             "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/",
         )
     )
-    # Plus the Claude-only mailbox hooks (#180). They stay out of hooks.json,
-    # which Codex loads too: FileChanged and `asyncRewake` are Claude Code's.
+    # Plus the Claude-only chat hooks (#180, #187). They stay out of
+    # hooks.json, which Codex loads too: FileChanged, `asyncRewake`, and the
+    # SessionEnd presence hook are Claude Code's.
     def mail_hook(event: str, **extra: object) -> dict:
         return {
             "type": "command",
@@ -15701,11 +16946,12 @@ def validate_native_plugin_manifests_scenario() -> int:
     expected_hooks["FileChanged"] = [
         {"hooks": [mail_hook("file-changed", asyncRewake=True)]}
     ]
+    expected_hooks["SessionEnd"] = [{"hooks": [mail_hook("session-end")]}]
     if root_manifest.get("hooks") != expected_hooks:
         report(
             "native-plugin-manifests root plugin manifest hooks diverge "
             f"from {PLUGIN_ROOT}/hooks/hooks.json after resolving script paths "
-            "from the repository root, plus the Claude-only mailbox hooks: "
+            "from the repository root, plus the Claude-only chat hooks: "
             f"{root_manifest.get('hooks')!r}"
         )
         return 1
@@ -32421,13 +33667,55 @@ SCENARIOS: tuple = (
         validate_decisions_are_selectable_scenario,
     ),
     (
-        "mailbox-cli",
-        validate_mailbox_cli_scenario,
+        "chat-core",
+        validate_chat_core_scenario,
     ),
     ("codex-receiving", validate_codex_receiving_scenario),
     (
+        "chat-records",
+        validate_chat_records_scenario,
+    ),
+    # The 5.83 names (#180), kept as aliases of the scenarios that replaced
+    # them (#187), because open changes still name them in their checks.
+    (
+        "mailbox-cli",
+        validate_chat_mail_migration_scenario,
+    ),
+    (
         "mailbox-claude-hooks",
-        validate_mailbox_claude_hooks_scenario,
+        validate_chat_claude_hooks_scenario,
+    ),
+    (
+        "chat-mail-migration",
+        validate_chat_mail_migration_scenario,
+    ),
+    (
+        "chat-claude-hooks",
+        validate_chat_claude_hooks_scenario,
+    ),
+    (
+        "chat-loop-guards",
+        validate_chat_loop_guards_scenario,
+    ),
+    (
+        "chat-human-view",
+        validate_chat_human_view_scenario,
+    ),
+    (
+        "chat-bridge-outbound",
+        validate_chat_bridge_outbound_scenario,
+    ),
+    (
+        "chat-bridge-inbound",
+        validate_chat_bridge_inbound_scenario,
+    ),
+    (
+        "chat-bridge-lifecycle",
+        validate_chat_bridge_lifecycle_scenario,
+    ),
+    (
+        "chat-archive",
+        validate_chat_archive_scenario,
     ),
     (
         "record-derives-skeleton",
