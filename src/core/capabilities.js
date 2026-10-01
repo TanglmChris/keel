@@ -23,9 +23,9 @@ const CAPABILITY_COMMANDS = {
   "execution.worktree":
     "keel project --target <target> --event worktree --expected-owner <owner> --json",
   "delegation.context":
-    "keel project --target <target> --event subagent-start --authorize subagent --json",
+    "keel project --target <target> --event subagent-start --json",
   "delegation.return":
-    "keel project --target <target> --event subagent-stop --authorize subagent --json",
+    "keel project --target <target> --event subagent-stop --json",
 };
 
 const SUPPORTED_TARGETS = new Set(["claude", "codex", "opencode"]);

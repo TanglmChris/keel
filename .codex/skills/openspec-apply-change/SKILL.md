@@ -169,18 +169,18 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 ### Target-native subagent gate
 
 - The current agent remains responsible for Keel ownership, task/archive decisions, scope control, and final reporting.
-- Use a target-native subagent when the current agent decides it is useful for a bounded helper step, or as a delegate implementing the selected task where `delegation:` is declared in `keel/config.yaml` and a guard manifest is active.
+- Use a target-native subagent when the current agent decides it is useful for a bounded helper step, or as a delegate implementing the selected task using existing task write authority when a guard manifest is active and matches the task, fingerprint and Touch; optional `delegation:` tiers are metadata.
 - Target-native subagents acting as helpers return report/evidence only. A delegate may write, and only inside `Touch`; its reported command results are a claim, and the current agent re-runs each `M<n>` check itself before recording Evidence.
 - Delegation is refused with no active guard manifest, because an absent manifest passes every write through silently and looks identical to a checked one.
 - Neither may mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance; the current agent reviews all output before acting.
-- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions. Compile it with `keel project --event subagent-start --authorize subagent`; Keel adds no separate carrier because the host already has one.
+- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions. Compile it with `keel project --event subagent-start` for a read-only helper or add `--subagent-mode implementation` for a guarded delegate; no extra user activation is required. Host policy remains authoritative; Keel adds no separate carrier because the host already has one.
 - Prohibited actions include scope expansion, Acceptance changes, completion marking, sync/archive decisions, commits, handoff changes, and cross-runtime delegation unless the selected task or user explicitly authorizes them.
 - The current agent remains the Keel task owner and selects one unchecked task or a small contiguous task group from `tasks.md`.
 - Run the Task Authoring Gate: each relevant critical expectation must be covered by a slice, deferred to a durable owner, or explicitly discarded.
 - Run the Slice Start Gate: selected current slices must name source expectations and include Read, Touch, Acceptance, Commands, and Stop/Autonomy boundaries before implementation.
 - Rough future slices may remain drafts, but cannot be selected for implementation or marked complete.
 - Obey the selected task contract: Read is required starting context, Touch is the write boundary, Commands prove Acceptance, and the Autonomy boundary controls fallback decisions.
-- A target-native helper returns report/evidence only, and a declared delegate may write inside `Touch`; both cannot mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance.
+- A target-native helper returns report/evidence only, and a model-chosen guarded delegate may write inside `Touch`; both cannot mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance.
 - The current agent reviews all subagent output, command evidence, and diffs before marking any task complete.
 - When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.
 - A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.

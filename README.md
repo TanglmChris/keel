@@ -137,6 +137,15 @@ successful update, Keel restores its overlays for every target installed in the
 repository. `keel --doctor` also reports overlay health for the other installed
 targets, so healthy Claude coverage cannot hide missing Codex overlays.
 
+Subagent use is the model's execution choice, subject to the host's policy.
+`keel project --event subagent-start --change <change> --task <id>` produces a
+read-only helper brief without extra activation. Add `--subagent-mode implementation`
+for a delegate inside the task's Touch boundary; it requires an implementation
+task and a matching active guard, while `delegation.tier` is optional metadata.
+The current agent reviews returns, re-runs verification, and owns completion.
+This CLI projects a brief; it does not spawn an agent or prove hook enforcement.
+Native goal activation still requires explicit authorization.
+
 Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`,
 `/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
 

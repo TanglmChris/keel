@@ -3,9 +3,9 @@
      defaults: Owner is the current Keel agent, Mode is implementation, Read
      is the change proposal/design/specs/tasks plus discovered repository
      context, Acceptance derives from Covers, Coupling defaults to none,
-     helpers stay read-only/evidence-only, and delegation defaults to none —
-     declare `Delegation: <tier>` only to override what `keel/config.yaml`
-     supplies. Autonomy defaults to hard-stop, and
+     helpers stay read-only/evidence-only; model-chosen implementation delegates
+     need task write authority and a matching active guard. `Delegation: <tier>`
+     optionally overrides capability metadata from `keel/config.yaml`. Autonomy defaults to hard-stop, and
      commit, push, sync, archive, and cross-task continuation stay unauthorized,
      EXCEPT where `keel/config.yaml` standing-authorizes an action: a task that
      authors no `Autonomy boundary:` inherits that declaration, and the capsule

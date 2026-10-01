@@ -1436,7 +1436,7 @@ function compileTaskContract(repo, change, task) {
   if (!autonomy.some((item) => /^Pre-authorized fallback:/i.test(item))) {
     autonomy.push("Pre-authorized fallback: none");
   }
-  // Who runs this task, resolved exactly as the autonomy boundary above is: the
+  // Optional capability metadata, resolved as the autonomy boundary above is: the
   // task keeps whatever it authored, the repository declaration supplies only
   // what the task left silent, and the entry names its source. A declaration
   // that could overwrite an authored tier would make the capsule unreadable on
@@ -1554,8 +1554,8 @@ function compileTaskContract(repo, change, task) {
     // change the compiled capsule for every task everywhere, moving every
     // recorded anchor and drifting every live change in every consumer repo on
     // upgrade — for repositories that declared nothing and asked for nothing.
-    // Omission keeps this release's invariant: no behavior change without a
-    // declaration. A repository that does declare gets a different capsule,
+    // Omission preserves existing anchors without inventing a tier.
+    // A repository that does declare gets a different capsule,
     // which is honest, because its execution genuinely differs.
     ...(delegation.tier ? { delegation } : {}),
     prohibitions: [

@@ -147,3 +147,11 @@ Keel MUST remain usable when a native goal capability is absent, disabled, untru
 - **WHEN** capability probing cannot safely activate the target goal surface
 - **THEN** Keel reports `advisory` with an exact user command or `manual` with the current-agent loop
 - **AND THEN** it does not install a scheduler, global Stop hook, or hidden background process
+
+### Requirement: Ordinary helper choice does not activate a native goal
+
+Keel MUST require explicit activation for native goals while ordinary bounded helper use is independent of this skill trigger.
+
+#### Scenario: Ordinary help does not activate a goal
+- **WHEN** the model chooses a helper in ordinary authorized work
+- **THEN** no native goal is created by that choice

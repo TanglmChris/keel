@@ -11,7 +11,7 @@ metadata:
 
 ## Purpose
 
-Activate a native goal or subagent runtime to execute exactly one authorized OpenSpec task end to end, while OpenSpec, Git, the task-capsule fingerprint, and deterministic Keel gates stay the only durable authority. The current agent remains the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. Where delegation is declared, an authorized delegate may write inside the `Touch` boundary that authority already defined and acquires none of those decisions; the current agent re-runs each `M<n>` check itself before recording Evidence, because a delegate's reported result is a claim and the byte-identity check that validates a read-only helper cannot apply to a writer. A native evaluator declaring success never marks or reports the task complete.
+Activate a native goal runtime to execute exactly one authorized OpenSpec task end to end, while OpenSpec, Git, the task-capsule fingerprint, and deterministic Keel gates stay the only durable authority. The current agent remains the sole holder of write authority and owns Review, gate invocation, the task checkbox, and completion. A model-chosen implementation delegate with a matching active guard may write inside the `Touch` boundary that authority already defined and acquires none of those decisions; the current agent re-runs each `M<n>` check itself before recording Evidence, because a delegate's reported result is a claim and the byte-identity check that validates a read-only helper cannot apply to a writer. A native evaluator declaring success never marks or reports the task complete.
 
 ## Guidance
 
@@ -34,7 +34,7 @@ Activate only on an explicit, unambiguous request to automatically execute or re
 - Proposal, design, or spec authoring before tasks are final.
 - Ambiguous selection, multiple tasks, or a whole task group or change backlog.
 - An unrelated native `/goal` use that is not a Keel OpenSpec task.
-- Unrequested helpers, or an undeclared delegation of implementation to another agent.
+- Ordinary helper use, which does not activate a native goal. Model-chosen implementation delegates still require task write authority and a matching active guard.
 - OpenCode, which stays manual compatibility only with no v4 native activation.
 
 If any of these hold, stop and use the normal manual Keel loop.

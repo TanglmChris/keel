@@ -386,10 +386,7 @@ function configMap(repo, key) {
   return entries;
 }
 
-// Who runs a task. Declaring a tier is what permits delegation at that tier —
-// there is no separate on/off entry, because a tier with no permission and a
-// permission with no tier are both incomplete, and one field cannot disagree
-// with itself. An absent declaration delegates nothing, which is the default.
+// Optional capability metadata; absence does not forbid model-chosen delegation.
 function readDelegationPolicy(repo) {
   const block = configMap(repo, "delegation");
   const tier = block.tier;

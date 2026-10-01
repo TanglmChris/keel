@@ -5,7 +5,7 @@
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
 # which names which work may start without being asked about at all;
-# delegation, which names who runs a task; full_mode_paths, which names the
+# delegation, which carries optional capability metadata; full_mode_paths, which names the
 # paths whose change always takes the complete flow; executor_tier, which
 # names how much stepwise guidance this project's skills should load; and
 # merge, which names who merges into the default branch.
@@ -134,38 +134,21 @@ precedents: ../decision-precedents
 triage:
   - auto
 
-# delegation (optional): the capability tier a subagent runs a task at, and by
-# declaring it, that a task may be implemented by one at all. There is no
-# separate on/off entry — a tier with no permission and a permission with no
-# tier are both incomplete, and one field cannot disagree with itself.
+# delegation (optional): capability metadata for implementation delegates.
+# Model choice does not need this block. An absent tier is not inferred and
+# does not forbid guarded implementation. Helpers are read-only and ignore
+# implementation metadata. A task-authored tier takes precedence.
 #
 #   delegation:
 #     tier: standard
 #
-# The accepted tiers are the whole vocabulary — routine, standard, deep — and
-# an unrecognized one authorizes nothing until corrected, reported with the
-# accepted names rather than silently dropped. A task that authors no
-# `Delegation:` inherits what is declared here and the compiled capsule names
-# this file as the source; a task that authors its own keeps it.
+# Accepted: routine, standard, deep. Invalid declared metadata refuses
+# implementation rather than silently substituting a tier. Keel neither
+# selects nor observes a concrete model. Task write authority and a matching
+# active guard remain required; the current agent re-runs each M<n> check and
+# owns Review and completion. Host policy remains authoritative.
 #
-# The tiers are abstract on purpose. A model name is target-specific — one
-# named for Claude means nothing to Codex — and expires at the next release,
-# in a file whose whole point is to still be correct after both. A tier also
-# names the capability the work requires rather than a guess at its size,
-# because a tier named for size authorizes exactly the judgement 5.7.0 refused
-# for triage.
-#
-# What this does NOT do: Keel carries the tier to the target and selects no
-# model. It cannot observe which model actually ran and does not pretend to,
-# in the same way it cannot verify a human applied a triage label. Delegation
-# is also refused whenever no write-guard manifest is active, because an absent
-# manifest passes every write through silently and looks identical on screen to
-# one the guard checked. And it settles nothing after the writing: the guard
-# binds Touch, `task-complete` demands the same evidence, and the current agent
-# re-runs every check itself before recording it, because a delegate's report
-# is a claim.
-#
-# This repository declares none.
+# This repository declares no capability metadata.
 
 # full_mode_paths (optional): the paths whose change always routes Full,
 # whatever the diff size says. Routing is the first decision of a session, and

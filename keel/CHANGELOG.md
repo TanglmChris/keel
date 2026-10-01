@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Issue #190: subagent lifecycle projection no longer requires extra user activation. Models choose read-only helpers or `--subagent-mode implementation` inside existing task authority, with a matching active guard including Touch consistency. Capability tiers are optional metadata. Goal activation and master completion duties remain unchanged; host policy still governs actual spawning.
+
 - Issue #186: successful `keel openspec update` restores overlays for every repository-installed target without creating missing surfaces. Doctor additionally reports overlay health for installed targets other than the selected one, including legacy and `.agents` Codex layouts. Failed upstream updates retain their exit status and do not replay overlays.
 
 ## 5.85.0 - sessions talk in groups, and the owner joins from a phone
