@@ -731,12 +731,29 @@ async function run(log) {
     if (stopped) return stopped;
     ctx.stopping = true;
     clearInterval(timer);
+    clearInterval(archiveTimer);
     stopped = (async () => {
       if (reason) await Promise.race([announce(ctx, `:red_circle: ${machine} bridge stopped${reason === "signal" ? "" : ` (${reason})`}; this machine's sessions will catch up when it restarts.`), slack.sleep(5000)]);
       if (ctx.socket) ctx.socket.close();
     })();
     return stopped;
   };
+  // Every ten minutes while connected, each project with archiving on is
+  // synced to its keel-chat branch (D19).
+  const archiveTimer = setInterval(() => {
+    if (!ctx.connected || ctx.stopping) return;
+    const archive = require("./archive");
+    for (const project of ctx.projects) {
+      if (!archive.archiveSettings(project.where.worktree).automatic) continue;
+      try {
+        const result = archive.sync(project.where);
+        if (result.refused) log(`${project.where.project}: ${result.refused}`);
+      } catch (error) {
+        log(`${project.where.project}: archive sync failed: ${error.message}`);
+      }
+    }
+  }, 10 * 60 * 1000);
+  archiveTimer.unref();
   // Each second: honor a pause, notice a Keel upgrade, and send what is new.
   const timer = setInterval(() => {
     const current = packageVersion();

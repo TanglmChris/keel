@@ -32,6 +32,7 @@ const USAGE = [
   "keel chat edit <id> <text...>",
   "keel chat retract <id>",
   "keel chat search <text...> [--group <group>] [--json]",
+  "keel chat archive sync|pull [--json]   (keep the chat on this repository's orphan keel-chat branch)",
   "keel chat bridge add|remove [--repo <path>]   (list or unlist this project for this machine's Slack bridge)",
   "keel chat bridge run [--once]   (the bridge process; --once sends what is pending and exits; Node 22+)",
   "keel chat bridge install|uninstall|start|stop   (the macOS login item that keeps the bridge running)",
@@ -317,6 +318,26 @@ function dispatch(where, options) {
     }
     case "bridge":
       return runBridge(where, rest, options);
+    case "archive": {
+      const archive = require("./archive");
+      if (rest[0] === "sync") {
+        const result = archive.sync(where);
+        if (options.json) out(JSON.stringify(result));
+        else {
+          const lines = [`keel chat archive: ${result.changed ? "committed" : "already up to date at"} ${result.commit ? result.commit.slice(0, 12) : "nothing"} on keel-chat${result.imported ? `; imported ${result.imported} file${result.imported === 1 ? "" : "s"} from ${result.remote}` : ""}${result.pushed ? `; pushed to ${result.remote}` : ""}.`];
+          if (result.refused) lines.push(result.refused);
+          if (result.conflicts.length) lines.push(`These records differ between this machine and the archive; the local copy was kept: ${result.conflicts.join(", ")}`);
+          out(lines.join("\n"));
+        }
+        return 0;
+      }
+      if (rest[0] === "pull") {
+        const result = archive.pull(where);
+        out(options.json ? JSON.stringify(result) : `keel chat archive: restored ${result.imported} file${result.imported === 1 ? "" : "s"} from the keel-chat archive.`);
+        return 0;
+      }
+      throw new ChatError("keel chat archive needs sync or pull.");
+    }
     case "help":
     case undefined:
       out(`Usage:\n  ${USAGE.join("\n  ")}`);

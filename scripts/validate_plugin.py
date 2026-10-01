@@ -3568,6 +3568,121 @@ def validate_chat_bridge_lifecycle_scenario() -> int:
     return 0
 
 
+def validate_chat_archive_scenario() -> int:
+    """Issue #187: chat history is archived to an orphan branch, never exposed.
+
+    `keel chat archive sync` commits the shared layer of the store to
+    `refs/heads/keel-chat` with plumbing, leaving the worktree and index as
+    they were; refuses to push a repository reported public unless the
+    project declared a remote or accepted publication; merges another clone's
+    records by union; and `archive pull` restores history in a fresh clone.
+    """
+    label = "chat-archive:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-archive-") as raw:
+        base = Path(raw)
+        remote = base / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True, capture_output=True)
+        rtl, verify, env = chat_scratch_group(base)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-q", "origin", "main"], cwd=rtl, check=True, capture_output=True)
+        gh = base / "gh"
+        write_text(gh, "#!/bin/sh\necho PUBLIC\n")
+        gh.chmod(0o755)
+        aenv = {**env, "KEEL_CHAT_GH": str(gh)}
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=aenv)
+
+        def remote_has_branch() -> bool:
+            listed = subprocess.run(["git", "ls-remote", str(remote), "refs/heads/keel-chat"], capture_output=True, text=True)
+            return bool(listed.stdout.strip())
+
+        def branch_files(repo: Path) -> list[str]:
+            listed = subprocess.run(["git", "ls-tree", "-r", "--name-only", "refs/heads/keel-chat"], cwd=repo, capture_output=True, text=True)
+            return listed.stdout.split()
+
+        chat(rtl, "post", "soc", "first archived message")
+        chat(verify, "post", "soc", "second archived message")
+        write_text(rtl / "scratch.txt", "untracked work in progress\n")
+        write_text(rtl / "keel" / "chat.json", json.dumps({"slack": {"enabled": True, "channels": {}}}) + "\n")
+        before = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        index_before = (mailbox_common_dir(rtl) / "index").read_bytes()
+
+        refused = chat(rtl, "archive", "sync")
+        if refused.returncode != 0:
+            report(f"{label} archive sync failed: {refused.stderr.strip()}")
+            return 1
+        files = branch_files(rtl)
+        logs = [f for f in files if f.startswith("groups/soc/log/") and f.endswith(".md")]
+        if len(logs) < 2:
+            report(f"{label} refs/heads/keel-chat does not hold the group's records: {files!r}")
+            return 1
+        local_only = [f for f in files if f == "roles.json" or f.split("/")[0] in ("signal", "bridge", "transcripts", ".tmp")]
+        if local_only:
+            report(f"{label} the archive carries local-only files: {local_only!r}")
+            return 1
+        after = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        if after != before:
+            report(f"{label} archive sync changed the worktree status:\nbefore {before!r}\nafter {after!r}")
+            return 1
+        if (mailbox_common_dir(rtl) / "index").read_bytes() != index_before:
+            report(f"{label} archive sync changed the index.")
+            return 1
+        if remote_has_branch():
+            report(f"{label} a repository reported public was pushed with no declaration.")
+            return 1
+        for needle in ("archive_public", "archive.remote"):
+            if needle not in refused.stdout + refused.stderr:
+                report(f"{label} the refused push does not name {needle}: {(refused.stdout + refused.stderr).strip()}")
+                return 1
+
+        write_text(rtl / "keel" / "chat.json", json.dumps({"slack": {"enabled": True, "channels": {}}, "archive": {"remote": "origin"}}) + "\n")
+        pushed = chat(rtl, "archive", "sync")
+        if pushed.returncode != 0:
+            report(f"{label} archive sync with archive.remote failed: {pushed.stderr.strip()}")
+            return 1
+        if not remote_has_branch():
+            report(f"{label} archive.remote was declared and nothing was pushed: {(pushed.stdout + pushed.stderr).strip()}")
+            return 1
+
+        clone = base / "clone"
+        subprocess.run(["git", "clone", "-q", str(remote), str(clone)], check=True, capture_output=True)
+        run_keel(clone, "chat", "role", "--set", "verify", env=aenv)
+        pulled = chat(clone, "archive", "pull")
+        if pulled.returncode != 0:
+            report(f"{label} archive pull failed in a fresh clone: {pulled.stderr.strip()}")
+            return 1
+        restored = chat(clone, "soc", "--peek")
+        if "first archived message" not in restored.stdout:
+            report(f"{label} a fresh clone does not show the archived history after pull: {restored.stdout.strip()} {restored.stderr.strip()}")
+            return 1
+
+        write_text(clone / "keel" / "chat.json", json.dumps({"archive": {"remote": "origin"}}) + "\n")
+        clone_id = chat_json(chat(clone, "post", "soc", "from the second machine", "--json")).get("id", "")
+        if chat(clone, "archive", "sync").returncode != 0:
+            report(f"{label} archive sync failed in the second clone.")
+            return 1
+        third = chat_json(chat(rtl, "post", "soc", "third from the first machine", "--json")).get("id", "")
+        merged = chat(rtl, "archive", "sync")
+        if merged.returncode != 0:
+            report(f"{label} archive sync failed when merging the second clone's history: {merged.stderr.strip()}")
+            return 1
+        files = branch_files(rtl)
+        for record_id, where in ((clone_id, "the second clone"), (third, "the first clone")):
+            if f"groups/soc/log/{record_id}.md" not in files:
+                report(f"{label} the merged archive lacks the record from {where}.")
+                return 1
+        if "from the second machine" not in chat(rtl, "soc", "--peek").stdout:
+            report(f"{label} the first clone's store did not gain the second clone's record on sync.")
+            return 1
+
+    if "chat-archive" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-archive scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -33556,6 +33671,10 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-lifecycle",
         validate_chat_bridge_lifecycle_scenario,
+    ),
+    (
+        "chat-archive",
+        validate_chat_archive_scenario,
     ),
     (
         "record-derives-skeleton",

@@ -323,7 +323,7 @@
 
 ## 5. Archive
 
-- [ ] 5.1 Orphan-branch archive with union merge and the public-repository guard
+- [x] 5.1 Orphan-branch archive with union merge and the public-repository guard
   - Covers:
     - keel-chat-slack-bridge / The chat store is archived to an orphan branch without exposing it publicly
     - D19
@@ -339,16 +339,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-archive` uses a scratch repository with a bare local remote: **Committing:** with a dirty worktree, `keel chat archive sync` creates `refs/heads/keel-chat` containing `groups/soc/log/*.md` and no `roles.json`, `signal/`, or `bridge/` path, and `git status --porcelain` is byte-identical before and after. **The guard:** with visibility reported `PUBLIC` through a `gh` double and nothing declared, no push reaches the remote, and the output names `archive_public` and `archive.remote`; with `archive.remote` declared, the push lands. **Merging:** a second clone posting a different record syncs, and the first clone's next sync holds both records. **Restoring:** a fresh clone's `keel chat archive pull` makes `keel chat soc --peek` show the archived messages. Fails with: `chat-archive:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:b3e8589cc015d3e9ec8b758015bac66339c3377484f6d79ca7600110f25b03a2
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-archive` reports `chat-archive scenario passed.` in a scratch repository with a bare local remote: with an untracked file in the worktree and `gh` doubled to report `PUBLIC`, `keel chat archive sync` creates `refs/heads/keel-chat` holding `groups/soc/log/*.md` and no `roles.json`, `signal/`, `bridge/`, `transcripts/`, or `.tmp/` path; `git status --porcelain` and the bytes of `.git/index` are identical before and after; the remote has no `keel-chat` branch, and the output names `archive_public` and `archive.remote`; with `archive.remote` set to `origin` the branch is pushed; a fresh clone's `keel chat archive pull` makes `keel chat soc --peek` show `first archived message`; after the clone posts and syncs and the first repository posts and syncs again, the first repository's `keel-chat` holds both new record files and its store shows `from the second machine`.
+    - M1.red: fail. Before `src/core/chat/archive.js` existed the scenario reported `chat-archive: archive sync failed: keel chat: No group archive. Create it with `keel chat group create archive`.`, carrying the declared signature `chat-archive:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `npm test` now reports `validation --all passed: baseline plus 205 scenarios, 1 skipped: output-survives-the-pipe.`
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat archive` commands against real git repositories and a real remote, with only `gh` doubled, and asserts each clause of the archive requirement: plumbing commits that leave the worktree and index untouched, the synced layer only, the public-repository refusal naming both ways to allow it, the declared-remote push, union merge across two clones, and restoration in a fresh clone.
+      - Scope check: The diff adds `src/core/chat/archive.js` and changes `src/core/chat/cli.js` (`archive sync|pull`), `src/core/chat/bridge.js` (the ten-minute sync while connected), `scripts/validate_plugin.py` (the scenario), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. The fetch writes only `FETCH_HEAD`, so no ref other than `refs/heads/keel-chat` is created; the Stop rule held.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — the bridge's ten-minute archive sync is not exercised by a check, since waiting ten minutes in a scenario is not practical; it calls the same `sync` M1 proves, and the owner's first real run (that comment) is where it is seen working.
     - Blocker: none
     - Reauthorizations: none
   - Stop if:
