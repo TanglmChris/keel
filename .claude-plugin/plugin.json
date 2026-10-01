@@ -93,6 +93,21 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "session-end"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

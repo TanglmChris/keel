@@ -341,7 +341,37 @@ function writeRecord(where, fields, date = new Date()) {
   };
   const target = path.join(groupDir(where, record.group), "log", `${record.id}.md`);
   writeAtomic(where.root, target, renderRecord(record));
+  // After the rename, so a host woken by the signal always finds the record.
+  for (const role of signalTargets(record)) {
+    const signal = path.join(where.root, "signal", role);
+    fs.mkdirSync(path.dirname(signal), { recursive: true });
+    fs.appendFileSync(signal, `${record.id}\n`);
+  }
   return record;
+}
+
+function directMembers(group) {
+  return isDirect(group) ? group.slice(3).split("--") : [];
+}
+
+// Whether a record is addressed to `role` closely enough to wake it (D9): a
+// mention by name or alias, a todo assigned to it, or a message in its direct
+// group. `@all` and plain messages do not wake.
+function wakes(record, role) {
+  if (!READABLE_KINDS.has(record.kind) || record.from === role) return false;
+  if ((record.mentions || []).includes(role)) return true;
+  if (record.kind === "todo" && record.assignee === role) return true;
+  return directMembers(record.group).includes(role);
+}
+
+function signalTargets(record) {
+  if (!READABLE_KINDS.has(record.kind)) return [];
+  const roles = new Set([
+    ...(record.mentions || []),
+    ...(record.kind === "todo" && record.assignee ? [record.assignee] : []),
+    ...directMembers(record.group),
+  ]);
+  return [...roles].filter((role) => validName(role) && wakes(record, role));
 }
 
 // --- groups -------------------------------------------------------------------
@@ -715,6 +745,8 @@ module.exports = {
   readMember,
   readersOf,
   readJsonFile: (file) => readJson(file, {}),
+  wakes,
+  writeJsonAtomic: (where, file, value) => writeAtomic(where.root, file, `${JSON.stringify(value, null, 2)}\n`),
   requireLocation,
   requireRole,
   setRole,

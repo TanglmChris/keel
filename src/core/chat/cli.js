@@ -9,6 +9,7 @@ const path = require("path");
 const store = require("./store");
 const { displayRecords, formatLine } = require("./view");
 const { migrateIfNeeded } = require("./migrate");
+const notice = require("./notice");
 
 const { ChatError } = store;
 
@@ -30,6 +31,8 @@ const USAGE = [
   "keel chat edit <id> <text...>",
   "keel chat retract <id>",
   "keel chat search <text...> [--group <group>] [--json]",
+  "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
+  "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "Every command takes --repo <path> to act on another repository.",
 ];
 
@@ -102,12 +105,23 @@ function publicRecord(record) {
   return refs && refs.length ? record : rest;
 }
 
-function postResult(record, json) {
+// A mentioned member that is offline gets the record when it next starts;
+// nothing launches it (D10), so the poster is told.
+function offlineMentions(where, record) {
+  return (record.mentions || [])
+    .filter((role) => role !== store.ALL && !role.includes("/") && role !== record.from)
+    .filter((role) => notice.presenceOf(where, role).state === "offline");
+}
+
+function postResult(where, record, json) {
+  const offline = offlineMentions(where, record);
   if (json) {
-    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions }));
-  } else {
-    out(`Posted ${record.id} to ${record.group}.`);
+    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions, offline }));
+    return;
   }
+  const lines = [`Posted ${record.id} to ${record.group}.`];
+  for (const role of offline) lines.push(`Queued for ${role}: offline; it will see this when its session next starts.`);
+  out(lines.join("\n"));
 }
 
 function textFrom(words) {
@@ -181,13 +195,13 @@ function dispatch(where, options) {
     case "post": {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat post needs a group.");
-      postResult(store.post(where, { group, text: textFrom(words), replyTo: options.replyTo }), options.json);
+      postResult(where, store.post(where, { group, text: textFrom(words), replyTo: options.replyTo }), options.json);
       return 0;
     }
     case "dm": {
       const [target, ...words] = rest;
       if (!target) throw new ChatError("keel chat dm needs a role.");
-      postResult(store.directPost(where, target, textFrom(words)), options.json);
+      postResult(where, store.directPost(where, target, textFrom(words)), options.json);
       return 0;
     }
     case "unread": {
@@ -219,7 +233,7 @@ function dispatch(where, options) {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat todo needs a group.");
       if (options.assignee === null) throw new ChatError("keel chat todo needs --assignee <role>.");
-      postResult(store.todo(where, { group, assignee: options.assignee, issue: options.issue, text: textFrom(words), replyTo: options.replyTo }), options.json);
+      postResult(where, store.todo(where, { group, assignee: options.assignee, issue: options.issue, text: textFrom(words), replyTo: options.replyTo }), options.json);
       return 0;
     }
     case "todos": {
@@ -249,6 +263,13 @@ function dispatch(where, options) {
       else out(results.length ? results.map((r) => `${r.group} ${formatLine(r)}`).join("\n") : "No matches.");
       return 0;
     }
+    case "notice": {
+      const role = store.currentRole(where);
+      const text = role ? notice.noticeText(where, role) : "";
+      if (options.json) out(JSON.stringify({ role, notice: text }));
+      else if (text) out(text);
+      return 0;
+    }
     case "help":
     case undefined:
       out(`Usage:\n  ${USAGE.join("\n  ")}`);
@@ -256,7 +277,7 @@ function dispatch(where, options) {
     default: {
       // `keel chat <group>` views; `keel chat <group> <text...>` posts.
       if (rest.length) {
-        postResult(store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo }), options.json);
+        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo }), options.json);
         return 0;
       }
       return runView(where, command, options);
@@ -272,11 +293,19 @@ function runChat(argv) {
       out(`Usage:\n  ${USAGE.join("\n  ")}`);
       return 0;
     }
-    // Host notices and wake-up are task 2.1 of the group-chat change; until
-    // then a hook says nothing and never exits 2, which would wake a session.
-    if (options.positionals[0] === "hook") return 0;
+    if (options.positionals[0] === "hook") {
+      const result = notice.hook(options.positionals[1], readStdin());
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      return result.code;
+    }
+    // A notice is read by hosts on every prompt: outside a repository it says
+    // nothing and still exits 0.
+    if (options.positionals[0] === "notice" && !store.locate(cwd)) return 0;
     const where = store.requireLocation(cwd);
     migrateIfNeeded(where);
+    const role = store.currentRole(where);
+    if (role) notice.touchPresence(where, role);
     return dispatch(where, options);
   } catch (error) {
     if (!(error instanceof ChatError)) throw error;

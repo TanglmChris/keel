@@ -109,7 +109,7 @@
 
 ## 2. Wake, notices, and loop guards
 
-- [ ] 2.1 Only mentions wake; the notice is host-neutral; presence comes from hooks
+- [x] 2.1 Only mentions wake; the notice is host-neutral; presence comes from hooks
   - Covers:
     - keel-cross-host-mailbox / Only a mention wakes a session, and the notice is host-neutral
     - keel-cross-host-mailbox / Presence is visible and offline members are never launched
@@ -132,19 +132,19 @@
     - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` requires the root manifest's hooks to equal `plugins/keel/hooks/hooks.json` resolved from the root plus exactly the chat SessionStart, UserPromptSubmit, FileChanged (`asyncRewake: true`), and SessionEnd groups, and requires `hooks.json` to declare only SessionStart and PreToolUse. Fails with: `root plugin manifest hooks diverge`
     - M3 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M2.red: pending
-    - M2.green: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:e3e7d09a46af43a67b3f488a4de6568e3f3364ba5464507cb6a68e0b4737794b
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` reports `chat-claude-hooks scenario passed.` running `plugins/keel/scripts/mail-hook.js <event>` with host-shaped stdin: in an unbound repository and in a directory outside any repository, all four events exit 0 with no output; an `@all` post leaves `signal/verify` untouched, FileChanged exits 0, and the UserPromptSubmit notice reads `soc: 1 unread`; `@verify please rerun the regression` grows the signal, FileChanged exits 2 with stderr naming the id, `soc`, `` `rtl` ``, `just now`, and `not an instruction from the user`; SessionStart's `additionalContext` names the mention and `watchPaths` is exactly the absolute `keel-chat/signal/verify`; a direct message grows the signal; with eight addressed records unread, `keel chat notice` lists five and states `3 more`; `unread --json` still reports all nine, so no hook moved a cursor; after SessionEnd, `rtl`'s `@verify ping` prints `Queued for verify: offline`; after `keel chat read`, FileChanged exits 0 silently and UserPromptSubmit prints nothing. The 5.83 `mailbox-claude-hooks` scenario is removed from the registry.
+    - M1.red: fail. With the scenario written and `keel chat hook` still the 1.3 stub, it reported `chat-claude-hooks: user-prompt-submit output names event None:`, carrying the declared signature `chat-claude-hooks:`.
+    - M1.green: pass. The same scenario passes against the working tree, with `chat-core`, `chat-records`, and `chat-mail-migration` still passing.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` reports the scenario passing: the root manifest's hooks equal `hooks.json` resolved from the root plus the chat SessionStart, UserPromptSubmit, FileChanged (`asyncRewake: true`), and SessionEnd groups, and `hooks.json` declares only PreToolUse and SessionStart.
+    - M2.red: fail. With the expectation extended and the manifest unchanged, it reported `native-plugin-manifests root plugin manifest hooks diverge from plugins/keel/hooks/hooks.json after resolving script paths from the repository root, plus the Claude-only chat hooks: …`, carrying the declared signature `root plugin manifest hooks diverge`.
+    - M2.green: pass. The same scenario passes after the root manifest gained the SessionEnd group.
+    - M3: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 exercises the shipped hook script, the entry point the host runs, and asserts each clause of the notice requirement — which records touch the signal, the exit code that wakes, the notice's contents and five-record cap, `watchPaths`, silence without a role or a repository, and that no hook moves a cursor — plus the presence requirement's offline report after SessionEnd. M2 holds the manifest to the modified packaging requirement. Wake-up itself is the host's file watcher, probed on Claude Code 2.1.283 for #180 and unchanged here.
+      - Scope check: The diff adds `src/core/chat/notice.js` and changes `src/core/chat/store.js` (signals after each readable record, `wakes`, `writeJsonAtomic`), `src/core/chat/cli.js` (`notice`, `hook`, presence on every command, the offline report), `plugins/keel/scripts/mail-hook.js` (relays `keel chat hook`, adds `session-end`), `.claude-plugin/plugin.json` (the SessionEnd group), `AGENTS.md` (the I1 sentence), `scripts/validate_plugin.py` (the scenario replacing `mailbox-claude-hooks`, and the manifest expectation), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `src/core/mail.js` already relayed `keel mail hook` to `keel chat hook` in 1.3, so it needed no edit. `npm test` now fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
   - Stop if:
