@@ -1,0 +1,44 @@
+{
+  "description": "Codex lifecycle hooks. Review their current definitions in /hooks before use; mailbox notices never consume messages or grant authority.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/session-start.js\"",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/codex-mail-hook.js\" session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/pretooluse-guard.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/codex-mail-hook.js\" user-prompt-submit",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
