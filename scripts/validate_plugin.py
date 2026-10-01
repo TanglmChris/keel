@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.83.0"
-PROTOCOL_VERSION = "5.83.0"
+PACKAGE_VERSION = "5.84.0"
+PROTOCOL_VERSION = "5.84.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2457,6 +2457,182 @@ def validate_mailbox_claude_hooks_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("mailbox-claude-hooks scenario passed.")
+    return 0
+
+
+def validate_record_derives_skeleton_scenario() -> int:
+    """Issue #179: `--record` writes the record slots a capsule implies.
+
+    Every slot it writes is a placeholder the gates still refuse as unfilled,
+    so this changes who types the bookkeeping and not what completion needs.
+    """
+    label = "record-derives-skeleton:"
+    fixture = task_capsule_compact_fixture()
+    no_evidence = fixture.replace(
+        "  - Evidence:\n    - Contract: pending\n    - M1: pending\n", ""
+    )
+    red_green = no_evidence.replace(
+        "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
+        "    - M1: node test.js\n",
+        "    - Strategy: vertical-tdd\n"
+        "    - M1: node test.js asserts the feature. Fails with: `boom`\n"
+        "    - M2 (regression): node old.js stays green\n"
+        "    - M3: node edge.js asserts the edge. Fails with: `edge` Detects: `drop the guard` -> `edge`\n",
+    )
+    if red_green == no_evidence:
+        report(f"{label} the fixture's Verify block moved; update this scenario.")
+        return 1
+    expected_slots = [
+        "    - M1: pending",
+        "    - M1.red: pending",
+        "    - M1.green: pending",
+        "    - M2: pending",
+        "    - M3: pending",
+        "    - M3.red: pending",
+        "    - M3.green: pending",
+        "    - M3.detects: pending",
+        "    - Review:",
+        "      - Status: pending",
+        "      - Acceptance check: pending",
+        "      - Scope check: pending",
+        "      - Findings: pending",
+        "    - Blocker: none",
+        "    - Reauthorizations: none",
+    ]
+    with tempfile.TemporaryDirectory(prefix="keel-skeleton-") as raw:
+        repo = Path(raw)
+        tasks = repo / "openspec/changes/demo/tasks.md"
+
+        def record(*extra: str) -> tuple[int, dict]:
+            result = run_keel(
+                repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                *extra, "--json",
+            )
+            return result.returncode, json.loads(result.stdout)
+
+        write_text(tasks, red_green)
+        code, payload = record("--record", "--no-guard")
+        if code != 0:
+            report(f"{label} --record refused a valid task with no Evidence: {payload.get('problems')!r}")
+            return 1
+        if payload.get("record", {}).get("status") != "recorded":
+            report(f"{label} the outcome was {payload.get('record')!r}, not recorded.")
+            return 1
+        fingerprint = payload["contract"]["fingerprint"]["value"]
+        after = tasks.read_text(encoding="utf-8")
+        before_lines, after_lines = red_green.splitlines(), after.splitlines()
+        added = [line for line in after_lines if line not in before_lines]
+        want = ["  - Evidence:", f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}", *expected_slots]
+        if added != want:
+            report(f"{label} --record added {added!r}, expected {want!r}.")
+            return 1
+        if [line for line in before_lines if line not in after_lines]:
+            report(f"{label} --record removed or rewrote a line outside the Evidence it added.")
+            return 1
+        code, again = record("--record", "--no-guard")
+        if code != 0 or tasks.read_text(encoding="utf-8") != after:
+            report(f"{label} a second --record was not byte-identical.")
+            return 1
+        if again.get("record", {}).get("status") != "unchanged":
+            report(f"{label} a second --record reported {again.get('record')!r}, not unchanged.")
+            return 1
+        completion = run_keel(repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json")
+        if completion.returncode == 0:
+            report(f"{label} task-complete accepted a task whose slots were only filled with pending.")
+            return 1
+
+        kept = red_green.replace(
+            "  - Stop if:\n",
+            "  - Evidence:\n    - M1: pass. node test.js printed ok.\n  - Stop if:\n",
+        )
+        write_text(tasks, kept)
+        code, payload = record("--record", "--no-guard")
+        text = tasks.read_text(encoding="utf-8")
+        if code != 0:
+            report(f"{label} --record refused a task with a partial Evidence block: {payload.get('problems')!r}")
+            return 1
+        if "    - M1: pass. node test.js printed ok." not in text:
+            report(f"{label} --record rewrote an existing concrete M1 line.")
+            return 1
+        if "    - M1: pending" in text:
+            report(f"{label} --record added a second M1 slot beside the kept one.")
+            return 1
+        if "    - M1.red: pending" not in text:
+            report(f"{label} --record did not add the missing M1.red slot beside the kept M1.")
+            return 1
+
+        write_text(tasks, no_evidence)
+        code, payload = record("--record", "--no-guard")
+        text = tasks.read_text(encoding="utf-8")
+        if code != 0:
+            report(f"{label} --record refused a valid evidence-first task: {payload.get('problems')!r}")
+            return 1
+        if ".red:" in text or ".green:" in text:
+            report(f"{label} an evidence-first task was given .red/.green slots.")
+            return 1
+
+        broken = red_green.replace("    - Strategy: vertical-tdd\n", "")
+        write_text(tasks, broken)
+        code, payload = record("--record")
+        if code == 0:
+            report(f"{label} --record filled slots around a task with no Strategy.")
+            return 1
+        if tasks.read_text(encoding="utf-8") != broken:
+            report(f"{label} a refused --record wrote to tasks.md.")
+            return 1
+        if (repo / "keel/guard.json").exists():
+            report(f"{label} a refused --record wrote the guard manifest.")
+            return 1
+
+        write_text(tasks, fixture.replace("    - M1: pending\n", ""))
+        code, payload = record()
+        messages = [item.get("message", "") for item in payload.get("problems", [])]
+        if code == 0:
+            report(f"{label} task-start without --record accepted a missing M1 slot.")
+            return 1
+        if not any("--record" in message for message in messages):
+            report(f"{label} the evidence-label-mismatch refusal does not name --record: {messages!r}")
+            return 1
+
+    if "record-derives-skeleton" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("record-derives-skeleton scenario passed.")
+    return 0
+
+
+def validate_review_checklist_defers_to_gate_scenario() -> int:
+    """Issue #179: Review guidance keeps what no gate can judge, and only that.
+
+    `task-complete` refuses a missing or drifted Contract anchor and missing
+    `.red`/`.green` Evidence on its own, so asking the agent to confirm them
+    again is reading cost without a criterion. What stays is the judgment.
+    """
+    label = "review-checklist-defers-to-gate:"
+    for root in ("src/skills", f"{PLUGIN_ROOT}/skills"):
+        text = (ROOT / root / "keel-review-checklist" / "SKILL.md").read_text(encoding="utf-8")
+        flat = " ".join(text.split())
+        for restated in (
+            "Evidence `Contract` line records the task-start capsule fingerprint",
+            "confirm concrete per-label `.red` and `.green` Evidence exists",
+        ):
+            if restated in flat:
+                report(f"{label} {root} keel-review-checklist still restates a gate refusal: {restated!r}")
+                return 1
+        for kept in (
+            "evidence-first tasks",
+            "observable proof",
+            "through the public interface",
+            "not build-only or shape-only",
+        ):
+            if kept not in flat:
+                report(f"{label} {root} keel-review-checklist lost the judgment {kept!r}.")
+                return 1
+    if "review-checklist-defers-to-gate" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("review-checklist-defers-to-gate scenario passed.")
     return 0
 
 
@@ -14380,6 +14556,13 @@ def validate_core_gates_scenario() -> int:
                 "  - Evidence:\n"
                 f"    - Contract: {anchor}\n"
                 "    - M1: pending\n"
+                "    - Review:\n"
+                "      - Status: pending\n"
+                "      - Acceptance check: pending\n"
+                "      - Scope check: pending\n"
+                "      - Findings: pending\n"
+                "    - Blocker: none\n"
+                "    - Reauthorizations: none\n"
                 "  - Report:\n"
                 "    - Summary\n"
             )
@@ -14527,23 +14710,22 @@ def validate_core_gates_scenario() -> int:
         write_text(record_tasks, record_task("pending").replace(
             "    - Contract: pending\n", ""
         ))
+        # Issue #179: a missing anchor is a missing record slot, which
+        # `--record` now derives instead of refusing; refusal is kept for an
+        # authoring error (see `record-derives-skeleton`).
         missing_anchor = run_keel(
             record_repo, "gate", "task-start",
-            "--change", "demo", "--task", "1.1", "--record", "--json",
+            "--change", "demo", "--task", "1.1", "--record", "--no-guard", "--json",
         )
-        if (
-            missing_anchor.returncode != 3
-            or not any(
-                problem.get("code") == "record-refused"
-                for problem in json.loads(missing_anchor.stdout).get("problems", [])
-            )
-            or (record_repo / "keel/guard.json").exists()
-        ):
+        if missing_anchor.returncode != 0:
             report(
-                "core-gates scenario --record with a missing anchor must "
-                "refuse and write nothing, not even the guard manifest."
+                "core-gates scenario --record with a missing anchor must add "
+                "the anchor and pass."
             )
             report((missing_anchor.stderr or missing_anchor.stdout).strip())
+            return 1
+        if "    - Contract: keel-task-capsule/v1 sha256:" not in record_tasks.read_text(encoding="utf-8"):
+            report("core-gates scenario --record did not write the missing Contract anchor.")
             return 1
 
         invalid_base = run_keel(
@@ -32236,6 +32418,14 @@ SCENARIOS: tuple = (
     (
         "mailbox-claude-hooks",
         validate_mailbox_claude_hooks_scenario,
+    ),
+    (
+        "record-derives-skeleton",
+        validate_record_derives_skeleton_scenario,
+    ),
+    (
+        "review-checklist-defers-to-gate",
+        validate_review_checklist_defers_to_gate_scenario,
     ),
     (
         "covers-annotation-entry",

@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.84.0 - the record is derived, the judgment is not
+
+Issue #179 asked Keel to stop making an agent type what the CLI already knows, and to keep every check that can prove the agent wrong. The largest such cost was the record skeleton: a task could not start until its author had hand-written a `Contract` slot and one slot per check, plus the `.red`/`.green`, Review, and log slots the strategy would later demand, all of it implied by the capsule.
+
+- Issue #179: `keel gate task-start --record` now writes the record slots a valid task's capsule implies and its Evidence lacks — `Contract`, each bare `M<n>`, `.red`/`.green` for red-green checks not tagged `(regression)`, `.detects` where declared, a pending Review, `Blocker: none`, and `Reauthorizations: none` — instead of refusing for want of a hand-typed `- Contract: pending`. It only adds what is missing, keeps every existing line, touches nothing outside the selected task's Evidence, writes the same bytes on a second run, and refuses and writes nothing when the task has an authoring error of its own. Every slot reads `pending`, which `task-complete` still refuses, so no verdict moved. The result's `record.filled` lists what was added. Without `--record`, `evidence-label-mismatch` now says that `--record` adds the missing slots.
+- `keel-review-checklist` no longer asks the agent to confirm the Contract anchor or the presence of `.red`/`.green` Evidence, which `task-complete` refuses on its own; it keeps the judgment no gate can make. No sentence was found duplicated across Keel's skills and resident protocol, so nothing else was cut. The re-record recovery message already separated checks declared kept from stale ones and said Keel does not verify that declaration, so it is unchanged.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.84.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.83.0 - sessions on different hosts can write to each other
 
 A Claude Code session and a Codex session often work the same repository from separate worktrees and need to pass conclusions to each other; until now the user copied them across. Writing straight into the other host's session thread was tried and failed on its storage format, writer locks, versions, and an absent receiver (#180). Hosts now exchange plain Markdown files, and each host decides how to receive them.
