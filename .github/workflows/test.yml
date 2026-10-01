@@ -42,3 +42,18 @@ jobs:
 
       - name: Run the full gate
         run: npm test
+
+      # `keel chat bridge` uses Node's built-in WebSocket, which starts at
+      # Node 22, so its three scenarios report themselves skipped on the
+      # Node 20 floor above. They run here, in the same job, so the required
+      # check still covers them (#187).
+      - name: Setup Node.js 22 for the chat bridge
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the chat bridge scenarios on Node 22
+        run: |
+          for scenario in chat-bridge-outbound chat-bridge-inbound chat-bridge-lifecycle; do
+            node scripts/run_python.js scripts/validate_plugin.py --scenario "$scenario"
+          done

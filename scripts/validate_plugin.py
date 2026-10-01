@@ -2951,6 +2951,21 @@ def validate_chat_human_view_scenario() -> int:
     return 0
 
 
+def chat_bridge_node_missing(label: str) -> bool:
+    """Whether this Node lacks the WebSocket the bridge needs (Node 22+).
+
+    On the Node 20 floor the bridge scenarios report themselves skipped; the
+    full-gate workflow runs them again on Node 22 in the same job.
+    """
+    probe = subprocess.run(
+        ["node", "-p", "typeof globalThis.WebSocket"], capture_output=True, text=True,
+    )
+    if probe.stdout.strip() == "function":
+        return False
+    report(f"{label} skipped: keel chat bridge needs Node 22 or newer for its built-in WebSocket; this Node has none.")
+    return True
+
+
 def fake_slack_class():
     """The local Slack stand-in, loaded by path from beside this script.
 
@@ -3009,6 +3024,8 @@ def validate_chat_bridge_outbound_scenario() -> int:
     WebSocket is told it needs Node 22.
     """
     label = "chat-bridge-outbound:"
+    if chat_bridge_node_missing("chat-bridge-outbound"):
+        return 3
     FakeSlack = fake_slack_class()
     with tempfile.TemporaryDirectory(prefix="keel-chat-out-") as raw, FakeSlack() as slack:
         base = Path(raw)
@@ -3189,6 +3206,8 @@ def validate_chat_bridge_inbound_scenario() -> int:
     and what was missed while stopped is caught up once.
     """
     label = "chat-bridge-inbound:"
+    if chat_bridge_node_missing("chat-bridge-inbound"):
+        return 3
     FakeSlack = fake_slack_class()
     with tempfile.TemporaryDirectory(prefix="keel-chat-in-") as raw, FakeSlack() as slack:
         base = Path(raw)
@@ -3388,6 +3407,8 @@ def validate_chat_bridge_lifecycle_scenario() -> int:
     import plistlib  # noqa: PLC0415 - only this scenario reads a plist
 
     label = "chat-bridge-lifecycle:"
+    if chat_bridge_node_missing("chat-bridge-lifecycle"):
+        return 3
     FakeSlack = fake_slack_class()
     with tempfile.TemporaryDirectory(prefix="keel-chat-life-") as raw, FakeSlack() as slack:
         base = Path(raw)
