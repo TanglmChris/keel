@@ -151,7 +151,7 @@ Issue #187 records a design the owner froze on 2026-10-01; after that, only bugs
   - `archive_public` (`accept`, to allow pushing to a public repository)
   - `limits`
   
-  An absent file means chat without Slack or archive. A file Keel cannot parse turns Slack and archive off and names the error; local chat keeps working. Basis: F5, recorded for owner review.
+  An absent file means chat without Slack or archive. A file Keel cannot parse turns Slack and archive off and names the error; local chat keeps working. Basis: F5; owner accepted `keel/chat.json` over #187's wording, 2026-10-01.
 
 ### Slack bridge
 
@@ -252,4 +252,4 @@ Issue #187 records a design the owner froze on 2026-10-01; after that, only bugs
 
 ## Open Questions
 
-None. D13 deviates from #187's "`keel/config.yaml`" wording and is raised to the owner in this change's review.
+None. D13 departed from #187's `keel/config.yaml` wording; the owner accepted it on 2026-10-01.
