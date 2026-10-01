@@ -382,7 +382,45 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 6.2 Release
+- [x] 6.2 Keep #188's Codex receiving working on the group chat
+  - Covers:
+    - keel-cross-host-mailbox / 5.83 mail migrates and `keel mail` keeps working
+    - keel-cross-host-mailbox / Only a mention wakes a session, and the notice is host-neutral
+  - Acceptance:
+    - Merging main brought #188's Codex adapter, `plugins/keel/scripts/codex-mail-hook.js`, which reads `additionalContext` from `keel mail hook user-prompt-submit`, and its check `codex-receiving`, which expects that notice to name `keel mail read`. `keel mail hook` keeps relaying to the chat notice (D7), so Codex sessions get group, mention, and relative-time notices, and the notice it prints adds one line saying direct messages can also be read with the 5.83 `keel mail read`.
+    - No file #188 added is edited, because its change `codex-receiving-and-validation` is still open in the Codex session.
+    - That open change's tasks name the 5.83 scenarios `mailbox-cli` and `mailbox-claude-hooks`, which 1.3 and 2.1 replaced. Both names stay registered as aliases of their successors, `chat-mail-migration` and `chat-claude-hooks`, so the checks it authored still run and still test what they meant.
+  - Touch:
+    - src/core/mail.js
+    - src/core/chat/notice.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario codex-receiving` passes: the Codex adapter's SessionStart and UserPromptSubmit notices name the message id, sender, subject, `keel mail read`, and that the message grants no authorization, never include the body, and do not consume the message. Fails with: `('keel mail read',`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` still passes, so the Claude notice through `keel chat hook` is unchanged.
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario authored-scenario-names-are-registered` passes, so every scenario the open #188 change names is registered. Fails with: `mailbox-cli`
+    - M4 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:28b2aa8a3fdd576278c552e071e1f79d2e16e281c50aa74ca6cf1ae703e743e2
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario codex-receiving` reports `codex-receiving: startup/next-input, repeated non-consuming notices, quiet inboxes and failure fallback passed`: the adapter's SessionStart and UserPromptSubmit notices, now the group-chat notice, name the id, `sender`, `delivery probe`, `keel mail read`, and `authorization`, never `PRIVATE_BODY_NOT_CONTEXT`, and repeat until `keel mail read --id`.
+    - M1.red: fail. Right after merging main, the scenario stopped with `AssertionError: ('keel mail read', 'keel chat: 1 unread for role `receiver`, 1 addressed to you. …`, carrying the declared signature `('keel mail read',`.
+    - M1.green: pass. The same scenario passes after `keel mail hook` added the 5.83 pointer.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` reports `chat-claude-hooks scenario passed.`; the Claude hook script runs `keel chat hook` without `--mail`, so its notice is unchanged.
+    - M3: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario authored-scenario-names-are-registered` reports `authored-scenario-names-are-registered scenario passed.`, and `--scenario mailbox-cli` and `--scenario mailbox-claude-hooks` run `chat-mail-migration` and `chat-claude-hooks`.
+    - M3.red: fail. Before the aliases, the scenario reported `openspec/changes/codex-receiving-and-validation/tasks.md:19 names `mailbox-cli` after --scenario, and no scenario by that name is registered`, carrying the declared signature `mailbox-cli`.
+    - M3.green: pass. The same scenario passes with the aliases registered.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 is #188's own check of its adapter, run unchanged, so it shows the Codex receiving path works on the group chat; M2 shows the Claude path did not move; M3 shows the open change's authored checks still resolve to the scenarios that replaced them. Both Acceptance bullets hold: the relay is unchanged and only `keel mail` adds the pointer, and no file #188 added was edited.
+      - Scope check: The diff changes `src/core/mail.js` (passes `--mail` to the chat hook), `src/core/chat/cli.js` (the `--mail` switch), `src/core/chat/notice.js` (the pointer line), `scripts/validate_plugin.py` (the two aliases), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. The merge of `origin/main` that brought #188 in was its own merge commit, made before this task started; it merged without conflicts.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/183#issuecomment-5926958707 — #188's `validate_codex_receiving.py` snapshots `.git/keel-mailbox` to prove a notice consumes nothing; after migration that directory is gone, so the assertion compares two empty snapshots. Its file belongs to the open Codex change, so the fix is left there, with the two ways to restore the proof.
+    - Blocker: none
+    - Reauthorizations: after task-start, `npm test` showed the open #188 change naming the replaced scenarios `mailbox-cli` and `mailbox-claude-hooks`; `scripts/validate_plugin.py` was added to Touch, with an Acceptance bullet and checks M3 and M4, and task-start re-run before any evidence was written.
+
+- [ ] 6.3 Release
   - Covers:
     - E1
     - E2
@@ -456,8 +494,8 @@
 ## Invalidates
 
 - I1: "on Claude only, the cross-host mailbox notices (SessionStart, UserPromptSubmit, and an idle-waking FileChanged)" — `AGENTS.md` Completion gates. Updated by: 2.1
-- I2: "the SessionStart and write-guard hooks it packages for both hosts and the Claude-only mailbox hooks" — `openspec/specs/keel-native-plugin-package/spec.md` Purpose. Updated by: 6.2
-- I3: "Define how sessions on different hosts exchange Markdown messages through a repository-shared mailbox" — `openspec/specs/keel-cross-host-mailbox/spec.md` Purpose. Updated by: 6.2
+- I2: "the SessionStart and write-guard hooks it packages for both hosts and the Claude-only mailbox hooks" — `openspec/specs/keel-native-plugin-package/spec.md` Purpose. Updated by: 6.3
+- I3: "Define how sessions on different hosts exchange Markdown messages through a repository-shared mailbox" — `openspec/specs/keel-cross-host-mailbox/spec.md` Purpose. Updated by: 6.3
 - I4: "keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)" — `bin/keel.js` usage. Updated by: 1.1, 1.3
 - I5: "reading is the receipt" and the `keel-mailbox/` layout comment — `src/core/mail.js` header. Updated by: 1.3
 - I6: "SessionStart and UserPromptSubmit announce unread cross-host mail" — `plugins/keel/scripts/mail-hook.js` header. Updated by: 2.1
@@ -472,6 +510,6 @@
 - E5: Sessions on different machines and the owner's phone exchange messages in real time through Slack, with only registered people relayed. Covered by: 4.1, 4.2
 - E6: The bridge runs without attention but the owner can see it and stop, pause, or remove it. Covered by: 4.3
 - E7: History outlives Slack's retention in the project's own repository, and is never pushed to a public repository without explicit acceptance. Covered by: 5.1
-- E8: 5.83 mail and `keel mail` keep working after the upgrade. Covered by: 1.3
+- E8: 5.83 mail and `keel mail` keep working after the upgrade, including for the Codex adapter #188 built on them. Covered by: 1.3, 6.2
 - E9: Codex's receiving side is not built here. Durable owner: https://github.com/TanglmChris/keel/issues/183
 - E10: No dependency is added, and Slack tokens never enter the repository, a record, or any output. Covered by: 4.1, 4.3

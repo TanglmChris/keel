@@ -122,7 +122,9 @@ const HOST_EVENTS = {
 // Claude Code hook entry. Silent, and exit 0, wherever there is no role —
 // including outside any repository — because exit 2 from FileChanged is the
 // wake signal and must mean only "something addressed to you arrived".
-function hook(event, input) {
+const MAIL_POINTER = "Direct messages can also be read with the 5.83 `keel mail read`.";
+
+function hook(event, input, { mail = false } = {}) {
   if (!(event in HOST_EVENTS)) return { code: 0 };
   let payload = {};
   try {
@@ -143,8 +145,9 @@ function hook(event, input) {
     touchPresence(where, role, "offline");
     return { code: 0 };
   }
-  touchPresence(where, role, "online", "claude-code");
-  const text = noticeText(where, role);
+  touchPresence(where, role, "online", mail ? null : "claude-code");
+  const chatText = noticeText(where, role);
+  const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
     const output = {
       hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role)] },

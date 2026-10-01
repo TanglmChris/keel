@@ -159,7 +159,9 @@ function runMail(argv) {
   try {
     options = parseMailArgs(argv);
     if (options.subcommand === "hook") {
-      return require("./chat/cli").runChat(["hook", options.event || ""]);
+      // The chat notice, plus a pointer for readers who arrived through the
+      // 5.83 command: #188's Codex adapter consumes this output.
+      return require("./chat/cli").runChat(["hook", options.event || "", "--mail"]);
     }
     if (options.subcommand === "help") {
       out(`Usage:\n  ${USAGE.join("\n  ")}`);

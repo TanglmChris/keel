@@ -33654,6 +33654,16 @@ SCENARIOS: tuple = (
         "chat-records",
         validate_chat_records_scenario,
     ),
+    # The 5.83 names (#180), kept as aliases of the scenarios that replaced
+    # them (#187), because open changes still name them in their checks.
+    (
+        "mailbox-cli",
+        validate_chat_mail_migration_scenario,
+    ),
+    (
+        "mailbox-claude-hooks",
+        validate_chat_claude_hooks_scenario,
+    ),
     (
         "chat-mail-migration",
         validate_chat_mail_migration_scenario,
