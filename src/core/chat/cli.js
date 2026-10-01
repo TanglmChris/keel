@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const store = require("./store");
 const { displayRecords, formatLine } = require("./view");
+const { migrateIfNeeded } = require("./migrate");
 
 const { ChatError } = store;
 
@@ -271,7 +272,12 @@ function runChat(argv) {
       out(`Usage:\n  ${USAGE.join("\n  ")}`);
       return 0;
     }
-    return dispatch(store.requireLocation(cwd), options);
+    // Host notices and wake-up are task 2.1 of the group-chat change; until
+    // then a hook says nothing and never exits 2, which would wake a session.
+    if (options.positionals[0] === "hook") return 0;
+    const where = store.requireLocation(cwd);
+    migrateIfNeeded(where);
+    return dispatch(where, options);
   } catch (error) {
     if (!(error instanceof ChatError)) throw error;
     process.stderr.write(`keel chat: ${error.message}\n`);

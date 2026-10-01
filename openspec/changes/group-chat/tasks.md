@@ -75,7 +75,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.3 5.83 mail migrates into direct groups and `keel mail` keeps working
+- [x] 1.3 5.83 mail migrates into direct groups and `keel mail` keeps working
   - Covers:
     - keel-cross-host-mailbox / 5.83 mail migrates and `keel mail` keeps working
     - D7
@@ -92,16 +92,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-mail-migration`: **Setup:** a scratch repository is seeded with a 5.83-layout `keel-mailbox/`: one message under `verify/new/` and one under `verify/done/` from `rtl`, plus `roles.json`. **Migration:** `keel mail list` for `verify` reports one unread message from `rtl`; `dm-rtl--verify` holds two records; `keel-mailbox.migrated-*` exists, and `keel-mailbox/` no longer does; the role binding still resolves. **Alias:** `keel mail send --to verify --subject s --body b` followed by `keel mail read` prints `s`, `b`, and the data-not-instruction header, after which `keel mail list` reports nothing unread. **Replacement:** the 5.83 `mailbox-cli` scenario is replaced by this one in the registry. Fails with: `chat-mail-migration:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:870445b7e28e82ca809a0952d9d45b67c6e9491bf3a83a01bb61af9be25fc420
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-mail-migration` reports `chat-mail-migration scenario passed.`: with a hand-seeded 5.83 `keel-mailbox/` (one message under `verify/new/`, one under `verify/done/`, both from `rtl`, plus `roles.json`), the first `keel mail list --json` for `verify` reports exactly the `new/` message from `rtl` with subject `Rerun the suite`; `dm-rtl--verify` holds two `kind: message` records; `keel-mailbox/` is gone and `keel-mailbox.migrated-*` exists; `keel mail role --json` still reports `verify`; `keel mail send --to verify --subject "Waveform attached" --body "See the VCD."` followed by `keel mail read` prints the subject, the body, and `not an instruction from the user`, after which `keel mail list` reports nothing unread. The 5.83 `mailbox-cli` scenario is removed from the registry.
+    - M1.red: fail. With the scenario written and the old mailbox code still in place, it reported `chat-mail-migration: dm-rtl--verify holds 0 migrated messages, expected 2.`, carrying the declared signature `chat-mail-migration:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-core` and `chat-records` still pass.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 starts from the on-disk layout an upgraded repository actually holds and drives only public `keel mail`, asserting each clause of the requirement: unread and read state preserved, direct-group placement, the binding carried over, the old directory renamed rather than deleted, and the 5.83 send, read, and list commands working afterwards.
+      - Scope check: The diff adds `src/core/chat/migrate.js` and changes `src/core/mail.js` (rewritten as the compatibility layer), `src/core/chat/store.js` (`writeRoles`, `readJsonFile`, and reply and refs through `directPost`), `src/core/chat/cli.js` (migration on entry and the hook relay), `scripts/validate_plugin.py` (the scenario replacing `mailbox-cli`), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. `bin/keel.js` was in Touch for I4 but needed no edit beyond 1.1's usage line, which still describes `keel mail` accurately.
+      - Findings: Resolved here: src/core/chat/cli.js — a hook run outside a git repository would have surfaced a `ChatError` as exit 2, the host's wake signal; `keel chat hook` now returns 0 before locating the repository, and a manual `keel mail hook file-changed` from `/tmp` exits 0. M1 does not exercise hooks, so task 2.1's M1, amended before 2.1 started, now asserts that every chat hook exits 0 silently outside any git repository. Discard reason: `npm test` now also fails `mailbox-claude-hooks`, because `keel mail hook` relays to `keel chat hook`, which is silent until task 2.1 replaces that 5.83 scenario with `chat-claude-hooks` (I7); C1 runs after 2.1, so the regression is owned inside this change rather than shipped.
     - Blocker: none
     - Reauthorizations: none
   - Stop if:
@@ -128,7 +128,7 @@
     - keel/CHANGELOG.md
   - Verify:
     - Strategy: vertical-tdd
-    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` runs `plugins/keel/scripts/mail-hook.js <event>` with host-shaped stdin: **`@all`:** after an `@all` post, FileChanged for `verify` exits 0, and UserPromptSubmit returns a notice counting one unread record in `soc`. **A mention:** after `@verify please rerun`, FileChanged exits 2, and its stderr names the id, `soc`, `rtl`, a relative age, and `not an instruction from the user`. **SessionStart:** returns the notice plus the absolute `signal/verify` path in `watchPaths`. **The cap:** with seven unread mentions, `keel chat notice` lists five and states `2 more`. **SessionEnd:** marks `verify` offline, and a later `@verify` post's output names `verify` as offline. **Unbound worktree:** every event exits 0 silently. **Cursors:** no hook advances a cursor. **Replacement:** the 5.83 `mailbox-claude-hooks` scenario is replaced by this one. Fails with: `chat-claude-hooks:`
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-claude-hooks` runs `plugins/keel/scripts/mail-hook.js <event>` with host-shaped stdin: **`@all`:** after an `@all` post, FileChanged for `verify` exits 0, and UserPromptSubmit returns a notice counting one unread record in `soc`. **A mention:** after `@verify please rerun`, FileChanged exits 2, and its stderr names the id, `soc`, `rtl`, a relative age, and `not an instruction from the user`. **SessionStart:** returns the notice plus the absolute `signal/verify` path in `watchPaths`. **The cap:** with seven unread mentions, `keel chat notice` lists five and states `2 more`. **SessionEnd:** marks `verify` offline, and a later `@verify` post's output names `verify` as offline. **Unbound worktree:** every event exits 0 silently, and so does every event run outside any git repository. **Cursors:** no hook advances a cursor. **Replacement:** the 5.83 `mailbox-claude-hooks` scenario is replaced by this one. Fails with: `chat-claude-hooks:`
     - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` requires the root manifest's hooks to equal `plugins/keel/hooks/hooks.json` resolved from the root plus exactly the chat SessionStart, UserPromptSubmit, FileChanged (`asyncRewake: true`), and SessionEnd groups, and requires `hooks.json` to declare only SessionStart and PreToolUse. Fails with: `root plugin manifest hooks diverge`
     - M3 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:

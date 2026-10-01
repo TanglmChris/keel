@@ -2191,149 +2191,6 @@ def mailbox_common_dir(repo: Path) -> Path:
     return Path(raw)
 
 
-def validate_mailbox_cli_scenario() -> int:
-    """Issue #180: worktrees of one repository exchange Markdown mail by role.
-
-    Everything goes through public `keel mail`: binding roles, sending from
-    one worktree, listing and reading in another, isolation from a second
-    repository, the reply link, and that unread mail changes no context.
-    """
-    label = "mailbox-cli: keel mail"
-    with tempfile.TemporaryDirectory(prefix="keel-mailbox-") as raw:
-        base = Path(raw)
-        rtl = mailbox_repository(base / "rtl")
-        verify = base / "verify"
-        subprocess.run(
-            ["git", "worktree", "add", "-q", "-b", "verify", str(verify)],
-            cwd=rtl, check=True, capture_output=True,
-        )
-        other = mailbox_repository(base / "other")
-        env = {key: value for key, value in os.environ.items() if key != "KEEL_MAIL_ROLE"}
-
-        def mail(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-            return run_keel(cwd, "mail", *args, env=env)
-
-        unbound = mail(rtl, "send", "--to", "verify", "--subject", "s", "--body", "b")
-        if unbound.returncode == 0:
-            report(f"{label} send from an unbound worktree succeeded.")
-            return 1
-        if "keel mail role --set" not in unbound.stderr:
-            report(f"{label} the unbound-sender refusal does not name `keel mail role --set`.")
-            report((unbound.stderr or unbound.stdout).strip())
-            return 1
-        bad = mail(rtl, "role", "--set", "Bad Name")
-        if bad.returncode == 0:
-            report(f"{label} role --set accepted the invalid name 'Bad Name'.")
-            return 1
-        if "[a-z0-9]" not in bad.stderr:
-            report(f"{label} the invalid-role refusal does not name the pattern: {bad.stderr.strip()}")
-            return 1
-        if (mailbox_common_dir(rtl) / "keel-mailbox").exists():
-            report(f"{label} a refused role wrote to the mailbox.")
-            return 1
-
-        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (other, "verify")):
-            bound = mail(cwd, "role", "--set", role)
-            if bound.returncode != 0:
-                report(f"{label} role --set {role} failed: {bound.stderr.strip()}")
-                return 1
-        shown = mail(verify, "role", "--json")
-        if shown.returncode != 0:
-            report(f"{label} role --json failed: {shown.stderr.strip()}")
-            return 1
-        if json.loads(shown.stdout).get("role") != "verify":
-            report(f"{label} role did not report the bound role: {shown.stdout.strip()}")
-            return 1
-
-        context_before = run_keel(verify, "context", "--json", env=env)
-
-        sent = mail(
-            rtl, "send", "--to", "verify", "--subject", "Stimulus misreads spec",
-            "--body", "Fix the testcase and rerun.", "--ref", "abc1234", "--json",
-        )
-        if sent.returncode != 0:
-            report(f"{label} send failed: {sent.stderr.strip()}")
-            return 1
-        message_id = json.loads(sent.stdout).get("id", "")
-
-        listed = mail(verify, "list", "--json")
-        unread = json.loads(listed.stdout).get("unread", []) if listed.returncode == 0 else []
-        if [(m.get("from"), m.get("subject")) for m in unread] != [("rtl", "Stimulus misreads spec")]:
-            report(f"{label} list in the verify worktree did not show the message: {listed.stdout.strip()}")
-            return 1
-        box = mailbox_common_dir(rtl) / "keel-mailbox" / "verify"
-        files = list((box / "new").glob("*.md"))
-        if len(files) != 1:
-            report(f"{label} expected one message file under {box / 'new'}, found {len(files)}.")
-            return 1
-        if not (box / ".signal").is_file():
-            report(f"{label} the signal file {box / '.signal'} is missing.")
-            return 1
-        text = files[0].read_text(encoding="utf-8")
-        for needle in (
-            f"id: {message_id}", "from: rtl", "to: verify", "created: ",
-            "subject: Stimulus misreads spec", "refs:", "abc1234",
-            "Fix the testcase and rerun.",
-        ):
-            if needle not in text:
-                report(f"{label} message file lacks {needle!r}:\n{text}")
-                return 1
-        if not text.startswith("---\n"):
-            report(f"{label} message file has no frontmatter.")
-            return 1
-
-        elsewhere = mail(other, "list", "--json")
-        if elsewhere.returncode != 0:
-            report(f"{label} list failed in the separate repository: {elsewhere.stderr.strip()}")
-            return 1
-        if json.loads(elsewhere.stdout).get("unread"):
-            report(f"{label} a separate repository saw the message.")
-            return 1
-
-        context_after = run_keel(verify, "context", "--json", env=env)
-        before, after = json.loads(context_before.stdout), json.loads(context_after.stdout)
-        if (before.get("status"), before.get("nextAction")) != (after.get("status"), after.get("nextAction")):
-            report(f"{label} unread mail changed keel context.")
-            return 1
-
-        read = mail(verify, "read")
-        if read.returncode != 0:
-            report(f"{label} read failed: {read.stderr.strip()}")
-            return 1
-        for needle in ("Stimulus misreads spec", "Fix the testcase and rerun.", "not an instruction from the user"):
-            if needle not in read.stdout:
-                report(f"{label} read output lacks {needle!r}: {read.stdout.strip()}")
-                return 1
-        after_read = json.loads(mail(verify, "list", "--json").stdout).get("unread")
-        if after_read:
-            report(f"{label} list still shows unread mail after read: {after_read!r}")
-            return 1
-        if list((box / "new").glob("*.md")):
-            report(f"{label} read left the message in new/.")
-            return 1
-        if len(list((box / "done").glob("*.md"))) != 1:
-            report(f"{label} read did not put the message in done/.")
-            return 1
-
-        reply = mail(verify, "send", "--to", "rtl", "--subject", "Re: stimulus", "--reply-to", message_id, "--body", "Done.")
-        replies = list((mailbox_common_dir(rtl) / "keel-mailbox" / "rtl" / "new").glob("*.md"))
-        if reply.returncode != 0:
-            report(f"{label} the reply failed: {reply.stderr.strip()}")
-            return 1
-        if len(replies) != 1:
-            report(f"{label} expected one reply in rtl/new, found {len(replies)}.")
-            return 1
-        if f"reply_to: {message_id}" not in replies[0].read_text(encoding="utf-8"):
-            report(f"{label} the reply did not carry reply_to {message_id}.")
-            return 1
-
-    if "mailbox-cli" not in {name for name, _ in SCENARIOS}:
-        report("mailbox-cli: scenario is not registered.")
-        return 1
-    report("mailbox-cli scenario passed.")
-    return 0
-
-
 def validate_mailbox_claude_hooks_scenario() -> int:
     """Issue #180: Claude Code learns of mail at start, per prompt, and idle.
 
@@ -2805,6 +2662,83 @@ def validate_chat_records_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-records scenario passed.")
+    return 0
+
+
+def validate_chat_mail_migration_scenario() -> int:
+    """Issue #187: 5.83 mail migrates into direct groups; `keel mail` still works.
+
+    A scratch repository is seeded with the 5.83 mailbox layout by hand, as an
+    upgraded repository would hold it. The first `keel mail` command migrates
+    it — unread stays unread, read stays read, the binding carries over, and
+    the old directory is renamed rather than deleted — and the 5.83 commands
+    then work on the direct groups.
+    """
+    label = "chat-mail-migration:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-migration-") as raw:
+        base = Path(raw)
+        rtl = mailbox_repository(base / "rtl")
+        verify = chat_worktree(rtl, base / "verify")
+        env = chat_environment()
+        common = mailbox_common_dir(rtl)
+        box = common / "keel-mailbox"
+        old_unread = "20261001T010000Z-rtl-aaaaaa"
+        old_read = "20261001T000000Z-rtl-bbbbbb"
+        write_text(
+            box / "verify" / "new" / f"{old_unread}.md",
+            f"---\nid: {old_unread}\nfrom: rtl\nto: verify\ncreated: 2026-10-01T01:00:00.000Z\n"
+            "subject: Rerun the suite\n---\n\nThe clock fix landed.\n",
+        )
+        write_text(
+            box / "verify" / "done" / f"{old_read}.md",
+            f"---\nid: {old_read}\nfrom: rtl\nto: verify\ncreated: 2026-10-01T00:00:00.000Z\n"
+            "subject: Hello\n---\n\nAlready read.\n",
+        )
+        write_text(box / "roles.json", json.dumps({str(rtl.resolve()): "rtl", str(verify.resolve()): "verify"}) + "\n")
+
+        def mail(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "mail", *args, env=env)
+
+        listed = mail(verify, "list", "--json")
+        unread = chat_json(listed).get("unread", [])
+        if [(m.get("from"), m.get("subject")) for m in unread] != [("rtl", "Rerun the suite")]:
+            report(f"{label} keel mail list after migration does not show exactly the 5.83 unread message: {listed.stdout.strip()} {listed.stderr.strip()}")
+            return 1
+        records = [p for p in chat_log(rtl, "dm-rtl--verify").glob("*.md") if "kind: message" in p.read_text(encoding="utf-8")]
+        if len(records) != 2:
+            report(f"{label} dm-rtl--verify holds {len(records)} migrated messages, expected 2.")
+            return 1
+        if box.exists():
+            report(f"{label} keel-mailbox/ still exists after migration.")
+            return 1
+        if not list(common.glob("keel-mailbox.migrated-*")):
+            report(f"{label} no keel-mailbox.migrated-* directory was kept.")
+            return 1
+        if chat_json(mail(verify, "role", "--json")).get("role") != "verify":
+            report(f"{label} the 5.83 role binding did not carry over.")
+            return 1
+
+        sent = mail(rtl, "send", "--to", "verify", "--subject", "Waveform attached", "--body", "See the VCD.")
+        if sent.returncode != 0:
+            report(f"{label} keel mail send failed: {sent.stderr.strip()}")
+            return 1
+        read = mail(verify, "read")
+        if read.returncode != 0:
+            report(f"{label} keel mail read failed: {read.stderr.strip()}")
+            return 1
+        for needle in ("Waveform attached", "See the VCD.", "not an instruction from the user"):
+            if needle not in read.stdout:
+                report(f"{label} keel mail read output lacks {needle!r}: {read.stdout.strip()}")
+                return 1
+        after = chat_json(mail(verify, "list", "--json")).get("unread")
+        if after:
+            report(f"{label} keel mail list still shows unread mail after read: {after!r}")
+            return 1
+
+    if "chat-mail-migration" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-mail-migration scenario passed.")
     return 0
 
 
@@ -32760,10 +32694,6 @@ SCENARIOS: tuple = (
         validate_decisions_are_selectable_scenario,
     ),
     (
-        "mailbox-cli",
-        validate_mailbox_cli_scenario,
-    ),
-    (
         "mailbox-claude-hooks",
         validate_mailbox_claude_hooks_scenario,
     ),
@@ -32774,6 +32704,10 @@ SCENARIOS: tuple = (
     (
         "chat-records",
         validate_chat_records_scenario,
+    ),
+    (
+        "chat-mail-migration",
+        validate_chat_mail_migration_scenario,
     ),
     (
         "record-derives-skeleton",

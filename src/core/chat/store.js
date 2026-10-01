@@ -147,11 +147,15 @@ function requireRole(where) {
   return role;
 }
 
+function writeRoles(where, roles) {
+  writeAtomic(where.root, path.join(where.root, "roles.json"), `${JSON.stringify(roles, null, 2)}\n`);
+}
+
 function setRole(where, name) {
   checkName(name, "Role");
   const roles = readRoles(where.root);
   roles[where.worktree] = name;
-  writeAtomic(where.root, path.join(where.root, "roles.json"), `${JSON.stringify(roles, null, 2)}\n`);
+  writeRoles(where, roles);
   return name;
 }
 
@@ -601,7 +605,7 @@ function search(where, text, { group = null } = {}) {
   return results;
 }
 
-function directPost(where, target, text) {
+function directPost(where, target, text, extra = {}) {
   const from = requireRole(where);
   checkName(target, "Recipient");
   if (target === from) throw new ChatError("A direct group needs two different roles.");
@@ -609,7 +613,7 @@ function directPost(where, target, text) {
   if (!groupState(readLog(where, group)).exists) {
     createGroup(where, from, group, [target], { direct: true });
   }
-  return post(where, { group, text });
+  return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [] });
 }
 
 // --- cursors and receipts -----------------------------------------------------
@@ -710,10 +714,12 @@ module.exports = {
   readLog,
   readMember,
   readersOf,
+  readJsonFile: (file) => readJson(file, {}),
   requireLocation,
   requireRole,
   setRole,
   unread,
   view,
   writeRecord,
+  writeRoles,
 };
