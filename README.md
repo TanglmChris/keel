@@ -76,6 +76,15 @@ keel --version
 codex plugin add keel@<marketplace>        # Codex
 ```
 
+For Codex, start a fresh session after updating the plugin and review its current
+hook definitions with `/hooks` in the CLI. Installation does not grant hook trust.
+Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
+unread mail at session start and the next user input without marking it read.
+If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
+explicitly. Codex idle wake-up and native write-guard enforcement remain unverified.
+See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
+evidence, limitations and the clean-consumer Full-mode check.
+
 A global `keel` comes first on PATH, ahead of the plugin's copy, so on Claude Code the agent runs
 it instead. Keep it at the plugin's version or remove it (`npm rm -g @christang/keel`); the
 session-start line names it whenever the two disagree.
