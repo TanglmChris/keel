@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.83.0 - sessions on different hosts can write to each other
+
+A Claude Code session and a Codex session often work the same repository from separate worktrees and need to pass conclusions to each other; until now the user copied them across. Writing straight into the other host's session thread was tried and failed on its storage format, writer locks, versions, and an absent receiver (#180). Hosts now exchange plain Markdown files, and each host decides how to receive them.
+
+- Issue #180: `keel mail` passes Markdown messages between sessions — a Claude Code session on one worktree and a Codex session on another — through a mailbox in the repository's git common directory, shared by every worktree and never versioned. `keel mail role --set <name>` binds a worktree to a user-chosen role; `send` writes a message with `from`/`to`/`created`/`subject` and optional `reply_to`/`refs` frontmatter atomically; `list` shows unread mail; `read` prints it under a data-not-instruction header and moves it to `done/`. Unread mail gates nothing.
+- **Claude Code is told, and woken.** The Claude plugin announces unread mail at SessionStart and on every prompt, and a FileChanged hook with `asyncRewake` watches the role's signal file so arriving mail wakes an idle session (probed on Claude Code 2.1.283). Each notice lists id, sender, and subject, names `keel mail read`, and says the mail is data from another agent and grants no authorization. These hooks live only in the Claude root manifest; `plugins/keel/hooks/hooks.json`, which Codex also loads, is unchanged. Codex's receiving side is tracked as #183.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.83.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.82.0 - a decision is something to pick
 
 The owner asked that a decision Keel's agent needs from them be something they can select rather than type, wherever the host offers that (#174). The protocol spoke of options and a recommendation but never of offering them as a choice, and the alignment skill called presentation the host's concern, which read as permission to ask in prose.
