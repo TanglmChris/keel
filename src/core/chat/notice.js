@@ -93,6 +93,25 @@ function ensureSignal(where, role) {
   return signal;
 }
 
+// For a Slack-enabled project, whether this machine's bridge is carrying the
+// chat, so a session does not assume the owner's phone can reach it (D18).
+function bridgeLine(where) {
+  let settings;
+  try {
+    settings = require("./config").slackSettings(where.worktree);
+  } catch {
+    return null;
+  }
+  if (!settings.enabled) return null;
+  const status = require("./bridge").fullStatus();
+  if (!status.running) {
+    return "keel chat bridge: not running on this machine, so Slack messages are not reaching this session "
+      + "(local chat still works). `keel chat bridge start`, or `keel chat bridge install` once, brings it up.";
+  }
+  if (status.paused) return `keel chat bridge: paused until ${status.paused_until}; messages wait until then.`;
+  return `keel chat bridge: running${status.connected ? " and connected" : ", reconnecting"}, serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}.`;
+}
+
 const HOST_EVENTS = {
   "session-start": "SessionStart",
   "user-prompt-submit": "UserPromptSubmit",
@@ -130,7 +149,8 @@ function hook(event, input) {
     const output = {
       hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role)] },
     };
-    if (text) output.hookSpecificOutput.additionalContext = text;
+    const context = [bridgeLine(where), text].filter(Boolean).join("\n");
+    if (context) output.hookSpecificOutput.additionalContext = context;
     return { code: 0, stdout: `${JSON.stringify(output)}\n` };
   }
   if (event === "user-prompt-submit") {
@@ -147,6 +167,7 @@ function hook(event, input) {
 
 module.exports = {
   NOTICE_LIMIT,
+  bridgeLine,
   hook,
   noticeText,
   presenceOf,

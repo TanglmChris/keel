@@ -21,6 +21,7 @@ const store = require("./store");
 const { slackSettings } = require("./config");
 const { redact } = require("./redact");
 const slack = require("./slack");
+const lifecycle = require("./lifecycle");
 
 const { ChatError } = store;
 const METADATA_TYPE = "keel_chat_record";
@@ -319,6 +320,9 @@ async function metadataOf(ctx, channel, event) {
 }
 
 async function handleBotMessage(ctx, channel, event) {
+  // This bridge's own posts without a record — its online and stopped
+  // notices — carry nothing to import.
+  if (event.bot_id && event.bot_id === ctx.self.bot_id && !event.metadata) return;
   const metadata = await metadataOf(ctx, channel, event);
   if (!metadata || metadata.event_type !== METADATA_TYPE) return;
   const payload = metadata.event_payload || {};
@@ -530,12 +534,6 @@ async function catchUp(ctx) {
 
 // --- the running process --------------------------------------------------------
 
-function tokens() {
-  const bot = (process.env.KEEL_SLACK_BOT_TOKEN || "").trim();
-  const app = (process.env.KEEL_SLACK_APP_TOKEN || "").trim();
-  return { bot: bot || null, app: app || null };
-}
-
 function statusFile() {
   return path.join(keelHome(), "chat", "bridge", "status.json");
 }
@@ -583,6 +581,23 @@ function readStatus() {
   return { ...status, running, connected: running && Boolean(status.connected) };
 }
 
+function fullStatus() {
+  const status = readStatus();
+  const until = lifecycle.pausedUntil();
+  return {
+    installed: lifecycle.installed(),
+    running: false,
+    connected: false,
+    projects: [],
+    last_event: null,
+    ignored: 0,
+    unposted: 0,
+    ...status,
+    paused: Boolean(until),
+    paused_until: until ? new Date(until).toISOString() : null,
+  };
+}
+
 function prepareProjects() {
   const projects = servedProjects();
   for (const project of projects) {
@@ -595,10 +610,11 @@ function prepareProjects() {
   return projects;
 }
 
-async function createContext(log) {
+async function createContext(log, { needApp }) {
   requireWebSocket();
-  const { bot, app } = tokens();
-  if (!bot) throw new ChatError("No Slack bot token: set KEEL_SLACK_BOT_TOKEN.");
+  const { bot, app } = lifecycle.tokens();
+  if (needApp && !app) throw lifecycle.missingTokens("app-level token");
+  if (!bot) throw lifecycle.missingTokens("bot token");
   const ctx = {
     log,
     token: bot,
@@ -615,7 +631,7 @@ async function createContext(log) {
 }
 
 async function runOnce(log) {
-  const ctx = await createContext(log);
+  const ctx = await createContext(log, { needApp: false });
   const posted = await flushOutbound(ctx);
   writeStatus(ctx);
   log(`Bridge pass done: ${ctx.projects.length} project${ctx.projects.length === 1 ? "" : "s"} served, ${posted} record${posted === 1 ? "" : "s"} sent.`);
@@ -670,12 +686,37 @@ function socketSession(ctx) {
   });
 }
 
+function packageVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "..", "..", "package.json"), "utf8")).version || null;
+  } catch {
+    return null;
+  }
+}
+
+// One line to every mapped channel, so the people in it know whether this
+// machine's sessions can hear them (D18).
+async function announce(ctx, text) {
+  const channels = new Set(ctx.projects.flatMap((project) => [...project.channelGroups.keys()]));
+  for (const channel of channels) {
+    try {
+      await slack.call("chat.postMessage", { channel, text, username: "keel bridge", unfurl_links: false }, ctx.token);
+    } catch (error) {
+      ctx.log(`could not announce in ${channel}: ${error.message}`);
+    }
+  }
+}
+
+const RESTART_EXIT = 75;
+
 async function run(log) {
-  const ctx = await createContext(log);
-  if (!ctx.appToken) throw new ChatError("No Slack app-level token: set KEEL_SLACK_APP_TOKEN.");
+  const ctx = await createContext(log, { needApp: true });
+  const machine = machineName();
+  const version = packageVersion();
+  let exitCode = 0;
   let flushing = false;
   const flush = async () => {
-    if (flushing || ctx.stopping) return;
+    if (flushing || ctx.stopping || lifecycle.pausedUntil()) return;
     flushing = true;
     try {
       await flushOutbound(ctx);
@@ -685,26 +726,52 @@ async function run(log) {
       flushing = false;
     }
   };
-  const timer = setInterval(flush, 1000);
-  const stop = () => {
+  let stopped = null;
+  const stop = (reason) => {
+    if (stopped) return stopped;
     ctx.stopping = true;
     clearInterval(timer);
-    if (ctx.socket) ctx.socket.close();
+    stopped = (async () => {
+      if (reason) await Promise.race([announce(ctx, `:red_circle: ${machine} bridge stopped${reason === "signal" ? "" : ` (${reason})`}; this machine's sessions will catch up when it restarts.`), slack.sleep(5000)]);
+      if (ctx.socket) ctx.socket.close();
+    })();
+    return stopped;
   };
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
+  // Each second: honor a pause, notice a Keel upgrade, and send what is new.
+  const timer = setInterval(() => {
+    const current = packageVersion();
+    if (version && current && current !== version) {
+      log(`Keel changed from ${version} to ${current}; exiting so launchd restarts the bridge on the new version.`);
+      exitCode = RESTART_EXIT;
+      stop(`restarting for Keel ${current}`);
+      return;
+    }
+    if (lifecycle.pausedUntil()) {
+      if (ctx.socket) ctx.socket.close();
+      return;
+    }
+    flush();
+  }, 1000);
+  process.once("SIGTERM", () => stop("signal"));
+  process.once("SIGINT", () => stop("signal"));
+  await announce(ctx, `:large_green_circle: ${machine} bridge online, relaying ${ctx.projects.length} project${ctx.projects.length === 1 ? "" : "s"}.`);
   await flush();
   let backoff = 1000;
   while (!ctx.stopping) {
+    if (lifecycle.pausedUntil()) {
+      await slack.sleep(500);
+      continue;
+    }
     const opened = Date.now();
     await socketSession(ctx);
-    if (ctx.stopping) break;
+    if (ctx.stopping || lifecycle.pausedUntil()) continue;
     backoff = Date.now() - opened > 30000 ? 1000 : Math.min(backoff * 2, 30000);
     await slack.sleep(backoff);
   }
+  if (stopped) await stopped;
   ctx.connected = false;
   writeStatus(ctx);
-  return 0;
+  return exitCode;
 }
 
 module.exports = {
@@ -713,12 +780,12 @@ module.exports = {
   keelHome,
   readPosted,
   readRegistry,
+  fullStatus,
   readStatus,
   removeProject,
   requireWebSocket,
   run,
   runOnce,
   servedProjects,
-  tokens,
   writePosted,
 };

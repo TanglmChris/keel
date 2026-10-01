@@ -34,6 +34,8 @@ const USAGE = [
   "keel chat search <text...> [--group <group>] [--json]",
   "keel chat bridge add|remove [--repo <path>]   (list or unlist this project for this machine's Slack bridge)",
   "keel chat bridge run [--once]   (the bridge process; --once sends what is pending and exits; Node 22+)",
+  "keel chat bridge install|uninstall|start|stop   (the macOS login item that keeps the bridge running)",
+  "keel chat bridge pause <30m|2h|1d> | resume",
   "keel chat bridge status [--json]",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
@@ -332,6 +334,7 @@ function dispatch(where, options) {
 
 function runBridge(where, rest, options) {
   const bridge = require("./bridge");
+  const lifecycle = require("./lifecycle");
   const [action] = rest;
   if (action !== "status") bridge.requireWebSocket();
   switch (action) {
@@ -344,12 +347,40 @@ function runBridge(where, rest, options) {
       out(`This machine's bridge no longer serves ${bridge.removeProject(where)}.`);
       return 0;
     case "status": {
-      const status = bridge.readStatus();
-      if (options.json) out(JSON.stringify(status));
-      else if (!status.running) out("keel chat bridge: not running on this machine; Slack messages are not reaching it.");
-      else out(`keel chat bridge: running (pid ${status.pid}), ${status.connected ? "connected" : "not connected"}, serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}; ${status.unposted} waiting to send, ${status.ignored} ignored from unregistered senders.`);
+      const status = bridge.fullStatus();
+      if (options.json) {
+        out(JSON.stringify(status));
+        return 0;
+      }
+      const lines = [`keel chat bridge: ${status.installed ? "installed as a login item" : "not installed"}; ${status.running ? `running (pid ${status.pid}), ${status.connected ? "connected" : "not connected"}` : "not running"}${status.paused ? `, paused until ${status.paused_until}` : ""}.`];
+      if (status.running) lines.push(`Serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}; last event ${status.last_event || "none yet"}; ${status.unposted} waiting to send; ${status.ignored} ignored from unregistered senders.`);
+      else lines.push("Slack messages are not reaching this machine's sessions; local chat still works and nothing is lost.");
+      out(lines.join("\n"));
       return 0;
     }
+    case "install":
+      out(`Installed ${lifecycle.install()}; the bridge now starts at login and restarts if it stops. See it under System Settings > General > Login Items.`);
+      return 0;
+    case "uninstall":
+      out(`Removed ${lifecycle.uninstall()}; the bridge no longer runs on this machine.`);
+      return 0;
+    case "start":
+      lifecycle.start();
+      out("Started the bridge.");
+      return 0;
+    case "stop":
+      lifecycle.stop();
+      out("Stopped the bridge until `keel chat bridge start` or your next login. Messages wait; nothing is lost.");
+      return 0;
+    case "pause": {
+      const until = lifecycle.pause(rest[1]);
+      out(`Paused the bridge until ${until.toISOString()}. Messages wait and are delivered afterwards. \`keel chat bridge resume\` ends it early.`);
+      return 0;
+    }
+    case "resume":
+      lifecycle.resume();
+      out("Resumed the bridge.");
+      return 0;
     case "run": {
       const log = (line) => process.stderr.write(`keel chat bridge: ${line}\n`);
       (options.once ? bridge.runOnce(log) : bridge.run(log)).then(
@@ -362,7 +393,7 @@ function runBridge(where, rest, options) {
       return undefined;
     }
     default:
-      throw new ChatError(`Unknown keel chat bridge action ${JSON.stringify(action)}: use add, remove, status, or run.`);
+      throw new ChatError(`Unknown keel chat bridge action ${JSON.stringify(action)}: use add, remove, install, uninstall, start, stop, pause, resume, status, or run.`);
   }
 }
 

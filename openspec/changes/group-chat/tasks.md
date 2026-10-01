@@ -286,7 +286,7 @@
   - Stop if:
     - A message from an unregistered Slack user would have to reach a record or a signal.
 
-- [ ] 4.3 Lifecycle: tokens, LaunchAgent, pause, status, reconnect, upgrade restart, and the session-start status line
+- [x] 4.3 Lifecycle: tokens, LaunchAgent, pause, status, reconnect, upgrade restart, and the session-start status line
   - Covers:
     - keel-chat-slack-bridge / Tokens never enter the repository or a record
     - keel-chat-slack-bridge / The bridge runs unattended but stays visible and controllable
@@ -304,22 +304,20 @@
   - Verify:
     - Strategy: vertical-tdd
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-lifecycle`: **Missing tokens:** with no token environment and `KEEL_CHAT_SECURITY` pointed at a double that finds nothing, `bridge run` fails naming `KEEL_SLACK_APP_TOKEN` and `keel-chat-slack`; with the double returning tokens, it connects, and no file under `KEEL_HOME` or the store contains either token. **Install:** `install` with `KEEL_CHAT_LAUNCHCTL` and `KEEL_CHAT_LAUNCH_AGENTS_DIR` doubles writes a plist containing `RunAtLoad`, `KeepAlive`, and `chat bridge run` and asks the double to bootstrap it; `uninstall` asks it to boot out and removes the plist. **Pause:** `pause 2s` holds a post made during the pause, then delivers it once. **Reconnect:** a fake `refresh_requested` and a dropped socket each reconnect. **Online and stopped posts:** the online notice is posted on start, and the stopped notice on SIGTERM. **Upgrade restart:** changing the version in a copied `package.json` makes `run` exit for restart. **Status:** `status --json` reports connected, projects, last event, ignored, and unposted counts. **Session start:** the SessionStart chat hook in a Slack-enabled project with no running bridge prints a line stating the bridge is not running. Fails with: `chat-bridge-lifecycle:`
-    - M2: idle cost of a connected bridge serving three projects against the fake server for 60 s, sampled with `ps -o rss=,%cpu=`. Measured: `idle rss`
-    - M3 (regression): `npm test` passes the baseline and every registered scenario.
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:a5f97d8838ba3b575ec330403b740c6246e1e8db690d3a4a47f126efd5a0b133
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-lifecycle` reports `chat-bridge-lifecycle scenario passed.`: with no token in the environment and a `KEEL_CHAT_SECURITY` double that finds nothing, `bridge run` fails naming `KEEL_SLACK_APP_TOKEN` and `keel-chat-slack`; the SessionStart hook in the Slack-enabled project, with no bridge running, says the bridge is `not running`; with a double that returns tokens the bridge connects using `Bearer xapp-from-keychain-0000`, posts `bridge online`, and `status --json` carries `connected: true` plus `projects`, `last_event`, `ignored`, `unposted`, `installed`, and `paused`; it reconnects after a pushed `refresh_requested` and after the server drops the socket; `pause 3s` holds a record posted during the pause and then sends it exactly once; SIGTERM posts `bridge stopped`; no file under `KEEL_HOME` or the store contains either token; a bridge started from a copied Keel tree exits after that copy's `package.json` changes to `99.0.0`, naming the new version; `install` with `KEEL_CHAT_LAUNCHCTL` and `KEEL_CHAT_LAUNCH_AGENTS_DIR` doubles writes one plist with `RunAtLoad` and `KeepAlive` true, `ProgramArguments` ending `chat bridge run`, and no token, and asks the double to `bootstrap` it; `status` then reports `installed: true`; `uninstall` asks for `bootout` and removes the plist.
+    - M1.red: fail. Before `src/core/chat/lifecycle.js` existed the scenario reported `chat-bridge-lifecycle: the missing-token refusal does not name KEEL_SLACK_APP_TOKEN: keel chat: No Slack bot token: set KEEL_SLACK_BOT_TOKEN.`, carrying the declared signature `chat-bridge-lifecycle:`.
+    - M1.green: pass. The same scenario passes against the working tree, and `chat-bridge-outbound` and `chat-bridge-inbound` still pass; `npm test` fails only `authored-scenario-names-are-registered`, for the archive scenario still to come.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat bridge` commands, the shipped SessionStart hook, and a real bridge process, with only `launchctl`, `security`, the LaunchAgents directory, and Slack replaced at the system boundary, and asserts each clause of both Covers requirements: tokens from either source and never on disk, a named failure when absent, the LaunchAgent's shape and load/unload, pause holding and then delivering once, reconnection on both triggers, the online and stopped notices, the version-change exit, the status fields, and the session's not-running line. The idle cost #187 asked to measure was taken outside the checks: `python3 openspec/changes/group-chat/evidence/measure_idle.py "$PWD"` ran a connected bridge serving three projects of 50 records each against the fake server, sampled `ps -o rss=,time=` every 5s for 60s, and printed `idle rss: min 81.2 MB, max 90.0 MB over 60s, 3 projects x 50 records; cpu time 0.44s in 60s wall = 0.73% of one core`.
+      - Scope check: The diff adds `src/core/chat/lifecycle.js` and changes `src/core/chat/bridge.js` (Keychain tokens, notices, pause, version watch, and full status), `src/core/chat/notice.js` (the bridge line at session start), `src/core/chat/cli.js` (`install`, `uninstall`, `start`, `stop`, `pause`, `resume`, and the fuller `status`), `scripts/validate_plugin.py` (the scenario), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory, which now holds the measurement script. `scripts/fake_slack.py` needed no edit.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — A2, whether real Slack agrees with the event and API shapes the fake server models, can only be shown by the owner's first run with real tokens; that comment lists the four things to confirm. Discard reason: the idle bridge uses 0.7% of one core because it re-reads each served project's mapped logs every second to find records to send; that is acceptable for one process per machine, and watching the log directories instead is an optimization rather than a defect.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: the idle-cost measurement was authored as an untagged vertical-tdd check, which owes a red no measurement can honestly have; it was removed from Verify and its result moved into the Review's acceptance check, the regression check renumbered M2, and task-start re-run with M1's evidence kept, because M1's text did not change.
   - Stop if:
     - Any check would have to run the real `launchctl` or `security`, or touch the real `~/Library/LaunchAgents`: those are the owner's system configuration.
 

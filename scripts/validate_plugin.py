@@ -3373,6 +3373,201 @@ def validate_chat_bridge_inbound_scenario() -> int:
     return 0
 
 
+def validate_chat_bridge_lifecycle_scenario() -> int:
+    """Issue #187: the bridge runs unattended but stays visible and controllable.
+
+    Tokens come from the environment or the Keychain and land in no file;
+    `install` and `uninstall` drive launchctl for a user LaunchAgent; `pause`
+    queues and then delivers; the bridge reconnects after a refresh request
+    or a dropped socket, announces itself online and stopped, exits for a
+    restart when Keel's version changes, reports its state through `status`,
+    and a session in a Slack-enabled project is told when it is not running.
+    The system boundary — `launchctl`, `security`, and the LaunchAgents
+    directory — is replaced by test doubles; nothing touches the real ones.
+    """
+    import plistlib  # noqa: PLC0415 - only this scenario reads a plist
+
+    label = "chat-bridge-lifecycle:"
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-life-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        home = base / "home"
+        benv = chat_bridge_environment(env, home, slack)
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+
+        empty_security = base / "security-empty"
+        write_text(empty_security, "#!/bin/sh\nexit 44\n")
+        empty_security.chmod(0o755)
+        keychain = base / "security-keychain"
+        write_text(
+            keychain,
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  *"-a app"*) echo xapp-from-keychain-0000 ;;\n'
+            '  *"-a bot"*) echo xoxb-from-keychain-0000 ;;\n'
+            "  *) exit 44 ;;\n"
+            "esac\n",
+        )
+        keychain.chmod(0o755)
+        no_tokens = {k: v for k, v in benv.items() if k not in ("KEEL_SLACK_BOT_TOKEN", "KEEL_SLACK_APP_TOKEN")}
+
+        missing = run_keel(rtl, "chat", "bridge", "run", env={**no_tokens, "KEEL_CHAT_SECURITY": str(empty_security)})
+        if missing.returncode == 0:
+            report(f"{label} bridge run started with no token anywhere.")
+            return 1
+        for needle in ("KEEL_SLACK_APP_TOKEN", "keel-chat-slack"):
+            if needle not in missing.stderr:
+                report(f"{label} the missing-token refusal does not name {needle}: {missing.stderr.strip()}")
+                return 1
+
+        session = subprocess.run(
+            ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
+            cwd=rtl, env={**benv, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
+            text=True, capture_output=True, check=False,
+            input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(rtl)}),
+        )
+        context = chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+        if "bridge" not in context or "not running" not in context:
+            report(f"{label} a session in a Slack-enabled project is not told the bridge is not running: {session.stdout.strip()} {session.stderr.strip()}")
+            return 1
+
+        keyed_env = {**no_tokens, "KEEL_CHAT_SECURITY": str(keychain)}
+        bridge = start_chat_bridge(rtl, keyed_env)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge did not connect with Keychain tokens: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            if not any("Bearer xapp-from-keychain-0000" == c["params"].get("_auth") for c in slack.calls_to("apps.connections.open")):
+                report(f"{label} the Socket Mode connection did not use the Keychain app token.")
+                return 1
+            if not slack.wait_for(lambda: any("bridge online" in c["params"].get("text", "") for c in slack.calls_to("chat.postMessage"))):
+                report(f"{label} the bridge did not announce itself online.")
+                return 1
+
+            status = chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=keyed_env))
+            for key in ("connected", "projects", "last_event", "ignored", "unposted", "installed", "paused"):
+                if key not in status:
+                    report(f"{label} bridge status --json lacks {key!r}: {status!r}")
+                    return 1
+            if status.get("connected") is not True:
+                report(f"{label} bridge status does not report the connection: {status!r}")
+                return 1
+
+            opened = slack.connections_opened
+            slack.push_raw({"type": "disconnect", "reason": "refresh_requested"})
+            if not slack.wait_for(lambda: slack.connections_opened > opened and slack.sockets, 10):
+                report(f"{label} the bridge did not reconnect after refresh_requested.")
+                return 1
+            opened = slack.connections_opened
+            slack.drop_connections()
+            if not slack.wait_for(lambda: slack.connections_opened > opened and slack.sockets, 15):
+                report(f"{label} the bridge did not reconnect after the socket dropped.")
+                return 1
+
+            paused = run_keel(rtl, "chat", "bridge", "pause", "3s", env=keyed_env)
+            if paused.returncode != 0:
+                report(f"{label} bridge pause failed: {paused.stderr.strip()}")
+                return 1
+            time.sleep(1.5)
+            held_id = chat_json(run_keel(rtl, "chat", "post", "soc", "held during pause", "--json", env=keyed_env)).get("id", "")
+            time.sleep(1.0)
+            if any(slack_payload(c).get("id") == held_id for c in slack.calls_to("chat.postMessage")):
+                report(f"{label} a record was sent while the bridge was paused.")
+                return 1
+            if not slack.wait_for(lambda: any(slack_payload(c).get("id") == held_id for c in slack.calls_to("chat.postMessage")), 10):
+                report(f"{label} the record held during the pause was not sent after it.")
+                return 1
+            if len([c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == held_id]) != 1:
+                report(f"{label} the held record was sent more than once.")
+                return 1
+        finally:
+            log = stop_chat_bridge(bridge)
+        if not any("bridge stopped" in c["params"].get("text", "") for c in slack.calls_to("chat.postMessage")):
+            report(f"{label} the bridge did not announce a clean stop: {log.strip()}")
+            return 1
+        tokens = ("xoxb-from-keychain-0000", "xapp-from-keychain-0000")
+        for root in (home, mailbox_common_dir(rtl) / "keel-chat"):
+            for path in root.rglob("*"):
+                if path.is_file() and any(token in path.read_text(encoding="utf-8", errors="replace") for token in tokens):
+                    report(f"{label} a Slack token was written to {path}.")
+                    return 1
+
+        tree = base / "keel-copy"
+        for part in ("bin", "src", "scripts"):
+            shutil.copytree(ROOT / part, tree / part)
+        shutil.copy(ROOT / "package.json", tree / "package.json")
+        copied = subprocess.Popen(
+            ["node", str(tree / "bin" / "keel.js"), "chat", "bridge", "run"],
+            cwd=rtl, env=benv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            slack.wait_for(lambda: slack.sockets, 10)
+            manifest = json.loads((tree / "package.json").read_text(encoding="utf-8"))
+            manifest["version"] = "99.0.0"
+            write_text(tree / "package.json", json.dumps(manifest, indent=2) + "\n")
+            copied.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            copied.kill()
+            report(f"{label} the bridge kept running after Keel's version changed.")
+            return 1
+        restart_log = copied.stderr.read() if copied.stderr else ""
+        if "99.0.0" not in restart_log:
+            report(f"{label} the version-change exit does not name the new version: {restart_log.strip()}")
+            return 1
+
+        agents = base / "LaunchAgents"
+        calls = base / "launchctl.log"
+        launchctl = base / "launchctl"
+        write_text(launchctl, f'#!/bin/sh\necho "$@" >> "{calls}"\nexit 0\n')
+        launchctl.chmod(0o755)
+        lenv = {**benv, "KEEL_CHAT_LAUNCHCTL": str(launchctl), "KEEL_CHAT_LAUNCH_AGENTS_DIR": str(agents)}
+        installed = run_keel(rtl, "chat", "bridge", "install", env=lenv)
+        if installed.returncode != 0:
+            report(f"{label} bridge install failed: {installed.stderr.strip()}")
+            return 1
+        plists = list(agents.glob("*.plist"))
+        if len(plists) != 1:
+            report(f"{label} install wrote {len(plists)} plists, not one.")
+            return 1
+        plist = plistlib.loads(plists[0].read_bytes())
+        if plist.get("RunAtLoad") is not True:
+            report(f"{label} the LaunchAgent does not start at login: {plist!r}")
+            return 1
+        if plist.get("KeepAlive") is not True:
+            report(f"{label} the LaunchAgent is not kept alive: {plist!r}")
+            return 1
+        if " ".join(plist.get("ProgramArguments", [])[-3:]) != "chat bridge run":
+            report(f"{label} the LaunchAgent does not run `chat bridge run`: {plist.get('ProgramArguments')!r}")
+            return 1
+        if any(token in plists[0].read_text(encoding="utf-8") for token in ("xoxb-", "xapp-")):
+            report(f"{label} the LaunchAgent carries a Slack token.")
+            return 1
+        if "bootstrap" not in calls.read_text(encoding="utf-8"):
+            report(f"{label} install did not ask launchctl to bootstrap the agent: {calls.read_text(encoding='utf-8')!r}")
+            return 1
+        if chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=lenv)).get("installed") is not True:
+            report(f"{label} bridge status does not report the installed agent.")
+            return 1
+        removed = run_keel(rtl, "chat", "bridge", "uninstall", env=lenv)
+        if removed.returncode != 0:
+            report(f"{label} bridge uninstall failed: {removed.stderr.strip()}")
+            return 1
+        if "bootout" not in calls.read_text(encoding="utf-8"):
+            report(f"{label} uninstall did not ask launchctl to boot the agent out.")
+            return 1
+        if list(agents.glob("*.plist")):
+            report(f"{label} uninstall left the plist behind.")
+            return 1
+
+    if "chat-bridge-lifecycle" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-lifecycle scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -33357,6 +33552,10 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-inbound",
         validate_chat_bridge_inbound_scenario,
+    ),
+    (
+        "chat-bridge-lifecycle",
+        validate_chat_bridge_lifecycle_scenario,
     ),
     (
         "record-derives-skeleton",
