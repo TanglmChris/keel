@@ -111,6 +111,10 @@ keel context                # 现在该做什么，从 OpenSpec + Git 重算
 keel --doctor               # 检查各部分是否就位
 ```
 
+更新 OpenSpec 生成的模板正文时，运行 `keel openspec update`。更新成功后，Keel 会为仓库
+中所有已安装的 target 恢复 overlay。`keel --doctor` 也会逐项报告其他已安装 target 的
+overlay 状态，避免 Claude 检查正常时漏掉 Codex 的缺失。
+
 spec 相关的活走 OpenSpec 的命令（`/opsx:propose`、`/opsx:apply`、`/opsx:sync`、`/opsx:archive`），
 Keel 的门禁在任务边界处运行。整个回路：
 

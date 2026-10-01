@@ -5159,6 +5159,90 @@ def overlay_action_label(text: str, pattern: str) -> str | None:
     return match.group(1)
 
 
+def validate_update_restores_overlays_scenario() -> int:
+    label = "update-restores-overlays:"
+    with tempfile.TemporaryDirectory(prefix="keel-update-overlays-") as raw:
+        tmp = Path(raw)
+        repo = tmp / "mixed"
+        repo.mkdir()
+        env = os.environ.copy()
+        env["CODEX_HOME"] = str(tmp / "codex-home")
+        for target in ("claude", "codex"):
+            result = run_keel(repo, "--init", "--target", target, env=env)
+            if result.returncode:
+                report(f"{label} init {target} failed: {result.stderr or result.stdout}")
+                return 1
+        # Diagnose a missing foreign target before the upstream rewrite.
+        codex_paths = [p for paths in openspec_overlay_files(
+            repo, "codex", tmp / "codex-home").values() for p in paths]
+        for p in codex_paths:
+            if p.exists():
+                p.write_text(strip_openspec_surface_overlay(p.read_text()), encoding="utf-8")
+        doctor = run_keel(repo, "--doctor", "--target", "claude", env=env)
+        if not re.search(r"Codex.*overlay: (missing|partial)", doctor.stdout):
+            report(f"{label} doctor hid missing Codex overlays while selecting Claude")
+            return 1
+        for iteration in range(2):
+            result = run_keel(repo, "openspec", "update", env=env)
+            if result.returncode:
+                report(f"{label} update failed: {result.stderr or result.stdout}")
+                return 1
+            for target in ("claude", "codex"):
+                error = assert_target_overlays(repo, target, tmp / "codex-home")
+                if error:
+                    report(f"{label} update {iteration}: {error}")
+                    return 1
+                for action, skill in OVERLAY_ACTION_SKILLS.items():
+                    surface = repo / (".claude/skills" if target == "claude" else ".agents/skills") / skill / "SKILL.md"
+                    content = surface.read_text()
+                    if content.count(OPENSPEC_SURFACE_OVERLAY_START) != 1 or content.count(OPENSPEC_SURFACE_OVERLAY_END) != 1:
+                        report(f"{label} managed action has missing or duplicate overlays: {surface}")
+                        return 1
+                    if not strip_openspec_surface_overlay(content).strip():
+                        report(f"{label} upstream body removed: {surface}")
+                        return 1
+        legacy = tmp / "legacy"
+        legacy.mkdir()
+        result = run_keel(legacy, "--init", "--target", "claude", env=env)
+        if result.returncode:
+            report(f"{label} legacy fixture init failed")
+            return 1
+        for skill in OVERLAY_ACTION_SKILLS.values():
+            write_text(legacy / ".codex/skills" / skill / "SKILL.md", "# Legacy OpenSpec workflow\n")
+        doctor = run_keel(legacy, "--doctor", "--target", "claude", env=env)
+        if not re.search(r"Codex.*overlay: (missing|partial)", doctor.stdout):
+            report(f"{label} legacy Codex coverage was hidden")
+            return 1
+        # A single-target repository must stay isolated, even with global prompts.
+        single = tmp / "single"
+        single.mkdir()
+        result = run_keel(single, "--init", "--target", "claude", env=env)
+        if result.returncode:
+            report(f"{label} single init failed")
+            return 1
+        result = run_keel(single, "openspec", "update", env=env)
+        if result.returncode or (single / ".agents/skills").exists() or (single / ".codex/skills").exists():
+            report(f"{label} single-target update failed or created Codex surfaces")
+            return 1
+        doctor = run_keel(single, "--doctor", "--target", "claude", env=env)
+        if re.search(r"Codex.*overlay:", doctor.stdout):
+            report(f"{label} global prompts enrolled an unrelated repository")
+            return 1
+        # Invalid options fail in real upstream OpenSpec; no recovery may write.
+        surface = repo / ".agents/skills/openspec-apply-change/SKILL.md"
+        surface.write_text(strip_openspec_surface_overlay(surface.read_text()), encoding="utf-8")
+        files = {p: p.read_bytes() for p in repo.rglob("*.md")}
+        upstream = subprocess.run(
+            ["node", str(ROOT / "node_modules/.bin/openspec"), "update", "--keel-invalid-option"],
+            cwd=repo, env=env, capture_output=True, text=True, check=False)
+        failed = run_keel(repo, "openspec", "update", "--keel-invalid-option", env=env)
+        if not failed.returncode or failed.returncode != upstream.returncode or any(p.read_bytes() != b for p, b in files.items()):
+            report(f"{label} failed update was masked or changed surfaces")
+            return 1
+    report("update-restores-overlays scenario passed.")
+    return 0
+
+
 def validate_openspec_surface_overlay_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-overlay-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -33736,6 +33820,7 @@ SCENARIOS: tuple = (
     ("version-alignment", validate_version_alignment_scenario),
     ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
+    ("update-restores-overlays", validate_update_restores_overlays_scenario),
     ("uninstall", validate_uninstall_scenario),
     (
         "uninstall-removes-the-overlay",

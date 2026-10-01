@@ -132,6 +132,11 @@ keel context                # what to do now, recomputed from OpenSpec + Git
 keel --doctor               # check everything is wired up
 ```
 
+To refresh OpenSpec's generated templates, run `keel openspec update`. After a
+successful update, Keel restores its overlays for every target installed in the
+repository. `keel --doctor` also reports overlay health for the other installed
+targets, so healthy Claude coverage cannot hide missing Codex overlays.
+
 Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`,
 `/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
 
