@@ -96,3 +96,10 @@
 
 - E1: Updates restore all installed target overlays without masking failure or creating absent surfaces. Covered by: 1.1, 2.1
 - E2: Doctor reveals foreign-target missing overlays, respecting actual layouts. Covered by: 1.1, 2.1
+
+## Archive Review — 2026-10-01
+
+- Status: pass
+- Acceptance check: Rechecked completed task evidence and public-interface verification; every delta requirement is present in the published specs. All 29 published specs pass strict validation.
+- Scope check: This closure only synchronizes published specifications and moves the completed change with its metadata and evidence; no implementation or task contract is changed.
+- Findings: none. Existing follow-up ownership remains as recorded in the task Reviews.

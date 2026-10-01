@@ -107,3 +107,11 @@
 - E3: Bounded runtime/version/trust/manual and consumer Full-flow evidence (F2, F3, D3, D4). Covered by: 2.1
 - E4: Group/@/relative-time notice interface and semantics (D5). Durable owner: https://github.com/TanglmChris/keel/issues/187
 - E5: Reviewable committed snapshot for #178/#183. Covered by: 3.1
+
+## Archive Review — 2026-10-01
+
+- Status: pass
+- Acceptance check: Rechecked completed task evidence and public-interface verification; every delta requirement is present in the published specs. All 29 published specs pass strict validation.
+- Scope check: This closure only synchronizes published specifications and moves the completed change with its metadata and evidence; no implementation or task contract is changed.
+- Findings: none. Existing follow-up ownership remains as recorded in the task Reviews.
+- Sync: Promoted keel-codex-receiving and the explicit Codex hook requirement; replaced contradictory default-discovery wording in keel-native-plugin-package. The compatibility provider remains bounded by #187.

@@ -133,3 +133,10 @@
 - E1: D1 and D2 leave bounded helper choice to the model without extra activation. Covered by: 1.1, 2.1
 - E2: D3 and D4 allow guarded implementation with optional metadata, preserving scope and anchors. Covered by: 1.1, 2.1
 - E3: D5 and D6 keep all surfaces consistent and distinguish host permission from projection and launch. Covered by: 1.1, 2.1
+
+## Archive Review — 2026-10-01
+
+- Status: pass
+- Acceptance check: Rechecked completed task evidence and public-interface verification; every delta requirement is present in the published specs. All 29 published specs pass strict validation.
+- Scope check: This closure only synchronizes published specifications and moves the completed change with its metadata and evidence; no implementation or task contract is changed.
+- Findings: none. Existing follow-up ownership remains as recorded in the task Reviews.
