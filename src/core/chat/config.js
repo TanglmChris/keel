@@ -32,7 +32,33 @@ function loadChatConfig(worktree) {
   }
 }
 
+function stringMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const map = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string" && entry) map[key] = entry;
+  }
+  return map;
+}
+
+// The Slack half of `keel/chat.json`. A project is relayed only when it says
+// `slack.enabled: true` in so many words (D14); anything else — absent,
+// unparsable, `"yes"` — leaves it local.
+function slackSettings(worktree) {
+  const { config, error } = loadChatConfig(worktree);
+  const slack = (config && typeof config.slack === "object" && config.slack) || {};
+  return {
+    enabled: !error && slack.enabled === true,
+    error,
+    owner: typeof slack.owner === "string" ? slack.owner : null,
+    members: stringMap(slack.members),
+    channels: stringMap(slack.channels),
+    icons: stringMap(slack.icons),
+  };
+}
+
 module.exports = {
   CHAT_CONFIG_RELATIVE_PATH,
   loadChatConfig,
+  slackSettings,
 };

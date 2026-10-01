@@ -32,6 +32,8 @@ const USAGE = [
   "keel chat edit <id> <text...>",
   "keel chat retract <id>",
   "keel chat search <text...> [--group <group>] [--json]",
+  "keel chat bridge add|remove [--repo <path>]   (list or unlist this project for this machine's Slack bridge)",
+  "keel chat bridge run [--once]   (the bridge process; --once sends what is pending and exits; Node 22+)",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "Every command takes --repo <path> to act on another repository.",
@@ -48,10 +50,10 @@ const VALUED = {
   "--since": "since",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -310,6 +312,8 @@ function dispatch(where, options) {
       else if (text) out(text);
       return 0;
     }
+    case "bridge":
+      return runBridge(where, rest, options);
     case "help":
     case undefined:
       out(`Usage:\n  ${USAGE.join("\n  ")}`);
@@ -322,6 +326,35 @@ function dispatch(where, options) {
       }
       return runView(where, command, options);
     }
+  }
+}
+
+function runBridge(where, rest, options) {
+  const bridge = require("./bridge");
+  const [action] = rest;
+  if (action !== "status") bridge.requireWebSocket();
+  switch (action) {
+    case "add": {
+      const added = bridge.addProject(where);
+      out(`This machine's bridge will serve ${added} when keel/chat.json sets slack.enabled to true.`);
+      return 0;
+    }
+    case "remove":
+      out(`This machine's bridge no longer serves ${bridge.removeProject(where)}.`);
+      return 0;
+    case "run": {
+      const log = (line) => process.stderr.write(`keel chat bridge: ${line}\n`);
+      bridge.runOnce(log).then(
+        (code) => { process.exitCode = code; },
+        (error) => {
+          process.stderr.write(`keel chat: ${error.message}\n`);
+          process.exitCode = error instanceof ChatError ? 2 : 1;
+        }
+      );
+      return undefined;
+    }
+    default:
+      throw new ChatError(`Unknown keel chat bridge action ${JSON.stringify(action)}: use add, remove, or run.`);
   }
 }
 

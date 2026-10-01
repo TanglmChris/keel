@@ -212,7 +212,7 @@
 
 ## 4. Slack bridge
 
-- [ ] 4.1 Outbound: opted-in projects post with role identity, exact metadata, threads, owner mention, and redaction
+- [x] 4.1 Outbound: opted-in projects post with role identity, exact metadata, threads, owner mention, and redaction
   - Covers:
     - keel-chat-slack-bridge / One bridge per machine relays opted-in projects
     - keel-chat-slack-bridge / Outbound posts carry the role and the exact record
@@ -236,16 +236,16 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-outbound` starts `scripts/fake_slack.py`, a local Web API and Socket Mode server, and runs `keel chat bridge run --once` with `KEEL_HOME`, `KEEL_SLACK_API_BASE`, and test tokens: **Opt-in:** of two registered projects, only the one with `slack.enabled: true` is posted. **A post:** has `username` `rtl` and `keel_chat_record` metadata with the record's id. **A reply:** carries the root's `thread_ts`, and `@owner` adds `<@` plus the configured owner id. **Long text:** a 5,000-character body is truncated with `keel chat show`. **Redaction:** a body with `xoxb-123-456-abcdef` arrives as `[redacted]`, while the local record keeps it. **Rate limiting:** a 429 with `Retry-After: 1` is retried after at least one second, and the record is posted exactly once. **Records that are not messages:** `done`, `edit`, and `retract` reach `reactions.add`, `chat.update`, and `chat.delete`. **Node version:** with `globalThis.WebSocket` deleted through `--require`, `bridge run` exits non-zero naming Node 22. Fails with: `chat-bridge-outbound:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:f6c16d4a224b11c310c62f154bcbb66d2861f49c8b1eba25eb8ff17e5973de17
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-outbound` reports `chat-bridge-outbound scenario passed.` against `scripts/fake_slack.py` with `KEEL_HOME`, `KEEL_SLACK_API_BASE`, and test tokens: of two projects added with `keel chat bridge add`, the one with `slack.enabled: false` sends nothing to its channel `COPS`; `keel chat bridge run --once` posts each of six records exactly once to `CSOC`, the root with `username` `rtl` and `keel_chat_record` metadata whose payload carries `from: rtl` and `kind: message`; the reply's `thread_ts` equals the root's ts and its text contains `<@UOWNER>`; a 5,000-character body arrives at most 3,200 characters long with `keel chat show`; `xoxb-123-456-abcdef` arrives as `[redacted]` while the local record keeps it; the fake server's 429 with `Retry-After: 1` was answered and the run took at least one second; `done`, `edit`, and `retract` reach `reactions.add` (`white_check_mark` on the `todo` record's ts), `chat.update` (the root's ts, new text), and `chat.delete`; a second run posts nothing; with `globalThis.WebSocket` deleted through `NODE_OPTIONS=--require`, `bridge run` exits non-zero naming `Node 22`.
+    - M1.red: fail. Before the bridge existed the scenario reported `chat-bridge-outbound: bridge add failed in rtl: keel chat: No group bridge. Create it with `keel chat group create bridge`.`, carrying the declared signature `chat-bridge-outbound:`.
+    - M1.green: pass. The same scenario passes against the working tree; `npm test` fails only `authored-scenario-names-are-registered`, for the scenarios of tasks still to come.
+    - M2: deferred to C1
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat bridge` commands against a server that answers with Slack's documented shapes and asserts each Covers requirement on the calls that server received: opt-in only, one post per record under the role with the exact record in metadata, threading, the owner mention, truncation with a pointer, redaction out and preservation in, the 429 wait, the non-message records, idempotence, and the Node 22 refusal. The fake server is the system-boundary mock; Keel's modules run unmocked. Whether real Slack agrees with those shapes is A2, owned by 4.3's Review.
+      - Scope check: The diff adds `src/core/chat/slack.js`, `src/core/chat/bridge.js`, `src/core/chat/redact.js`, and `scripts/fake_slack.py`, and changes `src/core/chat/config.js` (`slackSettings`), `src/core/chat/cli.js` (`bridge add|remove|run`), `scripts/validate_plugin.py` (the scenario and its helpers), and `keel/CHANGELOG.md` — all in Touch — plus this change's own directory. No dependency was added.
+      - Findings: Resolved here: M1 — the first draft imported `fake_slack` by name, which the baseline refuses because the validator must import only the standard library; it is now loaded from its file path, and `fake_slack.py` itself uses only the standard library. Resolved here: M1 — two of its checks each guarded two failures behind one message, which `assertion-shape-count` refused; each failure now reports its own cause.
     - Blocker: none
     - Reauthorizations: none
   - Stop if:

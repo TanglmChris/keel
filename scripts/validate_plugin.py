@@ -2951,6 +2951,203 @@ def validate_chat_human_view_scenario() -> int:
     return 0
 
 
+def fake_slack_class():
+    """The local Slack stand-in, loaded by path from beside this script.
+
+    `scripts/fake_slack.py` uses the standard library only; it is loaded from
+    its file rather than imported by name, so this validator keeps importing
+    nothing but the standard library.
+    """
+    import importlib.util  # noqa: PLC0415 - only the Slack scenarios need it
+
+    spec = importlib.util.spec_from_file_location("keel_fake_slack", ROOT / "scripts" / "fake_slack.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.FakeSlack
+
+
+def chat_slack_config(repo: Path, channels: dict[str, str], *, enabled: bool = True, **extra: object) -> None:
+    config = {
+        "slack": {
+            "enabled": enabled,
+            "owner": "UOWNER",
+            "members": {"UOWNER": "owner"},
+            "channels": channels,
+            **extra,
+        }
+    }
+    write_text(repo / "keel" / "chat.json", json.dumps(config, indent=2) + "\n")
+
+
+def chat_bridge_environment(env: dict[str, str], home: Path, slack) -> dict[str, str]:
+    return {
+        **env,
+        "KEEL_HOME": str(home),
+        "KEEL_SLACK_API_BASE": slack.api_base,
+        "KEEL_SLACK_BOT_TOKEN": "xoxb-test-bot",
+        "KEEL_SLACK_APP_TOKEN": "xapp-test-app",
+        "KEEL_CHAT_MACHINE": "mac-test",
+    }
+
+
+def slack_payload(call: dict) -> dict:
+    metadata = call["params"].get("metadata") or {}
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata)
+    return (metadata or {}).get("event_payload") or {}
+
+
+def validate_chat_bridge_outbound_scenario() -> int:
+    """Issue #187: the bridge posts an opted-in project's records to Slack.
+
+    Runs `keel chat bridge run --once` against a local fake Slack. Each record
+    is posted once, under its role's name, with the exact record in message
+    metadata; replies thread; a mention of the owner becomes a Slack mention;
+    secrets are redacted on the way out and kept locally; long text is cut
+    with a pointer; a 429 is waited out; done, edit, and retract follow their
+    message; a project that did not opt in sends nothing; and a Node without
+    WebSocket is told it needs Node 22.
+    """
+    label = "chat-bridge-outbound:"
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-out-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        quiet = mailbox_repository(base / "quiet")
+        run_keel(quiet, "chat", "role", "--set", "rtl", env=env)
+        run_keel(quiet, "chat", "group", "create", "ops", env=env)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        chat_slack_config(quiet, {"ops": "COPS"}, enabled=False)
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=benv)
+
+        for project in (rtl, quiet):
+            added = chat(project, "bridge", "add")
+            if added.returncode != 0:
+                report(f"{label} bridge add failed in {project.name}: {added.stderr.strip()}")
+                return 1
+        chat(quiet, "post", "ops", "not for slack")
+        root_id = chat_json(chat(rtl, "post", "soc", "Clock fix is in", "--json")).get("id", "")
+        reply_id = chat_json(chat(verify, "post", "soc", "@owner done?", "--reply-to", root_id, "--json")).get("id", "")
+        long_id = chat_json(chat(rtl, "post", "soc", "x" * 5000, "--json")).get("id", "")
+        secret_id = chat_json(chat(rtl, "post", "soc", "token is xoxb-123-456-abcdef ok", "--json")).get("id", "")
+        todo_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun", "--json")).get("id", "")
+        chat(verify, "done", todo_id)
+        chat(rtl, "edit", root_id, "Clock fix is in (v2)")
+        gone_id = chat_json(chat(rtl, "post", "soc", "wrong group", "--json")).get("id", "")
+        chat(rtl, "retract", gone_id)
+        slack.rate_limit("chat.postMessage", 1)
+
+        started = time.time()
+        run = chat(rtl, "bridge", "run", "--once")
+        elapsed = time.time() - started
+        if run.returncode != 0:
+            report(f"{label} bridge run --once failed: {run.stderr.strip()} {run.stdout.strip()}")
+            return 1
+
+        posts = slack.calls_to("chat.postMessage")
+        by_id: dict[str, list[dict]] = {}
+        for call in posts:
+            by_id.setdefault(slack_payload(call).get("id", ""), []).append(call)
+        for record_id in (root_id, reply_id, long_id, secret_id, todo_id, gone_id):
+            if len(by_id.get(record_id, [])) != 1:
+                report(f"{label} record {record_id} was posted {len(by_id.get(record_id, []))} times, not once.")
+                return 1
+        root = by_id[root_id][0]
+        if root["params"].get("username") != "rtl":
+            report(f"{label} the post is not under the role's name: username {root['params'].get('username')!r}.")
+            return 1
+        if root["params"].get("channel") != "CSOC":
+            report(f"{label} the post went to {root['params'].get('channel')!r}, not the mapped CSOC.")
+            return 1
+        metadata = root["params"].get("metadata")
+        metadata = json.loads(metadata) if isinstance(metadata, str) else metadata
+        if (metadata or {}).get("event_type") != "keel_chat_record":
+            report(f"{label} the post's metadata is not a keel_chat_record: {metadata!r}")
+            return 1
+        payload = slack_payload(root)
+        if payload.get("from") != "rtl":
+            report(f"{label} the metadata payload does not carry the record's sender: {payload!r}")
+            return 1
+        if payload.get("kind") != "message":
+            report(f"{label} the metadata payload does not carry the record's kind: {payload!r}")
+            return 1
+        root_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == root_id)
+        reply = by_id[reply_id][0]["params"]
+        if reply.get("thread_ts") != root_ts:
+            report(f"{label} the reply's thread_ts is {reply.get('thread_ts')!r}, not the root's {root_ts!r}.")
+            return 1
+        if "<@UOWNER>" not in reply.get("text", ""):
+            report(f"{label} a mention of owner did not become a Slack mention: {reply.get('text')!r}")
+            return 1
+        long_text = by_id[long_id][0]["params"].get("text", "")
+        if len(long_text) > 3200:
+            report(f"{label} a 5,000-character body was sent at {len(long_text)} characters, not cut.")
+            return 1
+        if "keel chat show" not in long_text:
+            report(f"{label} the cut body carries no keel chat show pointer.")
+            return 1
+        secret_text = by_id[secret_id][0]["params"].get("text", "")
+        if "xoxb-123" in secret_text:
+            report(f"{label} a token was sent to Slack: {secret_text!r}")
+            return 1
+        if "[redacted]" not in secret_text:
+            report(f"{label} the redacted text carries no [redacted] marker: {secret_text!r}")
+            return 1
+        if "xoxb-123-456-abcdef" not in (chat_log(rtl, "soc") / f"{secret_id}.md").read_text(encoding="utf-8"):
+            report(f"{label} redaction changed the local record.")
+            return 1
+        if not any(call.get("rate_limited") for call in slack.calls if call["method"] == "chat.postMessage"):
+            report(f"{label} the fake server never answered 429, so the retry was not exercised.")
+            return 1
+        if elapsed < 1.0:
+            report(f"{label} the run finished in {elapsed:.2f}s, before the 1s Retry-After passed.")
+            return 1
+        if any(call["params"].get("channel") == "COPS" for call in slack.calls):
+            report(f"{label} a project without slack.enabled was posted to Slack.")
+            return 1
+        todo_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == todo_id)
+        reactions = slack.calls_to("reactions.add")
+        if not any(c["params"].get("timestamp") == todo_ts and c["params"].get("name") == "white_check_mark" for c in reactions):
+            report(f"{label} the done todo did not get a ✅ reaction: {reactions!r}")
+            return 1
+        updates = slack.calls_to("chat.update")
+        if not any(c["params"].get("ts") == root_ts and "v2" in c["params"].get("text", "") for c in updates):
+            report(f"{label} the edit did not call chat.update on the root: {updates!r}")
+            return 1
+        gone_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == gone_id)
+        if not any(c["params"].get("ts") == gone_ts for c in slack.calls_to("chat.delete")):
+            report(f"{label} the retraction did not call chat.delete.")
+            return 1
+
+        before = len(slack.calls_to("chat.postMessage"))
+        again = chat(rtl, "bridge", "run", "--once")
+        if again.returncode != 0:
+            report(f"{label} a second bridge run failed: {again.stderr.strip()}")
+            return 1
+        if len(slack.calls_to("chat.postMessage")) != before:
+            report(f"{label} a second run posted records again.")
+            return 1
+
+        no_ws = base / "no-websocket.js"
+        write_text(no_ws, "delete globalThis.WebSocket;\n")
+        old_node = run_keel(rtl, "chat", "bridge", "run", "--once", env={**benv, "NODE_OPTIONS": f"--require {no_ws}"})
+        if old_node.returncode == 0:
+            report(f"{label} bridge run started without a WebSocket implementation.")
+            return 1
+        if "Node 22" not in old_node.stderr:
+            report(f"{label} the missing-WebSocket refusal does not name Node 22: {old_node.stderr.strip()}")
+            return 1
+
+    if "chat-bridge-outbound" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-outbound scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -32927,6 +33124,10 @@ SCENARIOS: tuple = (
     (
         "chat-human-view",
         validate_chat_human_view_scenario,
+    ),
+    (
+        "chat-bridge-outbound",
+        validate_chat_bridge_outbound_scenario,
     ),
     (
         "record-derives-skeleton",
