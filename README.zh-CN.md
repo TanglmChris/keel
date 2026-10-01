@@ -115,6 +115,13 @@ keel --doctor               # 检查各部分是否就位
 中所有已安装的 target 恢复 overlay。`keel --doctor` 也会逐项报告其他已安装 target 的
 overlay 状态，避免 Claude 检查正常时漏掉 Codex 的缺失。
 
+是否使用 subagent 由模型选择，仍须遵守宿主政策。运行
+`keel project --event subagent-start --change <change> --task <id>` 可生成只读 helper
+brief，无须额外激活许可。加 `--subagent-mode implementation` 可生成实现委派 brief，
+要求当前任务为 implementation，且有效 guard 匹配任务、指纹和 Touch；`delegation.tier`
+只是可选能力元数据。主 agent 审查返回结果、独立重跑验证并负责完成判定。CLI 只生成
+brief，不启动 agent，也不证明 hook 实际执行；native goal 仍须明确授权激活。
+
 spec 相关的活走 OpenSpec 的命令（`/opsx:propose`、`/opsx:apply`、`/opsx:sync`、`/opsx:archive`），
 Keel 的门禁在任务边界处运行。整个回路：
 

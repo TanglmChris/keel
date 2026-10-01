@@ -23,7 +23,7 @@ in the transcript, `keel gate task-complete`, check the box. What changes is who
 ## Per-target activation notes
 
 - **Codex**: where a callable goal or subagent surface exists, activate one bounded goal for the
-  selected task and use subagents only as bounded read-only helpers. Without a callable surface, paste
+  selected task; choose helpers or guarded implementation delegates under the task contract and host policy. Without a callable surface, paste
   the exact `keel project goal` command and treat the capability as advisory.
 - **Claude**: activate one `/goal` whose condition fits the 4,000-character budget. The evaluator sees
   the transcript only, so command and gate evidence has to appear there explicitly. If hooks are

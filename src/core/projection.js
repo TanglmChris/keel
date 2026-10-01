@@ -2,13 +2,11 @@
 
 // Keel 4.1.0 one-way native projection contract.
 
-const fs = require("fs");
-const path = require("path");
-
 const { readDelegationPolicy } = require("./config");
 const { resolveContext } = require("./context");
 const { loadTaskContract } = require("./task-contract");
 const { probeCapabilities } = require("./capabilities");
+const { guardStatus } = require("./guard");
 
 const EVENTS = new Set([
   "startup",
@@ -43,30 +41,43 @@ function blocked(target, event, reason, warnings = []) {
 // that wrote successfully under one proves nothing about having been checked —
 // there is no observable difference afterwards, which is why the condition has
 // to be answered here.
-function delegationRefusal(repo, delegation) {
+function delegationRefusal(repo, capsule, change, taskId, fingerprint) {
   // The policy is read directly rather than through the capsule, because the
   // capsule cannot express the difference this refusal turns on. A tier outside
   // the vocabulary fails closed at the config layer and reaches the capsule as
   // no delegation at all — identical to a repository that declared nothing. One
   // of those should proceed silently and the other must be reported, so the
   // unresolved declaration has to be seen where it still exists.
-  const { unknown, accepted } = readDelegationPolicy(repo);
+  const { unknown: configuredUnknown, accepted } = readDelegationPolicy(repo);
+  const declaredTier = capsule.delegation?.tier;
+  const unknown = declaredTier
+    ? (accepted.includes(declaredTier) ? [] : [declaredTier])
+    : configuredUnknown;
   if (unknown.length > 0) {
     return (
-      `Delegation declares tier "${unknown.join(", ")}", which this target `
-      + `does not provide. Accepted: ${accepted.join(", ")}. Keel refuses `
+      `Delegation declares invalid tier metadata "${unknown.join(", ")}". `
+      + `Accepted: ${accepted.join(", ")}. Keel refuses `
       + "rather than substituting a tier, because work would otherwise run at "
       + "a capability nobody declared while reporting success."
     );
   }
-  if (!delegation) return null;
-  if (!fs.existsSync(path.join(repo, "keel", "guard.json"))) {
+  if (capsule.mode !== "implementation" || capsule.touch.length === 0
+    || capsule.touch.includes("none")) {
+    return "Implementation delegation requires an implementation task with a Touch write boundary.";
+  }
+  const guard = guardStatus(repo);
+  if (guard.status !== "active") {
     return (
-      "Delegation requires an active write guard, and keel/guard.json is "
-      + "absent. Without it every write passes through unchecked and looks "
-      + "identical to a write the guard allowed. Run `keel gate task-start` "
-      + "for the selected task, then delegate."
+      `Delegation requires an active write guard; status is ${guard.status}. `
+      + guard.problems.map((item) => item.message).join(" ")
+      + " Run `keel gate task-start` for the selected task, then delegate."
     );
+  }
+  const manifest = guard.manifest;
+  if (manifest.change !== change || manifest.task !== taskId
+    || manifest.fingerprint.value !== fingerprint.value
+    || JSON.stringify([...manifest.touch].sort()) !== JSON.stringify([...capsule.touch].sort())) {
+    return "Delegation requires a guard matching the selected task, fingerprint and Touch boundary.";
   }
   return null;
 }
@@ -149,9 +160,7 @@ function projectRuntime(repo, options) {
       ? "goal"
       : event === "task-view"
         ? "task-view"
-        : event.startsWith("subagent-")
-          ? "subagent"
-          : null;
+        : null;
   if (requiredAuthorization && !authorization.has(requiredAuthorization)) {
     return blocked(
       options.target,
@@ -163,6 +172,9 @@ function projectRuntime(repo, options) {
 
   const contract = loaded.contract;
   const capsule = contract.capsule;
+  const subagentMode = options.subagentMode
+    || (authorization.has("subagent") && (capsule.delegation || readDelegationPolicy(repo).declared)
+      ? "implementation" : "helper");
   const capabilities = probeCapabilities(repo, options.target);
   const capability = capabilities.capabilities[capabilityKey(event)];
   const warnings = [...context.warnings];
@@ -194,22 +206,29 @@ function projectRuntime(repo, options) {
   if (event === "subagent-stop") {
     projection.returnAuthority = "report-and-evidence-only";
   }
+  if (event.startsWith("subagent-")) {
+    projection.subagentMode = subagentMode;
+    projection.hostPolicy = "Host policy remains authoritative; projection does not spawn or prove enforcement.";
+    projection.prohibitions = [...projection.prohibitions,
+      "must not update task execution records or contract authority: checkbox, Contract, Evidence, Review, Covers, Touch, Verify or Acceptance"];
+    if (subagentMode === "helper") {
+      projection.prohibitions = [...projection.prohibitions, "must not write product or task record files"];
+    }
+  }
   // Delegation extends the brief Keel already publishes rather than adding a
   // carrier beside the host's own agent interface. The host spawns; this is the
   // one-way view of OpenSpec it is handed.
-  if (event === "subagent-start") {
-    const refusal = delegationRefusal(repo, capsule.delegation);
+  if (event === "subagent-start" && subagentMode === "implementation") {
+    const refusal = delegationRefusal(repo, capsule, change, taskId, contract.fingerprint);
     if (refusal) return blocked(options.target, event, refusal, warnings);
   }
-  if (event === "subagent-start" && capsule.delegation) {
+  if (event === "subagent-start" && subagentMode === "implementation") {
     projection.delegation = {
-      tier: capsule.delegation.tier,
-      source: capsule.delegation.source,
+      tier: capsule.delegation?.tier || null,
+      source: capsule.delegation?.source || "selected-task-write-authority",
       writeBoundary: capsule.touch,
       note:
-        "Keel carries the declared tier and does not select a model; the "
-        + "target resolves it. Keel cannot observe which model executed, so "
-        + "the tier is what is recorded and never a claim about what ran.",
+        "Keel carries an optional declared tier, never infers one, and does not select or observe a model. The current agent re-runs every M<n> check before recording Evidence.",
     };
   }
 

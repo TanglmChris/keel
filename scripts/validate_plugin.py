@@ -761,7 +761,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "Execution recommendation",
             "Autonomy boundary",
             "current Keel agent remains task owner and executor",
-            "Do not hand Keel-managed execution to another agent",
+            "Keep task decisions in the current agent",
             "Modify only files listed under Touch",
             "repository-wide read authority is read-only",
             "Out-of-scope Need",
@@ -19905,9 +19905,9 @@ def validate_native_runtime_projection_scenario() -> int:
                 "--json",
                 env=env,
             )
-            if json.loads(unauthorized_subagent.stdout).get("status") != "blocked":
+            if json.loads(unauthorized_subagent.stdout).get("status") != "ready":
                 report(
-                    f"native-runtime-projection {target} activated subagent implicitly."
+                    f"native-runtime-projection {target} requires extra helper activation."
                 )
                 return 1
 
@@ -21792,7 +21792,7 @@ def validate_delegation_resident_text_scenario() -> int:
     agents = ROOT / "AGENTS.md"
     text = flat(agents)
     for needle in (
-        "as delegates implementing the selected task inside",
+        "implementation delegates use the selected task write authority inside",
         "a guard manifest is active",
         "re-runs each",
         "check itself before recording Evidence",
@@ -21813,7 +21813,7 @@ def validate_delegation_resident_text_scenario() -> int:
     # constant; a raise with no reason beside it is the drift this guards.
     bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
     boot = flat(bootstrap)
-    if re.sub(r"\s+", " ", "One current agent owns writes") not in boot:
+    if re.sub(r"\s+", " ", "One agent owns decisions") not in boot:
         report("delegation-resident-text: the bootstrap lost its single-writer default.")
         return 1
     block = bootstrap.read_text(encoding="utf-8")
@@ -21867,8 +21867,8 @@ def validate_delegation_resident_text_scenario() -> int:
         if re.sub(r"\s+", " ", "helpers stay read-only/evidence-only") not in body:
             report(f"delegation-resident-text: {path.relative_to(ROOT)} dropped the helper default.")
             return 1
-        if re.sub(r"\s+", " ", "delegation defaults to none") not in body:
-            report(f"delegation-resident-text: {path.relative_to(ROOT)} does not state the delegation default.")
+        if re.sub(r"\s+", " ", "matching active guard") not in body:
+            report(f"delegation-resident-text: {path.relative_to(ROOT)} does not state the implementation guard boundary.")
             return 1
     if source.read_bytes() != installed.read_bytes():
         report("delegation-resident-text: the template source and its installed copy diverged.")
@@ -21902,7 +21902,7 @@ def validate_delegation_overlay_scenario() -> int:
     # its results are worth. Asserted on every generated copy, because the
     # overlay is what a subagent on that surface actually reads.
     needles = (
-        "where `delegation:` is declared",
+        "using existing task write authority",
         "a guard manifest is active",
         "only inside `Touch`",
         "re-runs each `M<n>` check itself before recording Evidence",
@@ -22348,8 +22348,8 @@ def validate_delegation_sole_authority_scenario() -> int:
     # M1 — the stop list refuses an undeclared delegation and no longer
     # refuses a declared one outright.
     skill_text = flat(canonical)
-    if re.sub(r"\s+", " ", "undeclared delegation") not in skill_text:
-        report("delegation-sole-authority: the stop list does not refuse an undeclared delegation.")
+    if re.sub(r"\s+", " ", "matching active guard") not in skill_text:
+        report("delegation-sole-authority: the stop list omits guarded task authority.")
         return 1
     if re.sub(r"\s+", " ", "any request to delegate implementation to another agent") in skill_text:
         report("delegation-sole-authority: the stop list still refuses every delegation outright.")
@@ -22365,6 +22365,9 @@ def validate_delegation_sole_authority_scenario() -> int:
         if re.sub(r"\s+", " ", "read-only subagent helpers only") in text:
             report(f"delegation-sole-authority: {path.name} still says read-only helpers only.")
             return 1
+        if "matching active guard" not in text or "host policy" not in text.lower():
+            report(f"delegation-sole-authority: {path.name} omits guard or host boundary.")
+            return 1
 
     # M2 — the canonical source and its distribution copy stay byte-identical.
     if canonical.read_bytes() != packaged.read_bytes():
@@ -22379,6 +22382,144 @@ def validate_delegation_sole_authority_scenario() -> int:
             return 1
 
     report("delegation-sole-authority scenario passed.")
+    return 0
+
+
+def validate_model_chosen_subagents_scenario() -> int:
+    label = "model-chosen-subagents:"
+    with tempfile.TemporaryDirectory(prefix="keel-model-subagents-") as raw:
+        repo = Path(raw)
+        write_gate_fixture(repo, standing_authorization_task())
+        def project(*extra: str) -> dict:
+            result = run_keel(repo, "project", "--target", "codex",
+                "--event", "subagent-start", "--change", "demo", "--task", "1.1", "--json", *extra)
+            return json.loads(result.stdout)
+        helper = project()
+        if helper.get("status") != "ready":
+            report(f"{label} ordinary helper still requires activation: {helper.get('reasons')}")
+            return 1
+        if helper["projection"].get("subagentMode") != "helper" or helper["projection"].get("delegation"):
+            report(f"{label} helper posture grants delegation")
+            return 1
+        write_authorize_config(repo, "delegation:\n  tier: turbo\n")
+        if project().get("status") != "ready":
+            report(f"{label} helper depends on implementation tier metadata")
+            return 1
+        write_authorize_config(repo, "fast_check: echo ok\n")
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} unguarded implementation allowed")
+            return 1
+        started = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--record", "--json")
+        if json.loads(started.stdout).get("status") != "pass":
+            report(f"{label} valid task did not start: {started.stdout}")
+            return 1
+        delegate = project("--subagent-mode", "implementation")
+        if delegate.get("status") != "ready":
+            report(f"{label} guarded implementation requires tier: {delegate.get('reasons')}")
+            return 1
+        brief = delegate["projection"]
+        if brief.get("delegation", {}).get("writeBoundary") != ["src/feature.js"] or brief["delegation"].get("tier") is not None:
+            report(f"{label} delegate boundary or absent tier incorrect")
+            return 1
+        if not all(any(term in p for p in brief["prohibitions"]) for term in ["Acceptance", "commit", "mark tasks complete", "task execution records", "Evidence", "Review"]):
+            report(f"{label} ownership prohibitions lost")
+            return 1
+        manifest_path = repo / "keel/guard.json"
+        saved = manifest_path.read_bytes()
+        manifest_path.write_text("{}")
+        if project().get("status") != "ready":
+            report(f"{label} malformed implementation guard blocked read-only help")
+            return 1
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} malformed guard allowed implementation")
+            return 1
+        manifest_path.write_bytes(saved)
+        manifest = json.loads(saved)
+        manifest["fingerprint"]["value"] = "0" * 64
+        manifest_path.write_text(json.dumps(manifest))
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} drifted guard allowed implementation")
+            return 1
+        manifest_path.write_bytes(saved)
+        manifest = json.loads(saved)
+        manifest["touch"].append("src/outside.js")
+        manifest_path.write_text(json.dumps(manifest))
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} widened manifest Touch allowed implementation")
+            return 1
+        manifest = json.loads(saved)
+        manifest["task"] = "9.9"
+        manifest_path.write_text(json.dumps(manifest))
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} different task guard allowed implementation")
+            return 1
+        manifest_path.write_bytes(saved)
+        shutil.copytree(repo / "openspec/changes/demo", repo / "openspec/changes/other")
+        other_start = run_keel(repo, "gate", "task-start", "--change", "other", "--task", "1.1", "--record", "--json")
+        if json.loads(other_start.stdout).get("status") != "pass":
+            report(f"{label} other task guard fixture did not start")
+            return 1
+        mismatch = project("--subagent-mode", "implementation")
+        if mismatch.get("status") == "ready":
+            report(f"{label} active guard for another owner allowed implementation")
+            return 1
+        if "matching" not in " ".join(mismatch.get("reasons", [])):
+            report(f"{label} other-owner refusal did not name guard mismatch")
+            return 1
+        manifest_path.write_bytes(saved)
+        task_path = repo / "openspec/changes/demo/tasks.md"
+        task_before = task_path.read_text()
+        task_path.write_text(task_before.replace("src/feature.js", "src/other.js"))
+        if project("--subagent-mode", "implementation").get("status") == "ready":
+            report(f"{label} authority drift allowed implementation")
+            return 1
+        task_path.write_text(task_before)
+        returned = run_keel(repo, "project", "--event", "subagent-stop", "--subagent-mode", "implementation", "--native-complete", "--change", "demo", "--task", "1.1", "--json")
+        returned_payload = json.loads(returned.stdout)
+        if task_path.read_text() != task_before:
+            report(f"{label} delegate completion modified task authority or records")
+            return 1
+        if returned_payload.get("projection", {}).get("returnAuthority") != "report-and-evidence-only":
+            report(f"{label} delegate return did not remain evidence-only")
+            return 1
+        goal = run_keel(repo, "project", "--event", "goal", "--change", "demo", "--task", "1.1", "--json")
+        if json.loads(goal.stdout).get("status") != "blocked":
+            report(f"{label} goal activation became implicit")
+            return 1
+        configured = repo / "configured"
+        configured.mkdir()
+        write_gate_fixture(configured, standing_authorization_task())
+        write_authorize_config(configured, "delegation:\n  tier: deep\n")
+        explicit = run_keel(configured, "project", "--event", "subagent-start", "--authorize", "subagent", "--subagent-mode", "helper", "--change", "demo", "--task", "1.1", "--json")
+        payload = json.loads(explicit.stdout)
+        if payload.get("status") != "ready" or payload["projection"].get("delegation"):
+            report(f"{label} explicit helper became writer due to tier metadata")
+            return 1
+        for name,task,config in [
+            ("bad-task-tier", standing_authorization_task().replace("  - Covers:", "  - Delegation: turbo\n  - Covers:"), ""),
+            ("bad-config-tier", standing_authorization_task(), "delegation:\n  tier: turbo\n"),
+            ("plan-first", standing_authorization_task().replace("  - Covers:", "  - Mode: plan-first\n  - Covers:"), ""),
+            ("diagnose-only", standing_authorization_task().replace("  - Covers:", "  - Mode: diagnose-only\n  - Covers:").replace("    - src/feature.js", "    - none"), ""),
+            ("repo-action", standing_authorization_task().replace("  - Covers:", "  - Mode: repo-action\n  - Covers:").replace("    - src/feature.js", "    - none"), ""),
+        ]:
+            other = repo / name
+            other.mkdir()
+            write_gate_fixture(other, task)
+            write_authorize_config(other, config)
+            result = run_keel(other, "project", "--event", "subagent-start", "--change", "demo", "--task", "1.1", "--json")
+            if json.loads(result.stdout).get("status") != "ready":
+                report(f"{label} read-only helper refused for {name}: {result.stdout}")
+                return 1
+            result = run_keel(other, "project", "--event", "subagent-start", "--subagent-mode", "implementation", "--change", "demo", "--task", "1.1", "--json")
+            rejected = json.loads(result.stdout)
+            if rejected.get("status") == "ready":
+                report(f"{label} implementation allowed for {name}")
+                return 1
+            expected = "turbo" if "tier" in name else "implementation task"
+            if expected not in " ".join(rejected.get("reasons", [])):
+                report(f"{label} {name} refusal named wrong cause: {rejected.get('reasons')}")
+                return 1
+    report("model-chosen-subagents scenario passed.")
     return 0
 
 
@@ -22534,8 +22675,8 @@ def validate_delegation_projection_scenario() -> int:
         except json.JSONDecodeError:
             report(f"delegation-projection: unauthorized start returned no JSON: {unauthorized.stdout!r}")
             return 1
-        if refused.get("status") == "ready":
-            report("delegation-projection: subagent-start projected without authorization.")
+        if refused.get("status") != "ready":
+            report("delegation-projection: ordinary helper required extra authorization.")
             return 1
 
     report("delegation-projection scenario passed.")
@@ -33821,6 +33962,7 @@ SCENARIOS: tuple = (
     ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("update-restores-overlays", validate_update_restores_overlays_scenario),
+    ("model-chosen-subagents", validate_model_chosen_subagents_scenario),
     ("uninstall", validate_uninstall_scenario),
     (
         "uninstall-removes-the-overlay",
