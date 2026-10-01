@@ -1,6 +1,6 @@
 {
   "name": "keel",
-  "version": "5.82.0",
+  "version": "5.83.0",
   "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
   "author": {
     "name": "TanglmChris",
@@ -33,6 +33,19 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "session-start"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -46,6 +59,37 @@
               "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/pretooluse-guard.js"
             ],
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "user-prompt-submit"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "file-changed"
+            ],
+            "timeout": 10,
+            "asyncRewake": true
           }
         ]
       }

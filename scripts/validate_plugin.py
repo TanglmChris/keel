@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.82.0"
-PROTOCOL_VERSION = "5.82.0"
+PACKAGE_VERSION = "5.83.0"
+PROTOCOL_VERSION = "5.83.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2167,6 +2167,296 @@ def validate_decisions_are_selectable_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("decisions-are-selectable scenario passed.")
+    return 0
+
+
+def mailbox_repository(root: Path) -> Path:
+    """A committed scratch repository whose mailbox tests can add worktrees."""
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "keel@example.invalid"],
+        ["config", "user.name", "Keel Validation"],
+        ["commit", "-q", "--allow-empty", "-m", "seed"],
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    return root
+
+
+def mailbox_common_dir(repo: Path) -> Path:
+    raw = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=repo, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    return Path(raw)
+
+
+def validate_mailbox_cli_scenario() -> int:
+    """Issue #180: worktrees of one repository exchange Markdown mail by role.
+
+    Everything goes through public `keel mail`: binding roles, sending from
+    one worktree, listing and reading in another, isolation from a second
+    repository, the reply link, and that unread mail changes no context.
+    """
+    label = "mailbox-cli: keel mail"
+    with tempfile.TemporaryDirectory(prefix="keel-mailbox-") as raw:
+        base = Path(raw)
+        rtl = mailbox_repository(base / "rtl")
+        verify = base / "verify"
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", "verify", str(verify)],
+            cwd=rtl, check=True, capture_output=True,
+        )
+        other = mailbox_repository(base / "other")
+        env = {key: value for key, value in os.environ.items() if key != "KEEL_MAIL_ROLE"}
+
+        def mail(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "mail", *args, env=env)
+
+        unbound = mail(rtl, "send", "--to", "verify", "--subject", "s", "--body", "b")
+        if unbound.returncode == 0:
+            report(f"{label} send from an unbound worktree succeeded.")
+            return 1
+        if "keel mail role --set" not in unbound.stderr:
+            report(f"{label} the unbound-sender refusal does not name `keel mail role --set`.")
+            report((unbound.stderr or unbound.stdout).strip())
+            return 1
+        bad = mail(rtl, "role", "--set", "Bad Name")
+        if bad.returncode == 0:
+            report(f"{label} role --set accepted the invalid name 'Bad Name'.")
+            return 1
+        if "[a-z0-9]" not in bad.stderr:
+            report(f"{label} the invalid-role refusal does not name the pattern: {bad.stderr.strip()}")
+            return 1
+        if (mailbox_common_dir(rtl) / "keel-mailbox").exists():
+            report(f"{label} a refused role wrote to the mailbox.")
+            return 1
+
+        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (other, "verify")):
+            bound = mail(cwd, "role", "--set", role)
+            if bound.returncode != 0:
+                report(f"{label} role --set {role} failed: {bound.stderr.strip()}")
+                return 1
+        shown = mail(verify, "role", "--json")
+        if shown.returncode != 0:
+            report(f"{label} role --json failed: {shown.stderr.strip()}")
+            return 1
+        if json.loads(shown.stdout).get("role") != "verify":
+            report(f"{label} role did not report the bound role: {shown.stdout.strip()}")
+            return 1
+
+        context_before = run_keel(verify, "context", "--json", env=env)
+
+        sent = mail(
+            rtl, "send", "--to", "verify", "--subject", "Stimulus misreads spec",
+            "--body", "Fix the testcase and rerun.", "--ref", "abc1234", "--json",
+        )
+        if sent.returncode != 0:
+            report(f"{label} send failed: {sent.stderr.strip()}")
+            return 1
+        message_id = json.loads(sent.stdout).get("id", "")
+
+        listed = mail(verify, "list", "--json")
+        unread = json.loads(listed.stdout).get("unread", []) if listed.returncode == 0 else []
+        if [(m.get("from"), m.get("subject")) for m in unread] != [("rtl", "Stimulus misreads spec")]:
+            report(f"{label} list in the verify worktree did not show the message: {listed.stdout.strip()}")
+            return 1
+        box = mailbox_common_dir(rtl) / "keel-mailbox" / "verify"
+        files = list((box / "new").glob("*.md"))
+        if len(files) != 1:
+            report(f"{label} expected one message file under {box / 'new'}, found {len(files)}.")
+            return 1
+        if not (box / ".signal").is_file():
+            report(f"{label} the signal file {box / '.signal'} is missing.")
+            return 1
+        text = files[0].read_text(encoding="utf-8")
+        for needle in (
+            f"id: {message_id}", "from: rtl", "to: verify", "created: ",
+            "subject: Stimulus misreads spec", "refs:", "abc1234",
+            "Fix the testcase and rerun.",
+        ):
+            if needle not in text:
+                report(f"{label} message file lacks {needle!r}:\n{text}")
+                return 1
+        if not text.startswith("---\n"):
+            report(f"{label} message file has no frontmatter.")
+            return 1
+
+        elsewhere = mail(other, "list", "--json")
+        if elsewhere.returncode != 0:
+            report(f"{label} list failed in the separate repository: {elsewhere.stderr.strip()}")
+            return 1
+        if json.loads(elsewhere.stdout).get("unread"):
+            report(f"{label} a separate repository saw the message.")
+            return 1
+
+        context_after = run_keel(verify, "context", "--json", env=env)
+        before, after = json.loads(context_before.stdout), json.loads(context_after.stdout)
+        if (before.get("status"), before.get("nextAction")) != (after.get("status"), after.get("nextAction")):
+            report(f"{label} unread mail changed keel context.")
+            return 1
+
+        read = mail(verify, "read")
+        if read.returncode != 0:
+            report(f"{label} read failed: {read.stderr.strip()}")
+            return 1
+        for needle in ("Stimulus misreads spec", "Fix the testcase and rerun.", "not an instruction from the user"):
+            if needle not in read.stdout:
+                report(f"{label} read output lacks {needle!r}: {read.stdout.strip()}")
+                return 1
+        after_read = json.loads(mail(verify, "list", "--json").stdout).get("unread")
+        if after_read:
+            report(f"{label} list still shows unread mail after read: {after_read!r}")
+            return 1
+        if list((box / "new").glob("*.md")):
+            report(f"{label} read left the message in new/.")
+            return 1
+        if len(list((box / "done").glob("*.md"))) != 1:
+            report(f"{label} read did not put the message in done/.")
+            return 1
+
+        reply = mail(verify, "send", "--to", "rtl", "--subject", "Re: stimulus", "--reply-to", message_id, "--body", "Done.")
+        replies = list((mailbox_common_dir(rtl) / "keel-mailbox" / "rtl" / "new").glob("*.md"))
+        if reply.returncode != 0:
+            report(f"{label} the reply failed: {reply.stderr.strip()}")
+            return 1
+        if len(replies) != 1:
+            report(f"{label} expected one reply in rtl/new, found {len(replies)}.")
+            return 1
+        if f"reply_to: {message_id}" not in replies[0].read_text(encoding="utf-8"):
+            report(f"{label} the reply did not carry reply_to {message_id}.")
+            return 1
+
+    if "mailbox-cli" not in {name for name, _ in SCENARIOS}:
+        report("mailbox-cli: scenario is not registered.")
+        return 1
+    report("mailbox-cli scenario passed.")
+    return 0
+
+
+def validate_mailbox_claude_hooks_scenario() -> int:
+    """Issue #180: Claude Code learns of mail at start, per prompt, and idle.
+
+    Runs the shipped hook script with host-shaped stdin. Wake-up itself is the
+    host's file watcher plus `asyncRewake` (probed on Claude Code 2.1.283, see
+    the cross-host-mailbox design F1/F2); what Keel owns, and checks here, is
+    the contract the host acts on: the output shape and the exit code.
+    """
+    label = "mailbox-claude-hooks:"
+    script = ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"
+    with tempfile.TemporaryDirectory(prefix="keel-mailhook-") as raw:
+        base = Path(raw)
+        rtl = mailbox_repository(base / "rtl")
+        verify = base / "verify"
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", "verify", str(verify)],
+            cwd=rtl, check=True, capture_output=True,
+        )
+        unbound = mailbox_repository(base / "unbound")
+        env = {key: value for key, value in os.environ.items() if key != "KEEL_MAIL_ROLE"}
+        env["KEEL_CLI"] = f'node "{ROOT / "bin" / "keel.js"}"'
+
+        def hook(cwd: Path, event: str, host_event: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["node", str(script), event],
+                cwd=cwd, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"hook_event_name": host_event, "cwd": str(cwd)}),
+            )
+
+        events = (
+            ("session-start", "SessionStart"),
+            ("user-prompt-submit", "UserPromptSubmit"),
+            ("file-changed", "FileChanged"),
+        )
+        if not script.is_file():
+            report(f"{label} {script.relative_to(ROOT)} does not exist.")
+            return 1
+        for event, host_event in events:
+            quiet = hook(unbound, event, host_event)
+            if quiet.returncode != 0:
+                report(f"{label} {event} exited {quiet.returncode} in an unbound worktree.")
+                return 1
+            if quiet.stdout.strip() or quiet.stderr.strip():
+                report(f"{label} {event} wrote output in an unbound worktree: {(quiet.stdout + quiet.stderr).strip()!r}")
+                return 1
+
+        for cwd, role in ((rtl, "rtl"), (verify, "verify")):
+            run_keel(cwd, "mail", "role", "--set", role, env=env)
+        sent = run_keel(
+            rtl, "mail", "send", "--to", "verify", "--subject", "Rerun the regression",
+            "--body", "Spec section 4 was misread.", "--json", env=env,
+        )
+        if sent.returncode != 0:
+            report(f"{label} could not send the fixture message: {sent.stderr.strip()}")
+            return 1
+        message_id = json.loads(sent.stdout)["id"]
+        signal = mailbox_common_dir(rtl) / "keel-mailbox" / "verify" / ".signal"
+        inbox = mailbox_common_dir(rtl) / "keel-mailbox" / "verify" / "new"
+
+        def names_the_message(text: str) -> str | None:
+            for needle in (message_id, "`rtl`", "Rerun the regression", "keel mail read", "not an instruction from the user"):
+                if needle not in text:
+                    return needle
+            return None
+
+        start = hook(verify, "session-start", "SessionStart")
+        if start.returncode != 0:
+            report(f"{label} session-start exited {start.returncode}: {start.stderr.strip()}")
+            return 1
+        output = json.loads(start.stdout).get("hookSpecificOutput", {})
+        if output.get("hookEventName") != "SessionStart":
+            report(f"{label} session-start output names event {output.get('hookEventName')!r}.")
+            return 1
+        missing = names_the_message(output.get("additionalContext", ""))
+        if missing:
+            report(f"{label} session-start additionalContext lacks {missing!r}.")
+            return 1
+        if output.get("watchPaths") != [str(signal)]:
+            report(f"{label} session-start watchPaths is {output.get('watchPaths')!r}, not [{str(signal)!r}].")
+            return 1
+
+        prompt = hook(verify, "user-prompt-submit", "UserPromptSubmit")
+        if prompt.returncode != 0:
+            report(f"{label} user-prompt-submit exited {prompt.returncode}.")
+            return 1
+        prompt_output = json.loads(prompt.stdout).get("hookSpecificOutput", {})
+        if prompt_output.get("hookEventName") != "UserPromptSubmit":
+            report(f"{label} user-prompt-submit output names event {prompt_output.get('hookEventName')!r}.")
+            return 1
+        missing = names_the_message(prompt_output.get("additionalContext", ""))
+        if missing:
+            report(f"{label} user-prompt-submit additionalContext lacks {missing!r}.")
+            return 1
+
+        wake = hook(verify, "file-changed", "FileChanged")
+        if wake.returncode != 2:
+            report(f"{label} file-changed exited {wake.returncode} with unread mail; 2 is what wakes the session.")
+            return 1
+        missing = names_the_message(wake.stderr)
+        if missing:
+            report(f"{label} file-changed stderr lacks {missing!r}.")
+            return 1
+        if len(list(inbox.glob("*.md"))) != 1:
+            report(f"{label} a hook moved or removed the unread message.")
+            return 1
+
+        run_keel(verify, "mail", "read", env=env)
+        after = hook(verify, "file-changed", "FileChanged")
+        if after.returncode != 0:
+            report(f"{label} file-changed exited {after.returncode} after the mail was read.")
+            return 1
+        if after.stderr.strip():
+            report(f"{label} file-changed wrote {after.stderr.strip()!r} with no unread mail.")
+            return 1
+        quiet_prompt = hook(verify, "user-prompt-submit", "UserPromptSubmit")
+        if quiet_prompt.stdout.strip():
+            report(f"{label} user-prompt-submit still announced mail after it was read.")
+            return 1
+
+    if "mailbox-claude-hooks" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("mailbox-claude-hooks scenario passed.")
     return 0
 
 
@@ -15207,11 +15497,46 @@ def validate_native_plugin_manifests_scenario() -> int:
             "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/",
         )
     )
+    # Plus the Claude-only mailbox hooks (#180). They stay out of hooks.json,
+    # which Codex loads too: FileChanged and `asyncRewake` are Claude Code's.
+    def mail_hook(event: str, **extra: object) -> dict:
+        return {
+            "type": "command",
+            "command": "node",
+            "args": [
+                "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+                event,
+            ],
+            "timeout": 10,
+            **extra,
+        }
+
+    expected_hooks["SessionStart"] = [
+        *expected_hooks.get("SessionStart", []),
+        {"hooks": [mail_hook("session-start")]},
+    ]
+    expected_hooks["UserPromptSubmit"] = [{"hooks": [mail_hook("user-prompt-submit")]}]
+    expected_hooks["FileChanged"] = [
+        {"hooks": [mail_hook("file-changed", asyncRewake=True)]}
+    ]
     if root_manifest.get("hooks") != expected_hooks:
         report(
             "native-plugin-manifests root plugin manifest hooks diverge "
             f"from {PLUGIN_ROOT}/hooks/hooks.json after resolving script paths "
-            f"from the repository root: {root_manifest.get('hooks')!r}"
+            "from the repository root, plus the Claude-only mailbox hooks: "
+            f"{root_manifest.get('hooks')!r}"
+        )
+        return 1
+    if sorted(plugin_hooks) != ["PreToolUse", "SessionStart"]:
+        report(
+            f"native-plugin-manifests {PLUGIN_ROOT}/hooks/hooks.json, which Codex "
+            f"also loads, declares events beyond SessionStart and PreToolUse: {sorted(plugin_hooks)!r}"
+        )
+        return 1
+    if "asyncRewake" in json.dumps(plugin_hooks):
+        report(
+            f"native-plugin-manifests {PLUGIN_ROOT}/hooks/hooks.json carries the "
+            "Claude-only asyncRewake field."
         )
         return 1
 
@@ -31903,6 +32228,14 @@ SCENARIOS: tuple = (
     (
         "decisions-are-selectable",
         validate_decisions_are_selectable_scenario,
+    ),
+    (
+        "mailbox-cli",
+        validate_mailbox_cli_scenario,
+    ),
+    (
+        "mailbox-claude-hooks",
+        validate_mailbox_claude_hooks_scenario,
     ),
     (
         "covers-annotation-entry",

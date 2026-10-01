@@ -102,6 +102,7 @@ Usage:
   keel gate change-close [repo] [--change name] --action sync|archive [--base git-ref] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
   keel lenses list|add [name] [repo] [--force]
+  keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
@@ -2590,6 +2591,11 @@ function runAction(options) {
 }
 
 function main() {
+  // `keel mail` parses its own arguments: it is host-neutral messaging between
+  // sessions (#180), sharing no option with the gate and projection commands.
+  if (process.argv[2] === "mail") {
+    return require("../src/core/mail").runMail(process.argv.slice(3));
+  }
   const options = parseArgs(process.argv.slice(2));
   if (options.help || (!options.action && !options.version)) {
     printHelp();
