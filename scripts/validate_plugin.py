@@ -38,8 +38,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.81.0"
-PROTOCOL_VERSION = "5.81.0"
+PACKAGE_VERSION = "5.82.0"
+PROTOCOL_VERSION = "5.82.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2112,6 +2112,61 @@ def validate_unlinked_critical_covers_scenario() -> int:
         report("unlinked-critical-covers: scenario is not registered.")
         return 1
     report("unlinked-critical-covers scenario passed.")
+    return 0
+
+
+def validate_decisions_are_selectable_scenario() -> int:
+    """Issue #174: an enumerable decision is offered as selectable options.
+
+    The owner asked (2026-09-28) that a decision be something the user can
+    pick, not type, wherever the host offers a structured choice. No gate can
+    observe presentation, so this checks only that both carriers say so — the
+    resident protocol and the alignment skill's deep path, in source and in
+    the shipped copy — and that the portable skill names no host tool.
+    """
+    label = "decisions-are-selectable:"
+
+    def section(text: str, heading: str) -> str:
+        start = text.find(heading)
+        if start < 0:
+            return ""
+        rest = text[start + len(heading):]
+        end = rest.find("\n## ")
+        return rest if end < 0 else rest[:end]
+
+    def offers_choices(text: str) -> bool:
+        lowered = " ".join(text.lower().split())
+        return (
+            "structured-choice surface" in lowered
+            and "recommend" in lowered
+            and "first" in lowered
+            and "open question" in lowered
+            and "prose" in lowered
+        )
+
+    block = extract_managed_block((ROOT / "AGENTS.md").read_text(encoding="utf-8")) or ""
+    if not offers_choices(section(block, "## User-facing communication")):
+        report(
+            f"{label} AGENTS.md User-facing communication does not offer "
+            "decisions as selectable options."
+        )
+        return 1
+    for root in ("src/skills", f"{PLUGIN_ROOT}/skills"):
+        path = ROOT / root / "keel-align-expectations" / "SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        if not offers_choices(section(text, "## Deep path")):
+            report(
+                f"{label} {root} keel-align-expectations Deep path does not "
+                "offer decisions as selectable options."
+            )
+            return 1
+        if "AskUserQuestion" in text:
+            report(f"{label} {root} keel-align-expectations names a host tool.")
+            return 1
+    if "decisions-are-selectable" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("decisions-are-selectable scenario passed.")
     return 0
 
 
@@ -31844,6 +31899,10 @@ SCENARIOS: tuple = (
     (
         "unlinked-critical-covers",
         validate_unlinked_critical_covers_scenario,
+    ),
+    (
+        "decisions-are-selectable",
+        validate_decisions_are_selectable_scenario,
     ),
     (
         "covers-annotation-entry",
