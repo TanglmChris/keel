@@ -561,7 +561,10 @@ function commandLabelProblems(task) {
         message:
           `Evidence labels must map one-to-one to Commands; missing: `
           + `${missing.join(", ") || "none"}; unexpected or duplicate: `
-          + `${unexpected.join(", ") || "none"}.`,
+          + `${unexpected.join(", ") || "none"}.`
+          + (missing.length > 0 && unexpected.length === 0
+            ? " `keel gate task-start --record` adds the missing record slots."
+            : ""),
       });
     }
   }

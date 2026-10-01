@@ -401,7 +401,154 @@ function equivalenceEscapeProblems(repo, selection, task, compiled) {
   return problems;
 }
 
+// `--record` derives the record slots a valid capsule implies (issue #179):
+// the Contract anchor, each bare `M<n>`, `.red`/`.green` for every red-green
+// check not tagged `(regression)`, `.detects` where a check declares one, the
+// Review block, and the Blocker and Reauthorizations defaults. All of it
+// followed mechanically from the capsule and was typed by hand. Each slot
+// reads `pending` (or the template's `none`), which every completion gate
+// still refuses as unfilled, so this moves typing, never a verdict. Existing
+// lines are never rewritten, nothing outside the selected task's Evidence is
+// touched, and a task that does not compile apart from its missing slots is
+// left exactly as it was.
+const EVIDENCE_FIELD = /^ {2}- Evidence:\s*$/;
+const TASK_FIELD = /^ {2}- [A-Za-z][A-Za-z /-]+:/;
+
+function evidenceSlotKeys(lines) {
+  return new Set(
+    lines
+      .map((line) => line.match(/^ {4}- ([A-Za-z][\w.]*(?: [a-z]+)*):/))
+      .filter(Boolean)
+      .map((match) => match[1])
+  );
+}
+
+function withEvidenceSlots(content, task, slots) {
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r?\n/);
+  const end = task.endLine !== undefined ? task.endLine : lines.length;
+  let header = -1;
+  for (let cursor = task.line + 1; cursor < end; cursor += 1) {
+    if (EVIDENCE_FIELD.test(lines[cursor])) {
+      header = cursor;
+      break;
+    }
+  }
+  let blockEnd = end;
+  if (header >= 0) {
+    for (let cursor = header + 1; cursor < end; cursor += 1) {
+      if (TASK_FIELD.test(lines[cursor])) {
+        blockEnd = cursor;
+        break;
+      }
+    }
+  }
+  const scanFrom = header >= 0 ? header + 1 : end;
+  const present = evidenceSlotKeys(lines.slice(scanFrom, blockEnd));
+  const added = [];
+  for (const slot of slots) {
+    if (present.has(slot.key)) continue;
+    added.push(...slot.lines);
+  }
+  if (added.length === 0) return { content, added };
+  let insertAt = header >= 0 ? blockEnd : end;
+  while (insertAt > task.line + 1 && !lines[insertAt - 1].trim()) insertAt -= 1;
+  const insertion = header >= 0 ? added : ["  - Evidence:", ...added];
+  lines.splice(insertAt, 0, ...insertion);
+  return { content: lines.join(eol), added: insertion };
+}
+
+function basicSlots(task) {
+  const verify = field(task, "Verify") || field(task, "Commands");
+  const labels = [
+    ...verify.matchAll(/^\s*-\s*(M[1-9]\d*)\b/gm),
+  ].map((match) => match[1]);
+  return [
+    { key: "Contract", lines: ["    - Contract: pending"] },
+    ...[...new Set(labels)].map((label) => ({
+      key: label,
+      lines: [`    - ${label}: pending`],
+    })),
+  ];
+}
+
+// The full slot list in template order: Contract, then each check's bare,
+// `.red`, `.green`, and `.detects` slots together, then Review and the logs.
+function capsuleSlots(compiled) {
+  const verification = compiled.capsule.verification;
+  const redGreen = RED_GREEN_VERIFICATION_STRATEGIES.has(
+    verification.strategy.toLowerCase()
+  );
+  const slots = [{ key: "Contract", lines: ["    - Contract: pending"] }];
+  for (const command of verification.commands) {
+    if (!command.label) continue;
+    const keys = [command.label];
+    if (redGreen && !command.regression) {
+      keys.push(`${command.label}.red`, `${command.label}.green`);
+    }
+    if (command.detects) keys.push(`${command.label}.detects`);
+    for (const key of keys) slots.push({ key, lines: [`    - ${key}: pending`] });
+  }
+  slots.push(
+    {
+      key: "Review",
+      lines: [
+        "    - Review:",
+        "      - Status: pending",
+        "      - Acceptance check: pending",
+        "      - Scope check: pending",
+        "      - Findings: pending",
+      ],
+    },
+    { key: "Blocker", lines: ["    - Blocker: none"] },
+    { key: "Reauthorizations", lines: ["    - Reauthorizations: none"] }
+  );
+  return slots;
+}
+
+function fillRecordSlots(repo, options) {
+  const first = loadSelection(repo, options);
+  const original = first.content;
+  const tasksPath = first.tasksPath;
+  // A trial write of the bare slots only, so the task can compile: the
+  // capsule is the authority for everything else, and it compiles from disk.
+  const trial = withEvidenceSlots(original, first.selected[0], basicSlots(first.selected[0]));
+  if (trial.added.length > 0) fs.writeFileSync(tasksPath, trial.content, "utf8");
+  const second = loadSelection(repo, options);
+  const compiled = compileTaskContract(repo, second.change, second.selected[0]);
+  if (trial.added.length > 0) fs.writeFileSync(tasksPath, original, "utf8");
+  if (compiled.diagnostics.length > 0) {
+    // The capsule has an authoring error of its own; slots would only hide it.
+    return { original, tasksPath, added: [] };
+  }
+  const full = withEvidenceSlots(original, first.selected[0], capsuleSlots(compiled));
+  if (full.added.length > 0) fs.writeFileSync(tasksPath, full.content, "utf8");
+  return {
+    original,
+    tasksPath,
+    added: full.added.filter((line) => line !== "  - Evidence:"),
+  };
+}
+
 function taskStart(repo, options) {
+  if (!options.record) return taskStartChecked(repo, options);
+  const filled = fillRecordSlots(repo, options);
+  const result = taskStartChecked(repo, options);
+  if (filled.added.length > 0) {
+    if (result.status !== "pass") {
+      // A refused start writes nothing, derived slots included.
+      fs.writeFileSync(filled.tasksPath, filled.original, "utf8");
+    } else if (result.record) {
+      result.record.filled = filled.added
+        .map((line) => line.match(/^\s*- ([^:]+):/))
+        .filter((match) => match && !/^(Status|Acceptance check|Scope check|Findings)$/.test(match[1]))
+        .map((match) => match[1]);
+    }
+  }
+  return result;
+}
+
+function taskStartChecked(repo, options) {
   const selection = loadSelection(repo, options);
   const task = selection.selected[0];
   const compiled = compileTaskContract(repo, selection.change, task);
@@ -455,8 +602,9 @@ function taskStart(repo, options) {
         problem(
           "record-refused",
           "--record needs a \"- Contract:\" Evidence line on the selected "
-            + "task to anchor, and this task has none, so nothing was "
-            + 'written. Add "- Contract: pending" to its Evidence.'
+            + "task to anchor, and none could be placed, so nothing was "
+            + "written. Check that the task's Evidence field is a "
+            + "two-space-indented \"- Evidence:\" line."
         )
       );
     }
