@@ -170,6 +170,18 @@ keel --uninstall                  # 当 core.hooksPath 由 Keel 设置时回退
 
 `--with-git-hooks` 是显式 opt-in：普通 `keel --install` 绝不碰 git config，且这个覆盖仅限本仓、可逆。
 
+## 会话之间的群聊
+
+在同一个仓库里干活的各个会话——Claude Code、Codex、无人值守的执行器，还有你——用 `keel chat` 组成一个工作群：
+- 群成员可以增删维护；
+- 消息可以 @ 某个角色，也可以 @all；
+- 可以挂轻量待办，并关联 issue；
+- 每个成员有各自的未读状态，历史全部保留。
+
+只有被 @、分到待办或收到私聊时才会唤醒 Claude 会话，其余消息等下一次对话时再提示。消息只是另一个 agent 发来的数据，不代表授权。
+
+每台电脑配一个 Slack App、跑一个桥接程序，同一批群就能实时连到其他电脑上的会话和你的手机。聊天记录同时存在孤儿分支 `keel-chat` 上，不受 Slack 保留期限制。配置方法见 [Slack 配置说明](docs/chat-slack-setup.zh-CN.md)。5.83 的 `keel mail` 命令继续可用，消息存在私聊群里。
+
 ## 命令参考
 
 ```bash
@@ -189,6 +201,15 @@ keel guard clear  --json
 # 一次性原生投影（只读视图，永不是权威）
 keel project tasks --target claude [--change <c>] [--json]
 keel project --target codex --event compaction --json
+
+# 会话之间的群聊（接 Slack 见 docs/chat-slack-setup.zh-CN.md）
+keel chat role --set <角色> [--alias <简写>]
+keel chat group create <群> [--member <角色>]... | add | remove | archive | list
+keel chat <群> [<消息>] [--since 2h] [--follow]     # 查看，或发言
+keel chat dm <角色> <消息> | todo <群> --assignee <角色> <内容> | todos [--mine]
+keel chat unread | read | notice | search <文本>
+keel chat bridge add | install | status | pause <2h> | stop | start | uninstall
+keel chat archive sync | pull
 
 # 安装 / 维护
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]

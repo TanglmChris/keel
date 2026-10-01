@@ -356,7 +356,7 @@
 
 ## 6. Close
 
-- [ ] 6.1 Slack setup guide
+- [x] 6.1 Slack setup guide
   - Covers:
     - D13
     - D17
@@ -372,13 +372,13 @@
     - Reason: the guide is prose for the owner's manual Slack setup, and nothing in it executes; its claims are checked against the commands shipped in 4.x and 5.1.
     - M1: every `keel chat` command and flag the guide names appears in `keel chat help` output, checked by a one-off script that greps them, with its output quoted in Evidence. The guide covers creating the app from a manifest (Socket Mode, the bot scopes, `chat:write.customize`, metadata subscriptions), storing tokens with `security add-generic-password -s keel-chat-slack`, `keel/chat.json`, binding the `owner` role, `bridge add` and `install`, the public-repository and CI warnings, and stopping or uninstalling.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:ff2407f7c3facf2809b1c81a5d7e18b704711aaa4c07398778108e464c8a0d47
+    - M1: pass. `python3 openspec/changes/group-chat/evidence/check_guide.py "$PWD"` reads every `keel chat …` command in `docs/chat-slack-setup.md`, `docs/chat-slack-setup.zh-CN.md`, `README.md`, and `README.zh-CN.md` — subcommands, `bridge` actions, and `--` flags — and checks each against `keel chat help`; it printed `checked 51 mentions` and `missing: none`. Run against a copy whose guide named `keel chat frobnicate`, `--sparkle`, and `bridge explode`, it reported all three in both languages, so it does detect a command the CLI lacks. The guide covers creating one app per machine from a manifest (Socket Mode, the bot scopes including `chat:write.customize`, the `keel_chat_record` metadata subscription), the app-level token's `connections:write`, `security add-generic-password -s keel-chat-slack -a app|bot -w`, `bridge install` and where it shows in Login Items, the channel and member IDs, a `keel/chat.json` example with `members` as the relay allowlist, binding roles and the `owner` role from a terminal, `bridge add` and `status`, daily use, the archive and its public-repository guard, the CI `branches-ignore: [keel-chat]` warning, and pausing, stopping, uninstalling, and deleting the tokens. Checker: artifact openspec/changes/group-chat/evidence/check_guide.py sha256:3d245a2eb2efce140ec4cac0a8ebbf7b2907fba8e24217d10c9b998844c3cbbc
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: The guide is prose for steps only the owner can take; M1 proves every command it tells the owner to run exists in the shipped CLI, in both languages and in both READMEs, and the negative run shows the check would have caught one that did not. Each decision it relies on is the one D13, D17, D18, and D19 record.
+      - Scope check: The diff adds `docs/chat-slack-setup.md` and `docs/chat-slack-setup.zh-CN.md` and changes `README.md` and `README.zh-CN.md` (a group-chat section and command lines) — all in Touch — plus this change's own directory, which holds the checker.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/187#issuecomment-5926807324 — the app manifest (scopes, events, metadata subscription) follows Slack's documentation but has not been accepted by a real workspace; the owner's first real run, whose checklist that comment holds, is where it is.
     - Blocker: none
     - Reauthorizations: none
 
