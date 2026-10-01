@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.82.0 - a decision is something to pick
+
+The owner asked that a decision Keel's agent needs from them be something they can select rather than type, wherever the host offers that (#174). The protocol spoke of options and a recommendation but never of offering them as a choice, and the alignment skill called presentation the host's concern, which read as permission to ask in prose.
+
+- Issue #174: when the host offers a structured-choice surface, the resident protocol and `keel-align-expectations`' deep path now direct a decision whose answers can be enumerated through it, recommended option first and marked, so the user picks rather than types. Open questions, and hosts with no such surface, keep prose. The portable skill names no host tool, and no gate judges presentation.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.82.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.81.0 - a cited decision is fingerprinted whole
 
 A task's contract fingerprint promises that the authority a task was implemented under is the authority it is judged against. For a `design.md` decision written over several lines — the usual way — that promise held only for the first line: editing a sub-bullet or a continuation after the task was authorized moved nothing, and neither `task-complete` nor `change-close` noticed (#177). A Covers entry such as `D1、D2` was worse: it passed as free text, anchoring nothing while looking anchored.

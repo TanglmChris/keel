@@ -7,7 +7,7 @@ description: Align explicit requirements, implicit expectations, non-goals, obse
 
 ## Purpose
 
-Turn user intent and repository facts into durable OpenSpec authority before specs and executable tasks harden. Alignment is risk-scaled: clear, complete, low-risk requests pass through a compact quick path; material ambiguity switches to a focused deep path. This skill owns materiality routing, acceptance authority, and write-back ownership; how questions are presented interactively is the host runtime's concern, and it does not replace `/opsx:apply`, review, or OpenSpec artifact mechanics.
+Turn user intent and repository facts into durable OpenSpec authority before specs and executable tasks harden. Alignment is risk-scaled: clear, complete, low-risk requests pass through a compact quick path; material ambiguity switches to a focused deep path. This skill owns materiality routing, acceptance authority, and write-back ownership; which surface a host offers for asking is the host's, and it does not replace `/opsx:apply`, review, or OpenSpec artifact mechanics.
 
 ## Routing
 
@@ -21,7 +21,7 @@ State the extracted goals, non-goals, observable Acceptance, constraints, and ev
 
 ## Deep path
 
-Pause spec/task finalization and ask one material decision at a time. Each question explains in plain terms why the decision matters and provides a recommended answer. Continue only until executable authority is clear; do not run a broad brainstorming session. A material choice that stays unresolved becomes a Q<n> with an owner or resolution gate, and no affected task becomes executable until it is accepted, verified, durably owned, or explicitly discarded.
+Pause spec/task finalization and ask one material decision at a time. Each question explains in plain terms why the decision matters and provides a recommended answer. When the host offers a structured-choice surface, ask a decision whose answers can be enumerated through it, with the recommended option first and marked; keep prose for open questions and for hosts with no such surface. Continue only until executable authority is clear; do not run a broad brainstorming session. A material choice that stays unresolved becomes a Q<n> with an owner or resolution gate, and no affected task becomes executable until it is accepted, verified, durably owned, or explicitly discarded.
 
 ## Implicit expectations are proposals
 

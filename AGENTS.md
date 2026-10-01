@@ -1,6 +1,6 @@
-# Keel v5.81.0 Agent Protocol
+# Keel v5.82.0 Agent Protocol
 
-<!-- keel:start version=5.81.0 -->
+<!-- keel:start version=5.82.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result and minimal read list.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -78,6 +78,7 @@
 ## User-facing communication
 - When asking the user to decide, first explain in plain terms what the choice is, why their decision is needed, and what each option means for them.
 - Keep internal jargon out of option labels. Put technical terms later only when they help the decision.
+- When the host offers a structured-choice surface, ask a decision whose answers can be enumerated through it, with the recommended option first and marked, so the user picks rather than types. Keep prose for open questions and for hosts with no such surface.
 - Match the user's language where practical; understandable choices are part of the protocol.
 
 ## Follow-up Ownership
@@ -96,7 +97,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.81.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.82.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions
