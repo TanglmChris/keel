@@ -16742,10 +16742,10 @@ def validate_native_plugin_manifests_scenario() -> int:
             report(f"native-plugin-manifests {label} lacks description/author.name.")
             return 1
 
-    if "hooks" in codex_manifest:
+    if codex_manifest.get("hooks") != "./hooks/codex.json":
         report(
-            "native-plugin-manifests codex manifest declares an unsupported hooks "
-            "field; default discovery must load hooks/hooks.json."
+            "native-plugin-manifests codex manifest must select its host-compatible "
+            "hooks/codex.json configuration."
         )
         return 1
     interface = codex_manifest.get("interface", {})
@@ -33607,6 +33607,15 @@ def validate_the_repository_lands_what_passed_scenario() -> int:
     return 0
 
 
+def validate_codex_receiving_scenario() -> int:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/validate_codex_receiving.py")],
+        capture_output=True, text=True,
+    )
+    report((result.stdout + result.stderr).strip())
+    return result.returncode
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -33640,6 +33649,7 @@ SCENARIOS: tuple = (
         "chat-core",
         validate_chat_core_scenario,
     ),
+    ("codex-receiving", validate_codex_receiving_scenario),
     (
         "chat-records",
         validate_chat_records_scenario,
