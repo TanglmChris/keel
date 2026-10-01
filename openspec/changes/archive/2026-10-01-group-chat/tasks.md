@@ -420,7 +420,7 @@
     - Blocker: none
     - Reauthorizations: after task-start, `npm test` showed the open #188 change naming the replaced scenarios `mailbox-cli` and `mailbox-claude-hooks`; `scripts/validate_plugin.py` was added to Touch, with an Acceptance bullet and checks M3 and M4, and task-start re-run before any evidence was written.
 
-- [ ] 6.3 Release
+- [x] 6.3 Release
   - Covers:
     - E1
     - E2
@@ -471,14 +471,14 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:f1e61bc252fbd50b506611b2415813862403ab0f6f824ca643428e9c812996ac
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.84.0 to 5.85.0, the Unreleased #187 notes were folded into the 5.85.0 section with a title and summary, a line was added for #188's Codex receiving (merged to main without a changelog entry, and released with this version), and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.` The Stop Rule held.
+    - M2: pass. The deltas are promoted: `openspec/specs/keel-cross-host-mailbox/spec.md` now holds the 13 group-chat requirements under a rewritten Purpose (I3), `openspec/specs/keel-chat-slack-bridge/spec.md` is published with its 8 requirements and a Purpose, and the modified requirement replaces its predecessor in `keel-native-plugin-package`, whose Purpose now names the Claude-only chat hooks (I2). `node node_modules/.bin/openspec validate group-chat --strict` reports `Change 'group-chat' is valid`, `openspec validate --specs --strict` reports `Totals: 28 passed, 0 failed (28 items)`, and `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.`
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E1–E8 and E10 were proven by 1.1–6.2; this task carries them into 5.85.0 with the specs promoted where the next reader finds them. E9 stays owned by #183.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the three specs — this task's Touch — plus this change's own directory. `scripts/validate_plugin.py` is in Touch for the version bump and was changed only by `bump_version.js`.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
@@ -489,7 +489,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. After 6.3's version bump and spec promotion, `npm test` reports `validation --all passed: baseline plus 208 scenarios, 1 skipped: output-survives-the-pipe.` (macOS `F_SETPIPE_SZ`, unrelated), including `chat-core`, `chat-records`, `chat-mail-migration`, `chat-claude-hooks`, `chat-loop-guards`, `chat-human-view`, `chat-bridge-outbound`, `chat-bridge-inbound`, `chat-bridge-lifecycle`, `chat-archive`, `native-plugin-manifests`, and #188's `codex-receiving`.
 
 ## Invalidates
 
