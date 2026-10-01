@@ -1648,6 +1648,36 @@ function overlayRemediation(target) {
   return `run keel --init --target ${target} or keel --install --target ${target}`;
 }
 
+// Only repository-owned surfaces enroll a target. Global Codex prompts can
+// belong to a different project and must not cause this one to be rewritten.
+function installedOpenSpecTargets(repo) {
+  return ["claude", "codex", "opencode"].filter((target) => {
+    const roots = target === "codex"
+      ? [".agents/skills", ".codex/skills"]
+      : [openspecSkillRootForTarget(target, repo)];
+    return roots.some((root) => OPENSPEC_SKILLS.some((skill) =>
+      fs.existsSync(path.join(repo, root, skill, "SKILL.md"))
+    )) || (target !== "codex" && commandSurfaceForTarget(target, repo).paths
+      .some((file) => fs.existsSync(file)));
+  });
+}
+
+function printAdditionalOverlayHealth(repo, selectedTarget) {
+  for (const target of installedOpenSpecTargets(repo)) {
+    if (target === selectedTarget) continue;
+    const counts = countOpenSpecOverlays(
+      openspecOverlaySurfacesForTarget(target, repo).map((surface) => surface.path)
+    );
+    const name = { claude: "Claude", codex: "Codex", opencode: "OpenCode" }[target];
+    printDoctorLine(
+      `${name} Keel ${overlayActionLabel()} overlay`,
+      surfaceStatus(counts),
+      `${formatCount(counts, "skills and commands")}`
+        + (surfaceStatus(counts) === "ok" ? "" : `; ${overlayRemediation(target)}`)
+    );
+  }
+}
+
 function printTargetSurface(repo, target) {
   process.stdout.write("\nTarget surface:\n");
 
@@ -1924,6 +1954,7 @@ function runDoctor(options) {
   }
 
   printTargetSurface(repo, options.target);
+  printAdditionalOverlayHealth(repo, options.target);
   printLensSurface(repo, options.target);
   const authorizationOk = printStandingAuthorizationSurface(repo);
   printPrecedentSurface(repo);
@@ -2320,7 +2351,15 @@ function runAction(options) {
       );
       return 1;
     }
-    return runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    const status = runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    if (status !== 0 || options.openspecArgs[0] !== "update") return status;
+    const repo = process.cwd();
+    for (const target of installedOpenSpecTargets(repo)) {
+      process.stdout.write(`keel: restoring ${target} OpenSpec overlays after update\n`);
+      const result = refreshOpenSpecSurfaceOverlay(repo, target);
+      if (result.status !== 0) return result.status;
+    }
+    return status;
   }
 
   if (options.action === "context") {

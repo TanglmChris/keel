@@ -1,5 +1,9 @@
 # Keel Changelog
 
+## Unreleased
+
+- Issue #186: successful `keel openspec update` restores overlays for every repository-installed target without creating missing surfaces. Doctor additionally reports overlay health for installed targets other than the selected one, including legacy and `.agents` Codex layouts. Failed upstream updates retain their exit status and do not replay overlays.
+
 ## 5.85.0 - sessions talk in groups, and the owner joins from a phone
 
 The 5.83 mailbox let two sessions pass a note, one to one, read once. With a Claude and a Codex maintenance session running side by side since 2026-10-01, the owner wanted a work group instead: several roles in one place, `@` one or all, lightweight todos, maintained membership, more than one group, and the owner taking part from another machine or a phone (#187). Keel now keeps that group in the repository, wakes a session only when it is addressed, and relays it through Slack where the owner and other machines can see it.
