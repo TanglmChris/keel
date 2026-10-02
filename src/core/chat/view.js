@@ -79,7 +79,11 @@ function markers(record) {
     parts.push(`[todo → ${record.assignee || "?"}${record.issue ? ` ${record.issue}` : ""}${record.done ? ", done" : ""}]`);
   }
   if (record.reply_to) parts.push(`↳ ${record.reply_to}`);
-  if (record.mentions && record.mentions.length) parts.push(record.mentions.map((m) => `@${m}`).join(" "));
+  // A mention the text already spells out is not repeated; one written as an
+  // alias (`@cb`) still shows the role it resolved to (#196).
+  const text = String(record.text || "").toLowerCase();
+  const unseen = (record.mentions || []).filter((m) => !new RegExp(`(^|[^\\w@/])@${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w/-])`, "i").test(text));
+  if (unseen.length) parts.push(unseen.map((m) => `@${m}`).join(" "));
   if (record.edited) parts.push("(edited)");
   return parts.length ? ` ${parts.join(" ")}` : "";
 }

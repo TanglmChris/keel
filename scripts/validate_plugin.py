@@ -2899,6 +2899,11 @@ def validate_chat_human_view_scenario() -> int:
                 report(f"{label} the presence line gives no state for {role}: {presence.group(1)}")
                 return 1
 
+        chat(rtl, "post", "soc", "@all standup in five")
+        everyone = chat(rtl, "soc", "--peek").stdout
+        if "@all @all" in everyone:
+            report(f"{label} the view repeats a mention its text already shows: {everyone}")
+            return 1
         recent = chat(rtl, "soc", "--peek", "--since", "1m")
         if "back-dated note" in recent.stdout:
             report(f"{label} --since 1m still shows a record from two hours ago.")
@@ -2922,12 +2927,26 @@ def validate_chat_human_view_scenario() -> int:
             deadline = time.time() + 5
             while time.time() < deadline and not any("followed message" in line for line in lines_seen):
                 time.sleep(0.2)
+            # A record whose id sorts before ones already shown — written by a
+            # machine whose clock runs behind — must still be printed (#196).
+            late_id = "20200101T000001000Z-verify-1a7e1a"
+            write_text(
+                chat_log(rtl, "soc") / f"{late_id}.md",
+                f"---\nid: {late_id}\ngroup: soc\nkind: message\nfrom: verify\n"
+                "created: 2020-01-01T00:00:01+00:00\n---\n\nlate arrival\n",
+            )
+            deadline = time.time() + 5
+            while time.time() < deadline and not any("late arrival" in line for line in lines_seen):
+                time.sleep(0.2)
         finally:
             follower.terminate()
             follower.wait(timeout=5)
         seen = "".join(lines_seen)
         if "followed message" not in seen:
             report(f"{label} --follow did not print a message posted from another worktree within five seconds: {seen!r}")
+            return 1
+        if "late arrival" not in seen:
+            report(f"{label} --follow did not print a record whose id sorts before the ones already shown: {seen!r}")
             return 1
 
         transcript = mailbox_common_dir(rtl) / "keel-chat" / "transcripts" / "soc.md"
