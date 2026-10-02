@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Issue #196: `keel chat <group> --follow` remembers every record id it has shown instead of only the newest, so a record whose id sorts earlier — written by a machine whose clock runs behind, or landing between the first read and the first poll — is printed rather than skipped for good. Views no longer repeat a mention the message text already spells out (`@all @all`); a mention written as an alias still shows the role it resolved to.
 - Issue #190: subagent lifecycle projection no longer requires extra user activation. Models choose read-only helpers or `--subagent-mode implementation` inside existing task authority, with a matching active guard including Touch consistency. Capability tiers are optional metadata. Goal activation and master completion duties remain unchanged; host policy still governs actual spawning.
 
 - Issue #186: successful `keel openspec update` restores overlays for every repository-installed target without creating missing surfaces. Doctor additionally reports overlay health for installed targets other than the selected one, including legacy and `.agents` Codex layouts. Failed upstream updates retain their exit status and do not replay overlays.
