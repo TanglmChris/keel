@@ -39,6 +39,7 @@ const USAGE = [
   "keel chat bridge pause <30m|2h|1d> | resume",
   "keel chat bridge status [--json]",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
+  "keel chat notice --check   (for schedulers: no output; exit 0 only when something addressed to you is unread, else 1)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "Every command takes --repo <path> to act on another repository.",
 ];
@@ -54,10 +55,10 @@ const VALUED = {
   "--since": "since",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -439,6 +440,10 @@ function runChat(argv) {
       if (result.stderr) process.stderr.write(result.stderr);
       return result.code;
     }
+    // `notice --check` is what a scheduler runs before deciding to start a
+    // model turn (#194): no output, no file written — not even presence or
+    // the 5.83 migration — and 0 only when something would wake the role.
+    if (options.positionals[0] === "notice" && options.check) return notice.check(cwd);
     // A notice is read by hosts on every prompt: outside a repository it says
     // nothing and still exits 0.
     if (options.positionals[0] === "notice" && !store.locate(cwd)) return 0;
