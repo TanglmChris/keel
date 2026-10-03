@@ -252,7 +252,7 @@
       - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the three promoted specs, all in this task's Touch, plus this change's own `tasks.md`.
       - Findings: none
 
-- [ ] 3.2 A running Claude session and a running Codex session adopt 5.89.1 after one `keel --update`
+- [x] 3.2 A running Claude session and a running Codex session adopt 5.89.1 after one `keel --update`
   - Covers:
     - E1
     - E2
@@ -272,9 +272,22 @@
   - Stop Rules:
     - Stop if the owner's running session cannot be brought to 5.89.0 without the owner's own action, and ask them for that one action rather than restarting anything.
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:a91d14b8ec4cc81e33aa35a3bb391ea8340f18842091c5ad0aeada473fa96d21
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. The owner's own session could not be reloaded to 5.89.0, because `/reload-plugins` is not available over a remote connection, and the Stop rule's single-action request was answered that way. The proof therefore used a running Claude Code 2.1.283 session started for it, a headless `claude -p --input-format stream-json --include-hook-events` in a scratch project, whose `init` event reported keel at `…/keel-marketplace/keel/5.89.0`.
+      - 5.89.1 was published with a skill-text change (TanglmChris/keel#210), and `keel --update` ran once, reporting `claude plugin: updated 5.89.0 -> 5.89.1`.
+      - The same session's `/compact` fired `SessionStart:compact`, whose output carried exactly one adoption line on both channels: "Hooks now run the installed plugin 5.89.1 in place of the loaded 5.89.0; its skills changed, and `/reload-plugins` loads them — the only step left." It carried no drift line, and the session's `init` still listed the 5.89.0 path.
+    - M2: pass. A `codex app-server` was started under 5.89.0 against the owner's real Codex home, with only the model provider overridden to a local capture endpoint, so no model ran.
+      - Before the update, its four Keel hooks were `trusted`, and a new thread's projection had no drift line.
+      - After the same `keel --update` (`codex plugin: updated 5.89.0 -> 5.89.1`), `codex plugin list --json` reports `keel@keel-marketplace 5.89.1`.
+      - The running app-server still lists the four hooks as `trusted`, and a new thread's SessionStart projection carries no drift line against CLI and protocol 5.89.1.
+    - M3: pass. `docs/updating.md` gains "Measured across two releases" with the date, the host versions, the commands, and both results.
+    - Review:
+      - Status: pass
+      - Acceptance check: E1 is shown by one `keel --update` moving all three components to 5.89.1 on the owner's machine with per-component lines. E2 is shown by a session that loaded 5.89.0 running 5.89.1's SessionStart and naming only the reload, with no update command typed into it, and by Codex's running server keeping trust and showing no stale-plugin drift. The Claude session used is one started for the proof rather than the owner's interactive one. It is the same host binary and plugin cache, and its loaded path is recorded, so the deviation is in who started it, not in what was measured.
+      - Scope check: `git status --short` shows `docs/updating.md`, this task's Touch, plus this change's own `tasks.md`. The 5.89.1 release itself went through its own PR (TanglmChris/keel#210) as Lite work outside this task.
+      - Findings: none
 
 ## Change Verify
 

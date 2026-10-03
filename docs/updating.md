@@ -54,3 +54,15 @@ The refresh brings the overlays of every target the project carries forward, not
 `node scripts/run_python.js scripts/validate_codex_receiving.py --native-upgrade` repeats this in an isolated `CODEX_HOME`, with no model run and no personal trust written.
 
 The Claude rows are covered by `hook-hands-off-to-installed-update`, `guard-keeps-loaded-logic-under-manifest`, and `adopted-update-is-silent-unless-reload` in `scripts/validate_plugin.py`, and by #172 for the behavior before 5.89.0.
+
+## Measured across two releases
+
+On 2026-10-03, with 5.89.0 installed and loaded:
+- A headless Claude Code 2.1.283 session (`claude -p --input-format stream-json --include-hook-events`) and a `codex app-server` (codex-cli 0.159.3, the owner's real Codex home, model requests captured locally) were started and kept running.
+- 5.89.1 was published, carrying a skill-text change.
+- One `keel --update` reported `cli`, `claude plugin`, and `codex plugin` each `updated 5.89.0 -> 5.89.1`.
+- The project's protocol was then refreshed to 5.89.1.
+
+Results:
+- **Claude.** The session still reported keel loaded from `…/keel/5.89.0`. Its SessionStart after `/compact`, with no `/reload-plugins`, said: "Hooks now run the installed plugin 5.89.1 in place of the loaded 5.89.0; its skills changed, and `/reload-plugins` loads them — the only step left." It carried no drift line.
+- **Codex.** The running app-server's four Keel hooks stayed `trusted`, and a new thread's SessionStart projection carried no drift line against CLI and protocol 5.89.1. A stale 5.89.0 plugin would have named itself in one.
