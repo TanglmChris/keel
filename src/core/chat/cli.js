@@ -42,6 +42,7 @@ const USAGE = [
   "keel chat notice --check   (for schedulers: no output; exit 0 only when something addressed to you is unread, else 1)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "keel chat wake add [--host codex] [--thread <id>] [--max-per-hour <n>] [--compact-at <tokens>]   (this machine starts a Codex turn when something addressed to this worktree's role arrives)",
+  "keel chat wake remove   (stop waking this worktree's role on this machine)",
   "keel chat wake status [--json]",
   "keel chat wake run --once [--worktree <path>]   (what the waker's LaunchAgent runs)",
   "Every command takes --repo <path> to act on another repository.",
@@ -440,7 +441,15 @@ function runWake(cwd, options) {
   switch (action) {
     case "add": {
       const added = wake.add(store.requireLocation(cwd), options);
-      out(`Registered a waker for ${added.role} in ${added.worktree}: an addressed record in a group declaring chat-reply starts one ${added.host} turn (at most ${added.max_per_hour} an hour, compacting at ${added.compact_at} tokens). LaunchAgent: ${added.plist}.`);
+      const lines = [`Registered a waker for ${added.role} in ${added.worktree}: an addressed record in a group declaring chat-reply starts one ${added.host} turn (at most ${added.max_per_hour} an hour, compacting at ${added.compact_at} tokens). LaunchAgent: ${added.plist}.`];
+      if (added.groups.length) lines.push(`Groups it wakes for: ${added.groups.join(", ")}.`);
+      else lines.push("This worktree declares no chat-reply:<group> in keel/config.yaml, so nothing will wake it until it does: a woken turn could not answer, because a chat message grants nothing.");
+      out(lines.join("\n"));
+      return 0;
+    }
+    case "remove": {
+      const removed = wake.remove(store.requireLocation(cwd));
+      out(`Removed the waker for ${removed.role} in ${removed.worktree}; nothing starts a turn for it any more. Its log stays at ${removed.log}.`);
       return 0;
     }
     case "status": {
@@ -463,7 +472,7 @@ function runWake(cwd, options) {
       return 0;
     }
     default:
-      throw new ChatError(`Unknown keel chat wake action ${JSON.stringify(action)}: use add, status, or run.`);
+      throw new ChatError(`Unknown keel chat wake action ${JSON.stringify(action)}: use add, remove, status, or run.`);
   }
 }
 

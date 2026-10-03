@@ -37,7 +37,7 @@
   - Stop if:
     - Starting a turn would need anything other than the configured Codex executable, or would write inside a repository.
 
-- [ ] 1.2 `keel chat wake add|remove|status` install and remove a LaunchAgent that watches the signal file
+- [x] 1.2 `keel chat wake add|remove|status` install and remove a LaunchAgent that watches the signal file
   - Covers:
     - keel-cross-host-mailbox / An owner-installed waker starts one turn per addressed record
     - D1
@@ -52,7 +52,18 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-lifecycle` checks, with a scratch `KEEL_HOME`, `KEEL_CHAT_LAUNCH_AGENTS_DIR`, and a fake `KEEL_CHAT_LAUNCHCTL` that logs its arguments, that `keel chat wake add` in a worktree bound to `cx` writes a plist whose label starts `dev.keel.chat-wake.cx-`, whose `WatchPaths` names the role's signal file (which now exists), whose `ProgramArguments` end in `chat wake run --once --worktree <path>`, and which sets `RunAtLoad`, then calls `launchctl bootstrap`; that `wake add` in a worktree with no role, or with `--host` other than `codex`, is refused by name; that `wake status --json` lists the registration as installed; that `wake add` with no `chat-reply` declared says nothing will wake; and that `wake remove` calls `launchctl bootout`, deletes the plist and the registration, and keeps the log. Fails with: `chat-wake-lifecycle:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:554e569dc638ad8611b2ac650ed23bcc98c8e4c77a34b53d45ac84c1f6223393
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-lifecycle` reports `chat-wake-lifecycle scenario passed.` With a scratch `KEEL_HOME`, LaunchAgents directory, and logging launchctl, `wake add` in the `cx` worktree writes one plist labelled `dev.keel.chat-wake.cx-…`. Its `WatchPaths` is the role's signal file, which now exists, and its `ProgramArguments` end in `chat wake run --once --worktree <the worktree>`. It sets `RunAtLoad`, and launchctl received `bootstrap`. `wake add` is refused naming a role in a worktree with none, and refused naming `--host` for `--host claude`. `wake status --json` lists the `cx` registration once as installed. `wake add` in a worktree without `chat-reply` says it `declares no chat-reply`. After one turn has written the log, `wake remove` sends `bootout`, deletes the plist and the registration, and keeps the log.
+    - M1.red: fail. Before the warning and the `remove` route existed the scenario reported `chat-wake-lifecycle: wake add without chat-reply does not say nothing will wake: Registered a waker for rtl in …`, carrying the declared signature `chat-wake-lifecycle:`.
+    - M1.green: pass. The same scenario passes after `src/core/chat/cli.js` prints the chat-reply line from `wake add` and routes `wake remove`.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat wake add`, `status --json`, `remove`, and `run --once`, with only launchctl and Codex replaced at the system boundary. It asserts D1's LaunchAgent contents (signal-file `WatchPaths`, `RunAtLoad`, the `run --once --worktree` program) and D5's machine-local registration and log. It also asserts the requirement's add, remove, and status clauses, including the refusals and the warning that nothing will wake without `chat-reply`.
+      - Scope check: The diff changes `src/core/chat/cli.js` (the add-time chat-reply line and the `remove` route) and `scripts/validate_plugin.py` (the lifecycle scenario), both in Touch. `src/core/chat/wake.js` was not changed in this task: `remove` and the host and role refusals were written in 1.1, and this task routes and proves them. The task-start warning that 1.1 and 1.2 share a Touch set was considered: 1.2's red was real (the missing warning and the unrouted `remove`), so the split held. The Stop rule held: only the user's LaunchAgents directory and launchctl are touched.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
   - Stop if:
     - Installing would need anything beyond the user's own LaunchAgents directory and launchctl.
 
@@ -85,7 +96,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 215 scenarios, 1 skipped: output-survives-the-pipe.` once both `chat-wake-run` and `chat-wake-lifecycle` are registered.
 
 ## Invalidates
 

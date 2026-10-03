@@ -3958,6 +3958,124 @@ def validate_chat_wake_run_scenario() -> int:
     return 0
 
 
+def validate_chat_wake_lifecycle_scenario() -> int:
+    """Issue #203: the owner installs and removes a waker, and it watches the signal file.
+
+    `wake add` writes a LaunchAgent that watches the role's signal file and
+    runs `wake run --once --worktree <path>` at load and on each change; it is
+    refused without a role or for a host other than Codex, and warns when no
+    chat-reply is declared; `wake remove` unloads and deletes it and keeps
+    the log.
+    """
+    import plistlib  # noqa: PLC0415 - only the lifecycle scenarios read a plist
+
+    label = "chat-wake-lifecycle:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-wake-life-") as raw:
+        base = Path(raw)
+        rtl, cx, env, calls = chat_wake_scratch(base)
+        norole = chat_worktree(rtl, base / "norole")
+        agents = base / "agents"
+        launchctl_calls = base / "launchctl-calls"
+
+        def keel(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        added = keel(cx, "wake", "add")
+        if added.returncode != 0:
+            report(f"{label} wake add failed: {(added.stdout + added.stderr).strip()}")
+            return 1
+        plists = list(agents.glob("*.plist"))
+        if len(plists) != 1:
+            report(f"{label} wake add wrote {len(plists)} plists, not one.")
+            return 1
+        plist = plistlib.loads(plists[0].read_bytes())
+        if not str(plist.get("Label", "")).startswith("dev.keel.chat-wake.cx-"):
+            report(f"{label} the LaunchAgent label does not name the role: {plist.get('Label')!r}")
+            return 1
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "cx"
+        if [Path(p).resolve() for p in plist.get("WatchPaths", [])] != [signal.resolve()]:
+            report(f"{label} the LaunchAgent does not watch the role's signal file: {plist.get('WatchPaths')!r}")
+            return 1
+        if not signal.exists():
+            report(f"{label} wake add did not create the signal file it watches.")
+            return 1
+        program = plist.get("ProgramArguments", [])
+        if program[-6:-1] != ["chat", "wake", "run", "--once", "--worktree"]:
+            report(f"{label} the LaunchAgent does not run `chat wake run --once --worktree`: {program!r}")
+            return 1
+        if Path(program[-1]).resolve() != cx.resolve():
+            report(f"{label} the LaunchAgent names {program[-1]}, not the worktree.")
+            return 1
+        if plist.get("RunAtLoad") is not True:
+            report(f"{label} the LaunchAgent does not run at load: {plist!r}")
+            return 1
+        if "bootstrap" not in launchctl_calls.read_text():
+            report(f"{label} wake add did not load the LaunchAgent.")
+            return 1
+
+        unbound = keel(norole, "wake", "add")
+        if unbound.returncode == 0:
+            report(f"{label} wake add succeeded in a worktree with no role.")
+            return 1
+        if "role" not in unbound.stderr:
+            report(f"{label} the no-role refusal does not say a role is needed: {unbound.stderr.strip()}")
+            return 1
+        other_host = keel(cx, "wake", "add", "--host", "claude")
+        if other_host.returncode == 0:
+            report(f"{label} wake add accepted --host claude.")
+            return 1
+        if "--host" not in other_host.stderr:
+            report(f"{label} the host refusal does not name --host: {other_host.stderr.strip()}")
+            return 1
+
+        listed = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [])
+        mine = [entry for entry in listed if entry.get("role") == "cx"]
+        if len(mine) != 1:
+            report(f"{label} status does not list the cx registration once: {listed!r}")
+            return 1
+        if mine[0].get("installed") is not True:
+            report(f"{label} status does not report the waker installed: {mine[0]!r}")
+            return 1
+
+        undeclared = keel(rtl, "wake", "add")
+        if undeclared.returncode != 0:
+            report(f"{label} wake add without chat-reply failed: {(undeclared.stdout + undeclared.stderr).strip()}")
+            return 1
+        if "declares no chat-reply" not in undeclared.stdout:
+            report(f"{label} wake add without chat-reply does not say nothing will wake: {undeclared.stdout.strip()}")
+            return 1
+
+        keel(rtl, "post", "lab", "@cx ping")
+        keel(base, "wake", "run", "--once", "--worktree", str(cx))
+        log = Path(mine[0].get("log", ""))
+        if not log.exists():
+            report(f"{label} a turn wrote no wake log at {log}.")
+            return 1
+        removed = keel(cx, "wake", "remove")
+        if removed.returncode != 0:
+            report(f"{label} wake remove failed: {(removed.stdout + removed.stderr).strip()}")
+            return 1
+        if "bootout" not in launchctl_calls.read_text():
+            report(f"{label} wake remove did not unload the LaunchAgent.")
+            return 1
+        if plists[0].exists():
+            report(f"{label} wake remove left the plist.")
+            return 1
+        remaining = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [])
+        if any(entry.get("role") == "cx" for entry in remaining):
+            report(f"{label} wake remove left the registration: {remaining!r}")
+            return 1
+        if not log.exists():
+            report(f"{label} wake remove deleted the log.")
+            return 1
+
+    if "chat-wake-lifecycle" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-wake-lifecycle scenario passed.")
+    return 0
+
+
 def validate_chat_notice_check_scenario() -> int:
     """Issue #194: a scheduler asks, without a model turn, whether to start one.
 
@@ -34354,6 +34472,10 @@ SCENARIOS: tuple = (
     (
         "chat-wake-run",
         validate_chat_wake_run_scenario,
+    ),
+    (
+        "chat-wake-lifecycle",
+        validate_chat_wake_lifecycle_scenario,
     ),
     (
         "record-derives-skeleton",
