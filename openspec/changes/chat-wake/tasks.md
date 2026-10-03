@@ -2,7 +2,7 @@
 
 ## 1. An addressed record wakes Codex, and nothing else does
 
-- [ ] 1.1 `keel chat wake run --once` starts one Codex turn per addressed record
+- [x] 1.1 `keel chat wake run --once` starts one Codex turn per addressed record
   - Covers:
     - keel-cross-host-mailbox / An owner-installed waker starts one turn per addressed record
     - keel-cross-host-mailbox / Presence is visible and only an owner-installed waker launches a member
@@ -22,7 +22,18 @@
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-run` checks, in a scratch repository with `chat-reply:lab` declared, a registration written by `keel chat wake add` under a scratch `KEEL_HOME` with a fake launchctl, and a fake `KEEL_CHAT_CODEX` that records its argv, working directory, and stdin and prints a `thread.started` event: with nothing unread, or only `@all`, or a mention in an undeclared group, `wake run --once` starts no turn; an `@cx` record in `lab` starts one `exec --json` turn in the worktree whose argv carries `model_auto_compact_token_limit=100000`, `sandbox_mode="workspace-write"`, and the git common directory as a writable root, and whose prompt carries no record text; `wake status --json` then reports the fake thread id; a second run with no new record starts nothing; a new `@cx` record starts `exec resume <thread>`; with `--max-per-hour 2` a third record starts nothing and status reports the registration held; a run while another holds the role's lock starts nothing; and `git status --porcelain` in the worktree stays empty. Fails with: `chat-wake-run:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:8fff5d0aff865a976d0d7079cee1e278d7df53925e88bdc50b6bb7915a6a81ec
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-run` reports `chat-wake-run scenario passed.` With a fake Codex, `wake run --once` starts no turn with nothing unread, for an `@all` record, or for a mention in a group without `chat-reply`. One `@cx` record in `lab` starts one `exec --json` turn in the worktree whose arguments carry `model_auto_compact_token_limit=100000`, `sandbox_mode="workspace-write"`, and the git common directory as a writable root, and neither its arguments nor its standard input carry the record text. `wake status --json` then reports the fake thread id. A second run with no new record starts nothing, and a second `@cx` record starts `exec resume thread-fake-1`. With `--max-per-hour 2`, a third record starts nothing and status reports the registration held. A run while a live process holds the role's lock starts nothing, and the next run after release starts the turn. `git status --porcelain` in the worktree stays empty, and the registration is under `KEEL_HOME`.
+    - M1.red: fail. Before `wake` existed the scenario reported `chat-wake-run: keel chat wake add failed: keel chat: No group wake. Create it with \`keel chat group create wake\`.`, carrying the declared signature `chat-wake-run:`.
+    - M1.green: pass. The same scenario passes with `src/core/chat/wake.js` and the `wake add|status|run` routing in `src/core/chat/cli.js`.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel chat wake add`, `wake run --once --worktree`, and `wake status --json`, with only the Codex executable and launchctl replaced at the system boundary. It asserts each run clause of the added requirement: wake only for addressed, chat-reply, undelivered records; one turn per record; a new thread first and a resume after; the compaction and sandbox settings; no record text in the prompt; the hourly hold; the per-role lock; and nothing written into the worktree. The modified presence requirement's exception is exactly this owner-installed path. D4's fixed prompt is `PROMPT` in `src/core/chat/wake.js`.
+      - Scope check: The diff adds `src/core/chat/wake.js` and changes `src/core/chat/cli.js` (options, usage, and `runWake` routed before location and presence) and `scripts/validate_plugin.py` (the fake Codex, the scratch helper, and the scenario), all in Touch, plus this change's own `tasks.md` (Change Verify). `remove` is in `wake.js` but not routed, and the add-time chat-reply warning is absent, so 1.2 keeps its own red. The Stop rule held: a turn runs only the configured Codex executable, and nothing is written in the repository.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
   - Stop if:
     - Starting a turn would need anything other than the configured Codex executable, or would write inside a repository.
 
@@ -66,6 +77,15 @@
     - Contract: pending
   - Stop if:
     - The real run shows Codex writing anything other than a chat record, or more than one turn for one record.
+
+## Change Verify
+
+- Strategy: regression-first
+- C1: `npm test` passes the baseline and every registered scenario, once 1.1 and 1.2 have both registered their scenarios.
+
+## Change Evidence
+
+- C1: pending
 
 ## Invalidates
 

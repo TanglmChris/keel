@@ -41,6 +41,9 @@ const USAGE = [
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat notice --check   (for schedulers: no output; exit 0 only when something addressed to you is unread, else 1)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
+  "keel chat wake add [--host codex] [--thread <id>] [--max-per-hour <n>] [--compact-at <tokens>]   (this machine starts a Codex turn when something addressed to this worktree's role arrives)",
+  "keel chat wake status [--json]",
+  "keel chat wake run --once [--worktree <path>]   (what the waker's LaunchAgent runs)",
   "Every command takes --repo <path> to act on another repository.",
 ];
 
@@ -53,6 +56,11 @@ const VALUED = {
   "--issue": "issue",
   "--group": "group",
   "--since": "since",
+  "--worktree": "worktree",
+  "--thread": "thread",
+  "--host": "host",
+  "--max-per-hour": "maxPerHour",
+  "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
 const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check" };
@@ -426,6 +434,39 @@ function runBridge(where, rest, options) {
   }
 }
 
+function runWake(cwd, options) {
+  const wake = require("./wake");
+  const action = options.positionals[1];
+  switch (action) {
+    case "add": {
+      const added = wake.add(store.requireLocation(cwd), options);
+      out(`Registered a waker for ${added.role} in ${added.worktree}: an addressed record in a group declaring chat-reply starts one ${added.host} turn (at most ${added.max_per_hour} an hour, compacting at ${added.compact_at} tokens). LaunchAgent: ${added.plist}.`);
+      return 0;
+    }
+    case "status": {
+      const registrations = wake.status();
+      if (options.json) {
+        out(JSON.stringify({ registrations }));
+        return 0;
+      }
+      if (!registrations.length) {
+        out("No wakers on this machine. Register one in a worktree with `keel chat wake add`.");
+        return 0;
+      }
+      out(registrations.map((entry) => `${entry.role} in ${entry.worktree}: ${entry.installed ? "installed" : "not installed"}; thread ${entry.thread || "not started"}; last turn ${entry.last_turn || "never"}; ${entry.turns_last_hour}/${entry.max_per_hour} turns in the last hour${entry.held ? " (held)" : ""}. Log: ${entry.log}`).join("\n"));
+      return 0;
+    }
+    case "run": {
+      if (!options.once) throw new ChatError("keel chat wake run needs --once: each trigger runs once and exits.");
+      const result = wake.runOnce(options.worktree || cwd);
+      if (options.json) out(JSON.stringify(result));
+      return 0;
+    }
+    default:
+      throw new ChatError(`Unknown keel chat wake action ${JSON.stringify(action)}: use add, status, or run.`);
+  }
+}
+
 function runChat(argv) {
   try {
     const options = parseChatArgs(argv);
@@ -444,6 +485,9 @@ function runChat(argv) {
     // model turn (#194): no output, no file written — not even presence or
     // the 5.83 migration — and 0 only when something would wake the role.
     if (options.positionals[0] === "notice" && options.check) return notice.check(cwd);
+    // The waker (#203) runs from launchd outside any repository and names its
+    // worktree; it is not the role's session, so it marks no presence.
+    if (options.positionals[0] === "wake") return runWake(cwd, options);
     // A notice is read by hosts on every prompt: outside a repository it says
     // nothing and still exits 0.
     if (options.positionals[0] === "notice" && !store.locate(cwd)) return 0;
