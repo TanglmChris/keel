@@ -67,7 +67,7 @@
   - Stop if:
     - Installing would need anything beyond the user's own LaunchAgents directory and launchctl.
 
-- [ ] 1.3 The real Codex is woken in the playground, and the documentation describes the waker
+- [x] 1.3 The real Codex is woken in the playground, and the documentation describes the waker
   - Covers:
     - F1
     - D1
@@ -86,13 +86,13 @@
     - M2: each of the five documents describes `keel chat wake` as the way to wake Codex for addressed records, says it needs `chat-reply:<group>` and continues one thread with compaction, and keeps the warning against polling with the model; and `docs/codex-validation.md` no longer says that nothing wakes an idle Codex session. A one-off script greps the documents for these statements and its output is quoted in Evidence.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:a418f9f205bf8970a3cfd3a906099c412b57cf92c9db1e072192faaf30f146a9
-    - M1: pending
-    - M2: pending
+    - M1: pass. On 2026-10-03 the owner ran `node <this tree>/bin/keel.js chat wake add` in `~/my_github/chat-playground/.worktrees/codex`. That installed and loaded `dev.keel.chat-wake.codex-e29908b0`, with `launchctl list` showing it. At load the waker started one new-thread turn for three earlier `@cx` records that 5.86.0 replies had left unread, and Codex posted nothing new for them. `owner` then posted `20261003T063804648Z-owner-9522e8`, an `@cx` record in `lab`, and nobody started Codex. The log shows `06:38:05.095Z resuming 01a1007a-f7b7-75d3-9cbc-c2fb50afaa70 for 1 addressed record(s)` and `06:38:38.366Z turn exited 0`. `lab` shows the reply `20261003T063820863Z-codex-a0a924`, posted 16 seconds later: `根据本轮收到的 [keel chat wake] 提示，我是因有发给 codex 角色的待处理消息，由 keel chat 自动唤醒启动的。` `git status --porcelain` in the Codex worktree printed nothing. `owner` then posted the `@all` record `20261003T063832687Z-owner-48b623`, and two minutes later the log held no further turn. `keel chat wake status` reported `thread 01a1007a-f7b7-75d3-9cbc-c2fb50afaa70; last turn 2026-10-03T06:38:05.093Z; 2/10 turns in the last hour`.
+    - M2: pass. `python3 openspec/changes/chat-wake/evidence/check_docs.py "$PWD"` printed `checked 5 documents x 4 statements, plus codex-validation wording and keel chat help` and `failures: none`. Within the section that names `keel chat wake add`, each of the five documents says it needs `chat-reply` and compacts one thread, and each document keeps the warning against polling with the model. `docs/codex-validation.md` no longer says nothing wakes an idle Codex session, and `keel chat help` lists `wake add`, `remove`, and `status`. A negative run against `README.zh-CN.md` with `会自动压缩的` removed reported `README.zh-CN.md: lacks one thread with compaction` and exited 1. Checker: artifact openspec/changes/chat-wake/evidence/check_docs.py sha256:86ee412221b5a4aacd863e8dad64f968b4cee44d0b1dddb59470fd30cf7f6544
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: M1 is F1 and D1–D3 on the real machine: a launchd `WatchPaths` trigger started a real Codex turn for an addressed record with no one starting it, resumed the waker's own thread, and Codex answered in the chat under its `chat-reply:lab` authorization. A broadcast started nothing, and the worktree stayed clean. M2 shows the five documents describe what was built and keep the #194 warning, and the checker's negative run shows it detects a missing statement.
+      - Scope check: The diff changes the five documents and `keel/CHANGELOG.md`, all in Touch, plus this change's own directory, which holds the checker. The LaunchAgent was installed by the owner, and the playground changes are chat records and Keel's machine-local state, none of them in this repository. The Stop rule held: Codex wrote only chat records, and each record started at most one turn.
+      - Findings: The load-time turn spent one turn on three records already answered under 5.86.0, whose replies did not advance the cursor. That is #201, fixed on main and released with this change, and D2's delivered mark kept those records from waking Codex again. Discard reason: no further work is owed, because #201 is merged and ships in the same release.
     - Blocker: none
     - Reauthorizations: none
   - Stop if:
