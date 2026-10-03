@@ -21,7 +21,7 @@ These steps create credentials and change your login items, so you run them your
 
 ### 1. Create the Slack app from a manifest
 
-Go to <https://api.slack.com/apps> → **Create New App** → **From a manifest**. Pick your workspace and paste the manifest below. Give each machine's app a different name, for example `Keel (mac-home)`.
+Go to <https://api.slack.com/apps> → **Create New App** → **From a manifest**. Pick your workspace and paste the manifest below. Give each machine's app a different name, for example `Keel (mac-home)`. If you already created the app **From scratch**, open its **App Manifest** page instead, replace the manifest there with this one, and save.
 
 ```yaml
 display_information:
@@ -39,12 +39,14 @@ oauth_config:
       - groups:history
       - reactions:read
       - reactions:write
+      - metadata.message:read
 settings:
   event_subscriptions:
     bot_events:
       - message.channels
       - message.groups
       - reaction_added
+      - message_metadata_posted
     metadata_subscriptions:
       - app_id: "*"
         event_type: keel_chat_record

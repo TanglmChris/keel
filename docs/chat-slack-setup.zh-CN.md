@@ -21,7 +21,7 @@
 
 ### 1. 用 manifest 创建 Slack App
 
-打开 <https://api.slack.com/apps>，依次选 **Create New App** → **From a manifest**，选好工作区，粘贴下面的 manifest。每台电脑的 App 起不同的名字，比如 `Keel (mac-home)`。
+打开 <https://api.slack.com/apps>，依次选 **Create New App** → **From a manifest**，选好工作区，粘贴下面的 manifest。每台电脑的 App 起不同的名字，比如 `Keel (mac-home)`。如果你已经用 **From scratch** 建过 App，就打开它的 **App Manifest** 页面，把里面的内容整体换成下面这段，再保存。
 
 ```yaml
 display_information:
@@ -39,12 +39,14 @@ oauth_config:
       - groups:history
       - reactions:read
       - reactions:write
+      - metadata.message:read
 settings:
   event_subscriptions:
     bot_events:
       - message.channels
       - message.groups
       - reaction_added
+      - message_metadata_posted
     metadata_subscriptions:
       - app_id: "*"
         event_type: keel_chat_record

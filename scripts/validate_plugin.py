@@ -3159,9 +3159,13 @@ def validate_chat_bridge_outbound_scenario() -> int:
             return 1
 
         before = len(slack.calls_to("chat.postMessage"))
-        again = chat(rtl, "bridge", "run", "--once")
+        # launchd starts the bridge in `/`, outside every repository, so the
+        # second run starts outside one too.
+        elsewhere = base / "elsewhere"
+        elsewhere.mkdir()
+        again = chat(elsewhere, "bridge", "run", "--once")
         if again.returncode != 0:
-            report(f"{label} a second bridge run failed: {again.stderr.strip()}")
+            report(f"{label} a bridge run started outside any repository failed: {again.stderr.strip()}")
             return 1
         if len(slack.calls_to("chat.postMessage")) != before:
             report(f"{label} a second run posted records again.")
