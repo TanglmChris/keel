@@ -1290,7 +1290,7 @@ function skillRootForTarget(target) {
 
 // Which OpenSpec layout a Codex repository carries (#169). OpenSpec 1.6 wrote
 // Codex's skills under `.codex/skills` and its commands as prompts in
-// CODEX_HOME; 1.13, which Keel pins, writes skills under `.agents/skills` and
+// CODEX_HOME; 1.13 and later, including the 1.14 Keel pins, write skills under `.agents/skills` and
 // no command files. A repository set up under 1.6 keeps its layout, and every
 // other one — a fresh repository included — gets the one the pin writes.
 function codexOpenSpecLayout(repo) {
@@ -1331,7 +1331,7 @@ function commandSurfaceForTarget(target, repo) {
     };
   }
   if (target === "codex" && codexOpenSpecLayout(repo) === "agents") {
-    // OpenSpec 1.13 surfaces Codex's workflows as the skills counted on the
+    // OpenSpec 1.13 and later surface Codex's workflows as the skills counted on the
     // line above and writes no command file, so there is nothing to count here.
     return {
       location: path.join(".agents", "skills"),
@@ -1804,7 +1804,7 @@ function printTargetSurface(repo, target) {
     printDoctorLine(
       "OpenSpec commands",
       "ok",
-      `none; OpenSpec 1.13 surfaces Codex's workflows as the skills under `
+      `none; OpenSpec 1.13 and later surface Codex's workflows as the skills under `
         + `${commands.location}`
     );
   } else {
