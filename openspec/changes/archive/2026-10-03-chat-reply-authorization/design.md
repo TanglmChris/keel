@@ -47,14 +47,11 @@ The standing-authorization vocabulary (`keel-standing-authorization`) is where a
 ## Open Questions
 
 - **Q1** — Whom may a session answer?
-  - **Recommended:** D1 as written. A session answers only records addressed to it, and only in that record's group or its direct group.
-  - **Alternative:** an authorized session may also reply to `@all` and to plain messages. The group gets chattier and costs more turns.
-  - Owner decision needed.
+  - **Resolved 2026-10-03:** the owner accepted the recommendation. D1 stands as written: a session may answer only records addressed to it, and only in that record's group or its direct group.
+- **Q2** — Is `chat-reply` scoped by group?
+  - **Resolved 2026-10-03:** the owner accepted the recommendation, recorded as D4.
 
-- **Q2** — Is `chat-reply` scoped by group? In a Slack-enabled group a reply is relayed to a Slack channel, which is outward-facing. `issue` is scoped for the same reason: its reach exceeds the checkout.
-  - **Recommended:** the scoped form `chat-reply:<group>`. The owner lists the groups whose replies may go out. A bare `chat-reply` is refused with the form it needs, exactly as a bare `issue` is.
-  - **Alternative:** an unscoped `chat-reply` covering every group in the repository. It is simpler, but it also authorizes replies into every Slack channel the project maps, now and later.
-  - Owner decision needed.
+- **D4** — `chat-reply` is declared as `chat-reply:<group>`, one entry per group whose replies may go out. A bare `chat-reply` is refused with the form it needs, and the refusal voids the whole declaration, exactly as a bare `issue` does. A group name is validated against the chat's name pattern `^[a-z0-9][a-z0-9-]{0,31}$`. Basis: owner, 2026-10-03; a reply in a Slack-enabled group leaves the machine.
 
 ## Hidden Knowledge / Assumptions
 

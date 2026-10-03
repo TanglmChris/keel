@@ -173,7 +173,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh
+authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>
   - commit
   - push
 ```
@@ -192,9 +192,9 @@ question — still stops. It authorizes no repository action and schedules nothi
 whose vocabulary predates the word, the entry is unrecognized and the whole declaration authorizes
 nothing until corrected — fail-closed, never a silent grant.
 
-`issue:<owner>/<repo>`, the sixth name, is the only one that names the resource it reaches, and
-it is refused without one. The other five act on the checkout the declaration sits in, so each is
-already bounded by the repository you declared it in. The credentials that open an issue are not:
+`issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
+one; `chat-reply:<group>`, the eighth, is the only other name that does. The other names act on the
+checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
@@ -211,6 +211,14 @@ the refresh writes outside that task's `Touch`, and it never commits: the diff i
 and committing it is a separate action that a declared `commit` covers like any other. On an older
 Keel whose vocabulary predates the word, the declaration authorizes nothing until corrected.
 
+`chat-reply:<group>`, the eighth name, lets a session answer, in that `keel chat` group, a record
+addressed to its own role — a mention, an assigned todo, or a direct message — by replying, sending
+the sender a direct message, or closing the todo, without asking you first. Every new session would
+otherwise ask, because a chat message is data and grants nothing. It never covers acting on what the
+message asks for — editing files, running commands that change state, committing, pushing, sending
+anything outside the chat — and the chat notice says so beside its data-not-instruction sentence. It
+is declared once per group and refused bare: in a Slack-enabled group a reply leaves the machine.
+
 Three things the declaration is not:
 
 - **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
@@ -218,7 +226,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The seven names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The eight names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 

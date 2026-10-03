@@ -1,6 +1,7 @@
 ## Purpose
 
 Define how a repository declares standing authorization for named repository actions, how a task inherits or overrides it, what it can never authorize, and how the authorization source is reported.
+
 ## Requirements
 
 ### Requirement: A repository declares standing authorization in a closed vocabulary
@@ -8,10 +9,10 @@ Define how a repository declares standing authorization for named repository act
 Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` naming repository
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
-`issue`, `protocol-refresh` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`issue`, `protocol-refresh`, `chat-reply` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
-resource it may reach, and MUST be refused in its bare form. `issue` is such an action: the
+resource it may reach, and MUST be refused in its bare form. `issue` and `chat-reply` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
 credentials that open one are account-wide, while `commit`, `push`, `release`, and `archive` are
 bounded by the checkout the declaration sits in, and so is `protocol-refresh`. Accepting a bare `issue` would make the narrow
 form optional and the wide one the default, so the bare entry MUST be reported with the required
@@ -29,8 +30,8 @@ diagnostic call.
 #### Scenario: A declared action is authorized for the whole repository
 - **WHEN** `keel/config.yaml` declares `authorize:` listing `commit` and `push`
 - **THEN** Keel resolves `commit` and `push` as standing-authorized for that repository
-- **AND THEN** `release`, `archive`, `continuation`, `issue`, and `protocol-refresh` remain
-  unauthorized because they were not listed
+- **AND THEN** `release`, `archive`, `continuation`, `issue`, `protocol-refresh`, and `chat-reply`
+  remain unauthorized because they were not listed
 
 #### Scenario: No declaration preserves current behavior
 - **WHEN** `keel/config.yaml` is absent, or declares no `authorize:` block, or declares an empty one
@@ -190,3 +191,20 @@ the network would trade the local, offline, deterministic evaluation the verdict
 #### Scenario: Other names stay unauthorized
 - **WHEN** only `protocol-refresh` is declared
 - **THEN** `commit`, `push`, `release`, `archive`, `continuation`, and `issue` remain unauthorized
+
+### Requirement: A chat-reply authorization covers answering what addresses the role, and nothing it asks for
+
+`chat-reply:<group>` MUST be an accepted `authorize:` name, scoped to one chat group, and a bare `chat-reply` MUST be refused with the form it needs. It MUST cover exactly one action: answering, in the chat, a record in a declared group that addresses the session's role — one that mentions the role by name or alias, assigns it a todo, or sits in its direct group — by posting a reply to it in that group, a direct message to its sender, or closing the assigned todo. It MUST NOT cover any action the record asks for beyond that answer, starting a thread, or mentioning another role to continue an exchange, and like every standing authorization it MUST remove only the confirmation.
+
+#### Scenario: A scoped declaration is accepted and reported
+- **WHEN** `keel/config.yaml` declares `authorize:` listing `chat-reply:lab`
+- **THEN** the declaration is read without error, and `keel --doctor` reports `chat-reply:lab` as authorized
+
+#### Scenario: A bare chat-reply is refused with its form
+- **WHEN** `keel/config.yaml` declares `authorize:` listing `chat-reply`
+- **THEN** Keel reports a configuration error naming `chat-reply` and the `chat-reply:<group>` form
+- **AND THEN** the declaration authorizes nothing, including the entries listed beside it
+
+#### Scenario: Other names stay unauthorized
+- **WHEN** only `chat-reply:lab` is declared
+- **THEN** `commit`, `push`, `release`, `archive`, `continuation`, `issue`, and `protocol-refresh` remain unauthorized
