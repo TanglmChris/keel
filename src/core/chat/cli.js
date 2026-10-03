@@ -201,15 +201,22 @@ function runView(where, group, options) {
 // Keeps printing records as they arrive until interrupted. Polling the log
 // directory, rather than a file watcher, behaves the same on every platform
 // and over a synced folder.
+// Remembers every id already accounted for rather than the last one: a
+// record can arrive with an id that sorts earlier — written by a machine
+// whose clock runs behind, or landing between the first read and the first
+// poll — and comparing against the newest id would skip it for good (#196).
 function follow(where, role, group, initial, options) {
-  let last = initial.length ? initial[initial.length - 1].id : "";
+  const known = new Set(initial.map((record) => record.id));
   const timer = setInterval(() => {
     const records = store.readLog(where, group);
-    const fresh = displayRecords(records).filter((record) => record.id > last);
+    const fresh = records.filter((record) => !known.has(record.id));
     if (!fresh.length) return;
-    for (const record of fresh) out(options.json ? JSON.stringify(publicRecord(record)) : formatLine(record));
-    last = records[records.length - 1].id;
-    if (!options.peek && role) store.advanceCursor(where, role, group, last);
+    for (const record of fresh) known.add(record.id);
+    const freshIds = new Set(fresh.map((record) => record.id));
+    for (const record of displayRecords(records).filter((shown) => freshIds.has(shown.id))) {
+      out(options.json ? JSON.stringify(publicRecord(record)) : formatLine(record));
+    }
+    if (!options.peek && role) store.advanceCursor(where, role, group, records[records.length - 1].id);
   }, 500);
   const stop = () => {
     clearInterval(timer);
