@@ -44,7 +44,10 @@ async function call(method, params, token) {
       form.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
     }
     headers["Content-Type"] = "application/x-www-form-urlencoded";
-    body = form.toString();
+    // An empty form is sent as no body at all: on Node 26 behind a TUN proxy,
+    // fetch with an empty string body never returned from slack.com, so
+    // `auth.test` and `apps.connections.open` hung the bridge at start.
+    body = form.toString() || undefined;
   } else {
     headers["Content-Type"] = "application/json; charset=utf-8";
     body = JSON.stringify(params || {});

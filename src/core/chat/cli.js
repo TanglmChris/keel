@@ -497,6 +497,11 @@ function runChat(argv) {
     // The waker (#203) runs from launchd outside any repository and names its
     // worktree; it is not the role's session, so it marks no presence.
     if (options.positionals[0] === "wake") return runWake(cwd, options);
+    // The bridge serves every listed project on this machine, and launchd
+    // starts it in `/`; only `add` and `remove` act on the current repository.
+    if (options.positionals[0] === "bridge" && !["add", "remove"].includes(options.positionals[1])) {
+      return runBridge(null, options.positionals.slice(1), options);
+    }
     // A notice is read by hosts on every prompt: outside a repository it says
     // nothing and still exits 0.
     if (options.positionals[0] === "notice" && !store.locate(cwd)) return 0;
