@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.89.1 - Checks are one bullet each
+
+A guidance fix, and the release that proves 5.89.0's hand-off on a real machine. A Claude session loaded at 5.89.0 should adopt this release at its next hook call without `/reload-plugins`. This release changes a skill, so the session's SessionStart should name that reload as the one step left (#204).
+
+- `keel-tdd-or-test-first` says that each `M<n>` check is one bullet. `keel gate task-start` refuses a nested list under a check, so sub-cases belong in its sentences. Authoring #204's tasks hit that refusal.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.89.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.89.0 - One update for the machine, and running sessions pick it up
 
 A release used to reach a machine as several separately updated pieces: the global CLI, the Claude plugin, the Codex plugin, and each project's protocol. Each piece needed its own command, and every running session kept the version it had loaded. On 2026-10-03 the Codex plugin had sat at 5.85.0 for days unnoticed (#204). This release makes `keel --update` the one command for the machine. Running Claude sessions now adopt an installed update at their next hook call, which Codex sessions already did. Each project's protocol is still refreshed by that project's own session.
