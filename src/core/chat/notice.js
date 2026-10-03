@@ -189,8 +189,24 @@ function hook(event, input, { mail = false } = {}) {
   return waking ? { code: 2, stderr: `${text}\n` } : { code: 0 };
 }
 
+// The model-free question a scheduler asks before starting a turn (#194):
+// is anything that would wake this role unread? Exit 0 for yes, 1 for no —
+// and 1 wherever there is no repository or role, since then there is
+// nothing to answer. Reads only; writes nothing.
+function check(cwd) {
+  try {
+    const where = store.locate(cwd);
+    const role = where ? store.currentRole(where) : null;
+    if (!where || !role) return 1;
+    return store.unread(where, role).some((record) => store.wakes(record, role)) ? 0 : 1;
+  } catch {
+    return 1;
+  }
+}
+
 module.exports = {
   NOTICE_LIMIT,
+  check,
   bridgeLine,
   hook,
   noticeText,

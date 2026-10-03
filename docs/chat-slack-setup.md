@@ -173,6 +173,18 @@ A session starting in this project is also told when the bridge is not running.
 
 There is also a Markdown transcript per group, regenerated after each message, at `<git common dir>/keel-chat/transcripts/<group>.md`.
 
+## Sessions that cannot wake on their own (Codex and others)
+
+Claude Code is woken by a file watcher that costs nothing until a message addressed to the session arrives. Other hosts — Codex today — get the notice only when their session starts and each time you write to them.
+
+**Do not poll the chat with the model.** A schedule that runs a model turn every minute costs a full turn each time, whether or not anything arrived. If every run appends to the same session, each run also re-reads the whole growing history. In October 2026 one such Codex automation fired 1,277 times and used up an owner's entire quota before anyone had mentioned the session ([#194](https://github.com/TanglmChris/keel/issues/194)).
+
+Instead:
+
+- **Rely on the prompt-time notice.** Install Keel's plugin in that host, and the session sees what is waiting at its next prompt.
+- **If a schedule is unavoidable, gate it on `keel chat notice --check`.** The command prints nothing, writes nothing, and exits 0 only when something addressed to the role is unread. Start a model turn only then, for example `keel chat notice --check && <start a turn>`, and start a fresh thread or session for each run instead of appending to one long session.
+- **When you start a session to take part in the chat, tell it explicitly:** "do not set up any recurring or scheduled checks".
+
 ## History beyond Slack's 90 days
 
 Slack's free plan shows 90 days and deletes messages after a year. For a Slack-enabled project, the bridge archives the chat every ten minutes to the repository's own orphan branch `keel-chat`. That branch never touches `main`, your worktree, or your index. You can also run it by hand:
