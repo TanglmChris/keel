@@ -328,10 +328,10 @@
   - Stop Rules:
     - Stop at the portal's compliance step: the contact email, the attestations, and the submit are the owner's.
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:0cb6c9df3d4bc0b3b845964b8e667d7d9cf99570db6158f1d993d7b10c4cf952
-    - Blocker: none
-    - Reauthorizations: none
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:afabeaa29f15b00d8cff2016a262bdca5d558e0bfc6307eb7fe9791e1f259cb2
+    - Blocker: M2 waits on the owner's compliance step and submit in the portal.
+    - Reauthorizations: 2026-10-04. M1 and M2 were retargeted from 5.90.1 to 5.90.2 with the privacy policy, and the Stop rule was narrowed to the compliance step, both when 1.4 and 2.4 were authored. The anchor was re-recorded afterwards; no Evidence had been written.
+    - M1: pass. `git ls-remote origin claude-directory` names 6a1ff571a1bc98c8a1c18241ee21ea1e0cf09b07, whose message is `keel-openspec 5.90.2 from b09301c`. Its `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.2, with `privacyPolicyUrl: https://github.com/TanglmChris/keel/blob/main/PRIVACY.md`. `scripts/` holds only `run_python.js` and `install_to_repo.py`. The v5.90.2 release notes name that commit under "Directory listing".
     - M2: pending
     - Review:
       - Status: pending
