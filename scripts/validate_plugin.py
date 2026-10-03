@@ -3723,6 +3723,81 @@ def validate_chat_archive_scenario() -> int:
     return 0
 
 
+def validate_chat_notice_check_scenario() -> int:
+    """Issue #194: a scheduler asks, without a model turn, whether to start one.
+
+    `keel chat notice --check` prints nothing and moves no cursor. It exits
+    0 exactly when something that would wake the role is unread — a mention,
+    an assigned todo, a direct message — and 1 otherwise, including for a
+    broadcast alone, outside a repository, and with no role bound.
+    """
+    label = "chat-notice-check:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-check-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        unbound = mailbox_repository(base / "unbound")
+        plain = base / "plain"
+        plain.mkdir()
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        def check(cwd: Path, expected: int, why: str) -> bool:
+            result = chat(cwd, "notice", "--check")
+            if result.stdout or result.stderr:
+                report(f"{label} --check wrote output {why}: {(result.stdout + result.stderr).strip()!r}")
+                return False
+            if result.returncode != expected:
+                report(f"{label} --check exited {result.returncode} {why}, not {expected}.")
+                return False
+            return True
+
+        if not check(verify, 1, "with nothing unread"):
+            return 1
+        chat(rtl, "post", "soc", "@all standup in five")
+        if not check(verify, 1, "when the only unread record is @all"):
+            return 1
+        chat(rtl, "post", "soc", "@verify please rerun")
+        if not check(verify, 0, "with an unread @verify"):
+            return 1
+        before = chat_json(chat(verify, "unread", "--json")).get("unread", [])
+        store = mailbox_common_dir(rtl) / "keel-chat"
+
+        def snapshot() -> dict[str, bytes]:
+            return {str(p.relative_to(store)): p.read_bytes() for p in store.rglob("*") if p.is_file()}
+
+        files_before = snapshot()
+        if not check(verify, 0, "a second time"):
+            return 1
+        if snapshot() != files_before:
+            report(f"{label} --check wrote to the chat store.")
+            return 1
+        after = chat_json(chat(verify, "unread", "--json")).get("unread", [])
+        if [r.get("id") for r in after] != [r.get("id") for r in before]:
+            report(f"{label} --check changed what verify has unread.")
+            return 1
+        chat(verify, "read")
+        if not check(verify, 1, "after verify read everything"):
+            return 1
+        chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun")
+        if not check(verify, 0, "with an assigned todo unread"):
+            return 1
+        chat(verify, "read")
+        chat(rtl, "dm", "verify", "Private note")
+        if not check(verify, 0, "with a direct message unread"):
+            return 1
+        if not check(plain, 1, "outside any repository"):
+            return 1
+        if not check(unbound, 1, "in a worktree with no role"):
+            return 1
+
+    if "chat-notice-check" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-notice-check scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -33960,6 +34035,10 @@ SCENARIOS: tuple = (
     (
         "chat-archive",
         validate_chat_archive_scenario,
+    ),
+    (
+        "chat-notice-check",
+        validate_chat_notice_check_scenario,
     ),
     (
         "record-derives-skeleton",

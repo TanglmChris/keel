@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Issue #194: `keel chat notice --check` lets a scheduler ask, without a model turn, whether to start one. It prints nothing, writes nothing (not even presence), and exits 0 only when the bound role has an unread record that would wake it — a mention, an assigned todo, or a direct message — and 1 otherwise, including for a broadcast alone, outside a repository, and with no role bound. A host can run `keel chat notice --check && <start a turn>` instead of polling the chat with the model.
 - Issue #196: `keel chat <group> --follow` remembers every record id it has shown instead of only the newest, so a record whose id sorts earlier — written by a machine whose clock runs behind, or landing between the first read and the first poll — is printed rather than skipped for good. Views no longer repeat a mention the message text already spells out (`@all @all`); a mention written as an alias still shows the role it resolved to.
 - Issue #190: subagent lifecycle projection no longer requires extra user activation. Models choose read-only helpers or `--subagent-mode implementation` inside existing task authority, with a matching active guard including Touch consistency. Capability tiers are optional metadata. Goal activation and master completion duties remain unchanged; host policy still governs actual spawning.
 

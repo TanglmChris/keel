@@ -36,9 +36,7 @@ Claude Code wakes idle sessions through `FileChanged` + `asyncRewake`, which cos
 ## Open Questions
 
 - **Q1** — Should `--check` also exit 0 for unread `@all` and plain messages?
-  - **Recommended:** no. D1 matches the wake rule, so a schedule starts a turn exactly when a Claude session would have been woken. `@all` and plain messages wait for the next turn the host starts for another reason.
-  - **Alternative:** any unread record counts. The host answers broadcasts sooner, but a busy group starts many more turns.
-  - Owner decision needed.
+  - **Resolved 2026-10-03:** the owner accepted the recommendation. `--check` follows the wake rule exactly, as D1 states, and `@all` and plain messages do not start a turn.
 
 ## Risks / Trade-offs
 
