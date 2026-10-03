@@ -86,7 +86,7 @@
 
 ## 2. Release, and the owner submits
 
-- [ ] 2.1 Release 5.90.0 with the change promoted
+- [x] 2.1 Release 5.90.0 with the change promoted
   - Covers:
     - E1
     - E2
@@ -126,9 +126,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:d1a5e8958d93ea6c297fa1456902527bf59338ababbe4c67f1a9eab093ccf80b
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.89.1 to 5.90.0, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.90.0 section written into the stub.
+    - M2: pass. The REMOVED requirement "Each release states its official directory entry" was replaced by the ADDED "Each release updates the directory branch" in `openspec/specs/keel-native-plugin-package/spec.md`, which no longer mentions `official_entry.js`. `node node_modules/.bin/openspec validate directory-branch --strict` reports `Change 'directory-branch' is valid`, `openspec validate --specs --strict` reports `29 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: E1 and E2 are carried by 1.1 and 1.2 and ship here under one version, with the promoted spec stating the branch rule. 2.2 owns the real release job's branch and the portal's verdict.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the promoted spec, all in this task's Touch, plus this change's own `tasks.md`.
+      - Findings: none
 
 - [ ] 2.2 The release job creates `claude-directory`, and the portal validates it as keel-openspec
   - Covers:

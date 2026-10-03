@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.90.0 - Anthropic's directory lists Keel as keel-openspec
+
+Anthropic's plugin directory now takes submissions through the claude.ai developer portal, and it tracks a branch of the repository rather than a pinned commit. Validating this repository there found three problems (#175):
+- the name `keel` already belongs to another directory listing;
+- the whole repository was more than the directory scans;
+- there was no icon.
+
+The owner chose the name `keel-openspec` for the directory only. The npm package, the repository, and `keel@keel-marketplace` installs keep `keel`.
+
+- Issue #175: `scripts/directory_tree.js <dir>` builds the plugin tree the directory lists. It is the files `npm pack` publishes, which already form a complete plugin carrying its own CLI, plus `.claude-plugin/plugin.json` renamed `keel-openspec` and `.claude-plugin/icon.png`. The result is 69 files, and it passes `claude plugin validate`.
+- Issue #175: each release runs `scripts/directory_branch.js`, which commits that tree as the next commit of the `claude-directory` branch, the branch the directory tracks. The release notes name that commit in a "Directory listing" section. A tree with nothing new commits nothing. The sha-pinned "Official directory entry" and `scripts/official_entry.js` are removed, because the directory no longer takes a pin.
+- The icon is the SessionStart block mark, 1024×1024, at `assets/directory/icon.png`. The portal takes the icon only on the first save or submit, so it ships before the submission.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.90.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.89.1 - Checks are one bullet each
 
 A guidance fix, and the release that proves 5.89.0's hand-off on a real machine. A Claude session loaded at 5.89.0 should adopt this release at its next hook call without `/reload-plugins`. This release changes a skill, so the session's SessionStart should name that reload as the one step left (#204).

@@ -1,3 +1,3 @@
-<!-- keel:start version=5.89.1 -->
+<!-- keel:start version=5.90.0 -->
 @AGENTS.md
 <!-- keel:end -->
