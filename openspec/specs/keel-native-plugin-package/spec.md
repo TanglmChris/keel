@@ -183,12 +183,12 @@ Keel's Claude plugin MUST be described by a manifest at the repository root, `.c
 
 ### Requirement: Each release updates the directory branch
 
-Keel MUST be able to build, from the files its npm package publishes, the plugin tree that Anthropic's plugin directory lists. In that tree, `.claude-plugin/plugin.json` is the root manifest with the name `keel-openspec`, and `.claude-plugin/icon.png` is a square PNG. The repository's own root manifest MUST keep the name `keel`. The release job MUST commit that tree to the `claude-directory` branch and push it, and MUST name the resulting commit in the release notes. Building the tree MUST be local, and nothing in Keel MAY submit it to the directory.
+Keel MUST be able to build, from the files its npm package publishes, the plugin tree that Anthropic's plugin directory lists. The tree MUST leave out the scripts only development uses, keeping from `scripts/` exactly the ones the shipped code runs. In that tree, `.claude-plugin/plugin.json` is the root manifest with the name `keel-openspec` and the repository as its `homepage`, and `.claude-plugin/icon.png` is a square PNG. The repository's own root manifest MUST keep the name `keel`. The release job MUST commit that tree to the `claude-directory` branch and push it, and MUST name the resulting commit in the release notes. Building the tree MUST be local, and nothing in Keel MAY submit it to the directory.
 
 #### Scenario: The tree is the package with the directory's name
 - **WHEN** `scripts/directory_tree.js` builds into an empty directory
-- **THEN** the tree holds exactly the files `npm pack` publishes plus `.claude-plugin/plugin.json` and `.claude-plugin/icon.png`
-- **AND THEN** its manifest is the root manifest with `name` set to `keel-openspec`, every skill, agent, and hook path in it resolves inside the tree, and the repository's root manifest still names `keel`
+- **THEN** the tree holds exactly the files `npm pack` publishes, less the scripts only development uses, plus `.claude-plugin/plugin.json` and `.claude-plugin/icon.png`
+- **AND THEN** its manifest is the root manifest with `name` set to `keel-openspec` and `homepage` set to the repository, every skill, agent, and hook path in it resolves inside the tree, and the repository's root manifest still names `keel`
 
 #### Scenario: Each release advances the directory branch
 - **WHEN** `scripts/directory_branch.js` runs for a version and commit against an origin

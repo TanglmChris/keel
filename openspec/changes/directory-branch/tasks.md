@@ -84,6 +84,41 @@
       - Scope check: `git status --short` shows `scripts/directory_branch.js` (new), `scripts/official_entry.js` (deleted), `.github/workflows/publish.yml`, `scripts/validate_plugin.py`, `README.md`, and `README.zh-CN.md`, all in this task's Touch, plus this change's own `tasks.md`. The old `official-directory-entry` scenario was removed with the script it tested.
       - Findings: none
 
+- [x] 1.3 The directory tree drops the scripts only development uses, and its manifest names a homepage
+  - Covers:
+    - keel-native-plugin-package / Each release updates the directory branch / The tree is the package with the directory's name
+    - D5
+    - F4
+  - Read:
+    - bin/keel.js
+    - scripts/directory_tree.js
+  - Touch:
+    - scripts/directory_tree.js
+    - scripts/validate_plugin.py
+    - openspec/specs/keel-native-plugin-package/spec.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` requires the tree's file set to equal the `npm pack --dry-run --json` paths minus every `scripts/` file other than `scripts/run_python.js` and `scripts/install_to_repo.py`, plus `.claude-plugin/plugin.json` and `.claude-plugin/icon.png`. It requires the tree manifest to differ from the root manifest only by `name: keel-openspec` and `homepage: https://github.com/TanglmChris/keel`. It also requires `node <tree>/bin/keel.js --version` to print the package version, and `node <tree>/bin/keel.js --install --target claude --dry-run` in a scratch repository to exit 0. Fails with: `directory-tree-is-the-package-renamed:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if any shipped file outside `scripts/` references a script the tree drops, because the plugin would then break where npm does not.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:ea471f87cebf7dcf565c2e025b91d7f6e0fe6aac09284afd0b7a1e58a2295dcd
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` reports `directory-tree-is-the-package-renamed scenario passed.` The tree equals the npm pack paths with `scripts/` cut to `run_python.js` and `install_to_repo.py`, plus the manifest and icon, 63 files in all. Its manifest differs from the root only by `name: keel-openspec` and `homepage: https://github.com/TanglmChris/keel`. `node <tree>/bin/keel.js --version` prints the package version, and `--install --target claude --dry-run` in a scratch repository exits 0. `directory-branch-advances` still passes, and `claude plugin validate` on the trimmed tree prints `✔ Validation passed`.
+    - M1.red: fail. With the test updated and the builder unchanged, the scenario reported `directory-tree-is-the-package-renamed: the tree is not the npm package less development scripts, plus the manifest and icon: extra=['scripts/bump_version.js', 'scripts/directory_branch.js', 'scripts/directory_tree.js', 'scripts/fake_slack.py', 'scripts/validate_codex_receiving.py', 'scripts/validate…`, which carries the declared signature `directory-tree-is-the-package-renamed:`.
+    - M1.green: pass. The same scenario passes once `directory_tree.js` removes every `scripts/` entry outside `RUNTIME_SCRIPTS` and sets `homepage`.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 now also runs the trimmed tree's own CLI, for `--version` and a dry-run install, so dropping scripts is shown not to break the plugin rather than only asserted. The Stop rule held: a grep of the tree's `bin/`, `src/`, and `plugins/` for the dropped script names finds nothing.
+      - Scope check: `git status --short` shows `scripts/directory_tree.js` and `scripts/validate_plugin.py`, plus this change's own directory (tasks, design D5 and F4, and the delta wording). The promoted main spec is updated in the same edit so it says the same as the delta.
+      - Findings: none
+
 ## 2. Release, and the owner submits
 
 - [x] 2.1 Release 5.90.0 with the change promoted
@@ -137,7 +172,55 @@
       - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the promoted spec, all in this task's Touch, plus this change's own `tasks.md`.
       - Findings: none
 
-- [ ] 2.2 The release job creates `claude-directory`, and the portal validates it as keel-openspec
+- [ ] 2.2 Release 5.90.1 with the trimmed tree
+  - Covers:
+    - E1
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers and a changelog entry. The behavior was proven in 1.3, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js patch` moves every marker to 5.90.1, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.90.1 section written into the stub.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b717bb3e3e8180482cc09f7721ef906c86161ed47e16fcab5606db6f3c7a9aa4
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+
+- [ ] 2.3 The release job creates `claude-directory`, and the portal validates it as keel-openspec
+  - Mode: diagnose-only
   - Covers:
     - E1
     - E2
@@ -148,8 +231,8 @@
   - Verify:
     - Strategy: evidence-first
     - Reason: this observes what the real release job and the real portal did with 5.90.0. Neither can run before the release, so there is no red.
-    - M1: after 5.90.0 lands, `git ls-remote origin claude-directory` names a commit. That commit's `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.0, and the v5.90.0 release notes name that commit.
-    - M2: the portal's Validate on `TanglmChris/keel` at branch `claude-directory` passes with no "Name matches a known brand" hold, scans every file, and finds the icon. Submitting is done only after the owner confirms the filled-in submission.
+    - M1: after 5.90.1 lands, `git ls-remote origin claude-directory` names a commit. That commit's `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.1, the commit carries no development-only script, and the v5.90.1 release notes name that commit.
+    - M2: the portal's Validate on `TanglmChris/keel` at branch `claude-directory` passes with no "Name matches a known brand" hold, scans every file, finds the icon, and raises no hold naming `scripts/validate_plugin.py` or `scripts/directory_tree.js`. Submitting is done only after the owner confirms the filled-in submission and the data-handling answers.
   - Autonomy boundary:
     - Default: hard-stop
     - Pre-authorized fallback: none
@@ -163,7 +246,7 @@
 ## Change Verify
 
 - Strategy: regression-first
-- C1: `npm test` passes the baseline and every registered scenario once 1.1 and 1.2 have registered theirs.
+- C1: `npm test` passes the baseline and every registered scenario once 1.1 and 1.2 have registered theirs, and again after 1.3 changes the tree.
 
 ## Change Evidence
 
@@ -178,5 +261,5 @@
 
 ## Expectation Coverage
 
-- E1: Anthropic's directory sees a plugin named `keel-openspec`, with an icon, small enough to be scanned whole, while npm, the repository name, and `keel@keel-marketplace` installs are unchanged. Covered by: 1.1, 2.1, 2.2
-- E2: Each release refreshes what the directory tracks without the owner acting, and only the owner submits. Covered by: 1.2, 2.1, 2.2
+- E1: Anthropic's directory sees a plugin named `keel-openspec`, with an icon, small enough to be scanned whole, while npm, the repository name, and `keel@keel-marketplace` installs are unchanged. Covered by: 1.1, 1.3, 2.1, 2.2, 2.3
+- E2: Each release refreshes what the directory tracks without the owner acting, and only the owner submits. Covered by: 1.2, 2.1, 2.3
