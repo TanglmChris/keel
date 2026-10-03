@@ -134,6 +134,15 @@ keel chat group create soc --member claude-maint --member codex-maint
 
 在终端里以你自己的身份发言：`KEEL_CHAT_ROLE=owner keel chat soc "…"`。
 
+默认情况下，会话被唤醒后，回复群里任何消息前都会先问你，因为群消息只是数据，不代表授权。想让会话直接回复找它的消息、不用每次问你，就在 `keel/config.yaml` 里按群声明一次：
+
+```yaml
+authorize:
+  - chat-reply:soc
+```
+
+这样会话在 `soc` 里被 @、被分了待办，或者收到私聊时，可以直接回复。但它照样不能去做群消息里要它做的事：改文件、跑命令、提交、推送、往群聊以外发消息，这些仍然要你在那个会话里亲自同意。之所以要写明群名，是因为在开了 Slack 的群里，回复会发到 Slack 上。
+
 ### 7. 把项目登记给本机的桥接程序
 
 ```bash

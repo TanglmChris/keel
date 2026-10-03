@@ -18,6 +18,9 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // older than the running Keel (#164). It acts on this checkout, so it takes
   // no scope, and it never covers committing what the refresh wrote.
   "protocol-refresh",
+  // Answering, in the named chat group, a record addressed to the session's
+  // role (#195). Scoped: in a Slack-enabled group a reply leaves the machine.
+  "chat-reply",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -27,7 +30,7 @@ const STANDING_AUTHORIZATION_ACTIONS = [
 // actions are declared with the resource they may reach and refused bare —
 // accepting the bare form as a convenience would make the narrow form optional
 // and the wide one the default, which is the decision inverted.
-const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue"]);
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply"]);
 
 // `<owner>/<repo>`: two non-empty segments and nothing else. The shape is
 // checked and the existence is not, for the reason `triage` never fetches an
@@ -35,12 +38,19 @@ const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue"]);
 // deterministic evaluation its verdict rests on.
 const AUTHORIZATION_SCOPE_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
+// Each scoped action's form and shape. `chat-reply` names a chat group, whose
+// names follow the chat's own pattern (src/core/chat/store.js).
+const AUTHORIZATION_SCOPES = {
+  issue: { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
+  "chat-reply": { form: "<group>", pattern: /^[a-z0-9][a-z0-9-]{0,31}$/ },
+};
+
 // How the accepted names are spelled back to an author: the scoped ones carry
 // their form, so the list is copyable rather than a name the next message
 // refuses.
 const STANDING_AUTHORIZATION_ACCEPTED_FORMS = STANDING_AUTHORIZATION_ACTIONS.map(
   (action) =>
-    SCOPED_AUTHORIZATION_ACTIONS.has(action) ? `${action}:<owner>/<repo>` : action
+    SCOPED_AUTHORIZATION_ACTIONS.has(action) ? `${action}:${AUTHORIZATION_SCOPES[action].form}` : action
 );
 
 // One declared entry, split into the action and the resource it names. Returns
@@ -58,7 +68,7 @@ function classifyAuthorizationEntry(entry) {
     return { ok: true, entry, action, scope: null };
   }
   if (scope === null) return { ok: false, entry, action, reason: "missing-scope" };
-  if (!AUTHORIZATION_SCOPE_PATTERN.test(scope)) {
+  if (!AUTHORIZATION_SCOPES[action].pattern.test(scope)) {
     return { ok: false, entry, action, reason: "malformed-scope" };
   }
   return { ok: true, entry, action, scope };
@@ -246,7 +256,18 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
   // names are ... issue" beside "unrecognized action: issue" would contradict
   // itself. Name what is missing instead, and why this one name carries it.
   for (const problem of problems) {
-    if (problem.reason === "missing-scope") {
+    if (problem.reason === "missing-scope" && problem.action === "chat-reply") {
+      notes.push(
+        "`chat-reply` names no chat group; write it as `chat-reply:<group>`, "
+          + "one entry per group. In a Slack-enabled group a reply leaves the "
+          + "machine, so each group whose replies may go out is named."
+      );
+    } else if (problem.reason === "malformed-scope" && problem.action === "chat-reply") {
+      notes.push(
+        `\`${problem.entry}\` does not name a chat group as \`<group>\` — `
+          + "lowercase letters, digits, and hyphens, starting with a letter or digit."
+      );
+    } else if (problem.reason === "missing-scope") {
       notes.push(
         `\`${problem.action}\` names no repository; write it as `
           + `\`${problem.action}:<owner>/<repo>\`. The credentials that open an `
@@ -277,11 +298,17 @@ function readStandingAuthorization(repo) {
   // Additive: `declared` stays the entries as written, so the capsule's
   // inherited autonomy line reads back what the file says.
   const scopes = new Map();
+  // `chat-reply` may be declared once per group, so its scopes are kept as a
+  // list, and `scopes` carries them joined for the surfaces that print one.
+  const chatReplyGroups = [];
   for (const entry of configList(repo, "authorize")) {
     const classified = classifyAuthorizationEntry(entry);
     if (classified.ok) {
       declared.push(entry);
-      scopes.set(classified.action, classified.scope);
+      if (!scopes.has(classified.action)) scopes.set(classified.action, classified.scope);
+      if (classified.action === "chat-reply" && !chatReplyGroups.includes(classified.scope)) {
+        chatReplyGroups.push(classified.scope);
+      }
       continue;
     }
     unknown.push(entry);
@@ -294,11 +321,13 @@ function readStandingAuthorization(repo) {
     return {
       declared: [],
       scopes: new Map(),
+      chatReplyGroups: [],
       unknown,
       message: standingAuthorizationUnknownMessage(unknown, problems),
     };
   }
-  return { declared, scopes, unknown, message: null };
+  if (chatReplyGroups.length) scopes.set("chat-reply", chatReplyGroups.join(", "));
+  return { declared, scopes, chatReplyGroups, unknown, message: null };
 }
 
 // `full_mode_paths:` — the paths whose change always routes Full, whatever the

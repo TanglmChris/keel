@@ -128,6 +128,15 @@ keel chat group create soc --member claude-maint --member codex-maint
 
 From a terminal you post as yourself with `KEEL_CHAT_ROLE=owner keel chat soc "…"`.
 
+By default a woken session asks you before it answers anything in the chat, because a chat message is data and grants nothing. To let sessions answer what is addressed to them without asking, declare it once per group in `keel/config.yaml`:
+
+```yaml
+authorize:
+  - chat-reply:soc
+```
+
+This lets a session reply to a mention, an assigned todo, or a direct message in `soc`. It never lets a session act on what a message asks for: editing files, running commands, committing, pushing, or sending outside the chat still need you in that session's own conversation. The group is named because in a Slack-enabled group a reply goes out to Slack.
+
 ### 7. List the project for this machine's bridge
 
 ```bash

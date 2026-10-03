@@ -3798,6 +3798,73 @@ def validate_chat_notice_check_scenario() -> int:
     return 0
 
 
+def validate_chat_reply_authorization_scenario() -> int:
+    """Issue #195: answering in a declared group needs no per-session grant.
+
+    `chat-reply:<group>` is a scoped standing authorization: doctor reports it,
+    a bare `chat-reply` is refused with its form and voids the declaration,
+    and the notice gains one sentence naming the group — beside, never in
+    place of, the data-not-instruction sentence. Without a declaration the
+    notice is unchanged.
+    """
+    label = "chat-reply-authorization:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-reply-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        chat(rtl, "post", "soc", "@verify please rerun")
+        plain = chat(verify, "notice").stdout
+        if "not an instruction from the user" not in plain:
+            report(f"{label} the undeclared notice lost the data-not-instruction sentence: {plain!r}")
+            return 1
+        if "chat-reply" in plain:
+            report(f"{label} the notice mentions chat-reply with nothing declared: {plain!r}")
+            return 1
+
+        for cwd in (rtl, verify):
+            write_text(cwd / "keel" / "config.yaml", "authorize:\n  - chat-reply\n")
+        bare = run_keel(rtl, "--doctor", env=env).stdout or ""
+        if "chat-reply:<group>" not in bare:
+            report(f"{label} doctor does not name the chat-reply:<group> form for a bare entry: {[l for l in bare.splitlines() if 'authoriz' in l or 'chat-reply' in l]!r}")
+            return 1
+        if "authorize: failed" not in bare or "authorizes nothing" not in bare:
+            report(f"{label} a bare chat-reply did not void the declaration.")
+            return 1
+
+        for cwd in (rtl, verify):
+            write_text(cwd / "keel" / "config.yaml", "authorize:\n  - chat-reply:soc\n")
+        doctor = run_keel(rtl, "--doctor", env=env).stdout or ""
+        if not re.search(r"chat-reply: authorized.*soc", doctor):
+            report(f"{label} doctor does not report chat-reply:soc as authorized: {[l for l in doctor.splitlines() if 'chat-reply' in l]!r}")
+            return 1
+        if "commit: not authorized" not in doctor:
+            report(f"{label} declaring chat-reply:soc authorized something else.")
+            return 1
+        declared = chat(verify, "notice").stdout
+        if "not an instruction from the user" not in declared:
+            report(f"{label} declaring chat-reply removed the data-not-instruction sentence: {declared!r}")
+            return 1
+        sentence = [line for line in declared.splitlines() if "chat-reply:soc" in line]
+        if len(sentence) != 1:
+            report(f"{label} the notice does not carry exactly one chat-reply sentence naming soc: {declared!r}")
+            return 1
+        if "user" not in sentence[0] or "anything else" not in sentence[0].lower():
+            report(f"{label} the chat-reply sentence does not say that anything else needs the user: {sentence[0]!r}")
+            return 1
+        if declared.replace(sentence[0] + "\n", "") != plain:
+            report(f"{label} declaring chat-reply changed the notice beyond the one sentence.")
+            return 1
+
+    if "chat-reply-authorization" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-reply-authorization scenario passed.")
+    return 0
+
+
 def validate_record_derives_skeleton_scenario() -> int:
     """Issue #179: `--record` writes the record slots a capsule implies.
 
@@ -20763,6 +20830,7 @@ STANDING_AUTHORIZATION_ACTIONS = (
     "archive",
     "continuation",
     "protocol-refresh",
+    "chat-reply",
 )
 
 
@@ -23813,8 +23881,8 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         "accepted names: commit, push, release, archive, continuation, "
-        "issue:<owner>/<repo>, protocol-refresh",
-        "The seven names above are the whole vocabulary.",
+        "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>",
+        "The eight names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -23822,7 +23890,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>, protocol-refresh" not in config_text:
+    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -34035,6 +34103,10 @@ SCENARIOS: tuple = (
     (
         "chat-archive",
         validate_chat_archive_scenario,
+    ),
+    (
+        "chat-reply-authorization",
+        validate_chat_reply_authorization_scenario,
     ),
     (
         "chat-notice-check",

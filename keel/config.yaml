@@ -20,14 +20,19 @@
 #
 # authorize (optional): standing authorization for repository actions. The
 # accepted names are the whole vocabulary — commit, push, release, archive,
-# continuation, issue:<owner>/<repo>, protocol-refresh — and an unrecognized entry is reported
+# continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group> — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
 # it was before the block existed.
 #
-# `issue` is the one name that carries the resource it reaches, and it is
-# refused without one. Every other name acts on this checkout, so the
+# `issue` and `chat-reply` are the names that carry the resource they reach,
+# and each is refused without one. `chat-reply:<group>` lets a session answer,
+# in that chat group, a record addressed to its role, and nothing the record
+# asks for beyond the answer; in a Slack-enabled group a reply leaves the
+# machine, which is why the group is named.
+#
+# For `issue`, the reasoning is that every other name acts on this checkout, so the
 # declaration and the thing it permits are the same size; the credentials that
 # open an issue are account-wide, so a bare `issue` would silently be the widest
 # entry in this file — wider than `push`. Naming the repository is what keeps
