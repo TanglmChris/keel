@@ -119,7 +119,8 @@ Usage:
 Defaults:
   repo defaults to the current working directory.
   target defaults to claude.
-  --update refreshes the global keel CLI, not project protocol files.
+  --update refreshes the global keel CLI and the Claude and Codex plugins it
+  finds installed, not project protocol files.
   update source defaults to ${DEFAULT_UPDATE_SOURCE}.
 
 Project layout:
@@ -990,21 +991,162 @@ function findPackedTarball(packStdout, tempDir) {
   );
 }
 
-function runGlobalUpdate(options) {
-  if (options.repo !== null) {
-    fail("--update refreshes the global keel CLI and does not accept a repo path");
-  }
-  if (options.target !== "claude") {
-    fail("--update refreshes the global keel CLI and does not accept --target");
-  }
-  if (options.forceTemplateUpdate) {
-    fail("--update does not accept --force-template-update; use keel --install --force-template-update for project files");
-  }
+// One owner-run update for the machine (#204): the global CLI first, then
+// the Keel plugin of each host that has one installed, through that host's own
+// documented commands. Every component reports exactly one line saying what
+// changed, when it applies, and what is left for the owner, because a plugin
+// installed on disk is not a plugin the running sessions use, and the two used
+// to be reported as the same thing. Hooks and projections never reach this.
+function updateLine(component, status, detail) {
+  process.stdout.write(`keel update: ${component}: ${status} - ${detail}\n`);
+}
 
-  const source =
-    options.updateSource || process.env.KEEL_UPDATE_SOURCE || DEFAULT_UPDATE_SOURCE;
-  const npm = npmCommand();
+function hostRun(executable, args) {
+  return spawnSync(executable, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: 5 * 60 * 1000,
+  });
+}
 
+function hostJson(executable, args) {
+  const result = hostRun(executable, args);
+  if (result.error || result.status !== 0) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+// What each host reports about its installed Keel plugin, or null when the
+// host is absent or has none. Both hosts answer `plugin list --json`, in
+// different shapes (2026-10-03: Claude a list of {id, version, installPath},
+// Codex {installed: [{pluginId, version, marketplaceSource, source}]}).
+function claudeKeel(executable) {
+  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const entry = (Array.isArray(listed) ? listed : [])
+    .find((item) => item && typeof item.id === "string" && item.id.startsWith("keel@"));
+  if (!entry) return null;
+  return { id: entry.id, market: entry.id.slice("keel@".length), version: entry.version || null };
+}
+
+function codexKeel(executable) {
+  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const items = listed && Array.isArray(listed.installed) ? listed.installed : [];
+  const entry = items.find((item) => item && item.name === "keel" && item.installed !== false);
+  if (!entry) return null;
+  const market = entry.marketplaceSource || {};
+  return {
+    id: entry.pluginId || `keel@${entry.marketplaceName}`,
+    market: entry.marketplaceName,
+    version: entry.version || null,
+    sourceType: market.sourceType || "unknown",
+    source: market.source || "",
+    path: entry.source && entry.source.path ? entry.source.path : null,
+  };
+}
+
+function readOrNull(file) {
+  try {
+    return fs.readFileSync(file);
+  } catch {
+    return null;
+  }
+}
+
+function runHostSteps(component, name, executable, steps) {
+  for (const args of steps) {
+    const result = hostRun(executable, args);
+    if (result.error || result.status !== 0) {
+      const why = result.error ? result.error.message : `exited ${result.status}`;
+      updateLine(component, "failed", `\`${name} ${args.join(" ")}\` ${why}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function versionChange(before, after) {
+  return before && after && before !== after ? `updated ${before} -> ${after}` : `current ${after || before || "unknown"}`;
+}
+
+function updateClaudePlugin(options) {
+  const component = "claude plugin";
+  const executable = process.env.KEEL_UPDATE_CLAUDE || "claude";
+  const installed = claudeKeel(executable);
+  const id = installed ? installed.id : "keel@keel-marketplace";
+  const market = installed ? installed.market : "keel-marketplace";
+  const steps = [["plugin", "marketplace", "update", market], ["plugin", "update", id]];
+  if (options.dryRun) {
+    for (const args of steps) process.stdout.write(`keel: would run claude ${args.join(" ")}\n`);
+    return true;
+  }
+  if (!installed) {
+    updateLine(component, "absent", "Claude Code is not installed here or has no Keel plugin");
+    return true;
+  }
+  if (!runHostSteps(component, "claude", executable, steps)) return false;
+  const after = claudeKeel(executable);
+  updateLine(
+    component,
+    versionChange(installed.version, after && after.version),
+    "running sessions use it at their next hook call; their skills and agents after /reload-plugins"
+  );
+  return true;
+}
+
+function updateCodexPlugin(options) {
+  const component = "codex plugin";
+  const executable = process.env.KEEL_UPDATE_CODEX || "codex";
+  const installed = codexKeel(executable);
+  const id = installed ? installed.id : "keel@keel-marketplace";
+  const market = installed ? installed.market : "keel-marketplace";
+  const steps = [["plugin", "marketplace", "upgrade", market], ["plugin", "add", id]];
+  if (options.dryRun) {
+    for (const args of steps) process.stdout.write(`keel: would run codex ${args.join(" ")}\n`);
+    return true;
+  }
+  if (!installed) {
+    updateLine(component, "absent", "Codex is not installed here or has no Keel plugin");
+    return true;
+  }
+  // `codex plugin marketplace upgrade` refreshes Git marketplaces only. A
+  // local one follows whatever its checkout holds, which is the owner's to
+  // decide, so it is named rather than re-pointed.
+  if (installed.sourceType !== "git") {
+    updateLine(
+      component,
+      "manual",
+      `its marketplace is a ${installed.sourceType} source (${installed.source}), which \`codex plugin `
+        + "marketplace upgrade` cannot refresh; to make it upgradable, run `codex plugin marketplace "
+        + `remove ${market}\` and then codex plugin marketplace add TanglmChris/keel --ref main`
+    );
+    return true;
+  }
+  if (!runHostSteps(component, "codex", executable, [steps[0]])) return false;
+  // Codex re-reads hook definitions at every call and trusts them by hash, so
+  // a changed definition stops running until the owner reviews it. Compared
+  // before `plugin add`, which deletes the old install's directory.
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const oldHooks = installed.version
+    ? readOrNull(path.join(codexHome, "plugins", "cache", market, "keel", installed.version, "hooks", "codex.json"))
+    : null;
+  const upgraded = codexKeel(executable);
+  const newHooks = upgraded && upgraded.path ? readOrNull(path.join(upgraded.path, "hooks", "codex.json")) : null;
+  const hooksChanged = oldHooks && newHooks && !oldHooks.equals(newHooks);
+  if (!runHostSteps(component, "codex", executable, [steps[1]])) return false;
+  const after = codexKeel(executable);
+  updateLine(
+    component,
+    versionChange(installed.version, after && after.version),
+    "running sessions use it at their next hook call"
+      + (hooksChanged ? "; its hook definitions changed, so Codex will ask you to review them in /hooks before they run" : "")
+  );
+  return true;
+}
+
+function updateGlobalCli(options, npm, source) {
   if (options.dryRun) {
     process.stdout.write(
       `keel: would run ${formatCommand(npm, [
@@ -1022,7 +1164,7 @@ function runGlobalUpdate(options) {
         "<packed-tarball>",
       ])}\n`
     );
-    return 0;
+    return true;
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "keel-update-"));
@@ -1039,14 +1181,10 @@ function runGlobalUpdate(options) {
       stdio: ["inherit", "pipe", "inherit"],
       shell: process.platform === "win32",
     });
-    if (packResult.error) {
-      process.stderr.write(
-        `keel: failed to run npm pack: ${packResult.error.message}\n`
-      );
-      return 1;
-    }
-    if (packResult.status !== 0) {
-      return typeof packResult.status === "number" ? packResult.status : 1;
+    if (packResult.error || packResult.status !== 0) {
+      const why = packResult.error ? packResult.error.message : `exited ${packResult.status}`;
+      updateLine("cli", "failed", `npm pack ${source} ${why}`);
+      return false;
     }
 
     const tarball = findPackedTarball(packResult.stdout, tempDir);
@@ -1054,19 +1192,45 @@ function runGlobalUpdate(options) {
       stdio: "inherit",
       shell: process.platform === "win32",
     });
-    if (installResult.error) {
-      process.stderr.write(
-        `keel: failed to run npm install: ${installResult.error.message}\n`
-      );
-      return 1;
+    if (installResult.error || installResult.status !== 0) {
+      const why = installResult.error ? installResult.error.message : `exited ${installResult.status}`;
+      updateLine("cli", "failed", `npm install -g ${path.basename(tarball)} ${why}`);
+      return false;
     }
-    return typeof installResult.status === "number" ? installResult.status : 1;
+    const packed = /-(\d+\.\d+\.\d+[^/]*?)\.tgz$/.exec(path.basename(tarball));
+    updateLine("cli", versionChange(PACKAGE_JSON.version, packed ? packed[1] : null), "applies to the next command that runs keel");
+    return true;
   } catch (error) {
-    process.stderr.write(`keel: update failed: ${error.message}\n`);
-    return 1;
+    updateLine("cli", "failed", error.message);
+    return false;
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+function runGlobalUpdate(options) {
+  if (options.repo !== null) {
+    fail("--update refreshes the global keel CLI and does not accept a repo path");
+  }
+  if (options.target !== "claude") {
+    fail("--update refreshes the global keel CLI and does not accept --target");
+  }
+  if (options.forceTemplateUpdate) {
+    fail("--update does not accept --force-template-update; use keel --install --force-template-update for project files");
+  }
+
+  const source =
+    options.updateSource || process.env.KEEL_UPDATE_SOURCE || DEFAULT_UPDATE_SOURCE;
+  const npm = process.env.KEEL_UPDATE_NPM || npmCommand();
+
+  // Each step runs whatever the one before it did: a host that failed still
+  // leaves the others to report, and any failure fails the command.
+  const results = [
+    updateGlobalCli(options, npm, source),
+    updateClaudePlugin(options),
+    updateCodexPlugin(options),
+  ];
+  return results.every(Boolean) ? 0 : 1;
 }
 
 function runPython(script, args) {

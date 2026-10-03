@@ -88,7 +88,7 @@
 
 ## 2. One command updates the machine, and refreshes cover every target
 
-- [ ] 2.1 `keel --update` updates the installed Claude and Codex plugins and reports each component
+- [x] 2.1 `keel --update` updates the installed Claude and Codex plugins and reports each component
   - Covers:
     - keel-native-plugin-package / One owner-run update covers every installed Keel component
     - D1
@@ -101,14 +101,7 @@
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: vertical-tdd
-    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario update-covers-installed-hosts` runs `keel --update` with `KEEL_UPDATE_NPM`, `KEEL_UPDATE_CLAUDE`, and `KEEL_UPDATE_CODEX` pointing at fakes that log their argv. Each fake host answers `plugin list --json` with Keel at 5.0.0 before its update command and at 5.1.0 after it, from a Git marketplace. The scenario requires the CLI pack and install, then `claude plugin marketplace update keel-marketplace` and `claude plugin update keel@keel-marketplace`, then `codex plugin marketplace upgrade keel-marketplace` and `codex plugin add keel@keel-marketplace`, each once and in that order, and one line per component naming `5.0.0 -> 5.1.0` and when it applies. It then requires five more outcomes:
-      - With `KEEL_UPDATE_CODEX` naming a missing executable, the Codex line reads `absent` and the exit status is 0.
-      - With a non-Git Codex marketplace, the Codex line reads `manual`, names the source and `codex plugin marketplace add TanglmChris/keel --ref main`, and no Codex marketplace command runs.
-      - With differing `hooks/codex.json` between the fake installed and new roots, the Codex line names `/hooks`.
-      - With the Claude update command exiting 1, the Claude line reads `failed`, the Codex line still reports, and the exit status is nonzero.
-      - `--dry-run` prints the host commands and the fakes log nothing.
-
-      Fails with: `update-covers-installed-hosts:`
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario update-covers-installed-hosts` runs `keel --update` with `KEEL_UPDATE_NPM`, `KEEL_UPDATE_CLAUDE`, and `KEEL_UPDATE_CODEX` pointing at fakes that log their argv. Each fake host answers `plugin list --json` with Keel at 5.0.0 before its update command and at 5.1.0 after it, from a Git marketplace. The scenario requires the CLI pack and install, then `claude plugin marketplace update keel-marketplace` and `claude plugin update keel@keel-marketplace`, then `codex plugin marketplace upgrade keel-marketplace` and `codex plugin add keel@keel-marketplace`, each once and in that order, and one line per component naming `5.0.0 -> 5.1.0` and when it applies. It then requires five more outcomes. With `KEEL_UPDATE_CODEX` naming a missing executable, the Codex line reads `absent` and the exit status is 0. With a non-Git Codex marketplace, the Codex line reads `manual`, names the source and `codex plugin marketplace add TanglmChris/keel --ref main`, and no Codex marketplace command runs. With differing `hooks/codex.json` between the fake installed and new roots, the Codex line names `/hooks`. With the Claude update command exiting 1, the Claude line reads `failed`, the Codex line still reports, and the exit status is nonzero. `--dry-run` prints the host commands, and the fakes log nothing. Fails with: `update-covers-installed-hosts:`
     - M2 (regression): `npm test` passes the baseline and every registered scenario.
   - Autonomy boundary:
     - Default: hard-stop
@@ -116,9 +109,23 @@
   - Stop Rules:
     - Stop if a host offers no documented non-interactive command for a step, because Keel would have to drive the host in a way its owner did not document.
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:a417e8cfb0bc61738b185c95d9640fe5a6b111abf8ab208422c6f90eb40ee88e
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario update-covers-installed-hosts` reports `update-covers-installed-hosts scenario passed.` With fake npm, claude, and codex executables, `keel --update` runs `npm pack`, `npm install -g`, `claude plugin marketplace update keel-marketplace`, `claude plugin update keel@keel-marketplace`, `codex plugin marketplace upgrade keel-marketplace`, and `codex plugin add keel@keel-marketplace`, each once and in that order. It prints `keel update: cli: … applies to the next command that runs keel`. It also prints `keel update: claude plugin: updated 5.0.0 -> 5.1.0 - running sessions use it at their next hook call; their skills and agents after /reload-plugins` and the matching Codex line. The Codex line names no hook review while the hooks are unchanged. The other cases behave as follows:
+      - A missing Codex gives `absent` with exit 0 and no Codex call.
+      - A `local` Codex marketplace gives `manual`, naming the source and `codex plugin marketplace add TanglmChris/keel --ref main`, with no Codex call.
+      - A changed `hooks/codex.json` puts `/hooks` on the Codex line.
+      - A failing `claude plugin update` gives `failed` and a nonzero exit, while Codex still reports `5.0.0 -> 5.1.0`.
+      - `--dry-run` prints `claude plugin update keel@keel-marketplace` and `codex plugin add keel@keel-marketplace` and runs no command but the read-only lists.
+    - M1.red: fail. Before the change, the scenario reported `update-covers-installed-hosts: the update did not run the CLI then each host's commands once, in order: exit=0 calls=[] stderr=''`, which carries the declared signature `update-covers-installed-hosts:`. `KEEL_UPDATE_NPM` did not exist, so even the CLI step ran the real `npm` rather than the fake.
+    - M1.green: pass. The same scenario passes with `runGlobalUpdate` split into `updateGlobalCli`, `updateClaudePlugin`, and `updateCodexPlugin`, which report through `updateLine` and read each host through `plugin list --json`.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel --update` with only the three external executables replaced. Each fake answers `plugin list --json` from state that its own update command moves, so the reported `5.0.0 -> 5.1.0` is read back from the host rather than assumed. Every scenario of the added requirement is asserted: order and once-only, per-component lines with when each applies, `absent`, `manual` without re-pointing, changed hooks, a failure that fails the command while the others report, and a dry run. D6 holds: only this owner-run path invokes a host, and no hook reaches it. The usage text now says `--update` covers the installed plugins (I2).
+      - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, which are this task's Touch, plus this change's own `tasks.md`. The Stop rule held: every host step is a documented non-interactive command, listed by its `--help` on 2026-10-03.
+      - Findings: Resolved here: `scripts/validate_plugin.py`. The existing `update-pack-install` scenario runs a real `keel --update`, and once this task taught it to drive the hosts, that run reached the developer's real `claude` and `codex`. On this machine both plugins were already at 5.88.0 and are still at 5.88.0, as `claude plugin list --json` and `codex plugin list --json` show, so nothing was changed. The suite now sets `KEEL_UPDATE_CLAUDE` and `KEEL_UPDATE_CODEX` to non-existent paths at import, so no scenario reaches a real host unless it plants a fake and names it, and `update-pack-install` passes under that setting.
 
 - [ ] 2.2 A protocol refresh brings every installed target's overlays forward, and doctor names stale ones
   - Covers:

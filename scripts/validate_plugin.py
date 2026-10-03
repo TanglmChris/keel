@@ -21,6 +21,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# No scenario may reach the developer's real Claude Code or Codex: `keel
+# --update` drives both through their own CLIs (#204), and a scenario that ran
+# it unguarded updated the real plugins of whoever ran the suite. A scenario
+# that wants a host plants a fake and names it in its own environment.
+os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-claude")
+os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 REQUIRED_DIRECTORIES = [
     "bin",
@@ -19181,6 +19187,177 @@ def validate_adopted_update_is_silent_unless_reload_scenario() -> int:
     return 0
 
 
+# One fake for npm, claude, and codex. It appends its argv to FAKE_LOG and keeps
+# each host's installed Keel version in FAKE_STATE, so `plugin list --json`
+# answers 5.0.0 before the host's update command and 5.1.0 after it.
+UPDATE_FAKE = r"""const fs = require("fs");
+const path = require("path");
+const host = process.env.FAKE_HOST;
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([host, ...args]) + "\n");
+const stateFile = process.env.FAKE_STATE;
+const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
+const version = state[host] || "5.0.0";
+const failOn = process.env[`FAKE_FAIL_${host.toUpperCase()}`] || "";
+if (failOn && args.join(" ").includes(failOn)) process.exit(1);
+if (host === "npm") {
+  if (args[0] === "pack") {
+    const dest = args[args.indexOf("--pack-destination") + 1];
+    fs.writeFileSync(path.join(dest, "christang-keel-5.1.0.tgz"), "");
+    process.stdout.write(JSON.stringify([{ filename: "christang-keel-5.1.0.tgz" }]));
+  }
+  process.exit(0);
+}
+const joined = args.join(" ");
+if (joined === "plugin list --json") {
+  if (host === "claude") {
+    process.stdout.write(JSON.stringify([{ id: "keel@keel-marketplace", version,
+      installPath: `/fake/claude/cache/keel-marketplace/keel/${version}` }]));
+  } else {
+    process.stdout.write(JSON.stringify({ installed: [{ pluginId: "keel@keel-marketplace", name: "keel",
+      marketplaceName: "keel-marketplace", version, installed: true,
+      source: { source: "local", path: process.env.FAKE_CODEX_SOURCE },
+      marketplaceSource: { sourceType: process.env.FAKE_CODEX_MARKET_TYPE || "git",
+        source: "https://github.com/TanglmChris/keel.git" } }], available: [] }));
+  }
+  process.exit(0);
+}
+if (joined === "plugin update keel@keel-marketplace" || joined === "plugin add keel@keel-marketplace") {
+  state[host] = "5.1.0";
+  save();
+}
+process.exit(0);
+"""
+
+
+def validate_update_covers_installed_hosts_scenario() -> int:
+    """Issue #204: one owner-run `keel --update` covers every installed component.
+
+    After the CLI, it updates the Claude and Codex plugins through each host's
+    own documented commands, and reports one line per component that says what
+    changed, when it applies, and what the owner must still do.
+    """
+    label = "update-covers-installed-hosts:"
+    with tempfile.TemporaryDirectory(prefix="keel-update-hosts-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+        codex_home = tmp / "codex-home"
+        installed_hooks = codex_home / "plugins/cache/keel-marketplace/keel/5.0.0/hooks/codex.json"
+        source = tmp / "codex-source"
+        hooks = (ROOT / PLUGIN_ROOT / "hooks/codex.json").read_text(encoding="utf-8")
+        write_text(installed_hooks, hooks)
+        write_text(source / "hooks/codex.json", hooks)
+
+        def update(*extra: str, env_extra: dict[str, str] | None = None):
+            log = tmp / "log.jsonl"
+            state = tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]),
+                "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]),
+                "CODEX_HOME": str(codex_home),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state),
+                "FAKE_CODEX_SOURCE": str(source),
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            env.update(env_extra or {})
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update", *extra], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=60)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            return result, [c for c in calls if c[1:] != ["plugin", "list", "--json"]]
+
+        def line_for(output: str, component: str) -> str:
+            found = [l for l in output.splitlines() if l.startswith(f"keel update: {component}:")]
+            return found[0] if len(found) == 1 else ""
+
+        result, calls = update()
+        expected = [
+            ["npm", "pack"], ["npm", "install", "-g"],
+            ["claude", "plugin", "marketplace", "update", "keel-marketplace"],
+            ["claude", "plugin", "update", "keel@keel-marketplace"],
+            ["codex", "plugin", "marketplace", "upgrade", "keel-marketplace"],
+            ["codex", "plugin", "add", "keel@keel-marketplace"],
+        ]
+        got = [c[:len(e)] for c, e in zip(calls, expected)]
+        if result.returncode != 0 or got != expected or len(calls) != len(expected):
+            report(f"{label} the update did not run the CLI then each host's commands once, in order: "
+                   f"exit={result.returncode} calls={calls!r} stderr={result.stderr!r}")
+            return 1
+        claude_line = line_for(result.stdout, "claude plugin")
+        codex_line = line_for(result.stdout, "codex plugin")
+        cli_line = line_for(result.stdout, "cli")
+        for name, line, needles in (
+            ("cli", cli_line, ["next command"]),
+            ("claude plugin", claude_line, ["5.0.0 -> 5.1.0", "next hook call", "/reload-plugins"]),
+            ("codex plugin", codex_line, ["5.0.0 -> 5.1.0", "next hook call"]),
+        ):
+            missing = [n for n in needles if n not in line]
+            if not line or missing:
+                report(f"{label} the {name} line is missing or lacks {missing!r}: {result.stdout!r}")
+                return 1
+        if "/hooks" in codex_line:
+            report(f"{label} the Codex line asked for hook review with unchanged hooks: {codex_line!r}")
+            return 1
+
+        result, calls = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
+        codex_line = line_for(result.stdout, "codex plugin")
+        if result.returncode != 0 or "absent" not in codex_line or any(c[0] == "codex" for c in calls):
+            report(f"{label} a missing Codex was not reported absent with exit 0: "
+                   f"exit={result.returncode} line={codex_line!r}")
+            return 1
+
+        result, calls = update(env_extra={"FAKE_CODEX_MARKET_TYPE": "local"})
+        codex_line = line_for(result.stdout, "codex plugin")
+        if ("manual" not in codex_line
+                or "codex plugin marketplace add TanglmChris/keel --ref main" not in codex_line
+                or any(c[0] == "codex" for c in calls)):
+            report(f"{label} a local Codex marketplace was not reported manual without running "
+                   f"Codex commands: line={codex_line!r} calls={calls!r}")
+            return 1
+
+        write_text(source / "hooks/codex.json", hooks.replace('"timeout": 15', '"timeout": 16'))
+        result, calls = update()
+        write_text(source / "hooks/codex.json", hooks)
+        if "/hooks" not in line_for(result.stdout, "codex plugin"):
+            report(f"{label} changed Codex hook definitions were not named: {result.stdout!r}")
+            return 1
+
+        result, calls = update(env_extra={"FAKE_FAIL_CLAUDE": "plugin update"})
+        claude_line = line_for(result.stdout, "claude plugin")
+        codex_line = line_for(result.stdout, "codex plugin")
+        if result.returncode == 0 or "failed" not in claude_line or "5.0.0 -> 5.1.0" not in codex_line:
+            report(f"{label} a failed Claude update did not fail the command while Codex still "
+                   f"reported: exit={result.returncode} {result.stdout!r}")
+            return 1
+
+        result, calls = update("--dry-run")
+        if (result.returncode != 0 or calls
+                or "claude plugin update keel@keel-marketplace" not in result.stdout
+                or "codex plugin add keel@keel-marketplace" not in result.stdout):
+            report(f"{label} --dry-run ran a command or did not print the host commands: "
+                   f"calls={calls!r} stdout={result.stdout!r}")
+            return 1
+
+    if "update-covers-installed-hosts" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-covers-installed-hosts scenario passed.")
+    return 0
+
+
 def validate_official_directory_entry_scenario() -> int:
     """Each release states the entry Anthropic's official directory would list.
 
@@ -35061,6 +35238,7 @@ SCENARIOS: tuple = (
     ("hook-hands-off-to-installed-update", validate_hook_hands_off_to_installed_update_scenario),
     ("guard-keeps-loaded-logic-under-manifest", validate_guard_keeps_loaded_logic_under_manifest_scenario),
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
+    ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("official-directory-entry", validate_official_directory_entry_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
