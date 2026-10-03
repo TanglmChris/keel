@@ -31,7 +31,7 @@
   - Stop if:
     - The check would need to write any file, or to call anything but the local store.
 
-- [ ] 1.2 The documentation steers hosts away from model polling
+- [x] 1.2 The documentation steers hosts away from model polling
   - Covers:
     - D2
     - F1
@@ -48,7 +48,15 @@
     - Reason: the change is guidance prose; its claims are checked against the shipped command and the session-log facts in design.md.
     - M1: each of the five documents states that the chat must not be polled with the model, and names the prompt-time notice as the path for hosts without idle wake. Each also says a schedule, when unavoidable, is gated by `keel chat notice --check` and starts a fresh thread per run, and that the text starting a chat session should say not to set up recurring checks. A one-off script greps each document for those four statements and checks that every `keel chat` command they name exists in `keel chat help`; its output is quoted in Evidence.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:a3c170c182918b76d90a5a02568dbf90f293ecce8d5d3a43ce1deecd7ac25af1
+    - M1: pass. `python3 openspec/changes/model-free-chat-check/evidence/check_docs.py "$PWD"` printed `checked 5 documents x 5 statements` and `failures: none`. It checks that each of `docs/chat-slack-setup.md`, `docs/chat-slack-setup.zh-CN.md`, `docs/codex-validation.md`, `README.md`, and `README.zh-CN.md` states that the chat must not be polled with the model, names the prompt-time notice, gates any schedule on `keel chat notice --check` with a fresh thread per run, and tells sessions not to set up recurring checks. It also checks that the command it names exists in `keel chat help`. A negative run against a copy with `recurring` removed from `docs/codex-validation.md` reported `docs/codex-validation.md: lacks no recurring checks at start` and exited 1, so the checker does detect a missing statement. Checker: artifact openspec/changes/model-free-chat-check/evidence/check_docs.py sha256:3f4bed1f92b50955ee959bf07081273966d5a608787c4e7c4644110d2d00c6ba
+    - Review:
+      - Status: pass
+      - Acceptance check: D2's four statements appear in all five documents, in each document's language, and the only command they name is the one 1.1 shipped. Each document carries F1's facts (the minutely heartbeat appending to one thread, 1,277 runs, quota exhausted before the mention) in a form a reader can act on. F2's fact appears as the recommendation to rely on the prompt-time notice.
+      - Scope check: The diff changes the five documents and `keel/CHANGELOG.md`, all of which are in Touch, plus this change's own directory, which holds the checker.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
 
 ## Invalidates
 
