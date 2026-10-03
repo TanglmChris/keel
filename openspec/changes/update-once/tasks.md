@@ -127,7 +127,7 @@
       - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, which are this task's Touch, plus this change's own `tasks.md`. The Stop rule held: every host step is a documented non-interactive command, listed by its `--help` on 2026-10-03.
       - Findings: Resolved here: `scripts/validate_plugin.py`. The existing `update-pack-install` scenario runs a real `keel --update`, and once this task taught it to drive the hosts, that run reached the developer's real `claude` and `codex`. On this machine both plugins were already at 5.88.0 and are still at 5.88.0, as `claude plugin list --json` and `codex plugin list --json` show, so nothing was changed. The suite now sets `KEEL_UPDATE_CLAUDE` and `KEEL_UPDATE_CODEX` to non-existent paths at import, so no scenario reaches a real host unless it plants a fake and names it, and `update-pack-install` passes under that setting.
 
-- [ ] 2.2 A protocol refresh brings every installed target's overlays forward, and doctor names stale ones
+- [x] 2.2 A protocol refresh brings every installed target's overlays forward, and doctor names stale ones
   - Covers:
     - keel-openspec-surface-overlay / A protocol refresh brings every installed target's overlays forward
     - D5
@@ -145,9 +145,18 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:96df266294c5414b255920f3006e69ea3eec696bbac269817946af25bf5107bc
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: F4 was corrected before implementation started, after a scratch reproduction showed doctor reports an old overlay as `missing - 0/4` rather than `ok`. The recorded fingerprint moved, and task-start was re-recorded at `sha256:96df266294c5414b255920f3006e69ea3eec696bbac269817946af25bf5107bc`. No execution evidence existed to clear.
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario refresh-covers-every-target` reports `refresh-covers-every-target scenario passed.` In a scratch repository carrying Claude and Codex surfaces with every overlay marker set to `version=5.0.0`, `keel --doctor --target claude` reports the Codex overlay `stale`, not `missing`, naming `keel --install`. `keel --install --target claude` then leaves each Claude and Codex overlay with exactly one marker at the running version, and the content outside the overlay block is byte-identical. A Claude-only repository gains no `.agents/`, `.opencode/`, or `.codex/` from the same command.
+    - M1.red: fail. Before the change, the scenario reported `refresh-covers-every-target: doctor did not report the old Codex overlays stale with the refresh command: 'Codex Keel apply/archive/sync overlay: missing - 0/4 under skills and commands; run keel --init --target codex or keel --install --target codex'`, which carries the declared signature `refresh-covers-every-target:`.
+    - M1.green: pass. The same scenario passes with `hasStaleOpenSpecOverlay`, `overlayStatus`, and `overlayCountDetail` in doctor, and with `refreshInstalledTargetOverlays` replacing the single-target refresh in `--init`, `--install`, and `--check`.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the public `keel --doctor` and `keel --install` on a repository built by `keel --init` for both targets, and checks the three scenarios of the added requirement directly: both targets brought to the running version with upstream content untouched, no absent target created, and the stale line naming its target and remedy. The fixture also exposed a second path to the same defect. `--init --target codex` runs `openspec update --force`, which rewrites Claude's surfaces too, and it put back only Codex's overlays. `refreshInstalledTargetOverlays` in the init path closes that one as well, so the fixture's extra per-target `--install` is now belt and braces.
+      - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, which are this task's Touch, plus this change's `tasks.md` and `design.md` (the F4 correction). The same commit splits the multi-failure conditions in 1.1, 1.2, and 2.1's scenarios into one failure per message, inside `scripts/validate_plugin.py`, which `assertion-shape-count` required.
+      - Findings: Resolved here: M1. F4 as first written said doctor reported the stale Codex overlays `ok`. That was wrong, because the grep that seemed to show it had skipped lines starting with `Codex`. Doctor reported them `missing`. The design now says so, and the task makes the line read `stale`.
 
 - [ ] 2.3 The update steps and the per-host capability matrix are documented, and the Codex probe is a repeatable opt-in check
   - Covers:

@@ -1343,7 +1343,7 @@ function runProjectInit(options) {
     }
   }
   if (openspecTools || keepSurfaces) {
-    return refreshOpenSpecSurfaceOverlay(repo, options.target, {
+    return refreshInstalledTargetOverlays(repo, options.target, {
       dryRun: options.dryRun,
     }).status;
   }
@@ -1803,6 +1803,20 @@ function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
   return { status: 0, ...counts };
 }
 
+// A project's session usually refreshes through the one target it runs on,
+// while OpenSpec's own update rewrites every tool's surfaces at once. Each
+// target the repository carries is therefore refreshed, the selected one
+// first; a target with no surfaces is left uncreated (#204).
+function refreshInstalledTargetOverlays(repo, selected, options = {}) {
+  const targets = [selected, ...installedOpenSpecTargets(repo).filter((t) => t !== selected)];
+  let status = 0;
+  for (const target of targets) {
+    const result = refreshOpenSpecSurfaceOverlay(repo, target, options);
+    if (result.status !== 0) status = result.status;
+  }
+  return { status };
+}
+
 function hasCurrentOpenSpecOverlay(filePath) {
   if (!fs.existsSync(filePath)) {
     return false;
@@ -1812,9 +1826,30 @@ function hasCurrentOpenSpecOverlay(filePath) {
     .includes(OPENSPEC_SURFACE_OVERLAY_START);
 }
 
+// An overlay from another Keel version is present, not missing: it names the
+// gates of the version that wrote it, and the remedy is a refresh. Reporting
+// it as missing sent the reader looking for files that were there (#204).
+function hasStaleOpenSpecOverlay(filePath) {
+  if (!fs.existsSync(filePath)) return false;
+  const content = fs.readFileSync(filePath, "utf8");
+  return OPENSPEC_SURFACE_OVERLAY_RE.test(content)
+    && !content.includes(OPENSPEC_SURFACE_OVERLAY_START);
+}
+
 function countOpenSpecOverlays(paths) {
   const current = paths.filter(hasCurrentOpenSpecOverlay);
-  return { existing: current.length, total: paths.length };
+  const stale = paths.filter(hasStaleOpenSpecOverlay);
+  return { existing: current.length, stale: stale.length, total: paths.length };
+}
+
+function overlayStatus(counts) {
+  if (counts.existing === counts.total) return "ok";
+  return counts.stale > 0 && counts.existing + counts.stale === counts.total ? "stale" : "missing";
+}
+
+function overlayCountDetail(counts, location) {
+  const stale = counts.stale > 0 ? `, ${counts.stale} from another Keel version` : "";
+  return `${formatCount(counts, location)}${stale}`;
 }
 
 function overlayRemediation(target) {
@@ -1844,9 +1879,9 @@ function printAdditionalOverlayHealth(repo, selectedTarget) {
     const name = { claude: "Claude", codex: "Codex", opencode: "OpenCode" }[target];
     printDoctorLine(
       `${name} Keel ${overlayActionLabel()} overlay`,
-      surfaceStatus(counts),
-      `${formatCount(counts, "skills and commands")}`
-        + (surfaceStatus(counts) === "ok" ? "" : `; ${overlayRemediation(target)}`)
+      overlayStatus(counts),
+      `${overlayCountDetail(counts, "skills and commands")}`
+        + (overlayStatus(counts) === "ok" ? "" : `; ${overlayRemediation(target)}`)
     );
   }
 }
@@ -1989,15 +2024,15 @@ function printTargetSurface(repo, target) {
   );
   const overlayCounts = countOpenSpecOverlays(overlayPaths);
   const overlayDetail =
-    surfaceStatus(overlayCounts) === "ok"
+    overlayStatus(overlayCounts) === "ok"
       ? formatCount(overlayCounts, `${overlayActionLabel()} skills and commands`)
-      : `${formatCount(
+      : `${overlayCountDetail(
           overlayCounts,
           `${overlayActionLabel()} skills and commands`
         )}; ${overlayRemediation(target)}`;
   printDoctorLine(
     `Keel ${overlayActionLabel()} overlay`,
-    surfaceStatus(overlayCounts),
+    overlayStatus(overlayCounts),
     overlayDetail
   );
 
@@ -2742,7 +2777,7 @@ function runAction(options) {
     if (installStatus !== 0) {
       return installStatus;
     }
-    return refreshOpenSpecSurfaceOverlay(
+    return refreshInstalledTargetOverlays(
       path.resolve(options.repo || process.cwd()),
       options.target,
       { dryRun: options.dryRun }
@@ -2789,7 +2824,7 @@ function runAction(options) {
     }
     // The overlay refresh is a Node-side step the installer's plan never sees,
     // so without this `--check` reports an empty plan for a run that writes.
-    return refreshOpenSpecSurfaceOverlay(
+    return refreshInstalledTargetOverlays(
       path.resolve(options.repo || process.cwd()),
       options.target,
       { dryRun: true }

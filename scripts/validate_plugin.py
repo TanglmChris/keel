@@ -19076,9 +19076,14 @@ def validate_guard_keeps_loaded_logic_under_manifest_scenario() -> int:
         # observable as empty output rather than the stub's.
         slow = run_hook_script(guard, [], event, repo,
                                {"HANDOFF_STUB_SLEEP_MS": "5000", "KEEL_HOOK_FORWARD_TIMEOUT_MS": "300"})
-        if stub_output(slow) is not None or slow.returncode != 0 or slow.stdout.strip():
-            report(f"{label} a timed-out hand-off did not fall back to the loaded guard: "
-                   f"exit={slow.returncode} stdout={slow.stdout!r}")
+        if stub_output(slow) is not None:
+            report(f"{label} a timed-out hand-off still relayed the newer guard: {slow.stdout!r}")
+            return 1
+        if slow.returncode != 0:
+            report(f"{label} a timed-out hand-off made the guard exit {slow.returncode}: {slow.stderr!r}")
+            return 1
+        if slow.stdout.strip():
+            report(f"{label} a timed-out hand-off did not leave the loaded guard's silent allow: {slow.stdout!r}")
             return 1
 
     if "guard-keeps-loaded-logic-under-manifest" not in {name for name, _ in SCENARIOS}:
@@ -19153,9 +19158,12 @@ def validate_adopted_update_is_silent_unless_reload_scenario() -> int:
         context, human = channels()
         for name, text in (("additionalContext", context), ("systemMessage", human)):
             lowered = text.lower()
-            if "fallback" in lowered or not ("projection" in lowered or "keel:" in lowered):
-                report(f"{label} {name} is not a projection; the handed-off SessionStart "
-                       f"did not run to completion: {text!r}")
+            if "fallback" in lowered:
+                report(f"{label} {name} is the hook's fallback, so the handed-off SessionStart "
+                       f"did not reach a working CLI: {text!r}")
+                return 1
+            if "projection" not in lowered and "keel:" not in lowered:
+                report(f"{label} {name} carries no projection: {text!r}")
                 return 1
             if "versions disagree" in lowered or "/reload-plugins" in lowered or "5.0.0" in text:
                 report(f"{label} {name} reported versions or a reload after a compatible, "
@@ -19314,18 +19322,26 @@ def validate_update_covers_installed_hosts_scenario() -> int:
 
         result, calls = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
         codex_line = line_for(result.stdout, "codex plugin")
-        if result.returncode != 0 or "absent" not in codex_line or any(c[0] == "codex" for c in calls):
-            report(f"{label} a missing Codex was not reported absent with exit 0: "
-                   f"exit={result.returncode} line={codex_line!r}")
+        if result.returncode != 0:
+            report(f"{label} a missing Codex failed the update: exit={result.returncode} {result.stdout!r}")
+            return 1
+        if "absent" not in codex_line:
+            report(f"{label} a missing Codex was not reported absent: {codex_line!r}")
+            return 1
+        if any(c[0] == "codex" for c in calls):
+            report(f"{label} a missing Codex still received commands: {calls!r}")
             return 1
 
         result, calls = update(env_extra={"FAKE_CODEX_MARKET_TYPE": "local"})
         codex_line = line_for(result.stdout, "codex plugin")
-        if ("manual" not in codex_line
-                or "codex plugin marketplace add TanglmChris/keel --ref main" not in codex_line
-                or any(c[0] == "codex" for c in calls)):
-            report(f"{label} a local Codex marketplace was not reported manual without running "
-                   f"Codex commands: line={codex_line!r} calls={calls!r}")
+        if "manual" not in codex_line:
+            report(f"{label} a local Codex marketplace was not reported manual: {codex_line!r}")
+            return 1
+        if "codex plugin marketplace add TanglmChris/keel --ref main" not in codex_line:
+            report(f"{label} the manual Codex line does not name the Git marketplace command: {codex_line!r}")
+            return 1
+        if any(c[0] == "codex" for c in calls):
+            report(f"{label} a local Codex marketplace still received commands: {calls!r}")
             return 1
 
         write_text(source / "hooks/codex.json", hooks.replace('"timeout": 15', '"timeout": 16'))
@@ -19338,23 +19354,125 @@ def validate_update_covers_installed_hosts_scenario() -> int:
         result, calls = update(env_extra={"FAKE_FAIL_CLAUDE": "plugin update"})
         claude_line = line_for(result.stdout, "claude plugin")
         codex_line = line_for(result.stdout, "codex plugin")
-        if result.returncode == 0 or "failed" not in claude_line or "5.0.0 -> 5.1.0" not in codex_line:
-            report(f"{label} a failed Claude update did not fail the command while Codex still "
-                   f"reported: exit={result.returncode} {result.stdout!r}")
+        if result.returncode == 0:
+            report(f"{label} a failed Claude update left the exit status 0: {result.stdout!r}")
+            return 1
+        if "failed" not in claude_line:
+            report(f"{label} a failed Claude update was not reported failed: {claude_line!r}")
+            return 1
+        if "5.0.0 -> 5.1.0" not in codex_line:
+            report(f"{label} Codex did not still update after Claude failed: {codex_line!r}")
             return 1
 
         result, calls = update("--dry-run")
-        if (result.returncode != 0 or calls
-                or "claude plugin update keel@keel-marketplace" not in result.stdout
-                or "codex plugin add keel@keel-marketplace" not in result.stdout):
-            report(f"{label} --dry-run ran a command or did not print the host commands: "
-                   f"calls={calls!r} stdout={result.stdout!r}")
+        if result.returncode != 0:
+            report(f"{label} --dry-run failed: exit={result.returncode} {result.stderr!r}")
             return 1
+        if calls:
+            report(f"{label} --dry-run ran commands: {calls!r}")
+            return 1
+        for planned in ("claude plugin update keel@keel-marketplace", "codex plugin add keel@keel-marketplace"):
+            if planned not in result.stdout:
+                report(f"{label} --dry-run did not print `{planned}`: {result.stdout!r}")
+                return 1
 
     if "update-covers-installed-hosts" not in {name for name, _ in SCENARIOS}:
         report(f"{label} scenario is not registered.")
         return 1
     report("update-covers-installed-hosts scenario passed.")
+    return 0
+
+
+OVERLAY_START_RE = re.compile(r"<!--\s*keel:openspec-surface-overlay version=([^ ]+) -->")
+OVERLAY_BLOCK_RE = re.compile(
+    r"<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?"
+    r"<!--\s*keel:openspec-surface-overlay:end\s*-->"
+)
+
+
+def validate_refresh_covers_every_target_scenario() -> int:
+    """Issue #204: a protocol refresh brings every installed target forward.
+
+    Each project's own session refreshes its protocol, usually through the one
+    target that session runs on. A refresh that touched only that target left
+    another target's overlays at an old version (TanglmChris/rtl_ppa_prj, Codex
+    at 5.84.0 after a Claude refresh to 5.88.0), and doctor called them
+    missing, which sends the reader looking for files that are there.
+    """
+    label = "refresh-covers-every-target:"
+    version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    with tempfile.TemporaryDirectory(prefix="keel-refresh-targets-", ignore_cleanup_errors=True) as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        # `--install` per target after both inits, because before this change
+        # `--init --target codex` rewrote Claude's surfaces through OpenSpec and
+        # put back only Codex's overlays.
+        for action, target in (("--init", "claude"), ("--init", "codex"),
+                               ("--install", "claude"), ("--install", "codex")):
+            setup = run_keel(repo, action, "--target", target)
+            if setup.returncode != 0:
+                report(f"{label} {action} --target {target} failed: {setup.stdout}{setup.stderr}")
+                return 1
+        surfaces = sorted(
+            [p for p in (repo / ".claude").rglob("*.md") if OVERLAY_START_RE.search(p.read_text(encoding="utf-8"))]
+            + [p for p in (repo / ".agents/skills").rglob("SKILL.md")
+               if OVERLAY_START_RE.search(p.read_text(encoding="utf-8"))]
+        )
+        codex = [p for p in surfaces if ".agents" in p.parts]
+        if not codex or len(codex) == len(surfaces):
+            report(f"{label} the fixture does not carry overlays on both targets: {surfaces!r}")
+            return 1
+        bodies = {}
+        for surface in surfaces:
+            text = OVERLAY_START_RE.sub("<!-- keel:openspec-surface-overlay version=5.0.0 -->",
+                                        surface.read_text(encoding="utf-8"))
+            surface.write_text(text, encoding="utf-8")
+            bodies[surface] = OVERLAY_BLOCK_RE.sub("", text)
+
+        doctor = run_keel(repo, "--doctor", "--target", "claude")
+        codex_line = next((l for l in doctor.stdout.splitlines() if l.startswith("Codex Keel")), "")
+        if "stale" not in codex_line:
+            report(f"{label} doctor did not report the old Codex overlays stale: {codex_line!r}")
+            return 1
+        if "missing" in codex_line:
+            report(f"{label} doctor called present Codex overlays missing: {codex_line!r}")
+            return 1
+        if "keel --install" not in codex_line:
+            report(f"{label} doctor's stale Codex line names no refresh command: {codex_line!r}")
+            return 1
+
+        refresh = run_keel(repo, "--install", "--target", "claude")
+        if refresh.returncode != 0:
+            report(f"{label} --install --target claude failed: {refresh.stdout}{refresh.stderr}")
+            return 1
+        for surface in surfaces:
+            text = surface.read_text(encoding="utf-8")
+            versions = OVERLAY_START_RE.findall(text)
+            if versions != [version]:
+                report(f"{label} {surface.relative_to(repo)} carries overlay versions {versions!r} "
+                       f"after a Claude refresh, not one at {version}.")
+                return 1
+            if OVERLAY_BLOCK_RE.sub("", text) != bodies[surface]:
+                report(f"{label} the refresh changed upstream content in {surface.relative_to(repo)}.")
+                return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-refresh-one-target-", ignore_cleanup_errors=True) as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        run_keel(repo, "--init", "--target", "claude")
+        refresh = run_keel(repo, "--install", "--target", "claude")
+        created = [name for name in (".agents", ".opencode", ".codex") if (repo / name).exists()]
+        if refresh.returncode != 0 or created:
+            report(f"{label} a Claude-only repository gained {created!r} from a refresh "
+                   f"(exit {refresh.returncode}).")
+            return 1
+
+    if "refresh-covers-every-target" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("refresh-covers-every-target scenario passed.")
     return 0
 
 
@@ -35239,6 +35357,7 @@ SCENARIOS: tuple = (
     ("guard-keeps-loaded-logic-under-manifest", validate_guard_keeps_loaded_logic_under_manifest_scenario),
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
+    ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("official-directory-entry", validate_official_directory_entry_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
