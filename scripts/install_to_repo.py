@@ -102,13 +102,16 @@ TASKS_LEGACY_HEADING_PATTERNS = (
         "remove legacy ## Current Completion; derive progress from checklist [x]/[ ] state",
     ),
 )
+TASKS_DIRTY_STATE_PATTERN = re.compile(
+    r"(?i)\b(?:dirty|uncommitted|not\s+committed|pending\s+commit)\b"
+)
 TASKS_COMMIT_STATUS_PATTERNS = (
     (
         re.compile(r"(?i)\bcommit[-\s]?hash\b"),
         "remove commit hash wording from tasks.md; git log is the source of truth",
     ),
     (
-        re.compile(r"(?i)\b(?:dirty|uncommitted|not\s+committed|pending\s+commit)\b"),
+        TASKS_DIRTY_STATE_PATTERN,
         "remove dirty/uncommitted state from tasks.md; keep durable work state in OpenSpec and use HANDOFF only as an explicit pointer override",
     ),
     (
@@ -170,6 +173,29 @@ _HASH_CONTEXT_WORD = (
 TASKS_CONTEXTUAL_HASH_RE = re.compile(
     rf"(?i){_HASH_CONTEXT_WORD}.*{_HASH_SHAPED_TOKEN}|"
     rf"{_HASH_SHAPED_TOKEN}.*{_HASH_CONTEXT_WORD}"
+)
+# Inside a task field the two rules above read a claim, not a line (#213). A
+# field cites its provenance — the base a Scope check compared against, which
+# keel-review-checklist asks it to name, the commit a result ran on, the inputs
+# a hash identifies — and a context word elsewhere on that line does not make
+# the token a record. So a field refuses a token only where a state claim binds
+# it: a context word naming it directly, or the token followed by the act.
+TASKS_FIELD_BOUND_HASH_RE = re.compile(
+    r"(?i)\b(?:commits?|committed|committing|master|main|HEAD|hash(?:es)?)\b"
+    r"[\s:=@(\uff08-]*(?:(?:is|was|now)\s+)?(?:(?:at|as|to|into|onto|in|on)\s+)?"
+    rf"{_HASH_SHAPED_TOKEN}"
+    rf"|{_HASH_SHAPED_TOKEN}\s*(?:(?:is|was)\s+)?\b(?:committed|merged|pushed)\b"
+    rf"|(?:提交|合入|哈希)\S{{0,4}}?\s*{_HASH_SHAPED_TOKEN}"
+)
+# Likewise `dirty` names the design under test as often as this worktree — a
+# cache buffer's dirty groups — and a negation says the opposite of what the
+# bare word matched. Inside a field the word is refused only as a claim about
+# the work: predicative after a copula, or the value of a Status/State label.
+TASKS_FIELD_DIRTY_STATE_RE = re.compile(
+    r"(?i)\b(?:is|are|was|were|remains?|remained|stays?|stayed|left)\s+"
+    r"(?:(?:still|now|yet)\s+)?(?:dirty|uncommitted)\b"
+    r"|\b(?:status|state)\s*[:\uff1a=]\s*(?:dirty|uncommitted)\b"
+    r"|\bnot\s+(?:yet\s+)?committed\b|\bpending\s+commit\b"
 )
 
 
@@ -735,6 +761,25 @@ def covers_field_lines(content: str) -> set[int]:
     return lines
 
 
+def task_field_lines(content: str) -> set[int]:
+    """1-based line numbers inside any task field.
+
+    A field starts at a two-space `- Name:` label, the compiler's bound, and
+    runs until a non-blank line indented less than two spaces — the next task
+    title, a heading, or a notes section, which keep the line-wide rules.
+    """
+    inside = False
+    lines: set[int] = set()
+    for number, line in enumerate(content.splitlines(), start=1):
+        if TASKS_FIELD_LABEL_RE.match(line):
+            inside = True
+        elif line.strip() and not line.startswith("  "):
+            inside = False
+        if inside:
+            lines.add(number)
+    return lines
+
+
 # What an author quotes is content they cite, not a claim they make. Evidence
 # prose quotes the command that ran, the output it printed, the branch base it
 # ran against, and the name of the requirement under change — and every one of
@@ -787,6 +832,7 @@ def check_tasks_semantics(repo: Path) -> list[str]:
                 errors.append(f"{relative}:{line}: {message}")
 
         cited = covers_field_lines(content)
+        fields = task_field_lines(content)
         fenced = False
         for line_number, line in enumerate(content.splitlines(), start=1):
             # A fenced block is one long quoted span, and its own delimiter
@@ -799,7 +845,10 @@ def check_tasks_semantics(repo: Path) -> list[str]:
             if fenced or is_tasks_rule_line(line) or line_number in cited:
                 continue
             line = without_quoted_spans(line)
+            in_field = line_number in fields
             for pattern, message in TASKS_COMMIT_STATUS_PATTERNS:
+                if in_field and pattern is TASKS_DIRTY_STATE_PATTERN:
+                    pattern = TASKS_FIELD_DIRTY_STATE_RE
                 if pattern.search(line):
                     errors.append(f"{relative}:{line_number}: {message}")
             if TASKS_SUBMISSION_STATE_RE.search(line) and TASKS_GIT_CONTEXT_RE.search(
@@ -808,7 +857,8 @@ def check_tasks_semantics(repo: Path) -> list[str]:
                 errors.append(
                     f"{relative}:{line_number}: {TASKS_SUBMISSION_MESSAGE}"
                 )
-            if TASKS_CONTEXTUAL_HASH_RE.search(line):
+            hash_rule = TASKS_FIELD_BOUND_HASH_RE if in_field else TASKS_CONTEXTUAL_HASH_RE
+            if hash_rule.search(line):
                 errors.append(
                     f"{relative}:{line_number}: remove contextual commit hash from tasks.md; git log is the source of truth"
                 )

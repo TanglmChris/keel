@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.90.2"
-PROTOCOL_VERSION = "5.90.2"
+PACKAGE_VERSION = "5.91.0"
+PROTOCOL_VERSION = "5.91.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -29733,6 +29733,90 @@ def validate_a_quoted_span_is_not_a_claim_scenario() -> int:
     return 0
 
 
+def validate_a_task_field_cites_its_provenance_scenario() -> int:
+    """Issue #213: a Review field naming its base failed `keel state`.
+
+    The contextual-hash rule matched a context word and a hash-shaped token
+    anywhere on one line, and the dirty rule matched the bare word. Inside a
+    task field that reads cited provenance as recorded state: the base a Scope
+    check compared against (which keel-review-checklist asks it to name), the
+    commit a result ran on, a cache buffer's `dirty groups`, and a negation
+    about another checkout. Each accepted line below is one rtl_ppa_prj wrote,
+    shortened; line 262's shape is an Acceptance criterion of a checked task,
+    so rewording it would move a recorded fingerprint.
+    """
+    label = "a-task-field-cites-its-provenance"
+    task = "- [x] A1 implementation\n"
+    accepted = (
+        ("a Scope check naming its base",
+         "  - Evidence:\n    - Review:\n      - Scope check: git diff against task-start "
+         "base 1f3a6b0 changes only the declared TB. Frozen input hashes identify "
+         "actual 211dfb5 RTL.\n"),
+        ("an Acceptance check naming the commit it ran on",
+         "  - Evidence:\n    - Review:\n      - Acceptance check: P2 55/55 on dec4d6e. "
+         "All 15 manifests match current source hashes.\n"),
+        ("an Acceptance criterion bounding scope by a base",
+         "  - Acceptance:\n    - Only declared files change after synchronized base "
+         "dec4d6e. Capture shared HEAD and reject unexpected staged scope before commit.\n"),
+        ("a domain term",
+         "  - Evidence:\n    - M2: pass. All 24 resource traces end with no dirty groups.\n"),
+        ("a negation about another checkout",
+         "  - Evidence:\n    - Review:\n      - Scope check: no design edits were authored "
+         "or copied from uncommitted Claude changes.\n"),
+    )
+    refused = (
+        ("a commit recorded in a field",
+         "  - Evidence:\n    - M1: pass, committed to main as a1b2c3d.\n"),
+        ("HEAD recorded in a field", "  - Evidence:\n    - M1: HEAD is at a1b2c3d.\n"),
+        ("a merge recorded in Chinese", "  - Evidence:\n    - M1: 已合入 a1b2c3d。\n"),
+        ("work state stated in a field",
+         "  - Evidence:\n    - M1: pass, but the work is still uncommitted.\n"),
+        ("a Status value", "  - Evidence:\n    - Status: dirty\n"),
+    )
+
+    with tempfile.TemporaryDirectory(prefix="keel-task-field-") as raw:
+        check, failure = _tasks_semantics_probe(raw)
+        if failure is not None:
+            report(f"{label}: keel --install failed while building the fixture.")
+            report(failure)
+            return 1
+        for description, body in accepted:
+            state, errors = check(task + body)
+            if state == "unreported":
+                report(f"{label}: keel --check reported no state at all on {description}.")
+                return 1
+            if state != "ok":
+                report(f"{label}: {description} was refused as recorded state. A task "
+                       "field cites its provenance, and the only repair open to the "
+                       "author is to leave the evidence out.")
+                for error in errors:
+                    report(f"  {error}")
+                return 1
+        # The boundary: a bound claim inside a field, and any claim outside one.
+        for description, body in (*refused, (
+            "a title line carrying a context word and a hash apart",
+            "- [x] A1 done on main, see a1b2c3d\n  - Touch:\n    - src/a.js\n",
+        )):
+            text = body if body.startswith("- [") else task + body
+            state, errors = check(text)
+            if state == "unreported":
+                report(f"{label}: keel --check reported no state at all on {description}.")
+                return 1
+            if state != "failed":
+                report(f"{label}: {description} was accepted. Binding the rule to a "
+                       "claim must not stop it refusing the claim.")
+                return 1
+            if not [error for error in errors if "tasks.md:" in error]:
+                report(f"{label}: the refusal of {description} named no line.")
+                return 1
+
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_a_covers_citation_is_not_a_record_scenario() -> int:
     """Issue #65 §4: the rule refused a tasks.md that cited it.
 
@@ -35605,6 +35689,10 @@ SCENARIOS: tuple = (
     (
         "a-covers-citation-is-not-a-record",
         validate_a_covers_citation_is_not_a_record_scenario,
+    ),
+    (
+        "a-task-field-cites-its-provenance",
+        validate_a_task_field_cites_its_provenance_scenario,
     ),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
