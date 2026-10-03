@@ -3,6 +3,9 @@
 
 // The plugin tree Anthropic's plugin directory lists (#175).
 //
+// It is the npm package less the scripts only development uses, with the
+// manifest renamed and given a homepage, plus an icon.
+//
 // The directory reads `.claude-plugin/plugin.json` from a branch of a GitHub
 // repository and scans every file it finds there. The name `keel` belongs to
 // another directory listing, and the whole repository is more than the
@@ -23,6 +26,11 @@ const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const DIRECTORY_NAME = "keel-openspec";
+const HOMEPAGE = "https://github.com/TanglmChris/keel";
+// The scripts the shipped code runs. The rest of `scripts/` is for developing
+// Keel — the test suite, the release helpers, this builder — and only adds
+// files a reviewer must read for a plugin that never runs them.
+const RUNTIME_SCRIPTS = new Set(["run_python.js", "install_to_repo.py"]);
 const ICON = path.join(ROOT, "assets", "directory", "icon.png");
 
 function fail(message) {
@@ -58,10 +66,16 @@ function build(out) {
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
+  for (const entry of fs.readdirSync(path.join(target, "scripts"))) {
+    if (!RUNTIME_SCRIPTS.has(entry)) {
+      fs.rmSync(path.join(target, "scripts", entry), { recursive: true, force: true });
+    }
+  }
   const manifest = JSON.parse(
     fs.readFileSync(path.join(ROOT, ".claude-plugin", "plugin.json"), "utf8")
   );
   manifest.name = DIRECTORY_NAME;
+  manifest.homepage = HOMEPAGE;
   fs.mkdirSync(path.join(target, ".claude-plugin"), { recursive: true });
   fs.writeFileSync(
     path.join(target, ".claude-plugin", "plugin.json"),

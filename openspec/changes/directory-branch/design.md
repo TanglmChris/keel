@@ -26,6 +26,9 @@ Issue #175 and its 2026-10-03 comment (5969374155) record the portal and the val
 - **D3** — The release step runs `node scripts/directory_branch.js "$VERSION" "$SHA"` after `gh release create`'s inputs are ready. In place of the "Official directory entry" block, the notes say that the directory listing `keel-openspec` tracks branch `claude-directory`, now at the printed commit. `scripts/official_entry.js` is deleted. Basis: F1, because a pinned entry is not what the directory takes.
 - **D4** — The icon is the SessionStart block mark rendered as a 24×6 grid: light cells on a dark rounded square, 1024×1024 PNG, 8.7 KB. It sits at `assets/directory/icon.png`, inside the npm `files` list, so the tree builder finds it in the pack. Basis: the portal's icon rule (F2) and the owner's request for a draft.
 
+- **F4** — The portal's first validation of `claude-directory` @ 435ca76 (5.90.0) passed name and publisher checks, scanned all 97 files, and found the icon. Two of its nine holds named development-only scripts: `scripts/validate_plugin.py` (1.5 MB, not fully inspected) and `scripts/directory_tree.js` ("image or font file the plugin's code could run", because it copies the icon). The Links section filled only the repository, because the manifest carries no `homepage`. At runtime the shipped code references only `scripts/run_python.js` and `scripts/install_to_repo.py`. Basis: the portal on 2026-10-03 and a grep of `bin/`, `src/core/`, and `plugins/`.
+- **D5** — The directory tree keeps, from `scripts/`, only `run_python.js` and `install_to_repo.py`, the scripts the shipped code runs. Its manifest adds `homepage: https://github.com/TanglmChris/keel`. The npm package is unchanged. Basis: F4 and the owner's choice to trim before the first submission.
+
 ## Risks / Trade-offs
 
 - The tree carries `bin/` and `src/`, so the reviewer reads the CLI as part of the plugin. That is the same code the marketplace install already runs.

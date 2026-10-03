@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.90.0"
-PROTOCOL_VERSION = "5.90.0"
+PACKAGE_VERSION = "5.90.1"
+PROTOCOL_VERSION = "5.90.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19511,18 +19511,42 @@ def validate_directory_tree_is_the_package_renamed_scenario() -> int:
             report(f"{label} the build failed: {built.stdout}{built.stderr}")
             return 1
         files = {p.relative_to(tree).as_posix() for p in tree.rglob("*") if p.is_file()}
-        expected = npm_pack_paths() | {".claude-plugin/plugin.json", ".claude-plugin/icon.png"}
+        runtime_scripts = {"scripts/run_python.js", "scripts/install_to_repo.py"}
+        expected = {p for p in npm_pack_paths() if not p.startswith("scripts/") or p in runtime_scripts}
+        expected |= {".claude-plugin/plugin.json", ".claude-plugin/icon.png"}
         if files != expected:
-            report(f"{label} the tree is not the npm package plus the manifest and icon: "
-                   f"extra={sorted(files - expected)!r} missing={sorted(expected - files)!r}")
+            report(f"{label} the tree is not the npm package less development scripts, plus the "
+                   f"manifest and icon: extra={sorted(files - expected)!r} missing={sorted(expected - files)!r}")
             return 1
         root_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
         manifest = json.loads((tree / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
         if manifest.get("name") != "keel-openspec":
             report(f"{label} the tree manifest is named {manifest.get('name')!r}, not keel-openspec.")
             return 1
-        if {k: v for k, v in manifest.items() if k != "name"} != {k: v for k, v in root_manifest.items() if k != "name"}:
-            report(f"{label} the tree manifest differs from the root manifest beyond its name.")
+        if manifest.get("homepage") != "https://github.com/TanglmChris/keel":
+            report(f"{label} the tree manifest's homepage is {manifest.get('homepage')!r}.")
+            return 1
+        renamed = {k: v for k, v in manifest.items() if k not in ("name", "homepage")}
+        if renamed != {k: v for k, v in root_manifest.items() if k not in ("name", "homepage")}:
+            report(f"{label} the tree manifest differs from the root manifest beyond name and homepage.")
+            return 1
+        version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+        cli = subprocess.run(["node", str(tree / "bin/keel.js"), "--version"], text=True,
+                             capture_output=True, check=False)
+        if cli.returncode != 0:
+            report(f"{label} the tree's CLI does not run: exit={cli.returncode} {cli.stderr}")
+            return 1
+        if version not in cli.stdout:
+            report(f"{label} the tree's CLI reports {cli.stdout.strip()!r}, not {version}.")
+            return 1
+        consumer = Path(raw) / "consumer"
+        consumer.mkdir()
+        subprocess.run(["git", "init", "-q", str(consumer)], check=True)
+        install = subprocess.run(["node", str(tree / "bin/keel.js"), "--install", "--target", "claude",
+                                  "--dry-run"], cwd=consumer, text=True, capture_output=True, check=False)
+        if install.returncode != 0:
+            report(f"{label} the tree's CLI cannot plan an install: exit={install.returncode} "
+                   f"{install.stdout[-400:]}{install.stderr[-400:]}")
             return 1
         if root_manifest.get("name") != "keel":
             report(f"{label} the repository's root manifest no longer names keel: {root_manifest.get('name')!r}")
