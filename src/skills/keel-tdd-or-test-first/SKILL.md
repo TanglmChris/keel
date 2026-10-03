@@ -10,7 +10,7 @@ Use this skill when Keel execution should start with evidence: software tests fi
 
 ## Context to read
 
-Read the selected task's compiled capsule: resolved Acceptance, Verify strategy and M<n> checks, Mode, Read, and Touch. `keel gate task-start` returns that capsule and its fingerprint; the fingerprint belongs in the task's Evidence `Contract` line before implementation. Inspect the public interface under test and keep new tests inside the authorized Touch scope.
+Read the selected task's compiled capsule: resolved Acceptance, Verify strategy and M<n> checks, Mode, Read, and Touch. `keel gate task-start` returns that capsule and its fingerprint; the fingerprint belongs in the task's Evidence `Contract` line before implementation. Inspect the public interface under test and keep new tests inside the authorized Touch scope. When authoring checks, write each `M<n>` as one bullet: `keel gate task-start` refuses a nested list under a check, so sub-cases belong in its sentences.
 
 ## Strategy selection
 
