@@ -196,7 +196,7 @@
 
 ## 3. Release, and prove adoption across two releases
 
-- [ ] 3.1 Release 5.89.0 with the change promoted
+- [x] 3.1 Release 5.89.0 with the change promoted
   - Covers:
     - E1
     - E2
@@ -241,9 +241,16 @@
   - Stop Rules:
     - Stop if a version marker exists that `version-alignment` does not check.
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:9194d1cfdb699baf8b57bf27585e74c9756ed05271269bdd9eeab19aede84412
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker from 5.88.0 to 5.89.0, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.89.0 section written into the stub. The Stop rule held.
+    - M2: pass. The MODIFIED requirement replaced "Keel reports runtime versions and does not manage them" in `keel-native-runtime-projection`. The three ADDED requirements were appended there, one in `keel-native-plugin-package`, and one in `keel-openspec-surface-overlay`. `node node_modules/.bin/openspec validate update-once --strict` reports `Change 'update-once' is valid`, `openspec validate --specs --strict` reports `29 passed, 0 failed`, and `npm test` reports `validation --all passed: baseline plus 220 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: E1 to E3 are carried by 1.1 through 2.3, and this task ships them under one version, with the promoted specs stating what was built. 3.2 owns the proof on the owner's machine across two releases.
+      - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the three promoted specs, all in this task's Touch, plus this change's own `tasks.md`.
+      - Findings: none
 
 - [ ] 3.2 A running Claude session and a running Codex session adopt 5.89.1 after one `keel --update`
   - Covers:
