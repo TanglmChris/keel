@@ -1,5 +1,23 @@
 # Keel Changelog
 
+## 5.89.0 - One update for the machine, and running sessions pick it up
+
+A release used to reach a machine as several separately updated pieces: the global CLI, the Claude plugin, the Codex plugin, and each project's protocol. Each piece needed its own command, and every running session kept the version it had loaded. On 2026-10-03 the Codex plugin had sat at 5.85.0 for days unnoticed (#204). This release makes `keel --update` the one command for the machine. Running Claude sessions now adopt an installed update at their next hook call, which Codex sessions already did. Each project's protocol is still refreshed by that project's own session.
+
+- Issue #204: `keel --update` updates the global CLI and then the Keel plugin of each host it finds installed, through the host's own commands: `claude plugin marketplace update` and `claude plugin update`, then `codex plugin marketplace upgrade` and `codex plugin add`.
+  - **Status lines.** It prints one line per component: `updated A -> B`, `current`, `absent`, `manual`, or `failed`. Each line says when the update takes effect and what is left for the owner.
+  - **Local Codex marketplace.** A Codex marketplace that is a local path is reported `manual`, with the commands that make it upgradable, and is never re-pointed.
+  - **Changed Codex hooks.** Changed Codex hook definitions are named, because Codex will not run them until they are reviewed in `/hooks`.
+  - **Failure and dry run.** A failed step fails the command while the other components still report. `--dry-run` runs nothing.
+  - **Who may run it.** Only the owner runs this. Hooks and projections still install nothing.
+- Issue #204: a running Claude Code session adopts an installed update at its next hook call. Each Keel hook script first reads the host's install record (`installed_plugins.json`). When the record names a newer installed version of this plugin with the same major version, the script hands the event to that version's copy of itself and relays its output and exit status unchanged. Anything else runs the loaded script exactly as before: no record, a different major version, a missing script, a failed or timed-out spawn, or Codex. Codex needs no hand-off: measured with codex-cli 0.159.3, it resolves the plugin root at every hook call, so a running thread already runs the installed version.
+- Issue #204: the write guard keeps the loaded logic while a task's `keel/guard.json` exists, and hands off on its first check after the manifest is cleared. A hand-off that fails to run leaves the loaded guard's own decision.
+- Issue #204: a handed-off SessionStart reports as the version it runs, so a compatible update adds nothing to the projection. When the loaded and installed trees differ in skills, agents, or declared hooks, it adds one line naming `/reload-plugins` as the only step left.
+- Issue #204: `keel --install`, `keel --init`, and `keel --check` refresh the overlays of every target the repository carries, not only the selected one. Before this, `--init --target codex` rewrote Claude's surfaces through OpenSpec and put back only Codex's overlays, and a Claude refresh left Codex's at an old version (TanglmChris/rtl_ppa_prj, at 5.84.0). Doctor now reports an overlay from another Keel version as `stale` rather than `missing`.
+- Issue #204: new `docs/updating.md` describes the command and the per-host behavior of a running session across new session, resume, next hook call, compact, and clear. `validate_codex_receiving.py --native-upgrade` repeats the Codex measurement in an isolated `CODEX_HOME`.
+- The test suite sets `KEEL_UPDATE_CLAUDE` and `KEEL_UPDATE_CODEX` to non-existent paths, so no scenario reaches the developer's real Claude Code or Codex.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.89.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.88.0 - Keel runs OpenSpec 1.14
 
 OpenSpec 1.14.0 shipped on 2026-09-30. A repository whose surfaces 1.14.0 had already written got a `keel --doctor` warning that they were newer than the OpenSpec Keel runs, 1.13.2 (TanglmChris/rtl_ppa_prj#71). This release moves the pin, so Keel runs the OpenSpec that wrote them.

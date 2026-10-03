@@ -59,8 +59,13 @@ claude plugin install keel@keel-marketplace
 Updates arrive by themselves once a project is set up: `keel --init --target claude` (and
 `keel --install`) declares auto-update for `keel-marketplace` in the project's
 `.claude/settings.json`, which Claude reads before its own default of off. A new release is fetched
-in the background after a session's first message; `/reload-plugins` applies it in the running
-session, and otherwise it applies at the next start. To opt out, set that entry's `autoUpdate` to
+in the background after a session's first message. From 5.89.0 a running session's hooks use it at
+their next call; its skills and agents follow after `/reload-plugins` or at the next start.
+
+To update everything on a machine at once — the global CLI and the Claude and Codex plugins — run
+`keel --update`. It prints one line per component saying what changed, when it takes effect, and
+anything left for you; [docs/updating.md](docs/updating.md) has the details and what each host does
+with a running session. To opt out, set that entry's `autoUpdate` to
 `false`; Keel keeps a value the project states, and `keel --doctor` reports which one is declared.
 
 Each release's notes also carry the entry Anthropic's official plugin directory would list for it,
@@ -76,8 +81,9 @@ keel --version
 codex plugin add keel@<marketplace>        # Codex
 ```
 
-For Codex, start a fresh session after updating the plugin and review its current
-hook definitions with `/hooks` in the CLI. Installation does not grant hook trust.
+For Codex, review the current hook definitions with `/hooks` in the CLI; installation does not
+grant hook trust. A running Codex session uses an updated plugin at its next hook call, and a
+release that changes the hook definitions needs that review again.
 Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
 unread mail at session start and the next user input without marking it read.
 If receiving hooks are unavailable, use `keel mail list` and `keel mail read`

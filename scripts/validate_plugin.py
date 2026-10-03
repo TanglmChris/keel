@@ -21,6 +21,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# No scenario may reach the developer's real Claude Code or Codex: `keel
+# --update` drives both through their own CLIs (#204), and a scenario that ran
+# it unguarded updated the real plugins of whoever ran the suite. A scenario
+# that wants a host plants a fake and names it in its own environment.
+os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-claude")
+os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 REQUIRED_DIRECTORIES = [
     "bin",
@@ -41,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.88.0"
-PROTOCOL_VERSION = "5.88.0"
+PACKAGE_VERSION = "5.89.0"
+PROTOCOL_VERSION = "5.89.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -18834,6 +18840,642 @@ def validate_drift_names_a_pending_reload_scenario() -> int:
     return 0
 
 
+# A hook stub that reports which copy ran, with what input. Used as the newer
+# install's copy of a script so the scenario can tell a hand-off from the
+# loaded script's own logic, which prints none of this.
+HANDOFF_STUB = r"""const fs = require("fs");
+const path = require("path");
+let input = "";
+try { input = fs.readFileSync(0, "utf8"); } catch {}
+const manifest = path.join(__dirname, "..", ".claude-plugin", "plugin.json");
+process.stdout.write(JSON.stringify({
+  stub: JSON.parse(fs.readFileSync(manifest, "utf8")).version,
+  script: path.basename(__filename),
+  argv: process.argv.slice(2),
+  input,
+  forwarded: process.env.KEEL_HOOK_FORWARDED || null,
+  root: process.env.CLAUDE_PLUGIN_ROOT || null,
+}) + "\n");
+const sleep = Number(process.env.HANDOFF_STUB_SLEEP_MS || 0);
+if (sleep) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, sleep);
+process.exit(Number(process.env.HANDOFF_STUB_STATUS || 0));
+"""
+
+
+def plant_handoff_package(root: Path, version: str, *, stubs: tuple[str, ...] = ()) -> Path:
+    """One cached Claude install: the package root with both manifests and the
+    plugin's real hook scripts, of which `stubs` are replaced by HANDOFF_STUB."""
+    manifest = json.dumps({"name": "keel", "version": version}, indent=2) + "\n"
+    write_text(root / ".claude-plugin/plugin.json", manifest)
+    write_text(root / "plugins/keel/.claude-plugin/plugin.json", manifest)
+    write_text(
+        root / "package.json",
+        json.dumps({"name": "@christang/keel", "version": version}) + "\n",
+    )
+    scripts = ROOT / PLUGIN_ROOT / "scripts"
+    for source in sorted(scripts.glob("*.js")):
+        body = HANDOFF_STUB if source.name in stubs else source.read_text(encoding="utf-8")
+        write_text(root / "plugins/keel/scripts" / source.name, body)
+    return root
+
+
+def write_install_record(plugins_dir: Path, install_path: Path | None) -> None:
+    entries = {}
+    if install_path is not None:
+        entries["keel@m"] = [{"scope": "user", "installPath": str(install_path), "version": "x"}]
+    write_text(
+        plugins_dir / "installed_plugins.json",
+        json.dumps({"version": 2, "plugins": entries}) + "\n",
+    )
+
+
+def run_hook_script(
+    script: Path,
+    args: list[str],
+    stdin: str,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    for name in ("KEEL_HOOK_FORWARDED", "HANDOFF_STUB_STATUS", "HANDOFF_STUB_SLEEP_MS",
+                 "KEEL_HOOK_FORWARD_TIMEOUT_MS"):
+        env.pop(name, None)
+    env["CLAUDE_PLUGIN_ROOT"] = str(script.parents[1])
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        ["node", str(script), *args], cwd=cwd, env=env, input=stdin, text=True,
+        encoding="utf-8", errors="replace", capture_output=True, check=False, timeout=60,
+    )
+
+
+def stub_output(result: subprocess.CompletedProcess[str]) -> dict | None:
+    for line in result.stdout.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and "stub" in value:
+            return value
+    return None
+
+
+def validate_hook_hands_off_to_installed_update_scenario() -> int:
+    """Issue #204: a Claude hook runs the newest installed compatible copy.
+
+    Claude binds a session's hooks to the version directory it loaded and keeps
+    that directory after an update, so without a hand-off a running session
+    executes the old scripts until `/reload-plugins`. The loaded script reads
+    the host's install record and hands the event to the newer install's copy
+    of itself when, and only when, that copy is a compatible one.
+    """
+    label = "hook-hands-off-to-installed-update:"
+    with tempfile.TemporaryDirectory(prefix="keel-handoff-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        cwd = tmp / "work"
+        cwd.mkdir()
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        stubs = ("session-start.js", "mail-hook.js")
+        loaded = plant_handoff_package(cache / "5.0.0", "5.0.0")
+        newer = plant_handoff_package(cache / "5.1.0", "5.1.0", stubs=stubs)
+        plant_handoff_package(cache / "6.0.0", "6.0.0", stubs=stubs)
+        lacking = plant_handoff_package(cache / "5.2.0", "5.2.0")
+        (lacking / "plugins/keel/scripts/mail-hook.js").unlink()
+        (lacking / "plugins/keel/scripts/session-start.js").unlink()
+        # The loaded copy's own logic must print nothing a stub prints: an
+        # empty CLI for mail-hook, and no `openspec/` for session-start.
+        quiet_cli = tmp / "quiet-cli.js"
+        write_text(quiet_cli, "process.exit(0);\n")
+        base_env = {"KEEL_CLI": f'node "{quiet_cli}"'}
+        event = json.dumps({"hook_event_name": "SessionStart", "cwd": str(cwd), "probe": "stdin-bytes"})
+
+        def run(script: str, extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+            args = ["session-start"] if script == "mail-hook.js" else []
+            env = dict(base_env)
+            env.update(extra or {})
+            return run_hook_script(loaded / "plugins/keel/scripts" / script, args, event, cwd, env)
+
+        # M1 — an installed, newer, same-major copy runs, with the same input.
+        write_install_record(plugins_dir, newer)
+        for script in stubs:
+            result = run(script, {"HANDOFF_STUB_STATUS": "3"})
+            seen = stub_output(result)
+            if seen is None:
+                report(f"{label} {script} 5.0.0 did not hand off to installed 5.1.0: "
+                       f"stdout={result.stdout!r} stderr={result.stderr!r}")
+                return 1
+            expected_args = ["session-start"] if script == "mail-hook.js" else []
+            problems = []
+            if seen["stub"] != "5.1.0" or seen["script"] != script:
+                problems.append(f"ran {seen['script']} at {seen['stub']}")
+            if seen["argv"] != expected_args:
+                problems.append(f"argv {seen['argv']!r}")
+            if seen["input"] != event:
+                problems.append(f"stdin {seen['input']!r}")
+            if seen["forwarded"] != "5.0.0":
+                problems.append(f"KEEL_HOOK_FORWARDED={seen['forwarded']!r}")
+            if Path(seen["root"] or "").resolve() != newer.resolve():
+                problems.append(f"CLAUDE_PLUGIN_ROOT={seen['root']!r}")
+            if result.returncode != 3:
+                problems.append(f"exit {result.returncode}, not the stub's 3")
+            if problems:
+                report(f"{label} {script} handed off wrongly: {'; '.join(problems)}")
+                return 1
+
+        # Every other case runs the loaded script's own logic.
+        cases = [
+            ("the record names the loaded install", lambda: write_install_record(plugins_dir, loaded), {}),
+            ("the record names a different major", lambda: write_install_record(plugins_dir, cache / "6.0.0"), {}),
+            ("the recorded path does not exist", lambda: write_install_record(plugins_dir, cache / "5.9.0"), {}),
+            ("the recorded tree lacks the script", lambda: write_install_record(plugins_dir, lacking), {}),
+            ("there is no install record", lambda: (plugins_dir / "installed_plugins.json").unlink(), {}),
+            ("the run is already a hand-off", lambda: write_install_record(plugins_dir, newer),
+             {"KEEL_HOOK_FORWARDED": "4.9.0"}),
+        ]
+        for name, arrange, extra in cases:
+            arrange()
+            for script in stubs:
+                result = run(script, extra)
+                if stub_output(result) is not None:
+                    report(f"{label} {script} handed off although {name}: {result.stdout!r}")
+                    return 1
+
+        # Codex resolves the plugin root per hook call, so a Codex-shaped
+        # install — the plugin directory itself is the cached root — never hands off.
+        codex_cache = tmp / "codex-home/plugins/cache/m/keel"
+        for version, stubbed in (("5.0.0", ()), ("5.1.0", stubs)):
+            plugin = codex_cache / version
+            write_text(plugin / ".codex-plugin/plugin.json",
+                       json.dumps({"name": "keel", "version": version}) + "\n")
+            write_text(plugin / ".claude-plugin/plugin.json",
+                       json.dumps({"name": "keel", "version": version}) + "\n")
+            for source in sorted((ROOT / PLUGIN_ROOT / "scripts").glob("*.js")):
+                body = HANDOFF_STUB if source.name in stubbed else source.read_text(encoding="utf-8")
+                write_text(plugin / "scripts" / source.name, body)
+        write_install_record(tmp / "codex-home/plugins", codex_cache / "5.1.0")
+        result = run_hook_script(codex_cache / "5.0.0/scripts/session-start.js", [], event, cwd, base_env)
+        if stub_output(result) is not None:
+            report(f"{label} a Codex-shaped install handed off: {result.stdout!r}")
+            return 1
+
+    if "hook-hands-off-to-installed-update" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("hook-hands-off-to-installed-update scenario passed.")
+    return 0
+
+
+def validate_guard_keeps_loaded_logic_under_manifest_scenario() -> int:
+    """Issue #204: the write guard waits for the active task before adopting.
+
+    While a task's guard manifest exists, the guard the session loaded keeps
+    deciding, so a mid-task update cannot change what is allowed. The first
+    check after the manifest is gone runs the installed copy, and a copy that
+    cannot run leaves the loaded guard's decision in place.
+    """
+    label = "guard-keeps-loaded-logic-under-manifest:"
+    with tempfile.TemporaryDirectory(prefix="keel-handoff-guard-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        loaded = plant_handoff_package(cache / "5.0.0", "5.0.0")
+        newer = plant_handoff_package(cache / "5.1.0", "5.1.0", stubs=("pretooluse-guard.js",))
+        write_install_record(plugins_dir, newer)
+
+        repo = tmp / "repo"
+        repo.mkdir()
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+        gate = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json")
+        manifest = repo / "keel/guard.json"
+        if gate.returncode != 0 or not manifest.is_file():
+            report(f"{label} the fixture task did not start a guard: {gate.stdout}{gate.stderr}")
+            return 1
+        guard = loaded / "plugins/keel/scripts/pretooluse-guard.js"
+        event = json.dumps(edit_event(repo, repo / "b.txt", "Write"))
+
+        under = run_hook_script(guard, [], event, repo)
+        decision = pretooluse_decision(under) if stub_output(under) is None else None
+        if stub_output(under) is not None:
+            report(f"{label} the guard handed off while a manifest was active: {under.stdout!r}")
+            return 1
+        if not decision or decision.get("permissionDecision") != "deny":
+            report(f"{label} the loaded guard did not deny b.txt under the manifest: {decision!r}")
+            return 1
+
+        manifest.unlink()
+        after = run_hook_script(guard, [], event, repo)
+        if stub_output(after) is None:
+            report(f"{label} the guard did not hand off once the manifest was gone: "
+                   f"stdout={after.stdout!r} stderr={after.stderr!r}")
+            return 1
+
+        # A copy that cannot finish in time leaves the loaded guard's decision.
+        # With no manifest the loaded guard allows silently, so the fallback is
+        # observable as empty output rather than the stub's.
+        slow = run_hook_script(guard, [], event, repo,
+                               {"HANDOFF_STUB_SLEEP_MS": "5000", "KEEL_HOOK_FORWARD_TIMEOUT_MS": "300"})
+        if stub_output(slow) is not None:
+            report(f"{label} a timed-out hand-off still relayed the newer guard: {slow.stdout!r}")
+            return 1
+        if slow.returncode != 0:
+            report(f"{label} a timed-out hand-off made the guard exit {slow.returncode}: {slow.stderr!r}")
+            return 1
+        if slow.stdout.strip():
+            report(f"{label} a timed-out hand-off did not leave the loaded guard's silent allow: {slow.stdout!r}")
+            return 1
+
+    if "guard-keeps-loaded-logic-under-manifest" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("guard-keeps-loaded-logic-under-manifest scenario passed.")
+    return 0
+
+
+def plant_real_package(root: Path, version: str) -> Path:
+    """A cached Claude install made from this working tree's real package,
+    stamped with `version`, so its hooks run their real logic end to end."""
+    for part in ("bin", "src", "scripts", "plugins", "assets", ".claude-plugin"):
+        shutil.copytree(ROOT / part, root / part,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    pkg = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    pkg["version"] = version
+    write_text(root / "package.json", json.dumps(pkg, indent=2) + "\n")
+    for manifest in (root / ".claude-plugin/plugin.json",
+                     root / "plugins/keel/.claude-plugin/plugin.json"):
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["version"] = version
+        write_text(manifest, json.dumps(data, indent=2) + "\n")
+    if (ROOT / "node_modules").exists():
+        (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
+    return root
+
+
+def validate_adopted_update_is_silent_unless_reload_scenario() -> int:
+    """Issue #204: an adopted update says nothing unless a reload is needed.
+
+    A handed-off SessionStart runs as the installed version, so with the CLI
+    and protocol at that version there is no drift to report. What the hand-off
+    cannot bring forward is what the host loaded at session start — skills,
+    agents, and declared hooks — and only a difference there earns a line,
+    naming `/reload-plugins` and nothing else.
+    """
+    label = "adopted-update-is-silent-unless-reload:"
+    event = {"hook_event_name": "SessionStart", "source": "clear"}
+    with tempfile.TemporaryDirectory(prefix="keel-adopt-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        loaded = plant_real_package(cache / "5.0.0", "5.0.0")
+        newer = plant_real_package(cache / "5.1.0", "5.1.0")
+        write_install_record(plugins_dir, newer)
+
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.1.0 Agent Protocol\n\n<!-- keel:start version=5.1.0 -->\n"
+            "## Session Start\n<!-- keel:end -->\n",
+        )
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        # No `keel` on PATH, so the suite rather than the developer's global
+        # install decides whether a PATH copy is compared.
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        for tool in ("node", "git"):
+            found = shutil.which(tool)
+            if found:
+                (bin_dir / tool).symlink_to(found)
+        env = {"PATH": str(bin_dir) + os.pathsep + "/usr/bin" + os.pathsep + "/bin"}
+
+        def channels() -> tuple[str, str]:
+            run = run_session_start_hook(
+                repo, event, keel_cli=None, plugin_root=loaded / "plugins/keel", extra_env=env
+            )
+            return session_start_context(run) or "", session_start_message(run) or ""
+
+        context, human = channels()
+        for name, text in (("additionalContext", context), ("systemMessage", human)):
+            lowered = text.lower()
+            if "fallback" in lowered:
+                report(f"{label} {name} is the hook's fallback, so the handed-off SessionStart "
+                       f"did not reach a working CLI: {text!r}")
+                return 1
+            if "projection" not in lowered and "keel:" not in lowered:
+                report(f"{label} {name} carries no projection: {text!r}")
+                return 1
+            if "versions disagree" in lowered or "/reload-plugins" in lowered or "5.0.0" in text:
+                report(f"{label} {name} reported versions or a reload after a compatible, "
+                       f"identical update: {text!r}")
+                return 1
+
+        skill = next((newer / "plugins/keel/skills").rglob("SKILL.md"))
+        skill.write_text(skill.read_text(encoding="utf-8") + "\nChanged in 5.1.0.\n", encoding="utf-8")
+        context, human = channels()
+        for name, text in (("additionalContext", context), ("systemMessage", human)):
+            lowered = text.lower()
+            lines = [line for line in text.splitlines() if "/reload-plugins" in line]
+            if len(lines) != 1:
+                report(f"{label} {name} carries {len(lines)} lines naming /reload-plugins "
+                       f"after a skill changed, not one: {text!r}")
+                return 1
+            line = lines[0].lower()
+            if "5.1.0" not in line or "skill" not in line:
+                report(f"{label} {name} does not name 5.1.0 and the skills: {lines[0]!r}")
+                return 1
+            if "claude plugin update" in lowered:
+                report(f"{label} {name} named an update command for an installed update: {text!r}")
+                return 1
+
+    if "adopted-update-is-silent-unless-reload" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("adopted-update-is-silent-unless-reload scenario passed.")
+    return 0
+
+
+# One fake for npm, claude, and codex. It appends its argv to FAKE_LOG and keeps
+# each host's installed Keel version in FAKE_STATE, so `plugin list --json`
+# answers 5.0.0 before the host's update command and 5.1.0 after it.
+UPDATE_FAKE = r"""const fs = require("fs");
+const path = require("path");
+const host = process.env.FAKE_HOST;
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([host, ...args]) + "\n");
+const stateFile = process.env.FAKE_STATE;
+const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
+const version = state[host] || "5.0.0";
+const failOn = process.env[`FAKE_FAIL_${host.toUpperCase()}`] || "";
+if (failOn && args.join(" ").includes(failOn)) process.exit(1);
+if (host === "npm") {
+  if (args[0] === "pack") {
+    const dest = args[args.indexOf("--pack-destination") + 1];
+    fs.writeFileSync(path.join(dest, "christang-keel-5.1.0.tgz"), "");
+    process.stdout.write(JSON.stringify([{ filename: "christang-keel-5.1.0.tgz" }]));
+  }
+  process.exit(0);
+}
+const joined = args.join(" ");
+if (joined === "plugin list --json") {
+  if (host === "claude") {
+    process.stdout.write(JSON.stringify([{ id: "keel@keel-marketplace", version,
+      installPath: `/fake/claude/cache/keel-marketplace/keel/${version}` }]));
+  } else {
+    process.stdout.write(JSON.stringify({ installed: [{ pluginId: "keel@keel-marketplace", name: "keel",
+      marketplaceName: "keel-marketplace", version, installed: true,
+      source: { source: "local", path: process.env.FAKE_CODEX_SOURCE },
+      marketplaceSource: { sourceType: process.env.FAKE_CODEX_MARKET_TYPE || "git",
+        source: "https://github.com/TanglmChris/keel.git" } }], available: [] }));
+  }
+  process.exit(0);
+}
+if (joined === "plugin update keel@keel-marketplace" || joined === "plugin add keel@keel-marketplace") {
+  state[host] = "5.1.0";
+  save();
+}
+process.exit(0);
+"""
+
+
+def validate_update_covers_installed_hosts_scenario() -> int:
+    """Issue #204: one owner-run `keel --update` covers every installed component.
+
+    After the CLI, it updates the Claude and Codex plugins through each host's
+    own documented commands, and reports one line per component that says what
+    changed, when it applies, and what the owner must still do.
+    """
+    label = "update-covers-installed-hosts:"
+    with tempfile.TemporaryDirectory(prefix="keel-update-hosts-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+        codex_home = tmp / "codex-home"
+        installed_hooks = codex_home / "plugins/cache/keel-marketplace/keel/5.0.0/hooks/codex.json"
+        source = tmp / "codex-source"
+        hooks = (ROOT / PLUGIN_ROOT / "hooks/codex.json").read_text(encoding="utf-8")
+        write_text(installed_hooks, hooks)
+        write_text(source / "hooks/codex.json", hooks)
+
+        def update(*extra: str, env_extra: dict[str, str] | None = None):
+            log = tmp / "log.jsonl"
+            state = tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]),
+                "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]),
+                "CODEX_HOME": str(codex_home),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state),
+                "FAKE_CODEX_SOURCE": str(source),
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            env.update(env_extra or {})
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update", *extra], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=60)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            return result, [c for c in calls if c[1:] != ["plugin", "list", "--json"]]
+
+        def line_for(output: str, component: str) -> str:
+            found = [l for l in output.splitlines() if l.startswith(f"keel update: {component}:")]
+            return found[0] if len(found) == 1 else ""
+
+        result, calls = update()
+        expected = [
+            ["npm", "pack"], ["npm", "install", "-g"],
+            ["claude", "plugin", "marketplace", "update", "keel-marketplace"],
+            ["claude", "plugin", "update", "keel@keel-marketplace"],
+            ["codex", "plugin", "marketplace", "upgrade", "keel-marketplace"],
+            ["codex", "plugin", "add", "keel@keel-marketplace"],
+        ]
+        got = [c[:len(e)] for c, e in zip(calls, expected)]
+        if result.returncode != 0 or got != expected or len(calls) != len(expected):
+            report(f"{label} the update did not run the CLI then each host's commands once, in order: "
+                   f"exit={result.returncode} calls={calls!r} stderr={result.stderr!r}")
+            return 1
+        claude_line = line_for(result.stdout, "claude plugin")
+        codex_line = line_for(result.stdout, "codex plugin")
+        cli_line = line_for(result.stdout, "cli")
+        for name, line, needles in (
+            ("cli", cli_line, ["next command"]),
+            ("claude plugin", claude_line, ["5.0.0 -> 5.1.0", "next hook call", "/reload-plugins"]),
+            ("codex plugin", codex_line, ["5.0.0 -> 5.1.0", "next hook call"]),
+        ):
+            missing = [n for n in needles if n not in line]
+            if not line or missing:
+                report(f"{label} the {name} line is missing or lacks {missing!r}: {result.stdout!r}")
+                return 1
+        if "/hooks" in codex_line:
+            report(f"{label} the Codex line asked for hook review with unchanged hooks: {codex_line!r}")
+            return 1
+
+        result, calls = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
+        codex_line = line_for(result.stdout, "codex plugin")
+        if result.returncode != 0:
+            report(f"{label} a missing Codex failed the update: exit={result.returncode} {result.stdout!r}")
+            return 1
+        if "absent" not in codex_line:
+            report(f"{label} a missing Codex was not reported absent: {codex_line!r}")
+            return 1
+        if any(c[0] == "codex" for c in calls):
+            report(f"{label} a missing Codex still received commands: {calls!r}")
+            return 1
+
+        result, calls = update(env_extra={"FAKE_CODEX_MARKET_TYPE": "local"})
+        codex_line = line_for(result.stdout, "codex plugin")
+        if "manual" not in codex_line:
+            report(f"{label} a local Codex marketplace was not reported manual: {codex_line!r}")
+            return 1
+        if "codex plugin marketplace add TanglmChris/keel --ref main" not in codex_line:
+            report(f"{label} the manual Codex line does not name the Git marketplace command: {codex_line!r}")
+            return 1
+        if any(c[0] == "codex" for c in calls):
+            report(f"{label} a local Codex marketplace still received commands: {calls!r}")
+            return 1
+
+        write_text(source / "hooks/codex.json", hooks.replace('"timeout": 15', '"timeout": 16'))
+        result, calls = update()
+        write_text(source / "hooks/codex.json", hooks)
+        if "/hooks" not in line_for(result.stdout, "codex plugin"):
+            report(f"{label} changed Codex hook definitions were not named: {result.stdout!r}")
+            return 1
+
+        result, calls = update(env_extra={"FAKE_FAIL_CLAUDE": "plugin update"})
+        claude_line = line_for(result.stdout, "claude plugin")
+        codex_line = line_for(result.stdout, "codex plugin")
+        if result.returncode == 0:
+            report(f"{label} a failed Claude update left the exit status 0: {result.stdout!r}")
+            return 1
+        if "failed" not in claude_line:
+            report(f"{label} a failed Claude update was not reported failed: {claude_line!r}")
+            return 1
+        if "5.0.0 -> 5.1.0" not in codex_line:
+            report(f"{label} Codex did not still update after Claude failed: {codex_line!r}")
+            return 1
+
+        result, calls = update("--dry-run")
+        if result.returncode != 0:
+            report(f"{label} --dry-run failed: exit={result.returncode} {result.stderr!r}")
+            return 1
+        if calls:
+            report(f"{label} --dry-run ran commands: {calls!r}")
+            return 1
+        for planned in ("claude plugin update keel@keel-marketplace", "codex plugin add keel@keel-marketplace"):
+            if planned not in result.stdout:
+                report(f"{label} --dry-run did not print `{planned}`: {result.stdout!r}")
+                return 1
+
+    if "update-covers-installed-hosts" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-covers-installed-hosts scenario passed.")
+    return 0
+
+
+OVERLAY_START_RE = re.compile(r"<!--\s*keel:openspec-surface-overlay version=([^ ]+) -->")
+OVERLAY_BLOCK_RE = re.compile(
+    r"<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?"
+    r"<!--\s*keel:openspec-surface-overlay:end\s*-->"
+)
+
+
+def validate_refresh_covers_every_target_scenario() -> int:
+    """Issue #204: a protocol refresh brings every installed target forward.
+
+    Each project's own session refreshes its protocol, usually through the one
+    target that session runs on. A refresh that touched only that target left
+    another target's overlays at an old version (TanglmChris/rtl_ppa_prj, Codex
+    at 5.84.0 after a Claude refresh to 5.88.0), and doctor called them
+    missing, which sends the reader looking for files that are there.
+    """
+    label = "refresh-covers-every-target:"
+    version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    with tempfile.TemporaryDirectory(prefix="keel-refresh-targets-", ignore_cleanup_errors=True) as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        # `--install` per target after both inits, because before this change
+        # `--init --target codex` rewrote Claude's surfaces through OpenSpec and
+        # put back only Codex's overlays.
+        for action, target in (("--init", "claude"), ("--init", "codex"),
+                               ("--install", "claude"), ("--install", "codex")):
+            setup = run_keel(repo, action, "--target", target)
+            if setup.returncode != 0:
+                report(f"{label} {action} --target {target} failed: {setup.stdout}{setup.stderr}")
+                return 1
+        surfaces = sorted(
+            [p for p in (repo / ".claude").rglob("*.md") if OVERLAY_START_RE.search(p.read_text(encoding="utf-8"))]
+            + [p for p in (repo / ".agents/skills").rglob("SKILL.md")
+               if OVERLAY_START_RE.search(p.read_text(encoding="utf-8"))]
+        )
+        codex = [p for p in surfaces if ".agents" in p.parts]
+        if not codex or len(codex) == len(surfaces):
+            report(f"{label} the fixture does not carry overlays on both targets: {surfaces!r}")
+            return 1
+        bodies = {}
+        for surface in surfaces:
+            text = OVERLAY_START_RE.sub("<!-- keel:openspec-surface-overlay version=5.0.0 -->",
+                                        surface.read_text(encoding="utf-8"))
+            surface.write_text(text, encoding="utf-8")
+            bodies[surface] = OVERLAY_BLOCK_RE.sub("", text)
+
+        doctor = run_keel(repo, "--doctor", "--target", "claude")
+        codex_line = next((l for l in doctor.stdout.splitlines() if l.startswith("Codex Keel")), "")
+        if "stale" not in codex_line:
+            report(f"{label} doctor did not report the old Codex overlays stale: {codex_line!r}")
+            return 1
+        if "missing" in codex_line:
+            report(f"{label} doctor called present Codex overlays missing: {codex_line!r}")
+            return 1
+        if "keel --install" not in codex_line:
+            report(f"{label} doctor's stale Codex line names no refresh command: {codex_line!r}")
+            return 1
+
+        refresh = run_keel(repo, "--install", "--target", "claude")
+        if refresh.returncode != 0:
+            report(f"{label} --install --target claude failed: {refresh.stdout}{refresh.stderr}")
+            return 1
+        for surface in surfaces:
+            text = surface.read_text(encoding="utf-8")
+            versions = OVERLAY_START_RE.findall(text)
+            if versions != [version]:
+                report(f"{label} {surface.relative_to(repo)} carries overlay versions {versions!r} "
+                       f"after a Claude refresh, not one at {version}.")
+                return 1
+            if OVERLAY_BLOCK_RE.sub("", text) != bodies[surface]:
+                report(f"{label} the refresh changed upstream content in {surface.relative_to(repo)}.")
+                return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-refresh-one-target-", ignore_cleanup_errors=True) as raw:
+        repo = Path(raw) / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        run_keel(repo, "--init", "--target", "claude")
+        refresh = run_keel(repo, "--install", "--target", "claude")
+        created = [name for name in (".agents", ".opencode", ".codex") if (repo / name).exists()]
+        if refresh.returncode != 0 or created:
+            report(f"{label} a Claude-only repository gained {created!r} from a refresh "
+                   f"(exit {refresh.returncode}).")
+            return 1
+
+    if "refresh-covers-every-target" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("refresh-covers-every-target scenario passed.")
+    return 0
+
+
 def validate_official_directory_entry_scenario() -> int:
     """Each release states the entry Anthropic's official directory would list.
 
@@ -34711,6 +35353,11 @@ SCENARIOS: tuple = (
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("drift-names-a-pending-reload", validate_drift_names_a_pending_reload_scenario),
+    ("hook-hands-off-to-installed-update", validate_hook_hands_off_to_installed_update_scenario),
+    ("guard-keeps-loaded-logic-under-manifest", validate_guard_keeps_loaded_logic_under_manifest_scenario),
+    ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
+    ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
+    ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("official-directory-entry", validate_official_directory_entry_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),

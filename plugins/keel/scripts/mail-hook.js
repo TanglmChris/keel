@@ -18,6 +18,16 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// A newer installed copy of this script runs in its place when the host has
+// installed one (forward.js, #204). A copy of this script without forward.js
+// beside it simply runs its own logic.
+let handOff = () => null;
+try {
+  ({ handOff } = require("./forward"));
+} catch {
+  // Copied on its own: no hand-off.
+}
+
 const EVENTS = new Set(["session-start", "user-prompt-submit", "file-changed", "session-end"]);
 const TIMEOUT_MS = Number(process.env.KEEL_HOOK_TIMEOUT_MS || 8000) || 8000;
 
@@ -53,6 +63,8 @@ function main() {
   const event = process.argv[2];
   if (!EVENTS.has(event)) return 0;
   const input = readStdin();
+  const handed = handOff(__filename, input, 9000);
+  if (handed !== null) return handed;
   let cwd = process.cwd();
   try {
     const parsed = JSON.parse(input || "{}");
