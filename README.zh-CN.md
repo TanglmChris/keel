@@ -286,6 +286,11 @@ node scripts/run_python.js scripts/validate_plugin.py --scenario core-gates   # 
 node scripts/bump_version.js <patch|minor|major>                             # 一次改齐所有版本 pin
 ```
 
+## 隐私
+
+Keel 不运行服务器，自身不收集任何数据。[PRIVACY.md](PRIVACY.md) 列出它在本机存什么、什么会离开本机，
+包括内置 OpenSpec CLI 的遥测及关闭方法。
+
 ## License
 
 [MIT](LICENSE) © 2026 TanglmChris · 版本历史见 [keel/CHANGELOG.md](keel/CHANGELOG.md)。

@@ -4,7 +4,7 @@
 // The plugin tree Anthropic's plugin directory lists (#175).
 //
 // It is the npm package less the scripts only development uses, with the
-// manifest renamed and given a homepage, plus an icon.
+// manifest renamed and given a homepage and a privacy policy, plus an icon.
 //
 // The directory reads `.claude-plugin/plugin.json` from a branch of a GitHub
 // repository and scans every file it finds there. The name `keel` belongs to
@@ -27,6 +27,7 @@ const { spawnSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..");
 const DIRECTORY_NAME = "keel-openspec";
 const HOMEPAGE = "https://github.com/TanglmChris/keel";
+const PRIVACY_POLICY = `${HOMEPAGE}/blob/main/PRIVACY.md`;
 // The scripts the shipped code runs. The rest of `scripts/` is for developing
 // Keel — the test suite, the release helpers, this builder — and only adds
 // files a reviewer must read for a plugin that never runs them.
@@ -76,6 +77,7 @@ function build(out) {
   );
   manifest.name = DIRECTORY_NAME;
   manifest.homepage = HOMEPAGE;
+  manifest.privacyPolicyUrl = PRIVACY_POLICY;
   fs.mkdirSync(path.join(target, ".claude-plugin"), { recursive: true });
   fs.writeFileSync(
     path.join(target, ".claude-plugin", "plugin.json"),

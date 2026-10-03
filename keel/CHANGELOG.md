@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.90.2 - Keel has a privacy policy, and the directory listing links it
+
+The portal warned that the listing named no privacy policy, and its compliance step asks the owner to attest that one describes the data the plugin handles (#175).
+
+- Issue #175: `PRIVACY.md` states what Keel stores on the machine (repository files, `.git/keel-chat/`, `~/.keel/`, and Slack tokens only in the Keychain or the environment) and what can leave it. That covers the optional Slack bridge, `keel --update`, and the agent host's own model traffic. It also covers the bundled OpenSpec CLI's anonymous telemetry, with how to turn it off. Both READMEs link it.
+- Issue #175: the directory manifest sets `privacyPolicyUrl` to `https://github.com/TanglmChris/keel/blob/main/PRIVACY.md`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.90.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.90.1 - The directory listing carries only what the plugin runs
 
 The portal's first validation of `claude-directory` passed the name and publisher checks and scanned every file. Two of its holds came from scripts the plugin never runs, and the listing showed no homepage (#175).
