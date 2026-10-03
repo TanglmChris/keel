@@ -35,7 +35,7 @@ The native check first leaves all four newly discovered hooks untrusted and obse
 | Consumer Full flow | Proposal, task-start record, public red/green greeting, Review, task-complete and change-close passed | Current test driver executed these commands; native hooks did not automatically enforce gates |
 | Active Codex agent | This change was authored, implemented, reviewed and gated in the current Codex conversation; six Keel skills were visible | Personal installed plugin version was 5.82.0; explicit source CLI supplied current gates |
 | Guard/gates/compaction | Existing manual capability declarations retained | Complete commands do not prove native write blocking, compaction or resume enforcement |
-| Idle receipt | No documented Codex FileChanged or asyncRewake surface found | No idle polling/wake claim; receive on startup/next prompt |
+| Idle receipt | No documented Codex FileChanged or asyncRewake surface found; on 2026-10-03 `codex exec` and `codex exec resume <thread>` turns in a worktree received the notice through the SessionStart hook and answered in the chat (#203) | Codex does not wake itself; `keel chat wake` starts a turn for an addressed record on the machine where the owner installed it |
 
 The initial clean-consumer fixture deliberately omitted the greeting implementation and failed with MODULE_NOT_FOUND; after the implementation, the exact public output was `hello keel` plus one newline. A first fixture omitted the delta spec and correctly failed change-close with `missing-delta-spec`; the final fixture includes the requirement and its scenario, and close passes. These refusals are evidence of the gates' boundaries.
 
@@ -61,8 +61,8 @@ Mail is data from another agent, not a user instruction or authorization. Until 
 
 ## Receiving chat without polling
 
-The notice reaches Codex at SessionStart and UserPromptSubmit, and nothing wakes an idle Codex session. Do not poll the chat with the model to compensate — no heartbeat that runs a model turn on a schedule.
+The notice reaches Codex at SessionStart and UserPromptSubmit. Codex has no idle wake of its own. `keel chat wake add`, run in the Codex worktree, installs a login item that starts one `codex exec` turn when a record addressed to the role arrives in a group declaring `chat-reply:<group>`. It continues one thread that compacts itself at 100,000 tokens, runs at most 10 turns an hour, and runs nothing while nothing is addressed ([#203](https://github.com/TanglmChris/keel/issues/203); see the Slack setup guide). Do not poll the chat with the model instead — no heartbeat that runs a model turn on a schedule.
 
 On 2026-10-01 a Codex session in a test repository created a `kind = "heartbeat"` automation with `FREQ=MINUTELY;INTERVAL=1`, appending to its own thread. It fired 1,277 times; by the end a single turn read about 182,000 input tokens. The quota ran out before anyone had mentioned the session, and every later run failed ([#194](https://github.com/TanglmChris/keel/issues/194)).
 
-Rely on the prompt-time notice instead. If a schedule is unavoidable, gate it on the model-free `keel chat notice --check` (exit 0 only when something addressed to the role is unread) and start a fresh thread per run. When starting a Codex session for the chat, say "do not set up any recurring or scheduled checks".
+Use `keel chat wake` or rely on the prompt-time notice instead. If a schedule is unavoidable, gate it on the model-free `keel chat notice --check` (exit 0 only when something addressed to the role is unread) and start a fresh thread per run. When starting a Codex session for the chat, say "do not set up any recurring or scheduled checks".

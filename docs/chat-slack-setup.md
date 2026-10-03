@@ -173,16 +173,28 @@ A session starting in this project is also told when the bridge is not running.
 
 There is also a Markdown transcript per group, regenerated after each message, at `<git common dir>/keel-chat/transcripts/<group>.md`.
 
-## Sessions that cannot wake on their own (Codex and others)
+## Waking Codex: `keel chat wake`
 
-Claude Code is woken by a file watcher that costs nothing until a message addressed to the session arrives. Other hosts — Codex today — get the notice only when their session starts and each time you write to them.
+Claude Code is woken by a file watcher that costs nothing until a message addressed to the session arrives. Codex has no such watcher. On its own, it gets the notice only when its session starts and each time you write to it. `keel chat wake` gives Codex the same behavior on one machine:
+
+```bash
+keel chat wake add
+```
+
+Run it in the Codex session's worktree, after `keel chat role --set`. It:
+
+- **Runs nothing while nothing is addressed.** It installs a login item (`dev.keel.chat-wake.<role>-…`) that watches the file Keel touches only for a mention, an assigned todo, or a direct message.
+- **Starts one Codex turn per addressed record**, and only in a group the worktree declares `chat-reply:<group>` for. Without that declaration a woken turn could not answer, because a chat message grants nothing.
+- **Continues one thread.** The first turn creates a Codex thread, and later turns resume it. The thread compacts itself at 100,000 tokens (`--compact-at`), so each turn's cost stays bounded. `--thread <id>` adopts an existing thread instead, but do not keep that thread open in the Codex app at the same time.
+- **Is limited.** One turn runs at a time, at most 10 an hour (`--max-per-hour`).
+- **Tells the turn it may only reply.** Nobody watches a woken turn. The prompt allows answering within `chat-reply` and nothing else: no file edits, no state-changing commands, no commits or pushes, and no schedules. Codex can still write the worktree, and nothing but that prompt and the model's judgment stops it.
+
+`keel chat wake status` shows the thread, the last turn, and whether the hourly limit is holding it. Each turn is logged under `~/.keel/chat/wake/`. `keel chat wake remove` stops it. Nothing the waker keeps enters the repository.
 
 **Do not poll the chat with the model.** A schedule that runs a model turn every minute costs a full turn each time, whether or not anything arrived. If every run appends to the same session, each run also re-reads the whole growing history. In October 2026 one such Codex automation fired 1,277 times and used up an owner's entire quota before anyone had mentioned the session ([#194](https://github.com/TanglmChris/keel/issues/194)).
 
-Instead:
-
-- **Rely on the prompt-time notice.** Install Keel's plugin in that host, and the session sees what is waiting at its next prompt.
-- **If a schedule is unavoidable, gate it on `keel chat notice --check`.** The command prints nothing, writes nothing, and exits 0 only when something addressed to the role is unread. Start a model turn only then, for example `keel chat notice --check && <start a turn>`, and start a fresh thread or session for each run instead of appending to one long session.
+- **Use `keel chat wake`, or rely on the prompt-time notice.** With Keel's plugin installed, a host sees what is waiting at its next prompt.
+- **If you run your own schedule anyway, gate it on `keel chat notice --check`.** The command prints nothing, writes nothing, and exits 0 only when something addressed to the role is unread. Start a model turn only then, for example `keel chat notice --check && <start a turn>`, and start a fresh thread or session for each run instead of appending to one long session.
 - **When you start a session to take part in the chat, tell it explicitly:** "do not set up any recurring or scheduled checks".
 
 ## History beyond Slack's 90 days

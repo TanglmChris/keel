@@ -3785,6 +3785,297 @@ def validate_chat_reply_marks_read_scenario() -> int:
     return 0
 
 
+FAKE_CODEX = r"""#!/usr/bin/env node
+const fs = require("fs");
+let input = "";
+try { input = fs.readFileSync(0, "utf8"); } catch {}
+fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), stdin: input }) + "\n");
+console.log(JSON.stringify({ type: "thread.started", thread_id: "thread-fake-1" }));
+console.log(JSON.stringify({ type: "turn.completed" }));
+"""
+
+
+def chat_wake_scratch(base: Path) -> tuple[Path, Path, dict[str, str], Path]:
+    """`rtl` and a `cx` worktree sharing `lab` and `other`; `cx` declares chat-reply:lab.
+
+    Returns the two worktrees, an environment whose KEEL_HOME, launchctl,
+    LaunchAgents directory, and Codex executable are scratch doubles, and the
+    file the fake Codex appends one JSON line per turn to.
+    """
+    rtl = mailbox_repository(base / "rtl")
+    cx = chat_worktree(rtl, base / "cx")
+    write_text(cx / "keel" / "config.yaml", "authorize:\n  - chat-reply:lab\n")
+    subprocess.run(["git", "add", "keel/config.yaml"], cwd=cx, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "chat-reply"], cwd=cx, check=True, capture_output=True)
+    calls = base / "codex-calls.jsonl"
+    codex = base / "fake-codex"
+    write_text(codex, FAKE_CODEX)
+    codex.chmod(0o755)
+    launchctl = base / "launchctl"
+    write_text(launchctl, f'#!/bin/sh\necho "$@" >> "{base / "launchctl-calls"}"\nexit 0\n')
+    launchctl.chmod(0o755)
+    env = chat_environment(
+        KEEL_HOME=str(base / "home"),
+        KEEL_CHAT_CODEX=str(codex),
+        FAKE_CODEX_LOG=str(calls),
+        KEEL_CHAT_LAUNCHCTL=str(launchctl),
+        KEEL_CHAT_LAUNCH_AGENTS_DIR=str(base / "agents"),
+    )
+    run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+    run_keel(cx, "chat", "role", "--set", "cx", env=env)
+    run_keel(rtl, "chat", "group", "create", "lab", "--member", "cx", env=env)
+    run_keel(rtl, "chat", "group", "create", "other", "--member", "cx", env=env)
+    return rtl, cx, env, calls
+
+
+def codex_calls(calls: Path) -> list[dict]:
+    if not calls.exists():
+        return []
+    return [json.loads(line) for line in calls.read_text().splitlines() if line.strip()]
+
+
+def validate_chat_wake_run_scenario() -> int:
+    """Issue #203: an addressed record starts one Codex turn, and nothing else does.
+
+    A registered waker starts a turn only for unread records that wake the
+    role, in a group declaring chat-reply, newer than what an earlier turn
+    was given; the first turn creates the thread and later ones resume it,
+    with compaction and the git common directory as a writable root, under a
+    per-hour limit and a per-role lock, and nothing lands in the worktree.
+    """
+    label = "chat-wake-run:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-wake-run-") as raw:
+        base = Path(raw)
+        rtl, cx, env, calls = chat_wake_scratch(base)
+
+        def keel(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        def run_once() -> subprocess.CompletedProcess[str]:
+            return keel(base, "wake", "run", "--once", "--worktree", str(cx))
+
+        added = keel(cx, "wake", "add")
+        if added.returncode != 0:
+            report(f"{label} keel chat wake add failed: {(added.stdout + added.stderr).strip()}")
+            return 1
+        before = subprocess.run(["git", "status", "--porcelain"], cwd=cx, capture_output=True, text=True).stdout
+
+        def expect_turns(count: int, why: str) -> bool:
+            result = run_once()
+            if result.returncode != 0:
+                report(f"{label} wake run --once failed {why}: {(result.stdout + result.stderr).strip()}")
+                return False
+            turns = codex_calls(calls)
+            if len(turns) != count:
+                report(f"{label} {len(turns)} Codex turns {why}, not {count}.")
+                return False
+            return True
+
+        if not expect_turns(0, "with nothing unread"):
+            return 1
+        keel(rtl, "post", "lab", "@all standup")
+        if not expect_turns(0, "when the only unread record is @all"):
+            return 1
+        keel(rtl, "post", "other", "@cx ping-in-other")
+        if not expect_turns(0, "for a mention in a group without chat-reply"):
+            return 1
+        keel(rtl, "post", "lab", "@cx ping-secret-123")
+        if not expect_turns(1, "for one @cx record in lab"):
+            return 1
+        first = codex_calls(calls)[0]
+        argv = first["argv"]
+        common = str(mailbox_common_dir(rtl))
+        if argv[:2] != ["exec", "--json"]:
+            report(f"{label} the first turn is not a new `exec --json` turn: {argv!r}")
+            return 1
+        if "resume" in argv:
+            report(f"{label} the first turn resumes a thread although none exists: {argv!r}")
+            return 1
+        joined = " ".join(argv)
+        for needle in ("model_auto_compact_token_limit=100000", 'sandbox_mode="workspace-write"', "sandbox_workspace_write.writable_roots=", common):
+            if needle not in joined:
+                report(f"{label} the turn's arguments lack {needle!r}: {argv!r}")
+                return 1
+        if Path(first["cwd"]).resolve() != cx.resolve():
+            report(f"{label} the turn ran in {first['cwd']}, not the worktree.")
+            return 1
+        if "ping-secret-123" in joined:
+            report(f"{label} the record text reached the turn's arguments.")
+            return 1
+        if "ping-secret-123" in first["stdin"]:
+            report(f"{label} the record text reached the turn's standard input.")
+            return 1
+        registrations = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [])
+        if len(registrations) != 1:
+            report(f"{label} status lists {len(registrations)} registrations, not one: {registrations!r}")
+            return 1
+        if registrations[0].get("thread") != "thread-fake-1":
+            report(f"{label} status does not report the turn's thread: {registrations!r}")
+            return 1
+        if not expect_turns(1, "on a second run with no new record"):
+            return 1
+        keel(rtl, "post", "lab", "@cx second")
+        if not expect_turns(2, "for a second @cx record"):
+            return 1
+        second = codex_calls(calls)[1]["argv"]
+        if second[:3] != ["exec", "resume", "thread-fake-1"]:
+            report(f"{label} the second turn does not resume the thread: {second!r}")
+            return 1
+
+        limited = keel(cx, "wake", "add", "--max-per-hour", "2")
+        if limited.returncode != 0:
+            report(f"{label} wake add --max-per-hour failed: {(limited.stdout + limited.stderr).strip()}")
+            return 1
+        keel(rtl, "post", "lab", "@cx third")
+        if not expect_turns(2, "past the hourly limit of 2"):
+            return 1
+        held = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [{}])[0]
+        if held.get("held") is not True:
+            report(f"{label} status does not report the registration held: {held!r}")
+            return 1
+
+        keel(cx, "wake", "add", "--max-per-hour", "10")
+        lock = base / "home" / "chat" / "wake" / f"{held.get('label')}.lock"
+        write_text(lock, f"{os.getpid()}\n")
+        if not expect_turns(2, "while another run holds the role's lock"):
+            return 1
+        lock.unlink()
+        if not expect_turns(3, "after the lock is released"):
+            return 1
+
+        after = subprocess.run(["git", "status", "--porcelain"], cwd=cx, capture_output=True, text=True).stdout
+        if after.strip():
+            report(f"{label} the waker left files in the worktree: {after!r} (before: {before!r})")
+            return 1
+        if not (base / "home" / "chat" / "wake.json").exists():
+            report(f"{label} the registration is not under KEEL_HOME.")
+            return 1
+
+    if "chat-wake-run" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-wake-run scenario passed.")
+    return 0
+
+
+def validate_chat_wake_lifecycle_scenario() -> int:
+    """Issue #203: the owner installs and removes a waker, and it watches the signal file.
+
+    `wake add` writes a LaunchAgent that watches the role's signal file and
+    runs `wake run --once --worktree <path>` at load and on each change; it is
+    refused without a role or for a host other than Codex, and warns when no
+    chat-reply is declared; `wake remove` unloads and deletes it and keeps
+    the log.
+    """
+    import plistlib  # noqa: PLC0415 - only the lifecycle scenarios read a plist
+
+    label = "chat-wake-lifecycle:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-wake-life-") as raw:
+        base = Path(raw)
+        rtl, cx, env, calls = chat_wake_scratch(base)
+        norole = chat_worktree(rtl, base / "norole")
+        agents = base / "agents"
+        launchctl_calls = base / "launchctl-calls"
+
+        def keel(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        added = keel(cx, "wake", "add")
+        if added.returncode != 0:
+            report(f"{label} wake add failed: {(added.stdout + added.stderr).strip()}")
+            return 1
+        plists = list(agents.glob("*.plist"))
+        if len(plists) != 1:
+            report(f"{label} wake add wrote {len(plists)} plists, not one.")
+            return 1
+        plist = plistlib.loads(plists[0].read_bytes())
+        if not str(plist.get("Label", "")).startswith("dev.keel.chat-wake.cx-"):
+            report(f"{label} the LaunchAgent label does not name the role: {plist.get('Label')!r}")
+            return 1
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "cx"
+        if [Path(p).resolve() for p in plist.get("WatchPaths", [])] != [signal.resolve()]:
+            report(f"{label} the LaunchAgent does not watch the role's signal file: {plist.get('WatchPaths')!r}")
+            return 1
+        if not signal.exists():
+            report(f"{label} wake add did not create the signal file it watches.")
+            return 1
+        program = plist.get("ProgramArguments", [])
+        if program[-6:-1] != ["chat", "wake", "run", "--once", "--worktree"]:
+            report(f"{label} the LaunchAgent does not run `chat wake run --once --worktree`: {program!r}")
+            return 1
+        if Path(program[-1]).resolve() != cx.resolve():
+            report(f"{label} the LaunchAgent names {program[-1]}, not the worktree.")
+            return 1
+        if plist.get("RunAtLoad") is not True:
+            report(f"{label} the LaunchAgent does not run at load: {plist!r}")
+            return 1
+        if "bootstrap" not in launchctl_calls.read_text():
+            report(f"{label} wake add did not load the LaunchAgent.")
+            return 1
+
+        unbound = keel(norole, "wake", "add")
+        if unbound.returncode == 0:
+            report(f"{label} wake add succeeded in a worktree with no role.")
+            return 1
+        if "role" not in unbound.stderr:
+            report(f"{label} the no-role refusal does not say a role is needed: {unbound.stderr.strip()}")
+            return 1
+        other_host = keel(cx, "wake", "add", "--host", "claude")
+        if other_host.returncode == 0:
+            report(f"{label} wake add accepted --host claude.")
+            return 1
+        if "--host" not in other_host.stderr:
+            report(f"{label} the host refusal does not name --host: {other_host.stderr.strip()}")
+            return 1
+
+        listed = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [])
+        mine = [entry for entry in listed if entry.get("role") == "cx"]
+        if len(mine) != 1:
+            report(f"{label} status does not list the cx registration once: {listed!r}")
+            return 1
+        if mine[0].get("installed") is not True:
+            report(f"{label} status does not report the waker installed: {mine[0]!r}")
+            return 1
+
+        undeclared = keel(rtl, "wake", "add")
+        if undeclared.returncode != 0:
+            report(f"{label} wake add without chat-reply failed: {(undeclared.stdout + undeclared.stderr).strip()}")
+            return 1
+        if "declares no chat-reply" not in undeclared.stdout:
+            report(f"{label} wake add without chat-reply does not say nothing will wake: {undeclared.stdout.strip()}")
+            return 1
+
+        keel(rtl, "post", "lab", "@cx ping")
+        keel(base, "wake", "run", "--once", "--worktree", str(cx))
+        log = Path(mine[0].get("log", ""))
+        if not log.exists():
+            report(f"{label} a turn wrote no wake log at {log}.")
+            return 1
+        removed = keel(cx, "wake", "remove")
+        if removed.returncode != 0:
+            report(f"{label} wake remove failed: {(removed.stdout + removed.stderr).strip()}")
+            return 1
+        if "bootout" not in launchctl_calls.read_text():
+            report(f"{label} wake remove did not unload the LaunchAgent.")
+            return 1
+        if plists[0].exists():
+            report(f"{label} wake remove left the plist.")
+            return 1
+        remaining = chat_json(keel(cx, "wake", "status", "--json")).get("registrations", [])
+        if any(entry.get("role") == "cx" for entry in remaining):
+            report(f"{label} wake remove left the registration: {remaining!r}")
+            return 1
+        if not log.exists():
+            report(f"{label} wake remove deleted the log.")
+            return 1
+
+    if "chat-wake-lifecycle" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-wake-lifecycle scenario passed.")
+    return 0
+
+
 def validate_chat_notice_check_scenario() -> int:
     """Issue #194: a scheduler asks, without a model turn, whether to start one.
 
@@ -34177,6 +34468,14 @@ SCENARIOS: tuple = (
     (
         "chat-reply-marks-read",
         validate_chat_reply_marks_read_scenario,
+    ),
+    (
+        "chat-wake-run",
+        validate_chat_wake_run_scenario,
+    ),
+    (
+        "chat-wake-lifecycle",
+        validate_chat_wake_lifecycle_scenario,
     ),
     (
         "record-derives-skeleton",
