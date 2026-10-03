@@ -49,7 +49,11 @@ claude plugin install keel@keel-marketplace
 
 项目初始化后，更新会自己到来：`keel --init --target claude`（以及 `keel --install`）会在项目的
 `.claude/settings.json` 里为 `keel-marketplace` 声明自动更新，Claude 先读这个声明，而不是它默认的"关闭"。
-新版本会在会话发出第一条消息后在后台下载；执行 `/reload-plugins` 即在当前会话生效，否则下次启动时生效。
+新版本会在会话发出第一条消息后在后台下载。从 5.89.0 起，正在运行的会话在下一次 hook 调用时就用上新版；
+它的技能和 agent 要在 `/reload-plugins` 或下次启动后才更新。
+
+想一次更新整台机器——全局 CLI、Claude 插件和 Codex 插件——就运行 `keel --update`。它为每个组件输出一行：
+变了什么、何时生效、还剩什么要你做；细节和各宿主对运行中会话的行为见 [docs/updating.md](docs/updating.md)。
 不想自动更新，就把那一项的 `autoUpdate` 设为 `false`；项目写明的值 Keel 会保留，`keel --doctor` 会报告当前声明的是哪一个。
 
 每个版本的 release notes 里还附有 Anthropic 官方插件目录对应的条目，锁定到该版本 tag 指向的 commit。

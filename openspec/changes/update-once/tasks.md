@@ -158,7 +158,7 @@
       - Scope check: `git status --short` shows `bin/keel.js` and `scripts/validate_plugin.py`, which are this task's Touch, plus this change's `tasks.md` and `design.md` (the F4 correction). The same commit splits the multi-failure conditions in 1.1, 1.2, and 2.1's scenarios into one failure per message, inside `scripts/validate_plugin.py`, which `assertion-shape-count` required.
       - Findings: Resolved here: M1. F4 as first written said doctor reported the stale Codex overlays `ok`. That was wrong, because the grep that seemed to show it had skipped lines starting with `Codex`. Doctor reported them `missing`. The design now says so, and the task makes the line read `stale`.
 
-- [ ] 2.3 The update steps and the per-host capability matrix are documented, and the Codex probe is a repeatable opt-in check
+- [x] 2.3 The update steps and the per-host capability matrix are documented, and the Codex probe is a repeatable opt-in check
   - Covers:
     - F1
     - F2
@@ -183,9 +183,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:f88291873f48e8418e034153beb2e2a092cd756f9360fb943f738d570772e088
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_codex_receiving.py --native-upgrade` printed `codex-cli 0.159.3` and `native-upgrade: after codex plugin add of 2.0.0 under a running app-server, the same thread's next hook ran 2.0.0 from its new directory; 1.0.0's directory was deleted and both hooks stayed trusted; no model executed and no personal trust was written`. The default `validate_codex_receiving.py` behavior check still passes.
+    - M2: pass. `docs/updating.md` carries the command table, the per-component statuses, the two cases that need the owner, the project catch-up rule, and the capability matrix for Claude and Codex across new session, resume, next hook call, compact and clear, skills and agents, the write guard, and the old version directory. Each row cites its probe or scenario, and the Claude resume cell and the Codex skills cell say they were not probed. `README.md` and `README.zh-CN.md` name `keel --update` as the one command and say a running session's hooks use an update at their next call. `README.md` no longer tells Codex users to start a fresh session; `README.zh-CN.md` never had that sentence. `docs/codex-validation.md` steps 1–2 now use `keel --update` and the per-call resolution. `grep -rn "start a fresh session after updating the plugin" README.md README.zh-CN.md docs/codex-validation.md` exits 1 with no match. `the-tarball-is-the-repository` passes with 65 tracked files.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 is the #204 probe made repeatable through the same public surfaces a running Codex session uses: a long-lived `codex app-server`, `thread/start` and `turn/start`, and `codex plugin add` underneath it. It asserts the version and directory each hook reported, the deleted old directory, and the trust status. M2's matrix states only what a probe or a scenario shows and marks the two cells nobody measured.
+      - Scope check: `git status --short` shows `docs/updating.md` (new), `README.md`, `README.zh-CN.md`, `docs/codex-validation.md`, and `scripts/validate_codex_receiving.py`, which are this task's Touch, plus this change's own `tasks.md`.
+      - Findings: none
 
 ## 3. Release, and prove adoption across two releases
 
@@ -249,8 +256,8 @@
   - Verify:
     - Strategy: evidence-first
     - Reason: this proves on the owner's machine what 1.1 and 2.1 proved in scratch caches. It needs two published releases that both carry the hand-off, so it has no red that could run before them.
-    - M1: with 5.89.0 installed on both hosts and loaded in a running Claude Code session, 5.89.1 is published and `keel --update` runs once. That session's next SessionStart (after `/compact` or `/clear`), with no `/reload-plugins`, projects `Keel: 5.89.1`, and its loaded plugin path is still the 5.89.0 directory.
-    - M2: in a `codex app-server` started under 5.89.0 against the owner's real Codex home, a new thread after the same `keel --update` projects 5.89.1, and `codex plugin list` reports 5.89.1 with the hooks still trusted.
+    - M1: with 5.89.0 installed on both hosts and loaded in a running Claude Code session, 5.89.1 is published carrying a small skill-text change, and `keel --update` runs once. That session's next SessionStart (after `/compact` or `/clear`), with no `/reload-plugins`, carries exactly one line saying hooks now run the installed plugin 5.89.1 in place of the loaded 5.89.0 and naming `/reload-plugins`, and it carries no drift line.
+    - M2: after the same `keel --update`, `codex plugin list --json` reports Keel 5.89.1 with the hooks still trusted. In a `codex app-server` started under 5.89.0 against the owner's real Codex home, a new thread's SessionStart projection carries no drift line while the CLI is 5.89.1, where a stale 5.89.0 plugin would name `plugin 5.89.0`.
     - M3: the measured result is recorded in `docs/updating.md` under the capability matrix, with the date and the versions.
   - Autonomy boundary:
     - Default: hard-stop
@@ -269,7 +276,7 @@
 
 ## Change Evidence
 
-- C1: `todo`
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 220 scenarios, 1 skipped: output-survives-the-pipe.` with `hook-hands-off-to-installed-update`, `guard-keeps-loaded-logic-under-manifest`, `adopted-update-is-silent-unless-reload`, `update-covers-installed-hosts`, and `refresh-covers-every-target` registered. The run came after 2.2's split of the multi-failure conditions, which the first full run had failed on in `assertion-shape-count`. 2.3 then changed only documentation and `validate_codex_receiving.py`, and after it `the-tarball-is-the-repository` and the baseline still pass.
 
 ## Invalidates
 

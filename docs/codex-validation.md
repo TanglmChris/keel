@@ -16,6 +16,7 @@ Run from a clean Keel source checkout with its existing OpenSpec dependency avai
 node scripts/run_python.js scripts/validate_codex_receiving.py
 node scripts/run_python.js scripts/validate_codex_receiving.py --consumer
 node scripts/run_python.js scripts/validate_codex_receiving.py --native
+node scripts/run_python.js scripts/validate_codex_receiving.py --native-upgrade
 ```
 
 The native check requires Codex CLI and permission to bind a loopback HTTP port. It installs a local copy of this plugin only into a disposable configuration. Its request-capture endpoint returns HTTP 400 after receiving the request; this intentional endpoint failure means no model executes and no second agent owns any Keel work. The test succeeds when the captured context assertions succeed, not when Codex completes a model response. There is no API key or paid inference requirement.
@@ -43,8 +44,8 @@ The working source repository contains a nested Claude worktree. The baseline sc
 
 ## Enable receiving in normal use
 
-1. Update the Keel CLI and installed Codex plugin to the desired matching release; inspect `keel --version` and `codex plugin list`.
-2. Start a fresh Codex session so the installed hook definitions are loaded. In Codex CLI, use `/hooks` to inspect and trust the **current** Keel definitions; changed definitions require review again. Desktop activation remains subject to that client's actual review controls and must be observed, not inferred from installation.
+1. Run `keel --update`, which updates the Keel CLI and the installed Codex plugin together and reports both; inspect `keel --version` and `codex plugin list`. A Codex marketplace that is a local path is reported as needing a manual step ([updating](updating.md)).
+2. A running Codex session uses the updated plugin at its next hook call; Codex resolves the plugin root per call (`validate_codex_receiving.py --native-upgrade`). In Codex CLI, use `/hooks` to inspect and trust the **current** Keel definitions; changed definitions require review again. Desktop activation remains subject to that client's actual review controls and must be observed, not inferred from installation.
 3. Bind a worktree role with `keel mail role --set codex-maint` (choose a role appropriate to your worktree). `KEEL_MAIL_ROLE` can select a role for one process when multiple sessions share a worktree.
 4. With unread mail, startup or the next user input carries a notice. Read deliberately with `keel mail read`; notices do not acknowledge mail.
 5. If hooks are unavailable, run `keel context`, `keel mail list`, and the explicit task/gate commands. A guard file alone is not proof of enforcement.
