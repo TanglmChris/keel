@@ -85,7 +85,16 @@
     - M1: with this tree's `keel` on the owner's machine, `keel chat wake add` runs in `~/my_github/chat-playground/.worktrees/codex`, then `owner` posts an `@cx` record to `lab` and nobody starts Codex; within five minutes `lab` shows a `codex` reply to that record, `keel chat wake status` names a thread, and the wake log shows one turn; a following `@all` post starts no turn within two minutes. The commands and their output are quoted in Evidence.
     - M2: each of the five documents describes `keel chat wake` as the way to wake Codex for addressed records, says it needs `chat-reply:<group>` and continues one thread with compaction, and keeps the warning against polling with the model; and `docs/codex-validation.md` no longer says that nothing wakes an idle Codex session. A one-off script greps the documents for these statements and its output is quoted in Evidence.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:a418f9f205bf8970a3cfd3a906099c412b57cf92c9db1e072192faaf30f146a9
+    - M1: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
   - Stop if:
     - The real run shows Codex writing anything other than a chat record, or more than one turn for one record.
 

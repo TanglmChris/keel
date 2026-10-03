@@ -81,7 +81,9 @@ hook definitions with `/hooks` in the CLI. Installation does not grant hook trus
 Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
 unread mail at session start and the next user input without marking it read.
 If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
-explicitly. Codex idle wake-up and native write-guard enforcement remain unverified.
+explicitly. Codex does not wake itself while idle; `keel chat wake add` in its worktree
+starts a turn when something addressed to it arrives (#203). Native write-guard
+enforcement remains unverified.
 See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
 evidence, limitations and the clean-consumer Full-mode check.
 
@@ -640,7 +642,7 @@ for it by name. Keel never pauses a change on its own.
 
 ## Group chat between sessions
 
-Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. Each member has its own unread state, and history is kept. Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. A host that cannot wake on its own should rely on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention: see [the Slack setup guide](docs/chat-slack-setup.md). The 5.83 `keel mail` commands keep working on direct groups.
+Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. Each member has its own unread state, and history is kept. Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Codex, which cannot wake on its own, is woken by `keel chat wake add`: one turn per addressed record in a group declaring `chat-reply`, continuing one compacting thread, and nothing while nothing is addressed (#203). Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention: see [the Slack setup guide](docs/chat-slack-setup.md). The 5.83 `keel mail` commands keep working on direct groups.
 
 ## Commands
 
