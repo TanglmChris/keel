@@ -1,0 +1,83 @@
+# Tasks
+
+## 1. An addressed record wakes Codex, and nothing else does
+
+- [ ] 1.1 `keel chat wake run --once` starts one Codex turn per addressed record
+  - Covers:
+    - keel-cross-host-mailbox / An owner-installed waker starts one turn per addressed record
+    - keel-cross-host-mailbox / Presence is visible and only an owner-installed waker launches a member
+    - D2
+    - D3
+    - D4
+    - D5
+    - D6
+    - F2
+  - Touch:
+    - src/core/chat/wake.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-run` checks, in a scratch repository with `chat-reply:lab` declared, a registration written by `keel chat wake add` under a scratch `KEEL_HOME` with a fake launchctl, and a fake `KEEL_CHAT_CODEX` that records its argv, working directory, and stdin and prints a `thread.started` event: with nothing unread, or only `@all`, or a mention in an undeclared group, `wake run --once` starts no turn; an `@cx` record in `lab` starts one `exec --json` turn in the worktree whose argv carries `model_auto_compact_token_limit=100000`, `sandbox_mode="workspace-write"`, and the git common directory as a writable root, and whose prompt carries no record text; `wake status --json` then reports the fake thread id; a second run with no new record starts nothing; a new `@cx` record starts `exec resume <thread>`; with `--max-per-hour 2` a third record starts nothing and status reports the registration held; a run while another holds the role's lock starts nothing; and `git status --porcelain` in the worktree stays empty. Fails with: `chat-wake-run:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: pending
+  - Stop if:
+    - Starting a turn would need anything other than the configured Codex executable, or would write inside a repository.
+
+- [ ] 1.2 `keel chat wake add|remove|status` install and remove a LaunchAgent that watches the signal file
+  - Covers:
+    - keel-cross-host-mailbox / An owner-installed waker starts one turn per addressed record
+    - D1
+    - D5
+  - Touch:
+    - src/core/chat/wake.js
+    - src/core/chat/cli.js
+    - scripts/validate_plugin.py
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-lifecycle` checks, with a scratch `KEEL_HOME`, `KEEL_CHAT_LAUNCH_AGENTS_DIR`, and a fake `KEEL_CHAT_LAUNCHCTL` that logs its arguments, that `keel chat wake add` in a worktree bound to `cx` writes a plist whose label starts `dev.keel.chat-wake.cx-`, whose `WatchPaths` names the role's signal file (which now exists), whose `ProgramArguments` end in `chat wake run --once --worktree <path>`, and which sets `RunAtLoad`, then calls `launchctl bootstrap`; that `wake add` in a worktree with no role, or with `--host` other than `codex`, is refused by name; that `wake status --json` lists the registration as installed; that `wake add` with no `chat-reply` declared says nothing will wake; and that `wake remove` calls `launchctl bootout`, deletes the plist and the registration, and keeps the log. Fails with: `chat-wake-lifecycle:`
+    - M2 (regression): `npm test` passes the baseline and every registered scenario.
+  - Evidence:
+    - Contract: pending
+  - Stop if:
+    - Installing would need anything beyond the user's own LaunchAgents directory and launchctl.
+
+- [ ] 1.3 The real Codex is woken in the playground, and the documentation describes the waker
+  - Covers:
+    - F1
+    - D1
+    - D3
+  - Touch:
+    - docs/chat-slack-setup.md
+    - docs/chat-slack-setup.zh-CN.md
+    - docs/codex-validation.md
+    - README.md
+    - README.zh-CN.md
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: the behavior is a real launchd trigger starting a real Codex turn on the owner's machine, which no scratch test can host; its unit behavior is proved by 1.1 and 1.2.
+    - M1: with this tree's `keel` on the owner's machine, `keel chat wake add` runs in `~/my_github/chat-playground/.worktrees/codex`, then `owner` posts an `@cx` record to `lab` and nobody starts Codex; within five minutes `lab` shows a `codex` reply to that record, `keel chat wake status` names a thread, and the wake log shows one turn; a following `@all` post starts no turn within two minutes. The commands and their output are quoted in Evidence.
+    - M2: each of the five documents describes `keel chat wake` as the way to wake Codex for addressed records, says it needs `chat-reply:<group>` and continues one thread with compaction, and keeps the warning against polling with the model; and `docs/codex-validation.md` no longer says that nothing wakes an idle Codex session. A one-off script greps the documents for these statements and its output is quoted in Evidence.
+  - Evidence:
+    - Contract: pending
+  - Stop if:
+    - The real run shows Codex writing anything other than a chat record, or more than one turn for one record.
+
+## Invalidates
+
+- I1: "Keel MUST NOT start any session" — `openspec/specs/keel-cross-host-mailbox/spec.md`. Updated by: 1.1
+- I2: "nothing wakes an idle Codex session" — `docs/codex-validation.md`. Updated by: 1.3
+- I3: "No idle polling/wake claim; receive on startup/next prompt" — `docs/codex-validation.md`. Updated by: 1.3
+- I4: "Sessions that cannot wake on their own (Codex and others)" and "不能自己被唤醒的会话（Codex 等）" — `docs/chat-slack-setup.md` and `docs/chat-slack-setup.zh-CN.md`. Updated by: 1.3
+- I5: "Codex idle wake-up and native write-guard enforcement remain unverified" — `README.md`, and "不能自己被唤醒的宿主（如 Codex）" — `README.zh-CN.md`. Updated by: 1.3
+- I6: "Keel schedules nothing" — `AGENTS.md`. Discard reason: the waker is triggered by a file change that a mention causes, never by a schedule, so the sentence stays true.
+
+## Expectation Coverage
+
+- E1: An addressed record in a group where replying is authorized starts one Codex turn without anyone starting it, and nothing runs while nothing is addressed. Covered by: 1.1, 1.2, 1.3
+- E2: The waker's turns continue one thread with a compaction limit. Covered by: 1.1, 1.3
+- E3: The waker is installed only by the owner, and nothing it keeps enters a repository. Covered by: 1.2, 1.1
