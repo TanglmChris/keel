@@ -18834,6 +18834,353 @@ def validate_drift_names_a_pending_reload_scenario() -> int:
     return 0
 
 
+# A hook stub that reports which copy ran, with what input. Used as the newer
+# install's copy of a script so the scenario can tell a hand-off from the
+# loaded script's own logic, which prints none of this.
+HANDOFF_STUB = r"""const fs = require("fs");
+const path = require("path");
+let input = "";
+try { input = fs.readFileSync(0, "utf8"); } catch {}
+const manifest = path.join(__dirname, "..", ".claude-plugin", "plugin.json");
+process.stdout.write(JSON.stringify({
+  stub: JSON.parse(fs.readFileSync(manifest, "utf8")).version,
+  script: path.basename(__filename),
+  argv: process.argv.slice(2),
+  input,
+  forwarded: process.env.KEEL_HOOK_FORWARDED || null,
+  root: process.env.CLAUDE_PLUGIN_ROOT || null,
+}) + "\n");
+const sleep = Number(process.env.HANDOFF_STUB_SLEEP_MS || 0);
+if (sleep) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, sleep);
+process.exit(Number(process.env.HANDOFF_STUB_STATUS || 0));
+"""
+
+
+def plant_handoff_package(root: Path, version: str, *, stubs: tuple[str, ...] = ()) -> Path:
+    """One cached Claude install: the package root with both manifests and the
+    plugin's real hook scripts, of which `stubs` are replaced by HANDOFF_STUB."""
+    manifest = json.dumps({"name": "keel", "version": version}, indent=2) + "\n"
+    write_text(root / ".claude-plugin/plugin.json", manifest)
+    write_text(root / "plugins/keel/.claude-plugin/plugin.json", manifest)
+    write_text(
+        root / "package.json",
+        json.dumps({"name": "@christang/keel", "version": version}) + "\n",
+    )
+    scripts = ROOT / PLUGIN_ROOT / "scripts"
+    for source in sorted(scripts.glob("*.js")):
+        body = HANDOFF_STUB if source.name in stubs else source.read_text(encoding="utf-8")
+        write_text(root / "plugins/keel/scripts" / source.name, body)
+    return root
+
+
+def write_install_record(plugins_dir: Path, install_path: Path | None) -> None:
+    entries = {}
+    if install_path is not None:
+        entries["keel@m"] = [{"scope": "user", "installPath": str(install_path), "version": "x"}]
+    write_text(
+        plugins_dir / "installed_plugins.json",
+        json.dumps({"version": 2, "plugins": entries}) + "\n",
+    )
+
+
+def run_hook_script(
+    script: Path,
+    args: list[str],
+    stdin: str,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    for name in ("KEEL_HOOK_FORWARDED", "HANDOFF_STUB_STATUS", "HANDOFF_STUB_SLEEP_MS",
+                 "KEEL_HOOK_FORWARD_TIMEOUT_MS"):
+        env.pop(name, None)
+    env["CLAUDE_PLUGIN_ROOT"] = str(script.parents[1])
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        ["node", str(script), *args], cwd=cwd, env=env, input=stdin, text=True,
+        encoding="utf-8", errors="replace", capture_output=True, check=False, timeout=60,
+    )
+
+
+def stub_output(result: subprocess.CompletedProcess[str]) -> dict | None:
+    for line in result.stdout.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and "stub" in value:
+            return value
+    return None
+
+
+def validate_hook_hands_off_to_installed_update_scenario() -> int:
+    """Issue #204: a Claude hook runs the newest installed compatible copy.
+
+    Claude binds a session's hooks to the version directory it loaded and keeps
+    that directory after an update, so without a hand-off a running session
+    executes the old scripts until `/reload-plugins`. The loaded script reads
+    the host's install record and hands the event to the newer install's copy
+    of itself when, and only when, that copy is a compatible one.
+    """
+    label = "hook-hands-off-to-installed-update:"
+    with tempfile.TemporaryDirectory(prefix="keel-handoff-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        cwd = tmp / "work"
+        cwd.mkdir()
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        stubs = ("session-start.js", "mail-hook.js")
+        loaded = plant_handoff_package(cache / "5.0.0", "5.0.0")
+        newer = plant_handoff_package(cache / "5.1.0", "5.1.0", stubs=stubs)
+        plant_handoff_package(cache / "6.0.0", "6.0.0", stubs=stubs)
+        lacking = plant_handoff_package(cache / "5.2.0", "5.2.0")
+        (lacking / "plugins/keel/scripts/mail-hook.js").unlink()
+        (lacking / "plugins/keel/scripts/session-start.js").unlink()
+        # The loaded copy's own logic must print nothing a stub prints: an
+        # empty CLI for mail-hook, and no `openspec/` for session-start.
+        quiet_cli = tmp / "quiet-cli.js"
+        write_text(quiet_cli, "process.exit(0);\n")
+        base_env = {"KEEL_CLI": f'node "{quiet_cli}"'}
+        event = json.dumps({"hook_event_name": "SessionStart", "cwd": str(cwd), "probe": "stdin-bytes"})
+
+        def run(script: str, extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+            args = ["session-start"] if script == "mail-hook.js" else []
+            env = dict(base_env)
+            env.update(extra or {})
+            return run_hook_script(loaded / "plugins/keel/scripts" / script, args, event, cwd, env)
+
+        # M1 — an installed, newer, same-major copy runs, with the same input.
+        write_install_record(plugins_dir, newer)
+        for script in stubs:
+            result = run(script, {"HANDOFF_STUB_STATUS": "3"})
+            seen = stub_output(result)
+            if seen is None:
+                report(f"{label} {script} 5.0.0 did not hand off to installed 5.1.0: "
+                       f"stdout={result.stdout!r} stderr={result.stderr!r}")
+                return 1
+            expected_args = ["session-start"] if script == "mail-hook.js" else []
+            problems = []
+            if seen["stub"] != "5.1.0" or seen["script"] != script:
+                problems.append(f"ran {seen['script']} at {seen['stub']}")
+            if seen["argv"] != expected_args:
+                problems.append(f"argv {seen['argv']!r}")
+            if seen["input"] != event:
+                problems.append(f"stdin {seen['input']!r}")
+            if seen["forwarded"] != "5.0.0":
+                problems.append(f"KEEL_HOOK_FORWARDED={seen['forwarded']!r}")
+            if Path(seen["root"] or "").resolve() != newer.resolve():
+                problems.append(f"CLAUDE_PLUGIN_ROOT={seen['root']!r}")
+            if result.returncode != 3:
+                problems.append(f"exit {result.returncode}, not the stub's 3")
+            if problems:
+                report(f"{label} {script} handed off wrongly: {'; '.join(problems)}")
+                return 1
+
+        # Every other case runs the loaded script's own logic.
+        cases = [
+            ("the record names the loaded install", lambda: write_install_record(plugins_dir, loaded), {}),
+            ("the record names a different major", lambda: write_install_record(plugins_dir, cache / "6.0.0"), {}),
+            ("the recorded path does not exist", lambda: write_install_record(plugins_dir, cache / "5.9.0"), {}),
+            ("the recorded tree lacks the script", lambda: write_install_record(plugins_dir, lacking), {}),
+            ("there is no install record", lambda: (plugins_dir / "installed_plugins.json").unlink(), {}),
+            ("the run is already a hand-off", lambda: write_install_record(plugins_dir, newer),
+             {"KEEL_HOOK_FORWARDED": "4.9.0"}),
+        ]
+        for name, arrange, extra in cases:
+            arrange()
+            for script in stubs:
+                result = run(script, extra)
+                if stub_output(result) is not None:
+                    report(f"{label} {script} handed off although {name}: {result.stdout!r}")
+                    return 1
+
+        # Codex resolves the plugin root per hook call, so a Codex-shaped
+        # install — the plugin directory itself is the cached root — never hands off.
+        codex_cache = tmp / "codex-home/plugins/cache/m/keel"
+        for version, stubbed in (("5.0.0", ()), ("5.1.0", stubs)):
+            plugin = codex_cache / version
+            write_text(plugin / ".codex-plugin/plugin.json",
+                       json.dumps({"name": "keel", "version": version}) + "\n")
+            write_text(plugin / ".claude-plugin/plugin.json",
+                       json.dumps({"name": "keel", "version": version}) + "\n")
+            for source in sorted((ROOT / PLUGIN_ROOT / "scripts").glob("*.js")):
+                body = HANDOFF_STUB if source.name in stubbed else source.read_text(encoding="utf-8")
+                write_text(plugin / "scripts" / source.name, body)
+        write_install_record(tmp / "codex-home/plugins", codex_cache / "5.1.0")
+        result = run_hook_script(codex_cache / "5.0.0/scripts/session-start.js", [], event, cwd, base_env)
+        if stub_output(result) is not None:
+            report(f"{label} a Codex-shaped install handed off: {result.stdout!r}")
+            return 1
+
+    if "hook-hands-off-to-installed-update" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("hook-hands-off-to-installed-update scenario passed.")
+    return 0
+
+
+def validate_guard_keeps_loaded_logic_under_manifest_scenario() -> int:
+    """Issue #204: the write guard waits for the active task before adopting.
+
+    While a task's guard manifest exists, the guard the session loaded keeps
+    deciding, so a mid-task update cannot change what is allowed. The first
+    check after the manifest is gone runs the installed copy, and a copy that
+    cannot run leaves the loaded guard's decision in place.
+    """
+    label = "guard-keeps-loaded-logic-under-manifest:"
+    with tempfile.TemporaryDirectory(prefix="keel-handoff-guard-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        loaded = plant_handoff_package(cache / "5.0.0", "5.0.0")
+        newer = plant_handoff_package(cache / "5.1.0", "5.1.0", stubs=("pretooluse-guard.js",))
+        write_install_record(plugins_dir, newer)
+
+        repo = tmp / "repo"
+        repo.mkdir()
+        write_text(repo / "openspec/changes/demo/tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+        gate = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--json")
+        manifest = repo / "keel/guard.json"
+        if gate.returncode != 0 or not manifest.is_file():
+            report(f"{label} the fixture task did not start a guard: {gate.stdout}{gate.stderr}")
+            return 1
+        guard = loaded / "plugins/keel/scripts/pretooluse-guard.js"
+        event = json.dumps(edit_event(repo, repo / "b.txt", "Write"))
+
+        under = run_hook_script(guard, [], event, repo)
+        decision = pretooluse_decision(under) if stub_output(under) is None else None
+        if stub_output(under) is not None:
+            report(f"{label} the guard handed off while a manifest was active: {under.stdout!r}")
+            return 1
+        if not decision or decision.get("permissionDecision") != "deny":
+            report(f"{label} the loaded guard did not deny b.txt under the manifest: {decision!r}")
+            return 1
+
+        manifest.unlink()
+        after = run_hook_script(guard, [], event, repo)
+        if stub_output(after) is None:
+            report(f"{label} the guard did not hand off once the manifest was gone: "
+                   f"stdout={after.stdout!r} stderr={after.stderr!r}")
+            return 1
+
+        # A copy that cannot finish in time leaves the loaded guard's decision.
+        # With no manifest the loaded guard allows silently, so the fallback is
+        # observable as empty output rather than the stub's.
+        slow = run_hook_script(guard, [], event, repo,
+                               {"HANDOFF_STUB_SLEEP_MS": "5000", "KEEL_HOOK_FORWARD_TIMEOUT_MS": "300"})
+        if stub_output(slow) is not None or slow.returncode != 0 or slow.stdout.strip():
+            report(f"{label} a timed-out hand-off did not fall back to the loaded guard: "
+                   f"exit={slow.returncode} stdout={slow.stdout!r}")
+            return 1
+
+    if "guard-keeps-loaded-logic-under-manifest" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("guard-keeps-loaded-logic-under-manifest scenario passed.")
+    return 0
+
+
+def plant_real_package(root: Path, version: str) -> Path:
+    """A cached Claude install made from this working tree's real package,
+    stamped with `version`, so its hooks run their real logic end to end."""
+    for part in ("bin", "src", "scripts", "plugins", "assets", ".claude-plugin"):
+        shutil.copytree(ROOT / part, root / part,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    pkg = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    pkg["version"] = version
+    write_text(root / "package.json", json.dumps(pkg, indent=2) + "\n")
+    for manifest in (root / ".claude-plugin/plugin.json",
+                     root / "plugins/keel/.claude-plugin/plugin.json"):
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["version"] = version
+        write_text(manifest, json.dumps(data, indent=2) + "\n")
+    if (ROOT / "node_modules").exists():
+        (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
+    return root
+
+
+def validate_adopted_update_is_silent_unless_reload_scenario() -> int:
+    """Issue #204: an adopted update says nothing unless a reload is needed.
+
+    A handed-off SessionStart runs as the installed version, so with the CLI
+    and protocol at that version there is no drift to report. What the hand-off
+    cannot bring forward is what the host loaded at session start — skills,
+    agents, and declared hooks — and only a difference there earns a line,
+    naming `/reload-plugins` and nothing else.
+    """
+    label = "adopted-update-is-silent-unless-reload:"
+    event = {"hook_event_name": "SessionStart", "source": "clear"}
+    with tempfile.TemporaryDirectory(prefix="keel-adopt-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        plugins_dir = tmp / "plugins"
+        cache = plugins_dir / "cache/m/keel"
+        loaded = plant_real_package(cache / "5.0.0", "5.0.0")
+        newer = plant_real_package(cache / "5.1.0", "5.1.0")
+        write_install_record(plugins_dir, newer)
+
+        repo = tmp / "repo"
+        write_text(repo / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            repo / "AGENTS.md",
+            "# Keel v5.1.0 Agent Protocol\n\n<!-- keel:start version=5.1.0 -->\n"
+            "## Session Start\n<!-- keel:end -->\n",
+        )
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        # No `keel` on PATH, so the suite rather than the developer's global
+        # install decides whether a PATH copy is compared.
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        for tool in ("node", "git"):
+            found = shutil.which(tool)
+            if found:
+                (bin_dir / tool).symlink_to(found)
+        env = {"PATH": str(bin_dir) + os.pathsep + "/usr/bin" + os.pathsep + "/bin"}
+
+        def channels() -> tuple[str, str]:
+            run = run_session_start_hook(
+                repo, event, keel_cli=None, plugin_root=loaded / "plugins/keel", extra_env=env
+            )
+            return session_start_context(run) or "", session_start_message(run) or ""
+
+        context, human = channels()
+        for name, text in (("additionalContext", context), ("systemMessage", human)):
+            lowered = text.lower()
+            if "fallback" in lowered or not ("projection" in lowered or "keel:" in lowered):
+                report(f"{label} {name} is not a projection; the handed-off SessionStart "
+                       f"did not run to completion: {text!r}")
+                return 1
+            if "versions disagree" in lowered or "/reload-plugins" in lowered or "5.0.0" in text:
+                report(f"{label} {name} reported versions or a reload after a compatible, "
+                       f"identical update: {text!r}")
+                return 1
+
+        skill = next((newer / "plugins/keel/skills").rglob("SKILL.md"))
+        skill.write_text(skill.read_text(encoding="utf-8") + "\nChanged in 5.1.0.\n", encoding="utf-8")
+        context, human = channels()
+        for name, text in (("additionalContext", context), ("systemMessage", human)):
+            lowered = text.lower()
+            lines = [line for line in text.splitlines() if "/reload-plugins" in line]
+            if len(lines) != 1:
+                report(f"{label} {name} carries {len(lines)} lines naming /reload-plugins "
+                       f"after a skill changed, not one: {text!r}")
+                return 1
+            line = lines[0].lower()
+            if "5.1.0" not in line or "skill" not in line:
+                report(f"{label} {name} does not name 5.1.0 and the skills: {lines[0]!r}")
+                return 1
+            if "claude plugin update" in lowered:
+                report(f"{label} {name} named an update command for an installed update: {text!r}")
+                return 1
+
+    if "adopted-update-is-silent-unless-reload" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("adopted-update-is-silent-unless-reload scenario passed.")
+    return 0
+
+
 def validate_official_directory_entry_scenario() -> int:
     """Each release states the entry Anthropic's official directory would list.
 
@@ -34711,6 +35058,9 @@ SCENARIOS: tuple = (
     ("runtime-version-drift", validate_runtime_version_drift_scenario),
     ("plugin-runs-its-own-cli", validate_plugin_runs_its_own_cli_scenario),
     ("drift-names-a-pending-reload", validate_drift_names_a_pending_reload_scenario),
+    ("hook-hands-off-to-installed-update", validate_hook_hands_off_to_installed_update_scenario),
+    ("guard-keeps-loaded-logic-under-manifest", validate_guard_keeps_loaded_logic_under_manifest_scenario),
+    ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("official-directory-entry", validate_official_directory_entry_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),

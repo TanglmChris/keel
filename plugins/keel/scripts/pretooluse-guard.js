@@ -5,7 +5,10 @@
 // file edits while an explicit keel/guard.json manifest is active. Absence of
 // the manifest allows everything silently; a present-but-untrusted manifest
 // fails closed. The hook never writes state, never spawns the keel CLI, and
-// always exits 0 — denial is expressed only through hook output. The
+// always exits 0 — denial is expressed only through hook output. While no
+// manifest is active it may instead run the newer installed copy of itself
+// (forward.js, #204); while one is, the loaded guard keeps deciding, so a task
+// finishes under the guard it started with. The
 // repository is the guard's scope: a path resolving outside it is not a product
 // write and passes through, decided before the manifest is read so that no
 // manifest state can reach it.
@@ -13,6 +16,16 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+
+// A newer installed copy of this script runs in its place when the host has
+// installed one (forward.js, #204). A copy of this script without forward.js
+// beside it simply runs its own logic.
+let handOff = () => null;
+try {
+  ({ handOff } = require("./forward"));
+} catch {
+  // Copied on its own: no hand-off.
+}
 
 const MANIFEST_SCHEMA = "keel-write-guard/v1";
 const FILE_EDIT_TOOLS = new Map([
@@ -145,14 +158,23 @@ function repoRelative(repo, target) {
 }
 
 function main() {
+  const input = readStdin();
   let event = {};
   try {
-    event = JSON.parse(readStdin() || "{}");
+    event = JSON.parse(input || "{}");
   } catch {
     event = {};
   }
   const repo =
     typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
+
+  // An active task keeps the guard it started under: hand off only while no
+  // manifest exists. A copy that fails to run returns null, and this guard's
+  // own decision follows.
+  if (!fs.existsSync(path.join(repo, "keel", "guard.json"))) {
+    const handed = handOff(__filename, input, 8000);
+    if (handed !== null) return handed;
+  }
 
   const pathField = FILE_EDIT_TOOLS.get(event.tool_name);
   if (!pathField) return 0;

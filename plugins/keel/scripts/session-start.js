@@ -15,6 +15,16 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// A newer installed copy of this script runs in its place when the host has
+// installed one (forward.js, #204). A copy of this script without forward.js
+// beside it simply runs its own logic.
+let handOff = () => null;
+try {
+  ({ handOff } = require("./forward"));
+} catch {
+  // Copied on its own: no hand-off.
+}
+
 // This text is injected into the agent; the human reads the `systemMessage`
 // line instead. Both channels ship on every branch, degraded ones included,
 // and neither makes the other redundant: the host's line says what the state
@@ -252,6 +262,71 @@ function versionReport(cwd, cli, pathCli = null) {
     + `\`/reload-plugins\` or at the next session start. ${remedy}${shadow}`;
 }
 
+// A handed-off run (forward.js, #204) executes the installed version, so its
+// hooks, CLI, and version report are already the new ones. What it cannot
+// bring forward is what the host loaded when the session started: skills,
+// agents, and the declared hooks. They are compared between the loaded tree —
+// the cache keeps each version under its own name beside this one — and this
+// tree, and only a difference earns a line, naming the reload and nothing
+// else. A loaded tree that cannot be found is reported as possibly different,
+// because silence would claim a comparison that never happened.
+function treeDigest(dir) {
+  const hash = require("crypto").createHash("sha256");
+  const walk = (current, prefix) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(current, entry.name);
+      const name = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(full, `${name}/`);
+      } else if (entry.isFile()) {
+        hash.update(`${name}\0`);
+        hash.update(fs.readFileSync(full));
+        hash.update("\0");
+      }
+    }
+  };
+  walk(dir, "");
+  return hash.digest("hex");
+}
+
+function declaredHooks(root) {
+  try {
+    const manifest = path.join(root, ".claude-plugin", "plugin.json");
+    return JSON.stringify(JSON.parse(fs.readFileSync(manifest, "utf8")).hooks || null);
+  } catch {
+    return null;
+  }
+}
+
+function adoptionReport() {
+  const loadedVersion = (process.env.KEEL_HOOK_FORWARDED || "").trim();
+  if (!loadedVersion) return null;
+  const running = pluginManifest().version;
+  const root = path.resolve(__dirname, "..", "..", "..");
+  const loaded = path.join(path.dirname(root), loadedVersion);
+  let differs;
+  if (!fs.existsSync(path.join(loaded, ".claude-plugin", "plugin.json"))) {
+    differs = "skills, agents, or hooks may differ";
+  } else {
+    const changed = [];
+    for (const [name, rel] of [["skills", "plugins/keel/skills"], ["agents", "plugins/keel/agents"]]) {
+      if (treeDigest(path.join(loaded, rel)) !== treeDigest(path.join(root, rel))) changed.push(name);
+    }
+    if (declaredHooks(loaded) !== declaredHooks(root)) changed.push("declared hooks");
+    if (changed.length === 0) return null;
+    differs = `${changed.join(" and ")} changed`;
+  }
+  return `hooks now run the installed plugin ${running} in place of the loaded `
+    + `${loadedVersion}; its ${differs}, and \`/reload-plugins\` loads them — the `
+    + "only step left.";
+}
+
 // The `keel` a bare command resolves, asked only when this hook ran its own
 // CLI; with no such command there is nothing to compare.
 function pathCliVersion(cwd) {
@@ -371,9 +446,12 @@ function fallback(reason) {
 }
 
 function main() {
+  const input = readStdin();
+  const handed = handOff(__filename, input, 12000);
+  if (handed !== null) return handed;
   let event = {};
   try {
-    event = JSON.parse(readStdin() || "{}");
+    event = JSON.parse(input || "{}");
   } catch {
     event = {};
   }
@@ -482,6 +560,11 @@ function main() {
     versionMatch[0],
     cli.packaged ? pathCliVersion(cwd) : null
   );
+  const adoption = adoptionReport();
+  if (adoption) {
+    lines.push(`- ${adoption}`);
+    human.splice(human.length - 1, 0, adoption[0].toUpperCase() + adoption.slice(1));
+  }
   if (drift) {
     lines.push(`- ${drift}`);
     human.splice(human.length - 1, 0, drift[0].toUpperCase() + drift.slice(1));
