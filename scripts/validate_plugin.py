@@ -3723,6 +3723,68 @@ def validate_chat_archive_scenario() -> int:
     return 0
 
 
+def validate_chat_reply_marks_read_scenario() -> int:
+    """Issue #201: answering a record marks it read for the one who answered.
+
+    A reply moves the poster's cursor to the replied-to record and `done`
+    moves the closer's cursor to the todo, never backwards, so records after
+    the answered one stay unread.
+    """
+    label = "chat-reply-marks-read:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-reply-read-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        def unread_ids() -> list[str]:
+            return [r.get("id") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+
+        first = chat_json(chat(rtl, "post", "soc", "@verify first", "--json")).get("id", "")
+        second = chat_json(chat(rtl, "post", "soc", "@verify second", "--json")).get("id", "")
+        if not first or not second:
+            report(f"{label} the two posts did not report ids.")
+            return 1
+        replied = chat(verify, "post", "soc", "on it", "--reply-to", first)
+        if replied.returncode != 0:
+            report(f"{label} the reply failed: {replied.stderr.strip()}")
+            return 1
+        after_reply = unread_ids()
+        if first in after_reply:
+            report(f"{label} the replied-to record is still unread for verify: {after_reply!r}")
+            return 1
+        if second not in after_reply:
+            report(f"{label} the record after the replied-to one is no longer unread: {after_reply!r}")
+            return 1
+        readers = chat_json(chat(rtl, "show", first, "--json")).get("readers", [])
+        if "verify" not in readers:
+            report(f"{label} show does not list verify as a reader after its reply: {readers!r}")
+            return 1
+
+        task = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Rerun", "--json")).get("id", "")
+        closed = chat(verify, "done", task)
+        if closed.returncode != 0:
+            report(f"{label} done failed: {closed.stderr.strip()}")
+            return 1
+        after_done = unread_ids()
+        if task in after_done:
+            report(f"{label} the closed todo is still unread for verify: {after_done!r}")
+            return 1
+
+        third = chat_json(chat(rtl, "post", "soc", "@verify third", "--json")).get("id", "")
+        chat(verify, "post", "soc", "late answer", "--reply-to", first)
+        if third not in unread_ids():
+            report(f"{label} a reply to a record behind the cursor moved it past a later unread record.")
+            return 1
+
+    if "chat-reply-marks-read" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-reply-marks-read scenario passed.")
+    return 0
+
+
 def validate_chat_notice_check_scenario() -> int:
     """Issue #194: a scheduler asks, without a model turn, whether to start one.
 
@@ -34111,6 +34173,10 @@ SCENARIOS: tuple = (
     (
         "chat-notice-check",
         validate_chat_notice_check_scenario,
+    ),
+    (
+        "chat-reply-marks-read",
+        validate_chat_reply_marks_read_scenario,
     ),
     (
         "record-derives-skeleton",

@@ -557,6 +557,9 @@ function post(where, options) {
   if (parent && parent.kind === "todo" && DONE_REPLY.test(text) && !isDone(where, parent)) {
     writeRecord(where, { group, kind: "done", from, target: parent.id });
   }
+  // Answering a record marks it read for the one who answered (#201): a woken
+  // session replies from its notice and never views the group.
+  if (parent) advanceCursor(where, from, group, parent.id);
   return record;
 }
 
@@ -598,7 +601,9 @@ function done(where, id) {
   const from = requireRole(where);
   const target = targetFor(where, id, from, ["todo"]);
   if (isDone(where, target)) throw new ChatError(`Todo ${id} is already done.`);
-  return writeRecord(where, { group: target.group, kind: "done", from, target: id });
+  const record = writeRecord(where, { group: target.group, kind: "done", from, target: id });
+  advanceCursor(where, from, target.group, id);
+  return record;
 }
 
 // Only the author may edit or retract, and the original record stays (D2).

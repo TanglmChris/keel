@@ -1,5 +1,9 @@
 # Keel Changelog
 
+## Unreleased
+
+- Issue #201: answering a chat record marks it read for the one who answered. A post with `--reply-to <id>`, through `keel chat post`, `keel chat <group>`, `dm`, `todo`, or `keel mail send`, moves the poster's cursor in that group to the replied-to record, and `keel chat done <id>` moves the closer's cursor to the todo. A cursor still never moves back, so records after the answered one stay unread. Before this, a session woken by a mention answered from its notice, never viewed the group, and was shown every record it had already answered again at each wake.
+
 ## 5.86.0 - the chat is read without a model, and answered with permission
 
 The first days of running 5.85's group chat with real sessions showed where it leaked: a Codex automation polled the chat with a model turn every minute and spent the owner's whole quota before anyone had mentioned it (#194); every woken session had to ask the owner before it could even answer a mention (#195); and `--follow` dropped a record whose id sorted earlier than the newest one it had seen (#196). This release gives schedulers a model-free question to ask, the owner a scoped way to pre-authorize replies, and the follower a memory of what it has shown. It also carries two changes from the Codex maintenance session that landed after 5.85.0 was cut: models may choose bounded subagents without extra activation (#190), and `keel openspec update` restores every installed target's overlays (#186).
