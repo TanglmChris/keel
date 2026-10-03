@@ -56,8 +56,8 @@ claude plugin install keel@keel-marketplace
 变了什么、何时生效、还剩什么要你做；细节和各宿主对运行中会话的行为见 [docs/updating.md](docs/updating.md)。
 不想自动更新，就把那一项的 `autoUpdate` 设为 `false`；项目写明的值 Keel 会保留，`keel --doctor` 会报告当前声明的是哪一个。
 
-每个版本的 release notes 里还附有 Anthropic 官方插件目录对应的条目，锁定到该版本 tag 指向的 commit。
-官方目录装到的就是这个 marketplace 装的同一棵带 tag 的树。
+Anthropic 的插件目录里，Keel 以 `keel-openspec` 列出。每次发版都会把 npm 包的文件（清单改名、带图标）提交到
+`claude-directory` 分支，目录跟踪这个分支。从本 marketplace 安装的插件仍叫 `keel`。
 
 **Codex，以及你自己的终端** —— 另外装一份 CLI（同时装上捆绑的 OpenSpec CLI）：
 

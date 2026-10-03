@@ -68,9 +68,9 @@ anything left for you; [docs/updating.md](docs/updating.md) has the details and 
 with a running session. To opt out, set that entry's `autoUpdate` to
 `false`; Keel keeps a value the project states, and `keel --doctor` reports which one is declared.
 
-Each release's notes also carry the entry Anthropic's official plugin directory would list for it,
-pinned to the commit the release tag points at. The directory takes the same tagged tree this
-marketplace installs.
+Anthropic's plugin directory lists Keel as `keel-openspec`. Each release commits the npm package's
+files, with the manifest renamed and an icon, to the `claude-directory` branch, which the directory
+tracks. The plugin installed from this marketplace keeps the name `keel`.
 
 **Codex, and your own terminal** — install the CLI as well (it also installs the bundled
 OpenSpec CLI):

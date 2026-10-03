@@ -181,21 +181,23 @@ Keel's Claude plugin MUST be described by a manifest at the repository root, `.c
 - **WHEN** a configuration that installed Keel from the npm-sourced entry updates after the marketplace names the git-sourced one
 - **THEN** the updated plugin is the git-sourced tree and carries the pinned OpenSpec
 
-### Requirement: Each release states its official directory entry
+### Requirement: Each release updates the directory branch
 
-Keel MUST produce, for a release version and the commit its tag points at, the entry Anthropic's official plugin directory would list: the plugin name, the root manifest's description, a category, the homepage, and a `url` source naming the Keel repository pinned to that commit. The release job MUST append that entry to the release notes. Producing it MUST be local and MUST NOT submit anything.
+Keel MUST be able to build, from the files its npm package publishes, the plugin tree that Anthropic's plugin directory lists. In that tree, `.claude-plugin/plugin.json` is the root manifest with the name `keel-openspec`, and `.claude-plugin/icon.png` is a square PNG. The repository's own root manifest MUST keep the name `keel`. The release job MUST commit that tree to the `claude-directory` branch and push it, and MUST name the resulting commit in the release notes. Building the tree MUST be local, and nothing in Keel MAY submit it to the directory.
 
-#### Scenario: The entry is pinned to the release commit
-- **WHEN** `scripts/official_entry.js` is run with a version and a 40-character commit sha
-- **THEN** it prints an entry whose source is the Keel repository URL pinned to that sha, and whose description equals the root manifest's
+#### Scenario: The tree is the package with the directory's name
+- **WHEN** `scripts/directory_tree.js` builds into an empty directory
+- **THEN** the tree holds exactly the files `npm pack` publishes plus `.claude-plugin/plugin.json` and `.claude-plugin/icon.png`
+- **AND THEN** its manifest is the root manifest with `name` set to `keel-openspec`, every skill, agent, and hook path in it resolves inside the tree, and the repository's root manifest still names `keel`
 
-#### Scenario: A malformed pin is refused
-- **WHEN** the version is not `X.Y.Z` or the sha is not 40 hexadecimal characters
-- **THEN** the script exits non-zero and prints no entry
+#### Scenario: Each release advances the directory branch
+- **WHEN** `scripts/directory_branch.js` runs for a version and commit against an origin
+- **THEN** origin's `claude-directory` gains one commit whose tree is the directory tree and whose message names the version and commit, starting the branch when it does not exist
+- **AND THEN** running it again with an unchanged tree adds no commit
 
-#### Scenario: The release notes carry the entry
+#### Scenario: The release notes name the branch commit
 - **WHEN** the release job creates the release for a landed version
-- **THEN** it appends the entry for that version and the tag's commit to the notes
+- **THEN** it runs `scripts/directory_branch.js` for that version and the tag's commit, and the notes name `keel-openspec`, the `claude-directory` branch, and the commit it printed
 
 ### Requirement: Project setup declares Claude plugin auto-update
 
