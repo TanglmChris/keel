@@ -24,9 +24,9 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:3edb20a0d27662c0e4ad17f6f17b268966174259b6df670078c9dcb111bf1faf
+    - Contract: keel-task-capsule/v1 sha256:fdea9c714de1c2c83aa45cb4e7bb897a9aeb6c72ac5cdb0ae40153024bd7cb36
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-04. The anchor moved because 1.4 added `privacyPolicyUrl` to the cited scenario "The tree is the package with the directory's name"; this task's own text did not change. Re-recorded with `--keep-evidence` on all checks, because no check's assertion moved: `directory-tree-is-the-package-renamed` was re-run that day and passed, now asserting the added field too.
     - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` reports `directory-tree-is-the-package-renamed scenario passed.` The tree built into an empty scratch directory holds exactly the `npm pack --dry-run --json` paths plus `.claude-plugin/plugin.json` and `.claude-plugin/icon.png`. Its manifest equals the root manifest except `name: keel-openspec`. Every skill, agent, and hook script path in it resolves inside the tree, and the icon's IHDR reads 1024×1024 at 8,733 bytes. The repository's root manifest still names `keel`, and a second build into the non-empty directory exits non-zero.
     - M1.red: fail. Before the script existed, the scenario reported `directory-tree-is-the-package-renamed: scripts/directory_tree.js does not exist.`, which carries the declared signature `directory-tree-is-the-package-renamed:`.
     - M1.green: pass. The same scenario passes with `scripts/directory_tree.js`. It runs `npm pack --json` into a temporary directory, extracts `package/`, writes the renamed manifest, and copies `assets/directory/icon.png`.
@@ -106,9 +106,9 @@
   - Stop Rules:
     - Stop if any shipped file outside `scripts/` references a script the tree drops, because the plugin would then break where npm does not.
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:ea471f87cebf7dcf565c2e025b91d7f6e0fe6aac09284afd0b7a1e58a2295dcd
+    - Contract: keel-task-capsule/v1 sha256:63fd07aca0c1908e79a4db31ad17487edf65d4139846f3a067c7a6ed80f8f320
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-04. The anchor moved because 1.4 added `privacyPolicyUrl` to the cited scenario "The tree is the package with the directory's name"; this task's own text did not change. Re-recorded with `--keep-evidence` on all checks, because no check's assertion moved: `directory-tree-is-the-package-renamed` was re-run that day and passed, now asserting the added field too.
     - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` reports `directory-tree-is-the-package-renamed scenario passed.` The tree equals the npm pack paths with `scripts/` cut to `run_python.js` and `install_to_repo.py`, plus the manifest and icon, 63 files in all. Its manifest differs from the root only by `name: keel-openspec` and `homepage: https://github.com/TanglmChris/keel`. `node <tree>/bin/keel.js --version` prints the package version, and `--install --target claude --dry-run` in a scratch repository exits 0. `directory-branch-advances` still passes, and `claude plugin validate` on the trimmed tree prints `✔ Validation passed`.
     - M1.red: fail. With the test updated and the builder unchanged, the scenario reported `directory-tree-is-the-package-renamed: the tree is not the npm package less development scripts, plus the manifest and icon: extra=['scripts/bump_version.js', 'scripts/directory_branch.js', 'scripts/directory_tree.js', 'scripts/fake_slack.py', 'scripts/validate_codex_receiving.py', 'scripts/validate…`, which carries the declared signature `directory-tree-is-the-package-renamed:`.
     - M1.green: pass. The same scenario passes once `directory_tree.js` removes every `scripts/` entry outside `RUNTIME_SCRIPTS` and sets `homepage`.
@@ -308,7 +308,7 @@
       - Scope check: the bump touched exactly the version-marker files in Touch, plus `keel/CHANGELOG.md`. The other dirty paths are 1.4's, which its gate already attributed.
       - Findings: none
 
-- [ ] 2.3 The release job creates `claude-directory`, and the portal validates it as keel-openspec
+- [x] 2.3 The release job creates `claude-directory`, and the portal validates it as keel-openspec
   - Mode: diagnose-only
   - Covers:
     - E1
@@ -329,15 +329,15 @@
     - Stop at the portal's compliance step: the contact email, the attestations, and the submit are the owner's.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:afabeaa29f15b00d8cff2016a262bdca5d558e0bfc6307eb7fe9791e1f259cb2
-    - Blocker: M2 waits on the owner's compliance step and submit in the portal.
+    - Blocker: none
     - Reauthorizations: 2026-10-04. M1 and M2 were retargeted from 5.90.1 to 5.90.2 with the privacy policy, and the Stop rule was narrowed to the compliance step, both when 1.4 and 2.4 were authored. The anchor was re-recorded afterwards; no Evidence had been written.
     - M1: pass. `git ls-remote origin claude-directory` names 6a1ff571a1bc98c8a1c18241ee21ea1e0cf09b07, whose message is `keel-openspec 5.90.2 from b09301c`. Its `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.2, with `privacyPolicyUrl: https://github.com/TanglmChris/keel/blob/main/PRIVACY.md`. `scripts/` holds only `run_python.js` and `install_to_repo.py`. The v5.90.2 release notes name that commit under "Directory listing".
-    - M2: pending
+    - M2: pass. On 2026-10-04 the portal's Validate on `TanglmChris/keel` branch `claude-directory` passed at e65fb8a (5.91.0, which a later release pushed after 6a1ff57 had also passed). It showed "Name and publisher checks passed", 91 files and 832.1 kB scanned, and the icon found. It raised no hold naming `scripts/validate_plugin.py` or `scripts/directory_tree.js`, and the data-handling step no longer warned about a missing privacy policy. Its only warning reads that the directory takes `privacyPolicyUrl` for the listing. The 7 holds left are the lockfile and the 6 credential findings, which a reviewer clears. The owner chose auto-publish on and scheduled checks only. At the owner's explicit instruction in chat, I ticked the four compliance attestations and submitted. The portal shows `Keel Openspec` "Waiting for review" at https://claude.ai/directory/manage/plugins/902e4f28-a038-4fc6-bf37-a11464e2e75c, latest version v5.91.0, e65fb8a.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: both checks read the live state: the branch through `git ls-remote` and the GitHub API, and the portal's own validation report and submission page. The submission tracks the newer commit, which is the branch tracking working as F1 describes.
+      - Scope check: no repository file changed. The task's effect was outside the repository, and this change directory holds its record.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/175 tracks the review outcome. The listing goes live only after an Anthropic reviewer approves, and the decision appears on the plugin's portal page.
 
 ## Change Verify
 
