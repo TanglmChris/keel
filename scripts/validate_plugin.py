@@ -19476,6 +19476,88 @@ def validate_refresh_covers_every_target_scenario() -> int:
     return 0
 
 
+def npm_pack_paths() -> set[str]:
+    npm = "npm.cmd" if os.name == "nt" else "npm"
+    packed = subprocess.run([npm, "pack", "--dry-run", "--json"], cwd=ROOT, text=True,
+                            capture_output=True, check=True)
+    return {entry["path"] for entry in json.loads(packed.stdout)[0]["files"]}
+
+
+def png_side(path: Path) -> tuple[int, int] | None:
+    data = path.read_bytes()[:24]
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        return None
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+def validate_directory_tree_is_the_package_renamed_scenario() -> int:
+    """Issue #175: the directory sees the npm package, named keel-openspec.
+
+    The name `keel` belongs to another directory listing, and the whole
+    repository was too large to be scanned. The directory tree is therefore the
+    files the npm package publishes plus a manifest renamed for the directory
+    and an icon, while the repository's own manifest keeps `keel`.
+    """
+    label = "directory-tree-is-the-package-renamed:"
+    script = ROOT / "scripts/directory_tree.js"
+    if not script.is_file():
+        report(f"{label} scripts/directory_tree.js does not exist.")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-directory-tree-", ignore_cleanup_errors=True) as raw:
+        tree = Path(raw) / "tree"
+        built = subprocess.run(["node", str(script), str(tree)], cwd=ROOT, text=True,
+                               capture_output=True, check=False)
+        if built.returncode != 0:
+            report(f"{label} the build failed: {built.stdout}{built.stderr}")
+            return 1
+        files = {p.relative_to(tree).as_posix() for p in tree.rglob("*") if p.is_file()}
+        expected = npm_pack_paths() | {".claude-plugin/plugin.json", ".claude-plugin/icon.png"}
+        if files != expected:
+            report(f"{label} the tree is not the npm package plus the manifest and icon: "
+                   f"extra={sorted(files - expected)!r} missing={sorted(expected - files)!r}")
+            return 1
+        root_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+        manifest = json.loads((tree / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+        if manifest.get("name") != "keel-openspec":
+            report(f"{label} the tree manifest is named {manifest.get('name')!r}, not keel-openspec.")
+            return 1
+        if {k: v for k, v in manifest.items() if k != "name"} != {k: v for k, v in root_manifest.items() if k != "name"}:
+            report(f"{label} the tree manifest differs from the root manifest beyond its name.")
+            return 1
+        if root_manifest.get("name") != "keel":
+            report(f"{label} the repository's root manifest no longer names keel: {root_manifest.get('name')!r}")
+            return 1
+        declared = list(manifest.get("skills", [])) + list(manifest.get("agents", []))
+        for event in manifest.get("hooks", {}).values():
+            for group in event:
+                for hook in group.get("hooks", []):
+                    declared += [a.replace("${CLAUDE_PLUGIN_ROOT}/", "./") for a in hook.get("args", [])
+                                 if "${CLAUDE_PLUGIN_ROOT}" in a]
+        unresolved = [d for d in declared if not (tree / d).exists()]
+        if unresolved:
+            report(f"{label} manifest paths do not resolve inside the tree: {unresolved!r}")
+            return 1
+        icon = tree / ".claude-plugin/icon.png"
+        side = png_side(icon)
+        if side is None or side[0] != side[1] or not 512 <= side[0] <= 2048:
+            report(f"{label} the icon is not a square PNG between 512 and 2048 px: {side!r}")
+            return 1
+        if icon.stat().st_size >= 2 * 1024 * 1024:
+            report(f"{label} the icon is {icon.stat().st_size} bytes, not under 2 MB.")
+            return 1
+        again = subprocess.run(["node", str(script), str(tree)], cwd=ROOT, text=True,
+                               capture_output=True, check=False)
+        if again.returncode == 0:
+            report(f"{label} a build into a non-empty directory succeeded.")
+            return 1
+
+    if "directory-tree-is-the-package-renamed" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("directory-tree-is-the-package-renamed scenario passed.")
+    return 0
+
+
 def validate_official_directory_entry_scenario() -> int:
     """Each release states the entry Anthropic's official directory would list.
 
@@ -35359,6 +35441,7 @@ SCENARIOS: tuple = (
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("official-directory-entry", validate_official_directory_entry_scenario),
+    ("directory-tree-is-the-package-renamed", validate_directory_tree_is_the_package_renamed_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
