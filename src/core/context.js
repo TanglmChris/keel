@@ -1,0 +1,869 @@
+"use strict";
+
+// Keel 4.1.0 stateless continuity contract.
+
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
+const {
+  ACCEPTED_REVIEW_STATUSES,
+  compileTaskContract,
+  field,
+  parseTasks,
+} = require("./task-contract");
+const {
+  readStandingAuthorization,
+  readFullModePaths,
+  fullModePathsUnreadableMessage,
+  readExecutorTier,
+  readMergeDeclaration,
+} = require("./config");
+const { isKeelSourceRepo } = require("./capabilities");
+
+const NEXT_ACTIONS = new Set([
+  "discuss",
+  "author",
+  "task-start",
+  "task-complete",
+  "change-close",
+  "none",
+]);
+
+function taskRecords(tasksPath) {
+  return parseTasks(fs.readFileSync(tasksPath, "utf8")).map((task) => ({
+    ...task,
+    complete: task.checked,
+  }));
+}
+
+// The invocation the action's name stands for. Everything it needs is in the
+// same result, and the failure it prevents is the one issue #112 reports: an
+// action name followed by an attempt that fails on an argument Keel knew was
+// required. Change and task are named explicitly rather than left to
+// inference, because a reader may run the printed line later or elsewhere,
+// where inference would answer about a different repository state.
+function nextActionCommand(kind, selection) {
+  if (!selection || !selection.change) return null;
+  const scope = `--change ${selection.change}`;
+  if (kind === "task-start" || kind === "task-complete") {
+    if (!selection.task) return null;
+    return `keel gate ${kind} ${scope} --task ${selection.task}`;
+  }
+  if (kind === "change-close") {
+    // `--action` is not optional for this stage, so a command printed without
+    // it is a command that fails.
+    return `keel gate change-close ${scope} --action archive`;
+  }
+  return null;
+}
+
+function result(status, selection, nextAction, read, reasons = [], contract = null) {
+  const command = nextActionCommand(nextAction, selection);
+  const context = {
+    schemaVersion: 1,
+    status,
+    selection,
+    nextAction: command ? { kind: nextAction, command } : { kind: nextAction },
+    read,
+    reasons,
+    warnings: [],
+  };
+  if (contract) {
+    Object.defineProperty(context, "contract", {
+      value: contract,
+      enumerable: false,
+    });
+  }
+  return context;
+}
+
+function blocked(reason, read = []) {
+  return result("blocked", null, "none", read, [reason]);
+}
+
+function relativePath(repo, target) {
+  return path.relative(repo, target).split(path.sep).join("/");
+}
+
+function recordedFingerprint(record) {
+  const evidence = field(record, "Evidence");
+  const match = evidence.match(
+    /^\s*-\s*Contract:\s*.*?keel-task-capsule\/v1.*?sha-?256[\s:`]*([a-f0-9]{64})/im
+  );
+  return match ? match[1].toLowerCase() : null;
+}
+
+function taskHasCompletionEvidence(record, contract) {
+  const evidence = field(record, "Evidence");
+  const commandIds = contract.capsule.verification.commands.map(
+    (command) => command.label
+  );
+  const evidenceIds = new Set(
+    [...evidence.matchAll(/^\s*-\s*(M\d+):\s+(?!pending\b)\S.*$/gim)].map(
+      (match) => match[1]
+    )
+  );
+  const reviewPassed = new RegExp(
+    `^\\s*-\\s*Status:\\s*(?:${ACCEPTED_REVIEW_STATUSES.join("|")})\\s*$`,
+    "im"
+  ).test(evidence);
+  return (
+    commandIds.length > 0
+    && commandIds.every((commandId) => evidenceIds.has(commandId))
+    && reviewPassed
+  );
+}
+
+// Two hashes and nothing to search was the whole message, and it produced a
+// wrong record here: an anchor that moved was written up as a Review edit,
+// which is measurably not covered at all. The capsule already knows the answer
+// — every authority entry carries the source its text was resolved from — so
+// the search set is free. What is not free is the field that moved: only the
+// previous fingerprint is retained, not the capsule behind it, so this names
+// where to look and never what changed.
+function driftSearchSet(contract) {
+  const sources = [
+    ...new Set(
+      (contract.capsule.authority || [])
+        .map((entry) => String(entry.source || "").split("#")[0])
+        .filter(Boolean)
+    ),
+  ];
+  const where = sources.length > 0
+    ? `The fingerprint covers text resolved from: ${sources.join(", ")}.`
+    : "The fingerprint covers this task's own resolved authority text.";
+  return (
+    `${where} Evidence, Review, and the task checkbox are not covered — `
+    + "editing them does not move it. Reauthorize by re-running "
+    + "`keel gate task-start` and recording the new anchor, after confirming "
+    + "the change to the authority above was intended. If a check's assertion "
+    + "did not move, add `--keep-evidence <check>` to that re-record; Keel "
+    + "records that claim and does not verify it, so state the reason in "
+    + "Reauthorizations."
+  );
+}
+
+function taskSelection(repo, change, record, source, requestedAction = null) {
+  const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
+  const contract = compileTaskContract(repo, change, record);
+  if (contract.diagnostics.length > 0) {
+    return blocked(
+      `Task contract is invalid for ${change}#${record.id}: ${contract.diagnostics
+        .map((item) => item.message)
+        .join(" ")}`,
+      [relativePath(repo, tasksPath)]
+    );
+  }
+  const anchor = recordedFingerprint(record);
+  if (anchor && anchor !== contract.fingerprint.value) {
+    return blocked(
+      `Task contract fingerprint drift for ${change}#${record.id}: recorded `
+        + `sha256:${anchor}, current sha256:${contract.fingerprint.value}. `
+        + `${driftSearchSet(contract)}`,
+      [relativePath(repo, tasksPath)]
+    );
+  }
+  return result(
+    "ready",
+    { source, change, task: record.id },
+    requestedAction || (
+      taskHasCompletionEvidence(record, contract)
+        ? "task-complete"
+        : "task-start"
+    ),
+    [relativePath(repo, tasksPath)],
+    [],
+    contract
+  );
+}
+
+function changeArtifacts(changePath) {
+  const proposalPath = path.join(changePath, "proposal.md");
+  const designPath = path.join(changePath, "design.md");
+  const specsPath = path.join(changePath, "specs");
+  return {
+    proposal: fs.existsSync(proposalPath),
+    design: fs.existsSync(designPath),
+    specs: fs.existsSync(specsPath),
+  };
+}
+
+function storageOnly(context) {
+  Object.defineProperty(context, "storageOnly", {
+    value: true,
+    enumerable: false,
+  });
+  return context;
+}
+
+function selectionForChange(repo, change, source) {
+  const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
+  if (!fs.existsSync(tasksPath)) {
+    const changePath = path.dirname(tasksPath);
+    if (!fs.existsSync(changePath)) {
+      return blocked(`Change does not exist: ${change}`);
+    }
+    const artifacts = changeArtifacts(changePath);
+    if (artifacts.proposal && artifacts.design && artifacts.specs) {
+      return blocked(
+        `Authored change has no tasks artifact: ${change}.`,
+        [relativePath(repo, changePath)]
+      );
+    }
+    return result(
+      "ready",
+      { source, change, task: null },
+      artifacts.proposal || artifacts.design || artifacts.specs ? "author" : "discuss",
+      [relativePath(repo, changePath)]
+    );
+  }
+
+  const records = taskRecords(tasksPath);
+  if (records.length === 0) {
+    const artifacts = changeArtifacts(path.dirname(tasksPath));
+    if (!artifacts.proposal && !artifacts.design && !artifacts.specs) {
+      return storageOnly(result(
+        "ready",
+        { source, change, task: null },
+        "none",
+        [relativePath(repo, tasksPath)],
+        [`Storage-only backlog has no executable task: ${change}.`]
+      ));
+    }
+    if (artifacts.proposal && artifacts.design && artifacts.specs) {
+      return blocked(
+        `Authored change has an invalid tasks artifact with no executable task: ${change}.`,
+        [relativePath(repo, tasksPath)]
+      );
+    }
+    return result(
+      "ready",
+      { source, change, task: null },
+      "author",
+      [relativePath(repo, tasksPath)]
+    );
+  }
+  const next = records.find((candidate) => !candidate.complete);
+  if (!next) {
+    return result(
+      "ready",
+      { source, change, task: null },
+      "change-close",
+      [relativePath(repo, tasksPath)]
+    );
+  }
+  return taskSelection(repo, change, next, source);
+}
+
+function resolveExplicit(repo, change, task) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(change)) {
+    return blocked(`Invalid explicit change: ${change}`);
+  }
+  if (task && !/^\d+(?:\.\d+)+$/.test(task)) {
+    return blocked(`Invalid explicit task: ${task}`);
+  }
+  // A pause is skipped by inference and never by explicit selection: the owner
+  // has said which change they mean. It is still reported, because a session
+  // resuming into a paused change should know that is what it is.
+  const declaration = pauseDeclaration(repo, change);
+  const paused = declaration && declaration.paused
+    ? [
+      `Explicitly selected change is paused: ${change} — ${declaration.reason}`
+        + (declaration.since ? ` (since ${declaration.since})` : "")
+        + ". Inference passes over it; you asked for it by name.",
+    ]
+    : [];
+  if (!task) {
+    const context = selectionForChange(repo, change, "explicit");
+    context.warnings.push(...paused);
+    return context;
+  }
+
+  const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
+  if (!fs.existsSync(tasksPath)) {
+    return blocked(`Explicit change does not exist: ${change}`);
+  }
+  const records = taskRecords(tasksPath);
+  const record = records.find((candidate) => candidate.id === task);
+  if (!record) {
+    return blocked(`Explicit task does not exist: ${change}#${task}`);
+  }
+  if (record.complete) {
+    return blocked(`Explicit task is already complete: ${change}#${task}`);
+  }
+  return taskSelection(repo, change, record, "explicit");
+}
+
+function activeChanges(repo) {
+  const changesPath = path.join(repo, "openspec", "changes");
+  if (!fs.existsSync(changesPath)) return [];
+  return fs
+    .readdirSync(changesPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== "archive")
+    .map((entry) => entry.name)
+    .sort();
+}
+
+// A change its owner deliberately stopped. Declared where the change lives,
+// under a `keel:` key of the OpenSpec change config — namespaced because that
+// file is OpenSpec's, and a bare `status:` would be a claim on a key OpenSpec
+// may define differently. Read by inference and by nothing else: pausing says
+// what to recommend, never what is allowed, so every gate behaves identically
+// on a paused change and explicit selection still reaches it.
+//
+// A declaration that cannot be read leaves the change available and is
+// reported. The alternative failure — a change silently dropped from inference
+// because its config had a typo — is this defect pointed the other way.
+function pauseDeclaration(repo, change) {
+  const configPath = path.join(
+    repo, "openspec", "changes", change, ".openspec.yaml"
+  );
+  if (!fs.existsSync(configPath)) return null;
+  let content;
+  try {
+    content = fs.readFileSync(configPath, "utf8");
+  } catch {
+    return { unreadable: "the file could not be read" };
+  }
+  // The indented body of a top-level `keel:` key: every following line that
+  // starts with whitespace. Simpler and safer than a lookahead for the next
+  // top-level key, which has to spell "end of input" as well.
+  const block = content.match(/^keel:[ \t]*\r?\n((?:[ \t]+\S[^\n]*\r?\n?)*)/m);
+  if (!block) return null;
+  const entries = new Map();
+  for (const line of block[1].split(/\r?\n/)) {
+    const match = line.match(/^\s+([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
+    if (match) entries.set(match[1].toLowerCase(), parseScalar(match[2]));
+  }
+  if (!entries.has("status")) return null;
+  const status = String(entries.get("status") || "").toLowerCase();
+  if (status !== "paused") {
+    return { unreadable: `status: ${entries.get("status")}` };
+  }
+  return {
+    paused: true,
+    reason: entries.get("reason") || "no reason recorded",
+    since: entries.get("since") || null,
+  };
+}
+
+function pauseNote(change, declaration) {
+  return (
+    `Paused change not inferred: ${change} — ${declaration.reason}`
+    + (declaration.since ? ` (since ${declaration.since})` : "")
+    + ". Select it explicitly with `keel context --change "
+    + `${change}\` if it is what you mean.`
+  );
+}
+
+function inferContext(repo) {
+  const changes = activeChanges(repo);
+  if (changes.length === 0) {
+    return result(
+      "idle",
+      null,
+      "none",
+      [],
+      ["No active OpenSpec change was found."]
+    );
+  }
+  const declarations = new Map(
+    changes.map((change) => [change, pauseDeclaration(repo, change)])
+  );
+  const unreadable = [...declarations.entries()]
+    .filter(([, declaration]) => declaration && declaration.unreadable)
+    .map(([change, declaration]) =>
+      `Keel configuration for ${change} is not a pause declaration `
+        + `(${declaration.unreadable}); the change stays available to `
+        + "inference. A pause is `keel:` with `status: paused` and a `reason:`."
+    );
+  const paused = changes.filter(
+    (change) => declarations.get(change) && declarations.get(change).paused
+  );
+  const pauseNotes = paused.map(
+    (change) => pauseNote(change, declarations.get(change))
+  );
+  const active = changes.filter((change) => !paused.includes(change));
+  if (active.length === 0) {
+    // "Nothing to do" and "everything here is deliberately on hold" are
+    // different states, and the second is the one that tells a returning
+    // session whether to un-pause something or start something new.
+    return result(
+      "idle",
+      null,
+      "none",
+      [],
+      [
+        "Every active OpenSpec change is paused.",
+        ...pauseNotes,
+        ...unreadable,
+      ]
+    );
+  }
+  const contexts = active.map((change) => selectionForChange(repo, change, "inferred"));
+  const storage = contexts.filter((context) => context.storageOnly);
+  const candidates = contexts.filter((context) => !context.storageOnly);
+  const warnings = [
+    ...storage.map(
+      (context) =>
+        `Storage-only backlog ignored during inference: ${context.selection.change}.`
+    ),
+    ...pauseNotes,
+    ...unreadable,
+  ];
+  if (candidates.length === 0) {
+    return result(
+      "idle",
+      null,
+      "none",
+      storage.flatMap((context) => context.read),
+      ["No actionable OpenSpec change was found.", ...pauseNotes, ...unreadable]
+    );
+  }
+  if (candidates.length > 1) {
+    return result(
+      "ambiguous",
+      null,
+      "none",
+      candidates.flatMap((context) => context.read),
+      [
+        "Multiple active OpenSpec changes are plausible: "
+          + candidates
+            .map((context) => context.selection?.change || context.read[0])
+            .join(", "),
+        ...pauseNotes,
+        ...unreadable,
+      ]
+    );
+  }
+  const context = candidates[0];
+  context.warnings.push(...warnings);
+  return context;
+}
+
+function parseScalar(value) {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function readHandoff(repo) {
+  const handoffPath = path.join(repo, "keel", "HANDOFF.md");
+  if (!fs.existsSync(handoffPath)) return null;
+
+  const buffer = fs.readFileSync(handoffPath);
+  let content;
+  try {
+    content = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new Error("keel/HANDOFF.md is not valid UTF-8.");
+  }
+  if (!content.startsWith("---\n") && !content.startsWith("---\r\n")) {
+    return { kind: "legacy", path: handoffPath };
+  }
+
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) {
+    throw new Error("keel/HANDOFF.md has unterminated YAML front matter.");
+  }
+  if (match[2].trim()) {
+    return {
+      kind: "invalid",
+      path: handoffPath,
+      reason: "HANDOFF v1 must not contain body content.",
+    };
+  }
+
+  const fields = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const field = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
+    if (!field) {
+      throw new Error("keel/HANDOFF.md contains invalid YAML front matter.");
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, field[1])) {
+      return {
+        kind: "invalid",
+        path: handoffPath,
+        reason: `HANDOFF v1 repeats field: ${field[1]}`,
+      };
+    }
+    fields[field[1]] = parseScalar(field[2]);
+  }
+
+  if (fields.schema !== "keel-handoff/v1") {
+    return fields.schema
+      ? {
+          kind: "invalid",
+          path: handoffPath,
+          reason: `Unsupported HANDOFF schema: ${fields.schema}`,
+        }
+      : { kind: "legacy", path: handoffPath };
+  }
+  const expected = ["schema", "owner", "action", "reason"];
+  const extras = Object.keys(fields).filter((key) => !expected.includes(key));
+  const missing = expected.filter((key) => !fields[key]);
+  if (extras.length > 0 || missing.length > 0) {
+    const details = [];
+    if (missing.length > 0) details.push(`missing ${missing.join(", ")}`);
+    if (extras.length > 0) details.push(`unexpected ${extras.join(", ")}`);
+    return {
+      kind: "invalid",
+      path: handoffPath,
+      reason: `Invalid HANDOFF v1 fields: ${details.join("; ")}`,
+    };
+  }
+  if (!NEXT_ACTIONS.has(fields.action) || fields.action === "none") {
+    return {
+      kind: "invalid",
+      path: handoffPath,
+      reason: `Unsupported HANDOFF action: ${fields.action}`,
+    };
+  }
+  return { kind: "v1", path: handoffPath, fields };
+}
+
+function resolveHandoff(repo, handoff) {
+  const read = [relativePath(repo, handoff.path)];
+  if (handoff.kind === "legacy") {
+    return result(
+      "blocked",
+      null,
+      "none",
+      read,
+      [
+        "Legacy HANDOFF is preserved; migrate it explicitly to keel-handoff/v1 "
+          + "or clear it with keel context --clear-handoff.",
+      ]
+    );
+  }
+  if (handoff.kind === "invalid") {
+    return result("blocked", null, "none", read, [handoff.reason]);
+  }
+
+  const owner = handoff.fields.owner.match(
+    /^openspec\/changes\/([A-Za-z0-9][A-Za-z0-9._-]*)\/(proposal|design|tasks)\.md(?:#(.+))?$/
+  );
+  if (!owner) {
+    return result(
+      "blocked",
+      null,
+      "none",
+      read,
+      [`HANDOFF owner is not a supported OpenSpec pointer: ${handoff.fields.owner}`]
+    );
+  }
+  const [, change, artifact, anchor] = owner;
+  const ownerPath = path.join(
+    repo,
+    "openspec",
+    "changes",
+    change,
+    `${artifact}.md`
+  );
+  if (!fs.existsSync(ownerPath)) {
+    return result(
+      "blocked",
+      null,
+      "none",
+      read,
+      [`HANDOFF owner is missing: ${handoff.fields.owner}`]
+    );
+  }
+
+  let task = null;
+  if (artifact === "tasks" && anchor && /^\d+(?:\.\d+)+$/.test(anchor)) {
+    task = anchor;
+    const record = taskRecords(ownerPath).find((candidate) => candidate.id === task);
+    if (!record) {
+      return result(
+        "blocked",
+        null,
+        "none",
+        read,
+        [`HANDOFF task owner is missing: ${handoff.fields.owner}`]
+      );
+    }
+    if (record.complete) {
+      return result(
+        "blocked",
+        null,
+        "none",
+        read,
+        [`HANDOFF task owner is already complete: ${handoff.fields.owner}`]
+      );
+    }
+    const selection = taskSelection(
+      repo,
+      change,
+      record,
+      "handoff",
+      handoff.fields.action
+    );
+    selection.read = [...selection.read, ...read];
+    if (selection.status !== "ready") {
+      return selection;
+    }
+    selection.reasons.push(handoff.fields.reason);
+    return selection;
+  }
+  if (
+    ["task-start", "task-complete"].includes(handoff.fields.action)
+    && task === null
+  ) {
+    return result(
+      "blocked",
+      null,
+      "none",
+      read,
+      [`HANDOFF action ${handoff.fields.action} requires a numeric task anchor.`]
+    );
+  }
+
+  return result(
+    "ready",
+    { source: "handoff", change, task },
+    handoff.fields.action,
+    [relativePath(repo, ownerPath), ...read],
+    [handoff.fields.reason]
+  );
+}
+
+function gitWarnings(repo) {
+  // `-z`, so a non-ASCII path is reported as the filesystem spells it rather
+  // than as the octal escape Git produces in every other form. The gate's
+  // `gitPaths` reads the same way, for the same reason.
+  const git = spawnSync(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: repo, encoding: "utf8" }
+  );
+  if (git.error || git.status !== 0 || !git.stdout.trim()) return [];
+  // Each record is `XY <path>`; a rename or copy adds a second bare field for
+  // its other endpoint, which carries no status prefix to strip.
+  const fields = git.stdout.split("\0").filter(Boolean);
+  const paths = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index];
+    paths.push(record.slice(3));
+    if (record[0] === "R" || record[0] === "C") {
+      index += 1;
+      if (index < fields.length) paths.push(fields[index]);
+    }
+  }
+  return paths.length > 0
+    ? [`Working tree has uncommitted paths (selection-neutral): ${paths.join(", ")}`]
+    : [];
+}
+
+function resolveContext(repo, options) {
+  let context;
+  if (options.change) {
+    context = resolveExplicit(repo, options.change, options.task);
+  } else {
+    const handoff = readHandoff(repo);
+    context = handoff ? resolveHandoff(repo, handoff) : inferContext(repo);
+  }
+  context.warnings.push(...gitWarnings(repo));
+  // A broken `authorize:` declaration is otherwise reported only by
+  // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
+  // session that runs `keel context` first (per `AGENTS.md`) learns the
+  // declaration authorizes nothing without a separate call (#93).
+  const authorization = readStandingAuthorization(repo);
+  if (authorization.unknown.length > 0) {
+    context.warnings.push(authorization.message);
+  }
+  // Routing is the first decision of a session and the only durable rule with
+  // no gate behind it, so a project's declared exceptions are reported here —
+  // the one surface the protocol already requires an agent to read before
+  // deciding anything. Reported only when a declaration exists: a line printed
+  // every session for the repositories that declared nothing is a line a reader
+  // learns to skip (#131).
+  const routing = readFullModePaths(repo);
+  if (routing.unreadable.length > 0) {
+    // The other declarations in this file fail closed, and closed for them
+    // means *less proceeds without a human* — `authorize:` authorizes nothing,
+    // `triage:` admits nothing. The shared principle is to fail toward more
+    // scrutiny, and for a declaration whose whole purpose is to add process,
+    // more scrutiny is more Full mode. Reporting the entries it could read
+    // would let a typo silently lower the floor, which is the outcome the
+    // one-directional design exists to prevent.
+    context.routing = [];
+    context.routingUnreadable = true;
+    context.warnings.push(fullModePathsUnreadableMessage(routing.unreadable));
+  } else {
+    context.routing = routing.paths;
+  }
+  // Reported every session, declared or not, unlike `full_mode_paths` above:
+  // the default is the one a reader most needs to see, because a repository
+  // that declared nothing is loading guidance it may not want and has no other
+  // surface that would tell it so.
+  // Reported only when declared, like `full_mode_paths`: an absent declaration
+  // changes nothing, and Keel cannot know how an undeclared repository merges,
+  // so it must not print a line that implies it does.
+  const merge = readMergeDeclaration(repo);
+  if (merge.declared && merge.unknown.length === 0) context.merge = merge;
+  if (merge.unknown.length > 0) context.warnings.push(merge.message);
+  const executor = readExecutorTier(repo);
+  context.executorTier = executor.tier;
+  if (executor.unknown.length > 0) context.warnings.push(executor.message);
+
+  const protocol = protocolRefresh(repo, keelVersion(), authorization);
+  if (protocol) context.protocol = protocol;
+
+  // Set here rather than by the caller, so every consumer of the projection —
+  // text, JSON, and any host reading it — carries the version without having
+  // to know to add it.
+  context.keel = keelVersion();
+  return context;
+}
+
+// The managed block is the one piece of a release a plugin update cannot
+// carry: it lives in each repository and moves only when `keel --install`
+// runs there (#164). The stamp is read in the SessionStart hook's order.
+function stampedProtocol(repo) {
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    try {
+      const text = fs.readFileSync(path.join(repo, name), "utf8");
+      const match = text.match(/<!--\s*keel:start\s+version=(\d+\.\d+\.\d+)\s*-->/);
+      if (match) return { version: match[1], file: name };
+    } catch {
+      // Absent is not older.
+    }
+  }
+  return null;
+}
+
+// The target the installer left behind. `CLAUDE.md` carries the managed
+// import only on the Claude target, and only OpenCode writes project commands
+// under `.opencode/`. A Codex install writes neither: OpenSpec 1.13 puts its
+// skills under `.agents/skills`, and 1.6 put its commands in CODEX_HOME, so a
+// managed `AGENTS.md` with neither surface beside it is what a Codex install
+// leaves.
+function installedTarget(repo) {
+  try {
+    if (/<!--\s*keel:start/.test(fs.readFileSync(path.join(repo, "CLAUDE.md"), "utf8"))) {
+      return "claude";
+    }
+  } catch {
+    // No CLAUDE.md: not the Claude target.
+  }
+  if (fs.existsSync(path.join(repo, ".opencode", "commands"))) return "opencode";
+  return "codex";
+}
+
+// Numeric X.Y.Z order. Only a strictly older stamp is a refresh: a newer one
+// means the CLI is the stale side, which the SessionStart drift line reports.
+function olderThan(stamped, running) {
+  const a = stamped.split(".").map(Number);
+  const b = String(running).split(".").map(Number);
+  if (b.length !== 3 || b.some(Number.isNaN)) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
+}
+
+function protocolRefresh(repo, running, authorization) {
+  if (isKeelSourceRepo(repo)) return null;
+  const stamped = stampedProtocol(repo);
+  if (!stamped || !olderThan(stamped.version, running)) return null;
+  return {
+    stamped: stamped.version,
+    keel: running,
+    file: stamped.file,
+    command: `keel --install --target ${installedTarget(repo)}`,
+    authorized: authorization.scopes.has("protocol-refresh"),
+    deferred: fs.existsSync(path.join(repo, "keel", "guard.json")),
+  };
+}
+
+function renderProtocol(protocol) {
+  const head = `Protocol: ${protocol.file} is stamped ${protocol.stamped}, older than `
+    + `Keel ${protocol.keel}; refresh with \`${protocol.command}\``;
+  if (protocol.deferred) {
+    return `${head} — deferred while a task's write guard is active, because `
+      + "the refresh writes outside the task's Touch";
+  }
+  return protocol.authorized
+    ? `${head} — standing-authorized (authorize: protocol-refresh); run it `
+      + "before other work and leave the diff for the owner to commit"
+    : `${head} — ask before running it; keel/config.yaml does not `
+      + "standing-authorize protocol-refresh";
+}
+
+// The version comparison has to survive a runtime too old to contain it. The
+// SessionStart check shipped in 5.9.0, so a plugin older than that carries no
+// check at all, and its silence is indistinguishable from three versions
+// agreeing — measured 2026-08-02 with plugin 5.7.1, CLI 5.7.0, and protocol
+// 5.12.0, where nothing was reported. An absent mechanism cannot announce
+// itself, so the answer is not another check inside the plugin: the version
+// rides on the surface the protocol already requires an agent to read, and
+// `AGENTS.md` — which is read from the working tree and therefore cannot be
+// stale — asks for it to be reported beside the version the repository
+// declares.
+function keelVersion() {
+  try {
+    return require(path.join(__dirname, "..", "..", "package.json")).version;
+  } catch {
+    return "unknown";
+  }
+}
+
+function renderContext(result) {
+  const lines = [
+    // First, because it is the provenance of everything under it. A result
+    // that does not say which Keel produced it cannot be compared to anything.
+    `Keel: ${result.keel || keelVersion()}`,
+    `Keel context: ${result.status}`,
+    `Next action: ${result.nextAction.kind}`,
+  ];
+  if (result.nextAction.command) {
+    lines.push(`Run: ${result.nextAction.command}`);
+  }
+  if (result.selection) {
+    lines.push(
+      `Selection: ${result.selection.change}`
+        + (result.selection.task ? `#${result.selection.task}` : "")
+        + ` (${result.selection.source})`
+    );
+  }
+  if (result.routingUnreadable) {
+    lines.push(
+      "Routing: every change routes Full until keel/config.yaml's "
+        + "full_mode_paths is corrected"
+    );
+  }
+  for (const entry of result.routing || []) {
+    lines.push(`Routing: ${entry.path} always routes Full — ${entry.reason}`);
+  }
+  if (result.merge) {
+    lines.push(
+      result.merge.kind === "repository"
+        ? `Merge: repository — the default branch merges when ${result.merge.check} `
+          + "passes; no human reviews before merge, so that check is the last gate"
+        : `Merge: ${result.merge.kind} — a person merges into the default branch`
+    );
+  }
+  if (result.executorTier) {
+    lines.push(
+      `Executor tier: ${result.executorTier} — affects which skill guidance is `
+        + "read and nothing else; no gate, criterion, evidence requirement, or "
+        + "Review changes with it"
+    );
+  }
+  if (result.protocol) lines.push(renderProtocol(result.protocol));
+  for (const reason of result.reasons) lines.push(`Reason: ${reason}`);
+  for (const warning of result.warnings) lines.push(`Warning: ${warning}`);
+  return `${lines.join("\n")}\n`;
+}
+
+module.exports = {
+  renderContext,
+  resolveContext,
+};

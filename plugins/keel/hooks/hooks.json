@@ -1,0 +1,30 @@
+{
+  "description": "Keel plugin hooks: non-blocking SessionStart projection and the manifest-gated PreToolUse write guard, both backed by the shared keel CLI contract.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-guard.js"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

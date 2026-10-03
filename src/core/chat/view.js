@@ -1,0 +1,169 @@
+"use strict";
+
+// How chat records read to a person or an agent (issue #187, design D8, D20).
+// Stored times carry the writer's UTC offset; every display converts to the
+// viewer's local time and never prints the raw stamp. Edits and retractions
+// are records of their own: a view applies them to the message they target
+// and leaves the original file untouched.
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function parseTime(created) {
+  const time = Date.parse(created);
+  return Number.isNaN(time) ? null : new Date(time);
+}
+
+// `YYYY-MM-DD HH:MM` in the viewer's local time zone.
+function localStamp(created) {
+  const date = parseTime(created);
+  if (!date) return "????-??-?? ??:??";
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function localDay(created) {
+  return localStamp(created).slice(0, 10);
+}
+
+function localClock(created) {
+  return localStamp(created).slice(11);
+}
+
+// `3h ago`, for agent notices, where the absolute time costs a reader a
+// conversion it does not need.
+function relativeAge(created, now = Date.now()) {
+  const date = parseTime(created);
+  if (!date) return "at an unknown time";
+  const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+// The records a reader sees: edits and retractions applied to their targets
+// and dropped as lines of their own; a todo knows whether it was closed.
+function displayRecords(records) {
+  const byId = new Map();
+  const shown = [];
+  for (const record of records) {
+    if (record.kind === "edit" || record.kind === "retract") {
+      const target = byId.get(record.target);
+      if (!target || target.from !== record.from) continue;
+      if (record.kind === "edit") {
+        target.text = record.text;
+        target.edited = true;
+      } else {
+        target.retracted = true;
+      }
+      continue;
+    }
+    const copy = { ...record };
+    if (copy.kind === "done") {
+      const todo = byId.get(copy.target);
+      if (todo) todo.done = true;
+    }
+    byId.set(copy.id, copy);
+    shown.push(copy);
+  }
+  return shown;
+}
+
+function markers(record) {
+  const parts = [];
+  if (record.kind === "todo") {
+    parts.push(`[todo → ${record.assignee || "?"}${record.issue ? ` ${record.issue}` : ""}${record.done ? ", done" : ""}]`);
+  }
+  if (record.reply_to) parts.push(`↳ ${record.reply_to}`);
+  // A mention the text already spells out is not repeated; one written as an
+  // alias (`@cb`) still shows the role it resolved to (#196).
+  const text = String(record.text || "").toLowerCase();
+  const unseen = (record.mentions || []).filter((m) => !new RegExp(`(^|[^\\w@/])@${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w/-])`, "i").test(text));
+  if (unseen.length) parts.push(unseen.map((m) => `@${m}`).join(" "));
+  if (record.edited) parts.push("(edited)");
+  return parts.length ? ` ${parts.join(" ")}` : "";
+}
+
+function describe(record) {
+  switch (record.kind) {
+    case "join":
+      return `${record.from} added ${record.target}`;
+    case "leave":
+      return `${record.from} removed ${record.target}`;
+    case "archive":
+      return `${record.from} archived the group`;
+    case "done":
+      return `${record.from} closed todo ${record.target}`;
+    default:
+      if (record.retracted) return `${record.from}: (retracted)`;
+      return `${record.from}:${markers(record)} ${record.text}`;
+  }
+}
+
+function formatLine(record, { clock = false } = {}) {
+  const when = clock ? localClock(record.created) : localStamp(record.created);
+  return `${when} ${describe(record)}  [${record.id}]`;
+}
+
+// `--since`: a duration back from now (`90s`, `15m`, `2h`, `3d`) or a date or
+// time (`2026-10-01` is local midnight). Returns epoch milliseconds or null.
+function parseSince(value, now = Date.now()) {
+  const text = String(value || "").trim();
+  const duration = text.match(/^(\d+)([smhd])$/);
+  if (duration) {
+    const unit = { s: 1e3, m: 60e3, h: 3600e3, d: 86400e3 }[duration[2]];
+    return now - Number(duration[1]) * unit;
+  }
+  const day = text.match(/^(\d{4})-(\d\d)-(\d\d)$/);
+  if (day) return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])).getTime();
+  const time = Date.parse(text);
+  return Number.isNaN(time) ? null : time;
+}
+
+function since(records, threshold) {
+  if (threshold === null || threshold === undefined) return records;
+  return records.filter((record) => {
+    const time = Date.parse(record.created);
+    return Number.isNaN(time) || time >= threshold;
+  });
+}
+
+// The per-group Markdown transcript a person opens in any editor (D20): one
+// heading per local day, then `HH:MM sender: text` per record.
+function renderTranscript(group, records) {
+  const shown = displayRecords(records).slice().sort((a, b) => {
+    const left = Date.parse(a.created);
+    const right = Date.parse(b.created);
+    return (Number.isNaN(left) ? 0 : left) - (Number.isNaN(right) ? 0 : right) || (a.id < b.id ? -1 : 1);
+  });
+  const lines = [`# ${group}`, "", "Generated by keel chat after every write; edit the group, not this file.", ""];
+  let day = null;
+  for (const record of shown) {
+    const recordDay = localDay(record.created);
+    if (recordDay !== day) {
+      if (day !== null) lines.push("");
+      lines.push(`## ${recordDay}`, "");
+      day = recordDay;
+    }
+    const text = describe(record).replace(/\n/g, " / ");
+    lines.push(`${localClock(record.created)} ${text.startsWith(`${record.from}:`) ? text : `${record.from}: ${text}`}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+module.exports = {
+  describe,
+  parseSince,
+  renderTranscript,
+  since,
+  displayRecords,
+  formatLine,
+  localClock,
+  localDay,
+  localStamp,
+  relativeAge,
+};

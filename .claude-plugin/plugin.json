@@ -1,0 +1,113 @@
+{
+  "name": "keel-openspec",
+  "version": "5.90.0",
+  "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
+  "author": {
+    "name": "TanglmChris",
+    "url": "https://github.com/TanglmChris"
+  },
+  "repository": "https://github.com/TanglmChris/keel",
+  "license": "MIT",
+  "keywords": [
+    "openspec",
+    "workflow",
+    "keel",
+    "discipline"
+  ],
+  "skills": [
+    "./plugins/keel/skills/"
+  ],
+  "agents": [
+    "./plugins/keel/agents/keel-single-task-goal-claude.md"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/session-start.js"
+            ],
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "session-start"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/pretooluse-guard.js"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "user-prompt-submit"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "file-changed"
+            ],
+            "timeout": 10,
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "session-end"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

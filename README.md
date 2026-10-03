@@ -1,0 +1,713 @@
+# Keel
+
+**English** | [中文](README.zh-CN.md)
+
+> OpenSpec execution discipline for AI coding agents — Claude Code, Codex, and OpenCode.
+
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen.svg)
+![Targets](https://img.shields.io/badge/targets-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20OpenCode-blue.svg)
+
+## What Keel is for
+
+[OpenSpec](https://github.com/fission-ai/openspec) gives a project a spec-driven
+workflow: proposal, design, specs, tasks, and an archive of what changed. Claude Code
+(or Codex) gives you the agent that does the work. Keel sits between them and keeps the
+agent on track while it works through an OpenSpec change.
+
+Left alone, an agent tends to drift: it edits files the task never mentioned, loses the
+thread after a context reset, or checks work off without proof. Keel adds a thin, checkable
+layer that prevents that, and it does so by building on tools you already have instead of
+replacing them.
+
+What Keel adds:
+
+- **Stateless continuity.** `keel context` recomputes the current task and next step from
+  OpenSpec and Git every session, so work survives `/clear`, compaction, and cold starts
+  without depending on chat memory.
+- **Deterministic gates.** `keel gate task-start | task-complete | change-close` run local
+  structural checks and return `pass` / `fail` / `needs-review` with real exit codes. They
+  check that the task contract and evidence are present; they do not judge whether the design
+  is correct.
+- **A write guard (Claude).** After `task-start`, a `PreToolUse` hook rejects any edit
+  outside the files the task declared it would touch.
+- **Expectation alignment.** Before specs and tasks are finalized, Keel surfaces hidden
+  assumptions and asks about the ones that actually change behavior.
+
+Keel leans on native capabilities rather than reinventing them. The spec workflow is plain
+OpenSpec. The execution skills, the SessionStart continuity hook, and the write-guard hook
+ship as an ordinary Claude Code / Codex plugin. `keel --init` writes only a small host
+surface into your repo: an `AGENTS.md` bootstrap block, the OpenSpec schema, and the
+`/opsx:*` command overlay.
+
+## Requirements
+
+Node.js `>=20.19.0` (the bundled OpenSpec CLI needs it).
+
+## Install
+
+**Claude Code** — the plugin is the whole install. It is this repository at the release's tag,
+the same tree npm publishes as `@christang/keel`, so it carries the `keel` CLI along with the
+skills and hooks, and Claude installs the pinned OpenSpec from its lockfile when it installs the
+plugin. The agent's `keel` commands run the copy the plugin brought:
+
+```bash
+claude plugin marketplace add TanglmChris/keel
+claude plugin install keel@keel-marketplace
+```
+
+Updates arrive by themselves once a project is set up: `keel --init --target claude` (and
+`keel --install`) declares auto-update for `keel-marketplace` in the project's
+`.claude/settings.json`, which Claude reads before its own default of off. A new release is fetched
+in the background after a session's first message. From 5.89.0 a running session's hooks use it at
+their next call; its skills and agents follow after `/reload-plugins` or at the next start.
+
+To update everything on a machine at once — the global CLI and the Claude and Codex plugins — run
+`keel --update`. It prints one line per component saying what changed, when it takes effect, and
+anything left for you; [docs/updating.md](docs/updating.md) has the details and what each host does
+with a running session. To opt out, set that entry's `autoUpdate` to
+`false`; Keel keeps a value the project states, and `keel --doctor` reports which one is declared.
+
+Anthropic's plugin directory lists Keel as `keel-openspec`. Each release commits the npm package's
+files, with the manifest renamed and an icon, to the `claude-directory` branch, which the directory
+tracks. The plugin installed from this marketplace keeps the name `keel`.
+
+**Codex, and your own terminal** — install the CLI as well (it also installs the bundled
+OpenSpec CLI):
+
+```bash
+npm install -g @christang/keel
+keel --version
+codex plugin add keel@<marketplace>        # Codex
+```
+
+For Codex, review the current hook definitions with `/hooks` in the CLI; installation does not
+grant hook trust. A running Codex session uses an updated plugin at its next hook call, and a
+release that changes the hook definitions needs that review again.
+Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
+unread mail at session start and the next user input without marking it read.
+If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
+explicitly. Codex does not wake itself while idle; `keel chat wake add` in its worktree
+starts a turn when something addressed to it arrives (#203). Native write-guard
+enforcement remains unverified.
+See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
+evidence, limitations and the clean-consumer Full-mode check.
+
+A global `keel` comes first on PATH, ahead of the plugin's copy, so on Claude Code the agent runs
+it instead. Keep it at the plugin's version or remove it (`npm rm -g @christang/keel`); the
+session-start line names it whenever the two disagree.
+
+<details>
+<summary>Install the latest unreleased build from GitHub</summary>
+
+Pack the current `main` and install the tarball (skips the npm registry):
+
+**Windows (PowerShell):**
+
+```powershell
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $tmp | Out-Null
+npm pack github:TanglmChris/keel --pack-destination $tmp
+$pkg = Get-ChildItem $tmp -Filter "christang-keel-*.tgz" | Select-Object -First 1
+npm install -g $pkg.FullName
+Remove-Item -Recurse -Force $tmp
+```
+
+**Linux / macOS:**
+
+```bash
+tmp_dir="$(mktemp -d)"
+npm pack github:TanglmChris/keel --pack-destination "$tmp_dir"
+npm install -g "$tmp_dir"/christang-keel-*.tgz
+rm -rf "$tmp_dir"
+```
+</details>
+
+## Use
+
+In your project's root, set it up once:
+
+```bash
+keel --init                 # default target: claude
+keel --init --target codex  # or: opencode
+```
+
+`keel --init` runs OpenSpec init/update and writes Keel's host surface. Then, every time you
+start or resume work:
+
+```bash
+keel context                # what to do now, recomputed from OpenSpec + Git
+keel --doctor               # check everything is wired up
+```
+
+To refresh OpenSpec's generated templates, run `keel openspec update`. After a
+successful update, Keel restores its overlays for every target installed in the
+repository. `keel --doctor` also reports overlay health for the other installed
+targets, so healthy Claude coverage cannot hide missing Codex overlays.
+
+Subagent use is the model's execution choice, subject to the host's policy.
+`keel project --event subagent-start --change <change> --task <id>` produces a
+read-only helper brief without extra activation. Add `--subagent-mode implementation`
+for a delegate inside the task's Touch boundary; it requires an implementation
+task and a matching active guard, while `delegation.tier` is optional metadata.
+The current agent reviews returns, re-runs verification, and owns completion.
+This CLI projects a brief; it does not spawn an agent or prove hook enforcement.
+Native goal activation still requires explicit authorization.
+
+Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`,
+`/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
+
+```
+keel --init  →  keel context  →  /opsx:apply (pick one task)
+   →  task-start (+ write guard)  →  implement & verify
+   →  task-complete  →  /opsx:sync · /opsx:archive
+```
+
+On the Claude target, the session-start hook also shows that state to **you**, not only to the
+agent — one line, before you type anything:
+
+```
+Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec and Git are the authority.
+```
+
+Set `KEEL_SESSION_PANEL=1` to draw it as a framed panel with the Keel mark instead. It is off by
+default, and turning it on changes nothing but the presentation — the same status and the same
+next command are in both forms.
+
+### Standing authorization
+
+Keel asks before a repository action it has no authority for, and it asks again next session,
+because a permission granted in conversation does not survive a context reset. Declare it once in
+`keel/config.yaml` instead:
+
+```yaml
+authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>
+  - commit
+  - push
+```
+
+A task that authors no `Autonomy boundary:` inherits the declaration, and the compiled capsule
+names `keel/config.yaml` as that entry's source so an inherited authorization is never mistaken
+for one the task decided. A task that authors its own boundary keeps it.
+
+`continuation`, the fifth name, is the between-task one: it covers exactly the boundary between a
+durably complete task and the next unchecked task of the same change, inside a change whose
+`tasks.md` you approved — the stop that re-asks for an approval already given. It removes only that
+confirmation: the next task still starts through `keel gate task-start` with its own recorded
+fingerprint, every gate, evidence requirement, semantic Review, and the write guard run unchanged,
+and a stop with its own trigger — a blocker, fingerprint drift, an out-of-scope need, an unresolved
+question — still stops. It authorizes no repository action and schedules nothing. On an older Keel
+whose vocabulary predates the word, the entry is unrecognized and the whole declaration authorizes
+nothing until corrected — fail-closed, never a silent grant.
+
+`issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
+one; `chat-reply:<group>`, the eighth, is the only other name that does. The other names act on the
+checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+`gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
+silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
+grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
+capsule and **does not enforce it**: it invokes no tracker client and cannot observe one, exactly
+as it never commits on your behalf either. Closing an issue is not in scope and does not need to
+be — a pull request body carrying `Closes #<n>` does that when it lands.
+
+`protocol-refresh`, the seventh name, covers the one piece of a release that a plugin update cannot
+carry: the managed protocol block in this repository's `AGENTS.md`, which moves only when
+`keel --install` runs here. When `keel context` reports that block as older than the running Keel,
+it prints a `Protocol:` line naming the refresh command, and with this name declared the agent runs
+it before other work without asking. It never runs while a task's write guard is active, because
+the refresh writes outside that task's `Touch`, and it never commits: the diff is left for you,
+and committing it is a separate action that a declared `commit` covers like any other. On an older
+Keel whose vocabulary predates the word, the declaration authorizes nothing until corrected.
+
+`chat-reply:<group>`, the eighth name, lets a session answer, in that `keel chat` group, a record
+addressed to its own role — a mention, an assigned todo, or a direct message — by replying, sending
+the sender a direct message, or closing the todo, without asking you first. Every new session would
+otherwise ask, because a chat message is data and grants nothing. It never covers acting on what the
+message asks for — editing files, running commands that change state, committing, pushing, sending
+anything outside the chat — and the chat notice says so beside its data-not-instruction sentence. It
+is declared once per group and refused bare: in a Slack-enabled group a reply leaves the machine.
+
+Three things the declaration is not:
+
+- **Not a way past a gate.** It authorizes the action, never the proof. `keel gate task-complete`
+  returns exactly the same verdict, and the same failure text, whether or not you declared
+  anything.
+- **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
+  schedules itself, and no next task is selected for you.
+- **Not open-ended.** The eight names above are the whole vocabulary. An unrecognized entry is
+  reported with the accepted names and the declaration authorizes nothing until you fix it — a
+  typo never becomes a silent grant.
+
+The block is absent by default, and a repository that declares nothing behaves exactly as it did
+before this feature existed. `keel --doctor` reports what is declared.
+
+### Decision precedents
+
+A decision you make in conversation is spent at the next context reset, and the reasoning that
+settled it — the part that would generalise to a decision you have not met yet — goes with it.
+Point Keel at a directory of precedents and it consults them instead of asking you again:
+
+```yaml
+precedents: ../my-decisions   # any path; it may live outside this repository
+```
+
+Keel ships no precedent and creates no store. It reads that directory and nothing else — it never
+clones, pulls, or reaches the network — so one directory outside your repositories can serve all of
+them, and a path that is not there behaves exactly as no declaration at all.
+
+Each precedent is a markdown file carrying an `Applies when:` header, the materiality category it
+belongs to, a status of `recorded` or `authorized`, the decision, and **the rationale**. The last is
+load-bearing: *"chose A"* applies only to the situation literally recorded, while *"chose A because
+B fails offline"* can be applied to a case nobody has seen — and recognised as not applying when the
+new case is online. A precedent with no rationale is reported incomplete and is never applied.
+
+Three rules govern how they are used:
+
+- **A precedent is cited exactly where it replaced a question.** If applying it meant you were not
+  asked something you would have been asked, the reply names it. Routine decisions are not cited,
+  so a citation always marks a decision made in your place.
+- **Only you promote one.** A precedent enters as `recorded` and is offered as a recommendation
+  while the question is still asked. It becomes `authorized` when you accept a promotion that was
+  proposed to you — never by a usage count, which would cross with nobody watching.
+- **A precedent answers a recurrence; it never reclassifies.** It can shorten a decision inside its
+  category. It cannot move a decision out of the categories that require asking you, and no
+  accumulation of precedents makes a category stop mattering.
+
+As with standing authorization, a precedent informs a decision and never substitutes for a proof:
+gates, evidence, review, and the write guard are untouched by anything in the store. The session
+start line reports the store's size and freshness only — precedent bodies load when a decision is
+actually being made.
+
+### Unattended runs
+
+The last thing a loop needs is permission to *start*. Declare which issues may begin work without
+being asked about:
+
+```yaml
+triage:             # either source admits; absent means nothing does
+  labels:           # labels the issue carries
+    - auto
+  issues:           # issue numbers, declared here rather than on the issue
+    - 62
+```
+
+A bare list directly under `triage:` still means labels, so a declaration written before the second
+source existed keeps its exact meaning.
+
+```bash
+gh issue view 42 --json labels,number \
+  --jq '"--labels \([.labels[].name]|join(",")) --issue \(.number)"' \
+  | xargs keel triage
+```
+
+**Keel never fetches the issue.** You pass what `gh` returned, and the evaluation stays local,
+offline and deterministic — the same properties that make every other Keel answer worth trusting.
+At least one of `--labels` / `--issue` is required; supplying neither is asking for a fetch. A
+`triage:` block Keel cannot fully read admits nothing at all and names the entry that failed —
+granting the readable half would grant the entries beside your typo.
+
+**One issue is the unit, in both sources.** A person applies a label, or types a number, for one
+specific issue, so the policy admits a class you curate one issue at a time — not a guess about
+which issues look easy, which is exactly the judgement that should not be automated.
+
+They differ in **where your decision is written down**, which is why both exist:
+
+- A **label** records it on the issue. In a repository whose issues come from other people, that
+  means an operations switch sits in the vocabulary you asked reporters to classify with, visible
+  and editable by whoever filed it. Keel also cannot check that a human applied it; if your
+  automation can label issues, that source is wider than it looks.
+- An **issue number** records it in your own file. The reporter never sees it, only a committer can
+  change it, it shows up in a diff, and you can revoke one entry without touching the rest.
+
+**Admission answers "may this begin" and nothing after it.** Alignment still escalates every
+material choice, every gate still runs, and the write guard still binds. In particular:
+
+- An unattended run **may** triage, author, implement, verify, push where `authorize:` permits, and
+  **open a pull request**.
+- It **may not merge**. Merging is where an unreviewed decision becomes your project's history, and
+  no declaration in Keel authorizes one.
+- Admission comes from this declaration and **never from a precedent**, however much triage history
+  the store accumulates — whether an issue becomes work is a decision that stays yours to delegate
+  explicitly.
+
+**Keel schedules nothing.** `/loop`, cron, and CI triggers are your runtime's; Keel's part is making
+each step decidable with authority. And a run that stops at a real decision has ended the way it was
+designed to — resist widening the policy until it stops happening.
+
+### Who merges
+
+Keel never lets the agent merge — an unattended run opens a pull request and stops. A repository can
+still merge without a person, on a rule of its own: GitHub auto-merge behind a required status check,
+or a workflow job that merges what passed. Keel's own repository does the second — the `land` job in
+`.github/workflows/publish.yml` merges the owner's pull request once `full-gate` passed on its head
+commit, then publishes and releases the version in the same run, with no stored secret. If your
+repository merges on its own, say so:
+
+```yaml
+merge: repository:full-gate
+```
+
+`keel context` then reports that the default branch merges when `full-gate` passes and that **no human
+reviews before merge**. Without it, a reader of your protocol concludes a person looked at every change,
+because the only thing the protocol says about merging is that the agent may not.
+
+`merge: human` says the opposite. A bare `repository` is refused — "nobody reviews this" is only honest
+beside what replaced the reviewer. It is not a permission: `authorize:` has no `merge` entry and should
+not gain one. Keel reads the declaration and never GitHub, so it cannot check that your repository really
+merges that way; it reports what you declared.
+
+### Full vs Lite
+
+Use **Full mode** (the OpenSpec flow above) for new features, interface or protocol changes,
+cross-module work, or anything over ~3 files / 100 lines. Use **Lite mode** for local fixes,
+small scripts, docs, or tests with no interface change and locally provable impact; Lite does
+not write OpenSpec state. The rule is in the block `keel --init` installs, because routing is
+the first decision of a session and a rule reachable only from this README is reachable only by
+an agent that already went looking.
+
+The size bar is a proxy for risk, not risk itself, and some repositories invert it: an
+append-only record whose schema change is a one-field diff can be the highest-risk change in the
+project, and a mechanical rename across twenty files the lowest. Declare the paths the heuristic
+gets wrong, each with the reason it is wrong:
+
+```yaml
+full_mode_paths:
+  - results/experiments.jsonl: append-only; a one-field diff is not revertible
+```
+
+`keel context` reports what is declared, so the exception arrives at the decision, and
+`keel --doctor` reports the declaration's health. There is deliberately **no key for the
+opposite direction**: every declaration in that file removes a confirmation and never a gate, and
+an entry that held work *out* of the flow would be the first to break that. Keel gates no routing
+decision either — routing decides whether a change exists, so there is nothing for a gate to bind
+to; what Keel does is make sure the rule and your exceptions are in front of the agent when it
+decides.
+
+### How much guidance the agent loads
+
+Keel's skills carry two kinds of content, and their value moves in opposite directions. *How to do it*
+— how to split a task, what order to run things in — matters less the stronger the executor is. *Make
+yourself falsifiable* — red then green, the failure literal a check predicts, the fingerprint, whether
+a `Durable owner:` reference actually exists — matters more, because a strong executor produces
+confident work and those are the checks that can contradict it.
+
+So the stepwise half of a skill lives in a `guidance.md` beside it, and a repository can say it does
+not need that half:
+
+```yaml
+executor_tier: high
+```
+
+The default is `standard`, which reads the guidance; an absent or misspelled declaration reads it too,
+so the worst an unconfigured repository does is pay for a read. `keel context` and `keel --doctor`
+report the tier.
+
+**The tier reaches guidance and nothing else** — no gate, criterion, evidence requirement, or Review
+changes with it. That is not a promise in this README: a guidance file is checked to contain none of
+the words Keel states criteria in, so a tier can only ever skip a file that decides nothing. Deciding
+what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
+the judgement a weak executor gets most wrong, and it would be answering it about itself.
+
+One skill is split today, `keel-run-single-task-goal`, and its body is 11% smaller for it. The other
+five are almost entirely criteria, so splitting them would move the half that has to stay.
+
+## How the agent uses these
+
+You rarely type the commands below. The point of Keel is that the discipline runs itself:
+`keel --init` installs it into the agent's own workflow, and the agent reaches for each
+command at the right moment. Three things make that happen.
+
+- **The protocol.** `keel --init` writes a bootstrap block into your repo's `AGENTS.md`
+  (imported by `CLAUDE.md` on Claude). It states the rules the agent follows: open every
+  session with `keel context`, route the work Full or Lite, pass the gates at task boundaries,
+  and stay inside the task's declared write scope. That is how the agent knows *when* to run
+  what.
+- **The skills.** The `keel-*` execution skills and the `/opsx:*` command overlays walk the
+  agent through align → apply → review → complete, invoking the gates at each step.
+- **The hooks.** A SessionStart hook runs the continuity projection the moment a session
+  opens; a PreToolUse hook enforces the write guard on every edit. Neither needs prompting.
+
+So in day-to-day use you run two commands: `keel --doctor` when you want to check the
+wiring, and `keel --init` whenever it tells you the repository is behind its install — the
+protocol version lives in your `AGENTS.md`, and updating the package does not move it.
+Everything below is the vocabulary the agent uses on your behalf.
+
+### When the right answer is "nothing changed"
+
+A refactor, a move, a flow upgrade that claims the numbers hold — the correct evidence for these is
+*zero difference*, and red-green has no shape for it. The repository that reported this had a task
+whose `tasks.md` said "this one has no honest red" several times, and re-recorded its contract twice
+trying to fit. The criterion was right; it had nowhere to live.
+
+```
+- Verify:
+  - Strategy: equivalence
+  - Base: origin/main
+  - Fields: wns, tns, cell_count
+  - M1: node compare.js --base --head reports every field equal
+```
+
+`equivalence` owes no red. Its criterion is that base and head agree on the fields you named, which is
+*stronger* than red-green — it also catches the change that incidentally moved a result. What the gate
+checks is every way that shape can look complete and compare nothing: a missing `Base:` or `Fields:`,
+an empty field set, a ref that resolves to nothing, and a `Base:` that resolves to HEAD.
+
+It is not a way out of red-green. A task declaring `equivalence` while covering a scenario its own
+change *adds* is refused unless a sibling task covers that same entry under a red-green strategy —
+behavior that is new is not behavior that is unchanged, and a task cannot prove both.
+
+And Evidence no longer has to retell the output:
+
+```
+- M1: artifact openspec/changes/<change>/evidence/compare.json sha256:9f2c…
+```
+
+The gate checks the file is there and the digest matches, and refuses a path outside the change's own
+directory, because archiving moves that directory and the pointer would break. Keel hashes the bytes
+and reads nothing inside them — the claim stays yours, and what the digest buys is that the file your
+reviewer opens is the file you meant.
+
+## Verification layering
+
+Keel splits verification into two layers so a slow suite never blocks your push:
+
+- **Fast inner-loop check** — seconds, run at a local pre-push and during iteration. It catches
+  obvious breakage without waiting.
+- **Full gate** — the complete or slow suite (golden byte-determinism tests, cross-platform runs),
+  run at CI or at `keel gate change-close`.
+
+A task's `Verify` checks stay fast; the slow or exhaustive layer belongs to the full gate, not the
+local pre-push. Declare your fast check in `keel/config.yaml`, the same file that holds your
+standing authorization:
+
+```yaml
+fast_check: npm test -- --fast   # your project's seconds-scale check
+```
+
+Then opt into a repo-local fast pre-push:
+
+```bash
+keel --install --with-git-hooks   # writes .githooks/pre-push, sets core.hooksPath (this repo only)
+keel --doctor                     # reports fast_check, the pre-push hook, and core.hooksPath
+keel --uninstall                  # reverts core.hooksPath when Keel set it
+```
+
+`--with-git-hooks` is opt-in: a plain `keel --install` never touches git config, and the override
+is repo-local and reversible.
+
+## Declaring what a red proves
+
+Red-green discipline makes you write a check that fails before the implementation exists, and
+`keel gate task-complete` refuses a task whose `M<n>.red` Evidence is missing. What it could not
+check was *why* the red failed — a red that fails because a fixture is empty, or because `PATH` was
+never cleared, is shape-perfect.
+
+A check may close by declaring the failure its red must show:
+
+```
+- M1: `npm test -- --scenario widget` asserts the widget renders. Fails with: `widget is undefined`
+```
+
+Completion then requires that literal in the check's `.red` Evidence:
+
+```
+- M1.red: fail, for the right reason. The scenario reported `widget is undefined`.
+```
+
+The clause lives inside the check text, so it is inside the contract fingerprint. That is the point:
+a signature cannot be added or rewritten after the red was observed without the anchor moving, which
+is what separates a prediction from a transcription. Keel does not judge whether the signature is a
+good one — you can declare a string that any failure prints — it holds only that you wrote it first
+and that review can see it.
+
+The clause is optional; a check without one behaves exactly as before. A declaration on a check that
+can have no red — one tagged `(regression)`, or any check under a strategy outside the red-green
+set — fails `task-start` by name rather than sitting in the contract doing nothing. So does a
+`Fails with:` marker that names no literal. To *write about* the marker in a check without declaring
+one, put it in inline code.
+
+#### A red can be honest and the check still immune
+
+A signature predicts the red of an **absent** feature. It says nothing about the red of a **broken**
+one, and the two can be unrelated. A consistency check asserting two tool outputs agree had a real
+red, a correct signature, a real green — and stayed green through a 1000× unit error, the one thing
+it existed to catch, because its tolerance carried a default absolute floor. The only way to find
+that is to put the defect in and watch.
+
+`Detects:` declares that injection — the mutation, and the failure it must produce:
+
+```
+- M1: `pytest tests/test_fmax.py` asserts synth fmax == sta fmax. Fails with: `AttributeError` Detects: `sed -i s/0.0005/0.5/ run_sta.py` -> `assert 5e-16 == 5e-13`
+```
+
+Completion requires that second literal in the check's `.detects` Evidence. Clauses chain, so a check
+may carry both — the example above is one check, one line.
+
+**Keel does not run the mutation and does not judge it.** It records the claim and puts it where
+review can see it, the same standing every other check result has. You can declare an injection any
+check would catch; what the clause buys is that you decided it before the run, and that editing it
+afterwards moves the fingerprint.
+
+A `(regression)` check **may** declare one, and is the best place for it: such a check has no honest
+red by construction, so an injection is the only thing that can show it is not vacuous.
+
+#### A number can claim to be a measurement
+
+`Basis:`, Evidence prose and `Findings` are free text, and a number in them reads the same whether it
+was measured, estimated, or remembered. `Measured:` binds one to the output behind it:
+
+```
+- M1: `node bench.js` reports the fanout load. Measured: `1799.9`
+```
+
+Completion requires that literal in the check's own `M<n>` Evidence — the entry holding the command
+and its output. Opt-in, and deliberately not a rule over every number: measured against this
+repository's archive, that rule would reach 847 inline-code spans, mostly version strings, counts,
+and quoted references that appear in no command output, and each would be a false stop.
+
+## Domain lenses
+
+Keel's core is pure process; it ships no domain knowledge and no decisions of its own. Alongside
+the precedent store above, the other user-authored surface Keel loads on demand is domain guidance,
+which lives in
+**lenses** you author under `keel/lenses/*.md` in your repo. Each lens is self-describing: it
+opens with an `Applies when:` line stating the signals that trigger it (file extensions, artifact
+shapes) and carries an `Execution and review checks` section. When a change's artifacts or Touch
+match a lens, the alignment, test, debug, and review skills load only that one lens — and nothing
+when none match. Keel stays domain-agnostic; the knowledge is yours to own and edit.
+
+Three lenses ship as opt-in templates (`web`, `hardware`, `hardware-dsl`) under `assets/lenses/`.
+They are never installed automatically:
+
+```bash
+keel lenses list            # shipped templates + lenses installed in keel/lenses/
+keel lenses add web         # copy the web template into keel/lenses/web.md, then edit it
+keel lenses add web --force # overwrite an existing lens
+```
+
+## What a coverage claim is checked against
+
+`## Expectation Coverage` closes each expectation one of three ways, and each is checked. A
+`Durable owner:` must name a path that exists or an `https://…` reference that already carries
+its content. A `Discard reason:` must give a reason. And a `Covered by:` **that cites
+expectation identifiers** is compared against the `Covers:` of the task it names:
+
+```
+- E3: the records land in different flow generations (F4, D3). Covered by: 1.1
+```
+
+`keel gate change-close` checks that task 1.1's `Covers:` actually names `F4` and `D3`. When it
+does not, the refusal says so and says where the identifier *is* — the task of this change whose
+`Covers:` holds it, or that none does.
+
+**Citing identifiers is optional.** An entry that names none is not refused and not reported as
+deficient; plenty of expectations are prose ("documentation and skills follow the behavior
+changes above") and numbering them to satisfy a parser is worse than leaving them. What the check
+holds you to is the claim you chose to make. So that a pass is not read as more than it is, the
+close reports how many entries it compared and how many it did not.
+
+## Re-recording a contract
+
+Changing a task's contract after work has started moves its fingerprint, and Keel reports that the
+evidence produced under the old one is stale. Sometimes that is too broad — a classification tag
+added to a check leaves its assertion untouched, and re-running a three-minute experiment for it
+buys nothing. Say so:
+
+```bash
+keel gate task-start --change <c> --task <t> --record --keep-evidence M1,M3
+```
+
+The report then names only the checks still stale, names the ones you declared unaffected, and says
+the narrowing came from your declaration. **Keel does not verify the claim** — it keeps only the
+previous fingerprint, not the capsule behind it, so it cannot compare a check's former text to its
+current one. State your reason in the task's `Reauthorizations` line, where a reviewer can disagree
+with it. Nothing about completion changes: every check still needs its Evidence.
+
+## Pausing a change
+
+A change you have deliberately stopped — waiting on something outside the repository, or simply
+not the priority — can say so where it lives, in its own `openspec/changes/<name>/.openspec.yaml`:
+
+```yaml
+schema: keel-spec-driven
+created: 2026-09-05
+keel:
+  status: paused
+  reason: waiting on the competition brief; the priority is knowledge that needs no tooling
+  since: 2026-09-05
+```
+
+`keel context` then passes over it when inferring what to do next, and says which change it passed
+over and why — a skip you cannot see would be worse than the wrong recommendation it replaces. If
+every active change is paused, `context` reports that, with each reason, rather than reporting that
+nothing exists.
+
+This changes only what Keel *recommends*. No gate, the write guard, and completion all behave
+exactly as they would without it, and `keel context --change <paused>` still selects it — you asked
+for it by name. Keel never pauses a change on its own.
+
+## Group chat between sessions
+
+Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. Each member has its own unread state, and history is kept. Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Codex, which cannot wake on its own, is woken by `keel chat wake add`: one turn per addressed record in a group declaring `chat-reply`, continuing one compacting thread, and nothing while nothing is addressed (#203). Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention: see [the Slack setup guide](docs/chat-slack-setup.md). The 5.83 `keel mail` commands keep working on direct groups.
+
+## Commands
+
+```bash
+# Continuity — recompute what to do (stateless)
+keel context [--json] [--change <c> --task <t>]
+
+# Deterministic gates → pass | fail | needs-review
+keel gate task-start    --change <c> --task <t> --json
+keel gate task-complete --change <c> --task <t> [--base <git-ref>] --json
+keel gate change-close  --change <c> --action sync|archive --json
+
+# Write guard (Claude target)
+keel guard start --change <c> --task <t> --json
+keel guard status --json
+keel guard clear  --json
+
+# Domain lenses — user-authored guidance in keel/lenses/
+# (the other user-authored surface is the precedent store; see above)
+keel lenses list
+keel lenses add <name> [--force]
+
+# Group chat between sessions (see docs/chat-slack-setup.md for Slack)
+keel chat role --set <role> [--alias <a>]
+keel chat group create <g> [--member <r>]... | add | remove | archive | list
+keel chat <g> [<text>] [--since 2h] [--follow]     # read, or post
+keel chat dm <role> <text> | todo <g> --assignee <r> <text> | todos [--mine]
+keel chat unread | read | notice | search <text>
+keel chat bridge add | install | status | pause <2h> | stop | start | uninstall
+keel chat archive sync | pull
+
+# Unattended triage — may this issue start work without asking?
+# Keel never fetches the issue; pass what gh returned. At least one of the two.
+keel triage [--labels <l1,l2>] [--issue <n>] [--json]
+
+# Install / maintenance
+keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]
+keel --update [--dry-run]
+keel --version | --help
+```
+
+Exit codes: `0` pass · `3` policy failure · `4` missing semantic review · `1` input error.
+
+Targets are probed, not assumed by name: unverified runtime behavior is reported as `manual`,
+not `enforced`. Pick one target per repo and use it for every `--install` / `--check` /
+`--doctor` / `--uninstall`.
+
+## Development
+
+No build step. `src/skills/` is the single source of truth for portable skills; the
+distribution copies under `plugins/keel/skills/` must stay byte-identical (enforced by
+validation).
+
+```bash
+npm test                  # baseline + all scenarios in parallel
+node scripts/bump_version.js <patch|minor|major>   # bump every version pin at once
+```
+
+## License
+
+[MIT](LICENSE) © 2026 TanglmChris. See the **[中文完整手册](README.zh-CN.md)** for the full
+command and workflow reference.

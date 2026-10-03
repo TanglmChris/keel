@@ -1,0 +1,1628 @@
+"use strict";
+
+const crypto = require("crypto");
+const { execFileSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+const {
+  CONFIG_RELATIVE_PATH,
+  readDelegationPolicy,
+  readStandingAuthorization,
+} = require("./config");
+
+const SUPPORTED_MODES = new Set([
+  "implementation",
+  "diagnose-only",
+  "plan-first",
+  // A task whose whole effect is an authorized repository-level action — the
+  // repository's first commit, a tag — writes no worktree file, so it has no
+  // concrete Touch to declare. It is not diagnose-only either: it has real side
+  // effects that need evidence. It is the one mode that may commit.
+  "repo-action",
+]);
+
+// Modes whose contract is "no worktree writes", so `Touch: none` is required
+// rather than merely tolerated.
+const NO_WRITE_MODES = new Set(["diagnose-only", "repo-action"]);
+
+const UNFILLED_TOKEN = /(<[^>]+>|\bTODO\b|\bTBD\b|\bplaceholder\b)/i;
+
+function normalizeFieldText(value) {
+  return String(value || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/^\s*-\s*/gm, "")
+    .trim();
+}
+
+// Inline code spans hold documented patterns — a filename shape, or prose that
+// has to name the token forms themselves. Strip them before looking for an
+// unfilled slot, but only after the emptiness test, so a field whose whole
+// value is one code span is not mistaken for an empty field.
+function withoutInlineCode(text) {
+  return text.replace(/`[^`]*`/g, " ");
+}
+
+function isConcrete(value) {
+  const normalized = normalizeFieldText(value);
+  if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return false;
+  return !UNFILLED_TOKEN.test(withoutInlineCode(normalized));
+}
+
+// The unfilled token that made a field non-concrete, or null when the field is
+// empty, `none`, or `pending`. Used to explain a non-concrete field instead of
+// letting the caller infer a different schema from it.
+function unfilledToken(value) {
+  const normalized = normalizeFieldText(value);
+  if (!normalized || /^(?:none|pending)\.?$/i.test(normalized)) return null;
+  const match = withoutInlineCode(normalized).match(UNFILLED_TOKEN);
+  return match ? match[0] : null;
+}
+
+// A heading is a `##` line at column zero. An indented one is text: inside a
+// task it belongs to the field that is open, inside a change-level section it
+// is not an entry. Both readers decide through this one test — issue #160.
+// The tolerant spelling `/^\s*##\s/` ended a task at an indented line and
+// dropped every field after it, and a field with a documented default was
+// replaced by that default without a word; in a section it dropped the entries
+// after the line with no refusal at all.
+function isHeadingLine(line) {
+  return /^##\s/.test(line);
+}
+
+function parseTasks(content) {
+  const lines = content.split(/\r?\n/);
+  const tasks = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(
+      /^\s*-\s+\[([ xX])\]\s+(\d+(?:\.\d+)+)\s+(.+?)\s*$/
+    );
+    if (!match) continue;
+    tasks.push({
+      checked: match[1].toLowerCase() === "x",
+      id: match[2],
+      title: match[3],
+      line: index,
+    });
+  }
+  for (let index = 0; index < tasks.length; index += 1) {
+    // A task body ends at the next task or the next `##` heading (see
+    // `isHeadingLine`), whichever comes first. Without the heading bound a
+    // change-level section such as `## Invalidates` was appended to whichever
+    // field was open last — the Evidence, in every shipped template — so a
+    // token quoted there made the Evidence non-concrete and the gate blamed a
+    // task that was fine.
+    const nextTask =
+      index + 1 < tasks.length ? tasks[index + 1].line : lines.length;
+    let end = nextTask;
+    for (let cursor = tasks[index].line + 1; cursor < nextTask; cursor += 1) {
+      if (isHeadingLine(lines[cursor])) {
+        end = cursor;
+        break;
+      }
+    }
+    tasks[index].endLine = end;
+    const bodyLines = lines.slice(tasks[index].line, end);
+    tasks[index].body = bodyLines.join("\n");
+    tasks[index].fields = new Map();
+    let current = null;
+    for (const line of bodyLines.slice(1)) {
+      const fieldMatch = line.match(/^ {2}- ([A-Za-z][A-Za-z /-]+):\s*(.*)$/);
+      if (fieldMatch) {
+        current = fieldMatch[1];
+        tasks[index].fields.set(current, [fieldMatch[2]]);
+      } else if (current) {
+        tasks[index].fields.get(current).push(line);
+      }
+    }
+  }
+  return tasks;
+}
+
+function field(task, name) {
+  return (task.fields.get(name) || []).join("\n");
+}
+
+function fieldValues(task, name) {
+  return field(task, name)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*-\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function normalizedValues(task, name, { ordered = false } = {}) {
+  const values = fieldValues(task, name)
+    .map((value) =>
+      value
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean);
+  return ordered ? values : [...new Set(values)].sort();
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SUPPORTED_VERIFICATION_STRATEGIES = [
+  "vertical-tdd",
+  "regression-first",
+  "characterization",
+  "snapshot-characterization",
+  "rendered-behavior",
+  "evidence-first",
+  // Zero difference, not "nothing could fail first". `evidence-first` is the
+  // only other strategy without a red-green obligation, and it is scoped by an
+  // absence; an A/B against a base is the opposite — a criterion stronger than
+  // red-green, because it also catches the change that incidentally moved a
+  // result. Issue #142 measured a task re-recording its contract twice to get
+  // past the shape rather than the criterion.
+  "equivalence",
+];
+
+const RED_GREEN_VERIFICATION_STRATEGIES = new Set([
+  "vertical-tdd",
+  "regression-first",
+]);
+
+// Tags an M<n> check may carry after its label, as a comma-separated set.
+const COMMAND_TAGS = new Set(["fast", "full", "regression"]);
+
+// A check may end by declaring things about itself, so that each is written down
+// before the run it describes. Every clause has the same shape: it closes the
+// clause sequence with inline-code literals, it lives inside the check text and
+// therefore inside the contract fingerprint, and it is enforced by requiring its
+// literal in a named Evidence entry. Keel judges none of them.
+//
+// The clauses chain. A check is one line — `fieldValues` splits the field per
+// line and treats each as its own entry — so a single end-anchored slot would
+// make the clauses mutually exclusive, and the case that motivated `Detects:`
+// declares an injection beside a failure signature on one check (issue #132).
+//
+// Each is still anchored at the end of what remains, on purpose: a check that
+// describes this rule mentions a marker mid-sentence, and a mention is not a
+// declaration.
+//
+// - `Fails with:` — the failure the check's red must show. Predicts the red of an
+//   *absent* feature.
+// - `Detects:` — a mutation that puts a defect in, and the failure it must
+//   produce. Answers the question a red cannot: the red of a *broken* feature.
+//   The two can be entirely unrelated, which is the whole reason this exists.
+const DECLARATION_CLAUSES = [
+  {
+    name: "failure",
+    pattern: /\bFails with:[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bFails with:/i,
+    build: (match) => match[1].trim(),
+  },
+  {
+    name: "detects",
+    pattern: /\bDetects:[ \t]*`([^`\n]+)`[ \t]*->[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bDetects:/i,
+    build: (match) => ({
+      mutation: match[1].trim(),
+      failure: match[2].trim(),
+    }),
+  },
+  {
+    // `Measured:` — a literal the check's own recorded output must contain. The
+    // failure class is a number that reads like a measurement and is an estimate
+    // or a recollection; free prose cannot tell a reader which it is. Opt-in on
+    // purpose: a universal rule over every number in Evidence would reach 847
+    // inline-code spans in this repository's own archive, most of them version
+    // strings, counts the author computed, and quoted references that appear in
+    // no command output, and each would be a false stop.
+    name: "measured",
+    pattern: /\bMeasured:[ \t]*`([^`\n]+)`[ \t]*$/i,
+    marker: /\bMeasured:/i,
+    build: (match) => match[1].trim(),
+  },
+];
+
+// Strip one matching trailing clause at a time until none matches, then report a
+// marker surviving in the remaining prose as malformed. Malformed rather than
+// ignored: a declaration that parsed as nothing reads to its author as a check
+// being enforced. A marker inside inline code is quoted material, the meaning
+// inline code already carries here, which is what lets this file's own tasks
+// name the markers.
+function declarationClauses(check) {
+  let text = String(check || "");
+  const declared = {};
+  for (let matched = true; matched; ) {
+    matched = false;
+    for (const clause of DECLARATION_CLAUSES) {
+      const match = text.match(clause.pattern);
+      if (!match) continue;
+      if (!(clause.name in declared)) declared[clause.name] = clause.build(match);
+      text = text.slice(0, match.index).replace(/[ \t]+$/, "");
+      matched = true;
+      break;
+    }
+  }
+  const remainder = withoutInlineCode(text);
+  const malformed = {};
+  for (const clause of DECLARATION_CLAUSES) {
+    malformed[clause.name] =
+      !(clause.name in declared) && clause.marker.test(remainder);
+  }
+  return {
+    signature: declared.failure == null ? null : declared.failure,
+    detects: declared.detects == null ? null : declared.detects,
+    measured: declared.measured == null ? null : declared.measured,
+    malformed,
+  };
+}
+
+// Single source of truth for the accepted completion Review `Status`
+// vocabulary. Consumed by both the completion gate (src/core/gates.js) and the
+// context "already reviewed" probe (src/core/context.js) so the two never
+// diverge.
+const ACCEPTED_REVIEW_STATUSES = [
+  "pass",
+  "passed",
+  "complete",
+  "completed",
+  "ok",
+  "done",
+];
+
+function isPassingReviewStatus(value) {
+  return ACCEPTED_REVIEW_STATUSES.includes(
+    String(value == null ? "" : value).trim().toLowerCase()
+  );
+}
+
+// A git ref resolved locally, or null. Reads the repository the gate is already
+// reading and reaches nothing else: a gate that fetched would stop being local
+// and offline, which is the property its verdict rests on.
+function resolveCommit(repo, ref) {
+  try {
+    return execFileSync(
+      "git",
+      ["-C", repo, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Four ways an `equivalence` task's shape can be complete and still compare
+// nothing. Each names the declaration it is about: a diagnostic naming the
+// strategy would send the author to the one line that is correct.
+function equivalenceProblems(repo, taskVerification) {
+  const problems = [];
+  const declaredFields = taskVerification.fieldsDeclared;
+  if (!isConcrete(taskVerification.base)) {
+    problems.push({
+      code: "missing-equivalence-base",
+      message:
+        "equivalence compares one code path at two commits and declares which "
+        + "one it is compared against. Add a `Base:` entry beside `Strategy:` "
+        + "naming a git ref — without it the criterion is `the numbers are the "
+        + "same as some other numbers`.",
+    });
+  }
+  if (taskVerification.fields.length === 0) {
+    problems.push({
+      code: "missing-equivalence-fields",
+      message: declaredFields
+        ? "`Fields:` is declared and resolves to an empty set, so the "
+          + "comparison has nothing to compare. It reads as a declaration to "
+          + "every reader except the comparison; name the fields, separated by "
+          + "commas."
+        : "equivalence declares which fields are compared. Add a `Fields:` "
+          + "entry beside `Strategy:` listing them, separated by commas — a "
+          + "comparison with no field set agrees with everything.",
+    });
+  }
+  if (isConcrete(taskVerification.base)) {
+    const base = resolveCommit(repo, taskVerification.base);
+    if (!base) {
+      problems.push({
+        code: "unresolvable-equivalence-base",
+        message:
+          `\`Base: ${taskVerification.base}\` resolves to no commit in this `
+          + "repository. The base is read locally and never fetched, so a ref "
+          + "that exists only on a remote is not one this gate can see.",
+      });
+    } else {
+      const head = resolveCommit(repo, "HEAD");
+      if (head && head === base) {
+        problems.push({
+          code: "equivalence-base-is-head",
+          message:
+            `\`Base: ${taskVerification.base}\` resolves to ${base}, which is `
+            + "HEAD. An A/B against itself always agrees, so the check would "
+            + "pass having compared nothing — the one shape here that is "
+            + "complete, resolvable, and still empty.",
+        });
+      }
+    }
+  }
+  return problems;
+}
+
+function verification(task) {
+  const compact = fieldValues(task, "Verify");
+  const strategyEntry = compact.find((entry) => /^Strategy:\s*/i.test(entry));
+  // `evidence-first` is the one strategy scoped by an absence — work that
+  // cannot use a meaningful red-green loop — so the task states why. It is a
+  // field beside `Strategy:`, not a check: everything else under `Verify` is a
+  // command, and a reason that took an `M<n>` label would be a check the author
+  // never wrote and evidence nobody can record.
+  const reasonEntry = compact.find((entry) => /^Reason:\s*/i.test(entry));
+  // `equivalence` compares one code path at two commits. Neither half of that
+  // fits in a check: the check is the command, and what it cannot say by itself
+  // is which commit it is compared against and which fields are compared. #142
+  // proposed a third field for the command too; commands already have exactly
+  // one home here, and a second would put half of them outside the labelled
+  // evidence `task-complete` enforces.
+  const baseEntry = compact.find((entry) => /^Base:\s*/i.test(entry));
+  const fieldsEntry = compact.find((entry) => /^Fields:\s*/i.test(entry));
+  const isVerificationField = (entry) =>
+    /^Strategy:\s*/i.test(entry)
+    || /^Reason:\s*/i.test(entry)
+    || /^Base:\s*/i.test(entry)
+    || /^Fields:\s*/i.test(entry);
+  const commandSource = compact.length > 0
+    ? compact.filter((entry) => !isVerificationField(entry))
+    : fieldValues(task, "Commands");
+  const commands = commandSource.map((entry) => {
+    // An optional tag set after the M<n> label. `fast`/`full` marks which checks
+    // the fast inner loop runs; `regression` marks a check that asserts
+    // something already green is still green, which has no honest red and is
+    // therefore exempt from the red-green evidence requirement. A check may
+    // carry both, so the tag is a comma-separated set rather than one word.
+    const match = entry.match(/^(M[1-9]\d*)(?:\s*\(([^)\n]*)\))?:\s*(.*)$/);
+    if (!match) {
+      return {
+        label: null,
+        layer: "full",
+        regression: false,
+        check: entry,
+        failsWith: null,
+        malformedSignature: false,
+        detects: null,
+        malformedInjection: false,
+        measured: null,
+        malformedMeasurement: false,
+      };
+    }
+    const tags = (match[2] || "")
+      .split(",")
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean);
+    if (tags.some((tag) => !COMMAND_TAGS.has(tag))) {
+      return {
+        label: null,
+        layer: "full",
+        regression: false,
+        check: entry,
+        failsWith: null,
+        malformedSignature: false,
+        detects: null,
+        malformedInjection: false,
+        measured: null,
+        malformedMeasurement: false,
+      };
+    }
+    const check = normalizeText(match[3]);
+    const clauses = declarationClauses(check);
+    return {
+      label: match[1],
+      layer: tags.includes("fast") ? "fast" : "full",
+      regression: tags.includes("regression"),
+      check,
+      failsWith: clauses.signature,
+      malformedSignature: clauses.malformed.failure,
+      detects: clauses.detects,
+      malformedInjection: clauses.malformed.detects,
+      measured: clauses.measured,
+      malformedMeasurement: clauses.malformed.measured,
+    };
+  });
+  return {
+    compact: compact.length > 0,
+    // No default. The strategy is not among the defaults the capsule inherits,
+    // and the value this once fell back to — `evidence-first` — is the one
+    // strategy with no red-green requirement, so omitting the line was how a
+    // task opted out of red-green with nothing on screen saying so. An absent
+    // strategy is now reported rather than chosen.
+    strategy: normalizeText(
+      strategyEntry
+        ? strategyEntry.replace(/^Strategy:\s*/i, "")
+        : field(task, "Verification Strategy")
+    ),
+    reason: normalizeText(
+      reasonEntry
+        ? reasonEntry.replace(/^Reason:\s*/i, "")
+        : field(task, "Verification Reason")
+    ),
+    base: normalizeText(
+      baseEntry ? baseEntry.replace(/^Base:\s*/i, "") : field(task, "Verification Base")
+    ),
+    // A set, so "declared but empty" is a state the gate can see. `Fields:` with
+    // nothing behind it is the shape that passes while comparing nothing, and it
+    // reads as a declaration to everyone except the comparison.
+    // Whether the line was written at all, kept beside the parsed set so a
+    // refusal can tell an author who wrote nothing from one who wrote an empty
+    // set. To the comparison they are the same state; to the author they are
+    // opposite mistakes.
+    fieldsDeclared: Boolean(fieldsEntry || field(task, "Verification Fields")),
+    fields: (fieldsEntry
+      ? fieldsEntry.replace(/^Fields:\s*/i, "")
+      : field(task, "Verification Fields") || ""
+    )
+      .split(",")
+      .map((entry) => normalizeText(entry))
+      .filter(Boolean),
+    commands,
+  };
+}
+
+// The labels a task declares, read from the form the task itself uses. Label
+// parsing does not depend on a check being concrete, so this answers exactly
+// when the compiler cannot: a task whose `M2` declaration carries an unfilled
+// slot still declares `M2`, and a reference to it is not a reference to
+// something that does not exist.
+function declaredCommandLabels(task) {
+  const source = fieldValues(task, "Verify").length > 0
+    ? fieldValues(task, "Verify")
+    : fieldValues(task, "Commands");
+  return source
+    .map((entry) => entry.match(/^(M[1-9]\d*)(?:\s*\([^)\n]*\))?\s*:/))
+    .filter(Boolean)
+    .map((match) => match[1]);
+}
+
+function commandLabelProblems(task) {
+  // A task that declared no verification form at all is reported once, by
+  // requiredFieldProblems, as the one field it is missing. Its orphan Evidence
+  // labels are a consequence of that same absence, and restating them here is
+  // the cascade that buries the actionable line.
+  if (
+    fieldValues(task, "Verify").length === 0
+    && fieldValues(task, "Commands").length === 0
+  ) {
+    return [];
+  }
+  const problems = [];
+  const seen = new Set();
+  const labels = [];
+  let malformed = false;
+  let duplicate = false;
+  const entries = verification(task).commands.map((entry) =>
+    entry.label ? `${entry.label}: ${entry.check}` : entry.check
+  );
+  for (const entry of entries) {
+    const command = entry.match(/^(M[1-9]\d*):\s*(.*)$/);
+    if (!command) {
+      malformed = true;
+      problems.push({
+        code: "invalid-command-label",
+        message: `Command entry must use an M<n> label, optionally followed by `
+          + `a tag set drawn from ${[...COMMAND_TAGS].join(", ")} — `
+          + `for example \`M2 (regression): …\`: ${entry}`,
+      });
+      continue;
+    }
+    if (seen.has(command[1])) {
+      duplicate = true;
+      problems.push({
+        code: "duplicate-command-label",
+        message: `Command label is duplicated: ${command[1]}.`,
+      });
+    }
+    seen.add(command[1]);
+    labels.push(command[1]);
+    if (!isConcrete(command[2])) {
+      // Name the matched slot, the way the Verify diagnostic already does. The
+      // unqualified wording described the consequence, so an author with
+      // several slots in one check had to guess which one was read.
+      const token = unfilledToken(command[2]);
+      problems.push({
+        code: "missing-command-check",
+        message: token
+          ? `${command[1]} carries the unfilled slot \`${token}\`, so it does `
+            + "not define a concrete public check. Replace that slot with the "
+            + "value the check actually runs against, or fence it in inline "
+            + "code when it is a documented pattern rather than a slot."
+          : `${command[1]} must define a concrete public check.`,
+      });
+    }
+  }
+  if (!malformed && !duplicate) {
+    const expected = labels.map((_, index) => `M${index + 1}`);
+    if (labels.some((label, index) => label !== expected[index])) {
+      problems.push({
+        code: "noncontiguous-command-label",
+        message:
+          `Command labels must be contiguous and ordered: expected `
+          + `${expected.join(", ") || "M1"}; found ${labels.join(", ") || "none"}.`,
+      });
+    }
+    const evidenceLabels = [
+      ...field(task, "Evidence").matchAll(/^\s*-\s*(M[1-9]\d*):/gim),
+    ].map((match) => match[1]);
+    const missing = labels.filter((label) => !evidenceLabels.includes(label));
+    const unexpected = evidenceLabels.filter(
+      (label, index) =>
+        !labels.includes(label) || evidenceLabels.indexOf(label) !== index
+    );
+    if (missing.length > 0 || unexpected.length > 0) {
+      problems.push({
+        code: "evidence-label-mismatch",
+        message:
+          `Evidence labels must map one-to-one to Commands; missing: `
+          + `${missing.join(", ") || "none"}; unexpected or duplicate: `
+          + `${unexpected.join(", ") || "none"}.`
+          + (missing.length > 0 && unexpected.length === 0
+            ? " `keel gate task-start --record` adds the missing record slots."
+            : ""),
+      });
+    }
+  }
+  return problems;
+}
+
+function taskStartContractProblems(task) {
+  const mode = normalizeText(field(task, "Mode")).toLowerCase()
+    || "implementation";
+  const touch = fieldValues(task, "Touch");
+  if (mode && !SUPPORTED_MODES.has(mode)) {
+    return [
+      {
+        code: "unsupported-mode",
+        message:
+          `Unsupported Mode \`${mode}\`; expected implementation, `
+          + "diagnose-only, plan-first, or repo-action.",
+      },
+    ];
+  }
+  if (NO_WRITE_MODES.has(mode)) {
+    if (touch.length !== 1 || touch[0].toLowerCase() !== "none") {
+      return [
+        {
+          code: "invalid-touch",
+          message: `${mode} writes no worktree file and requires `
+            + "`Touch: none`.",
+        },
+      ];
+    }
+    return [...commandLabelProblems(task), ...regressionOnlyProblems(task)];
+  }
+  if (!touch.some((entry) => isConcrete(entry))) {
+    return [
+      {
+        code: "invalid-touch",
+        message: "implementation and plan-first require a concrete Touch path.",
+      },
+      ...commandLabelProblems(task),
+      ...regressionOnlyProblems(task),
+    ];
+  }
+  return [
+    ...commandLabelProblems(task),
+    ...regressionOnlyProblems(task),
+    ...failureSignatureProblems(task),
+  ];
+}
+
+// A declared failure signature describes the check's red. A `(regression)` check
+// is exempt from red-green and a strategy outside the red-green set records no
+// `.red` at all, so in both cases the declaration describes evidence that will
+// never exist. Refused rather than left sitting in the contract: a declaration
+// doing nothing reads to its author as a check being enforced.
+function failureSignatureProblems(task) {
+  const parsed = verification(task);
+  const strategy = parsed.strategy.toLowerCase();
+  const redGreen = RED_GREEN_VERIFICATION_STRATEGIES.has(strategy);
+  const problems = [];
+  for (const entry of parsed.commands) {
+    if (!entry.label) continue;
+    if (entry.malformedSignature) {
+      problems.push({
+        code: "malformed-failure-signature",
+        message:
+          `${entry.label} carries a \`Fails with:\` marker that does not close `
+          + "the check with a literal. Write the failure signature as one "
+          + "inline-code literal at the end of the check, or fence the marker "
+          + "in inline code when the check is describing it rather than "
+          + "declaring one.",
+      });
+      continue;
+    }
+    if (entry.malformedMeasurement) {
+      problems.push({
+        code: "malformed-measurement",
+        message:
+          `${entry.label} carries a \`Measured:\` marker that does not close `
+          + "the check with a literal. Write it as `Measured: `<literal>`` at "
+          + "the end of the check, or fence the marker in inline code when the "
+          + "check is describing it rather than declaring one.",
+      });
+      continue;
+    }
+    if (entry.malformedInjection) {
+      problems.push({
+        code: "malformed-injection",
+        message:
+          `${entry.label} carries a \`Detects:\` marker that does not close `
+          + "the check with a mutation and the failure it must produce. Write "
+          + "it as `Detects: `<mutation>` -> `<failure>`` at the end of the "
+          + "check, or fence the marker in inline code when the check is "
+          + "describing it rather than declaring one.",
+      });
+      continue;
+    }
+    if (!entry.failsWith) continue;
+    if (!redGreen) {
+      problems.push({
+        code: "signature-without-red",
+        message:
+          `${entry.label} declares the failure its red must show, but `
+          + `\`${parsed.strategy}\` records no red for the signature to `
+          + "describe. Name a red-green strategy, or drop the clause.",
+      });
+      continue;
+    }
+    if (entry.regression) {
+      problems.push({
+        code: "signature-without-red",
+        message:
+          `${entry.label} declares the failure its red must show, but it is `
+          + "tagged `(regression)` and so records no red for the signature to "
+          + "describe. Untag the check if it proves new behavior, or drop the "
+          + "clause.",
+      });
+    }
+  }
+  return problems;
+}
+
+// A red-green strategy whose every check is exempt from red-green is that
+// strategy in name only, and the tag would become the escape hatch rather than
+// the declaration it is meant to be.
+function regressionOnlyProblems(task) {
+  const parsed = verification(task);
+  if (!RED_GREEN_VERIFICATION_STRATEGIES.has(parsed.strategy.toLowerCase())) {
+    return [];
+  }
+  const labelled = parsed.commands.filter((entry) => entry.label);
+  if (labelled.length === 0 || labelled.some((entry) => !entry.regression)) {
+    return [];
+  }
+  return [
+    {
+      code: "regression-only-strategy",
+      message:
+        `\`${parsed.strategy}\` requires at least one check that is not tagged `
+        + "`(regression)`, because a regression check has no red to record. "
+        + "Untag the check that proves the new behavior, or name a strategy "
+        + "that is not red-green.",
+    },
+  ];
+}
+
+function requiredFieldProblems(task) {
+  const verify = field(task, "Verify");
+  const compact = isConcrete(verify);
+  // A task that declared Verify but left an unfilled token in it is a compact
+  // v4 task with one bad token, not an expanded v3 task. Say which token, and
+  // do not report the v3 fields it never declared.
+  if (!compact) {
+    const token = unfilledToken(verify);
+    if (token) {
+      return [
+        {
+          code: "non-concrete-verify",
+          message:
+            `Verify contains the unfilled token \`${token}\`; compact v4 `
+            + "detection requires a concrete Verify. Replace or remove that "
+            + "token — the expanded v3 fields are not required. Angle "
+            + "brackets, TODO, TBD, and the word placeholder all read as "
+            + "unfilled, including inside prose.",
+        },
+      ];
+    }
+    // Neither verification form declared. That is a compact v4 task missing one
+    // field, not an expanded v3 task missing nine — and listing the v3 set here
+    // reported a schema this author never chose.
+    if (!isConcrete(field(task, "Commands"))) {
+      return [
+        {
+          code: "missing-verification-form",
+          message:
+            "The task declares no verification form. Add a `Verify` field with "
+            + "a `Strategy:` entry and one `M<n>:` check per behavior the task "
+            + "proves. The expanded v3 `Commands` field is the other accepted "
+            + "form; the remaining v3 fields are not required.",
+        },
+        // The rest of the compact set is still reported, so a near-empty task
+        // learns everything it is missing. Only the v3 cascade is replaced.
+        ...missingFieldProblems(task, ["Covers", "Evidence"]),
+      ];
+    }
+  }
+  // The expanded set is the compact set with `Commands` in place of `Verify`.
+  // Owner, Mode, Read, and Acceptance resolve to documented defaults or derive
+  // from Covers, Report is consumed nowhere, and Candidate Boundary and Stop
+  // Rules belong to couplingProblems, which requires them when the coupling
+  // contract does. Requiring them here reported fields that were already in
+  // effect.
+  return missingFieldProblems(
+    task,
+    compact ? ["Covers", "Verify", "Evidence"] : ["Covers", "Commands", "Evidence"]
+  );
+}
+
+function missingFieldProblems(task, names) {
+  return names
+    .filter((name) => !isConcrete(field(task, name)))
+    .map((name) => {
+      // Name the matched slot, the way the check and Verify diagnostics already
+      // do. The unqualified wording stated only the verdict, so an author whose
+      // field held a token in ordinary prose had nothing to search for — and
+      // the first problem they saw named a field of the other schema instead.
+      // The code is unchanged: the verdict is the same either way, and a new
+      // one would hide this case from every consumer keying on `missing-field`.
+      const token = unfilledToken(field(task, name));
+      return {
+        code: "missing-field",
+        message: token
+          ? `${name} carries the unfilled slot \`${token}\`, so it is not `
+            + "concrete. Replace that slot with the value it stands for, or "
+            + "fence it in inline code when it is literal text — a numeric "
+            + "range or test output — rather than a slot left to fill."
+          : `${name} must be concrete.`,
+      };
+    });
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonical(value[key])])
+  );
+}
+
+function headingSections(content, pattern) {
+  const lines = content.split(/\r?\n/);
+  const starts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(pattern);
+    if (match) starts.push({ title: match[1].trim(), line: index });
+  }
+  return starts.map((item, index) => {
+    const end = index + 1 < starts.length ? starts[index + 1].line : lines.length;
+    return {
+      title: item.title,
+      content: lines.slice(item.line, end).join("\n"),
+    };
+  });
+}
+
+function scenarioOutcomes(content) {
+  return [
+    ...content.matchAll(
+      /^\s*-\s*\*\*(?:THEN|AND THEN)\*\*\s*(.+?)\s*$/gim
+    ),
+  ].map((match) => normalizeText(match[1]));
+}
+
+function specCandidatePaths(repo, change, capability) {
+  return [
+    path.join(
+      repo,
+      "openspec",
+      "changes",
+      change,
+      "specs",
+      capability,
+      "spec.md"
+    ),
+    path.join(repo, "openspec", "specs", capability, "spec.md"),
+  ];
+}
+
+// Requirement and scenario names that contain the hierarchy separator can never
+// be referenced, whatever the author writes, so name them instead of leaving a
+// correct-looking reference unexplained.
+function separatorCollisions(repo, change, capability) {
+  const collisions = [];
+  for (const specPath of specCandidatePaths(repo, change, capability)) {
+    if (!fs.existsSync(specPath)) continue;
+    const content = fs.readFileSync(specPath, "utf8");
+    for (const pattern of [
+      /^### Requirement:\s*(.+?)\s*$/gm,
+      /^#### Scenario:\s*(.+?)\s*$/gm,
+    ]) {
+      for (const match of content.matchAll(pattern)) {
+        if (match[1].includes("/") && !collisions.includes(match[1])) {
+          collisions.push(match[1]);
+        }
+      }
+    }
+  }
+  return collisions;
+}
+
+function collisionHint(repo, change, capability) {
+  const collisions = separatorCollisions(repo, change, capability);
+  if (collisions.length === 0) return "";
+  const named = collisions.map((name) => `"${name}"`).join(", ");
+  return (
+    ` Capability ${capability} declares a name containing the / separator, `
+    + `which cannot be referenced: ${named}. Rename it in the spec, or `
+    + "reference its parent requirement instead."
+  );
+}
+
+// One phrasing, so an author who has read the over-segmented refusal recognizes
+// the unresolved one. It used to be reachable only by writing too many
+// segments, which withheld it from the reference people actually write wrong.
+const COVERS_HIERARCHY =
+  "the hierarchy is capability / requirement, or capability / requirement "
+  + "/ scenario";
+
+// Say which segment failed. The candidate specs were opened by the caller and
+// the name the author typed is very often a heading one level below where they
+// put it — the shipped task template taught exactly that reference — so the
+// refusal can name the requirement it belongs to instead of handing the
+// reference back. Reporting what a spec contains is not heuristic matching: the
+// reference still fails, and no near miss is resolved on the author's behalf.
+function unresolvedDetail(repo, change, capability, name) {
+  const candidates = specCandidatePaths(repo, change, capability);
+  const existing = candidates.filter((specPath) => fs.existsSync(specPath));
+  if (existing.length === 0) {
+    const looked = candidates
+      .map((specPath) => path.relative(repo, specPath).replace(/\\/g, "/"))
+      .join(" and ");
+    return ` No spec declares capability ${capability}; ${looked} do not exist.`;
+  }
+  const parents = [];
+  for (const specPath of existing) {
+    const content = fs.readFileSync(specPath, "utf8");
+    for (const requirement of headingSections(
+      content,
+      /^### Requirement:\s*(.+?)\s*$/
+    )) {
+      const holdsName = headingSections(
+        requirement.content,
+        /^#### Scenario:\s*(.+?)\s*$/
+      ).some((item) => item.title === name);
+      if (holdsName && !parents.includes(requirement.title)) {
+        parents.push(requirement.title);
+      }
+    }
+  }
+  if (parents.length === 1) {
+    return (
+      ` "${name}" is a Scenario of Requirement "${parents[0]}", not a `
+      + `Requirement; ${COVERS_HIERARCHY}. Write it as: `
+      + `${capability} / ${parents[0]} / ${name}.`
+    );
+  }
+  if (parents.length > 1) {
+    // No single reference corrects this one, so none is offered: sending the
+    // author to a reference that fails as ambiguous would cost them the round
+    // this diagnostic exists to save.
+    const named = parents.map((title) => `"${title}"`).join(", ");
+    return (
+      ` "${name}" is a Scenario of more than one Requirement — ${named} — so `
+      + `no single reference corrects it; ${COVERS_HIERARCHY}.`
+    );
+  }
+  return (
+    ` Capability ${capability} declares no Requirement or Scenario named `
+    + `"${name}"; ${COVERS_HIERARCHY}.`
+  );
+}
+
+function specAuthority(repo, change, reference) {
+  const parts = reference.split("/").map((part) => part.trim());
+  const [capability, requirementName, scenarioName] = parts;
+  const namesCapability =
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(capability || "")
+    && specCandidatePaths(repo, change, capability).some((specPath) =>
+      fs.existsSync(specPath)
+    );
+  if (parts.length < 2 || parts.length > 3) {
+    // Only a reference that names a real capability is a failed spec
+    // reference; anything else is free text and stays a legacy reference.
+    if (parts.length > 3 && namesCapability) {
+      return {
+        diagnostic: {
+          code: "unresolved-covers",
+          message:
+            `Covers reference has ${parts.length} segments; `
+            + `${COVERS_HIERARCHY}: ${reference}.`
+            + collisionHint(repo, change, capability),
+        },
+      };
+    }
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(capability)) return null;
+  const candidates = specCandidatePaths(repo, change, capability);
+  for (const specPath of candidates) {
+    if (!fs.existsSync(specPath)) continue;
+    const content = fs.readFileSync(specPath, "utf8");
+    const requirements = headingSections(
+      content,
+      /^### Requirement:\s*(.+?)\s*$/
+    ).filter((item) => item.title === requirementName);
+    if (requirements.length === 0) continue;
+    if (requirements.length > 1) {
+      return {
+        diagnostic: {
+          code: "ambiguous-covers",
+          message: `Covers reference is duplicated: ${reference}.`,
+        },
+      };
+    }
+    const requirement = requirements[0];
+    let selected = requirement;
+    let kind = "requirement";
+    let anchor = `Requirement:${requirementName}`;
+    if (scenarioName) {
+      const scenarios = headingSections(
+        requirement.content,
+        /^#### Scenario:\s*(.+?)\s*$/
+      ).filter((item) => item.title === scenarioName);
+      if (scenarios.length !== 1) {
+        return {
+          diagnostic: {
+            code: scenarios.length > 1 ? "ambiguous-covers" : "unresolved-covers",
+            message:
+              `${scenarios.length > 1 ? "Duplicated" : "Missing"} Covers `
+              + `scenario: ${reference}.`
+              + (scenarios.length > 1
+                ? ""
+                : collisionHint(repo, change, capability)),
+          },
+        };
+      }
+      selected = scenarios[0];
+      kind = "scenario";
+      anchor = `Scenario:${scenarioName}`;
+    }
+    return {
+      authority: {
+        kind,
+        reference,
+        source:
+          `${path.relative(repo, specPath).replace(/\\/g, "/")}#${anchor}`,
+        text: normalizeText(selected.content),
+        acceptance: scenarioOutcomes(selected.content),
+      },
+    };
+  }
+  return {
+    diagnostic: {
+      code: "unresolved-covers",
+      message:
+        `Covers reference could not be resolved: ${reference}.`
+        + unresolvedDetail(repo, change, capability, requirementName)
+        + collisionHint(repo, change, capability),
+    },
+  };
+}
+
+function criticalAuthority(repo, change, reference) {
+  if (!/^[DFAQ]\d+$/.test(reference)) return null;
+  const designPath = path.join(
+    repo,
+    "openspec",
+    "changes",
+    change,
+    "design.md"
+  );
+  if (!fs.existsSync(designPath)) {
+    return {
+      diagnostic: {
+        code: "unresolved-covers",
+        message: `Covers critical statement is missing: ${reference}.`,
+      },
+    };
+  }
+  const content = fs.readFileSync(designPath, "utf8");
+  // Resolve the opener by line, then collect its owned indented lines. A
+  // multiline regex matched only the opener (issue #177), so changing a nested
+  // decision detail left the contract fingerprint unchanged. Keep the accepted
+  // bullet/bold/dash opener shapes from issue #49; colon remains unparsed.
+  const lines = content.split(/\r?\n/);
+  const opener = new RegExp(
+    `^([ \\t]*)((?:[-*+][ \\t]+)?)(?:\\*\\*${reference}\\*\\*|${reference})`
+    + `[ \\t]*[—-][ \\t]*(.+?)[ \\t]*$`,
+    "i"
+  );
+  const matches = lines.flatMap((line, index) => {
+    const match = line.match(opener);
+    return match
+      ? [{ index, indent: match[1], bullet: match[2], text: match[3] }]
+      : [];
+  });
+  if (matches.length !== 1) {
+    // Zero matches is ambiguous: the identifier may never appear in design.md,
+    // or it may appear in some other shape (bulleted, bold) that the strict
+    // regex above does not accept. A whole-word scan tells those apart so the
+    // message sends the author to the actual defect — a shape fix, not a
+    // statement that already exists — instead of collapsing both into "Missing".
+    if (
+      matches.length === 0
+      && new RegExp(`\\b${reference}\\b`).test(content)
+    ) {
+      return {
+        diagnostic: {
+          code: "unresolved-covers",
+          message:
+            `Unparsed Covers critical statement: ${reference}. It appears in `
+            + "design.md but not in an accepted line shape — write it as a "
+            + "line opening with the identifier and a dash, "
+            + `\`${reference} — statement\`, optionally as a list `
+            + `bullet (\`- ${reference} — …\`) and/or with the identifier `
+            + `bold (\`**${reference}** — …\`).`,
+        },
+      };
+    }
+    return {
+      diagnostic: {
+        code: matches.length > 1 ? "ambiguous-covers" : "unresolved-covers",
+        message:
+          `${matches.length > 1 ? "Duplicated" : "Missing"} Covers critical `
+          + `statement: ${reference}.`,
+      },
+    };
+  }
+  const indentColumns = (prefix) => {
+    let columns = 0;
+    for (const character of prefix) {
+      columns += character === "\t" ? 4 - (columns % 4) : 1;
+    }
+    return columns;
+  };
+  const match = matches[0];
+  const openerIndent = indentColumns(match.indent);
+  // A heading shallower than the item's content column closes the item; one
+  // at or past it is nested inside the item and stays owned, as does a deeper
+  // `#` line such as a code sample's comment. An unbulleted opener has no
+  // content column beyond itself, so CommonMark's three-space heading indent
+  // applies there.
+  const headingLimit = match.bullet
+    ? openerIndent + indentColumns(match.bullet)
+    : openerIndent + 4;
+  // A line opening with another critical identifier and a dash is a peer
+  // statement even without a bullet, never a lazy continuation of this one.
+  const blockStart = new RegExp(
+    "^[ \\t]*(?:[-*+][ \\t]|\\d+[.)][ \\t]|>|```|~~~|#{1,6}(?:[ \\t]|$)"
+    + "|(?:\\*\\*)?[DFAQ]\\d+(?:\\*\\*)?[ \\t]*[—-])",
+    "i"
+  );
+  const statementLines = [match.text];
+  let previousBlank = false;
+  for (const line of lines.slice(match.index + 1)) {
+    if (!line.trim()) {
+      previousBlank = true;
+      continue;
+    }
+    const columns = indentColumns(line.match(/^[ \t]*/)[0]);
+    if (/^[ \t]*#{1,6}(?:[ \t]|$)/.test(line) && columns < headingLimit) break;
+    // A shallower line directly after owned text, starting no block of its
+    // own, is a lazy paragraph continuation; after a blank line it is a peer.
+    const lazy = !previousBlank && !blockStart.test(line);
+    if (columns <= openerIndent && !lazy) break;
+    previousBlank = false;
+    statementLines.push(line.trim());
+  }
+  return {
+    authority: {
+      kind: "critical-statement",
+      reference,
+      source:
+        `${path.relative(repo, designPath).replace(/\\/g, "/")}#${reference}`,
+      text: normalizeText(statementLines.join("\n")),
+      acceptance: [],
+    },
+  };
+}
+
+function resolveAuthority(repo, change, task) {
+  const authority = [];
+  const diagnostics = [];
+  const source = `openspec/changes/${change}/tasks.md#${task.id}`;
+  const expanded = fieldValues(task, "Covers")
+    .map(normalizeText)
+    .filter(Boolean)
+    .flatMap((entry) =>
+      /^(?:[DFAQ]\d+)(?:\s*,\s*[DFAQ]\d+)*$/.test(entry)
+        ? entry.split(",").map((item) => item.trim())
+        : [entry]
+    );
+  const seen = new Set();
+  for (const entry of expanded) {
+    if (seen.has(entry)) {
+      diagnostics.push({
+        code: "duplicate-covers",
+        message: `Covers reference is duplicated: ${entry}.`,
+      });
+    }
+    seen.add(entry);
+  }
+  const entries = [...seen].sort();
+  for (const entry of entries) {
+    // A critical-statement reference may open its entry with a trailing
+    // annotation after a dash (`D2 — note`); the identifier resolves and the
+    // annotation stays annotation — design.md owns the statement text. The
+    // boundary after the identifier is whitespace or an em dash so that free
+    // text like `D2-compatible` does not become a reference.
+    const annotated = entry.match(/^([DFAQ]\d+)(?=\s|—)\s*[—-]\s*.+$/);
+    const critical = criticalAuthority(
+      repo,
+      change,
+      annotated ? annotated[1] : entry
+    );
+    if (critical) {
+      if (critical.diagnostic) diagnostics.push(critical.diagnostic);
+      if (critical.authority) authority.push(critical.authority);
+      continue;
+    }
+    const spec = specAuthority(repo, change, entry);
+    if (spec) {
+      if (spec.diagnostic) diagnostics.push(spec.diagnostic);
+      if (spec.authority) authority.push(spec.authority);
+      continue;
+    }
+    // A combined citation that missed the supported ASCII-comma expansion
+    // must not become unlinked legacy prose (issue #177). This scan excludes
+    // hyphenated words such as `D2-compatible`, and preserves the existing
+    // colon-form legacy entry and closed-question note beside a fact. Valid
+    // opening references and their annotations already continued above.
+    const criticalMentions = [
+      ...entry.matchAll(/(?:^|[^A-Za-z0-9_-])([DFAQ]\d+)(?![A-Za-z0-9_-])/g),
+    ].map((match) => match[1]);
+    const colonLegacy =
+      criticalMentions.length === 1
+      && /^[DFAQ]\d+\s*:\s*.+$/.test(entry);
+    const closedQuestionNote =
+      criticalMentions.length === 2
+      && /^F\d+\s*\(\s*Q\d+\s+resolved\s*:/i.test(entry);
+    if (criticalMentions.length > 0 && !colonLegacy && !closedQuestionNote) {
+      diagnostics.push({
+        code: "unresolved-covers",
+        message:
+          `Covers critical references are not linked: ${entry}. `
+          + "Write each identifier as its own Covers entry, or use an "
+          + "ASCII-comma list such as `D1, D2`.",
+      });
+      continue;
+    }
+    const match = entry.match(/^([A-Za-z]\d+)\s*:\s*(.+)$/);
+    authority.push({
+      kind: "legacy-task-reference",
+      reference: match ? match[1] : entry,
+      source,
+      text: match ? match[2] : entry,
+      acceptance: match && /^E\d+$/i.test(match[1]) ? [match[2]] : [],
+    });
+  }
+  authority.sort((left, right) => left.reference.localeCompare(right.reference));
+  return { authority, diagnostics };
+}
+
+function coupledDesignContract(repo, change) {
+  const designPath = path.join(
+    repo,
+    "openspec",
+    "changes",
+    change,
+    "design.md"
+  );
+  if (!fs.existsSync(designPath)) return "";
+  const content = fs.readFileSync(designPath, "utf8");
+  const match = content.match(
+    /^## Coupled Iteration Contract\s*$([\s\S]*?)(?=^##\s+|$(?![\s\S]))/m
+  );
+  return match ? normalizeText(match[1]) : "";
+}
+
+function couplingProblems(task, mode, designContract, compact) {
+  if (!/^(?:none|required)$/.test(mode)) {
+    return [{
+      code: "invalid-coupling",
+      message: "Coupling must be `none` or `required`.",
+    }];
+  }
+  const candidateBoundary = normalizedValues(task, "Candidate Boundary", {
+    ordered: true,
+  });
+  if (
+    mode === "none"
+    && compact
+    && candidateBoundary.some((item) => !/^not applicable\b/i.test(item))
+  ) {
+    return [{
+      code: "contradictory-coupling-authority",
+      message: "Coupling none cannot define a coupled Candidate Boundary.",
+    }];
+  }
+  if (mode === "none") return [];
+
+  const requiredLabels = [
+    "Coupled artifacts",
+    "Invalidation triggers",
+    "Required regeneration",
+    "Final assertions",
+    "Conflict authority",
+    "Baseline policy",
+  ];
+  const missingLabels = requiredLabels.filter(
+    (label) =>
+      !new RegExp(`(?:^| )- ${label}:\\s+\\S`, "i").test(designContract)
+  );
+  const problems = [];
+  if (
+    !candidateBoundary.some(
+      (item) => isConcrete(item) && !/^not applicable\b/i.test(item)
+    )
+  ) {
+    problems.push({
+      code: "missing-coupling-authority",
+      message: "Coupling required needs a concrete Candidate Boundary.",
+    });
+  }
+  if (!designContract || missingLabels.length > 0) {
+    problems.push({
+      code: "missing-coupled-contract",
+      message:
+        "Coupling required needs a complete Coupled Iteration Contract"
+        + (missingLabels.length > 0 ? ` (${missingLabels.join(", ")}).` : "."),
+    });
+  }
+  if (
+    !normalizedValues(task, "Stop Rules", { ordered: true }).some(isConcrete)
+    && !normalizedValues(task, "Stop if", { ordered: true }).some(isConcrete)
+  ) {
+    problems.push({
+      code: "missing-coupling-authority",
+      message: "Coupling required needs concrete task Stop Rules.",
+    });
+  }
+  return problems;
+}
+
+function compileTaskContract(repo, change, task) {
+  const mode = normalizeText(field(task, "Mode")).toLowerCase()
+    || "implementation";
+  const resolved = resolveAuthority(repo, change, task);
+  resolved.diagnostics.push(
+    ...requiredFieldProblems(task),
+    ...taskStartContractProblems(task)
+  );
+  const authority = resolved.authority;
+  const taskVerification = verification(task);
+  const explicitAcceptance = normalizedValues(task, "Acceptance", {
+    ordered: true,
+  });
+  const derivedAcceptance =
+    !taskVerification.compact && explicitAcceptance.length > 0
+      ? []
+      : authority.flatMap((item) => item.acceptance || []);
+  if (taskVerification.compact) {
+    const legacyStrategy = normalizeText(field(task, "Verification Strategy"));
+    const legacyCommands = fieldValues(task, "Commands").map(normalizeText);
+    const compactCommands = taskVerification.commands.map((item) =>
+      item.label ? `${item.label}: ${item.check}` : item.check
+    );
+    if (
+      (legacyStrategy && legacyStrategy !== taskVerification.strategy)
+      || (
+        legacyCommands.length > 0
+        && JSON.stringify(legacyCommands) !== JSON.stringify(compactCommands)
+      )
+    ) {
+      resolved.diagnostics.push({
+        code: "legacy-field-conflict",
+        message:
+          "Expanded Verification Strategy or Commands conflict with compact Verify.",
+      });
+    }
+  }
+  // A task that declared no verification form at all is reported once, by
+  // requiredFieldProblems, as the one field it is missing. Telling it its
+  // strategy is missing too is the cascade that buries the actionable line.
+  const declaredVerificationForm =
+    fieldValues(task, "Verify").length > 0
+    || fieldValues(task, "Commands").length > 0;
+  if (!taskVerification.strategy) {
+    if (declaredVerificationForm) {
+      resolved.diagnostics.push({
+        code: "missing-verification-strategy",
+        message:
+          "Verification strategy is missing; a task that declares checks "
+          + "declares the strategy that governs them, because none is "
+          + "supplied by default. Supported: "
+          + `${SUPPORTED_VERIFICATION_STRATEGIES.join(", ")}.`,
+      });
+    }
+  } else if (
+    !SUPPORTED_VERIFICATION_STRATEGIES.includes(
+      taskVerification.strategy.toLowerCase()
+    )
+  ) {
+    resolved.diagnostics.push({
+      code: "unsupported-verification-strategy",
+      message:
+        `Verification strategy is unsupported: ${taskVerification.strategy}; `
+        + `supported: ${SUPPORTED_VERIFICATION_STRATEGIES.join(", ")}.`,
+    });
+  } else if (
+    taskVerification.strategy.toLowerCase() === "evidence-first"
+    && !isConcrete(taskVerification.reason)
+  ) {
+    // Presence and concreteness, never truth — the contract `Discard reason:`
+    // already has. No mode exempts a task from stating it: an exemption keyed
+    // on a field the same author writes is a second escape hatch.
+    resolved.diagnostics.push({
+      code: "missing-evidence-first-reason",
+      message:
+        "evidence-first states why a meaningful red-green loop does not "
+        + "apply. Add a `Reason:` entry beside `Strategy:` saying what makes "
+        + "this task non-behavioral — docs, configuration, diagnosis, or "
+        + "another reason nothing here can fail first. A red-green strategy "
+        + "needs no reason.",
+    });
+  }
+  if (taskVerification.strategy.toLowerCase() === "equivalence") {
+    resolved.diagnostics.push(
+      ...equivalenceProblems(repo, taskVerification)
+    );
+  }
+  const couplingMode = normalizeText(field(task, "Coupling")).toLowerCase()
+    || "none";
+  const candidateBoundary = normalizedValues(task, "Candidate Boundary", {
+    ordered: true,
+  });
+  const coupledContract = couplingMode === "required"
+    ? coupledDesignContract(repo, change)
+    : "";
+  resolved.diagnostics.push(
+    ...couplingProblems(
+      task,
+      couplingMode,
+      coupledContract,
+      taskVerification.compact
+    )
+  );
+  const baseRead = [
+    `openspec/changes/${change}/design.md`,
+    `openspec/changes/${change}/proposal.md`,
+    `openspec/changes/${change}/specs/**/*.md`,
+    `openspec/changes/${change}/tasks.md`,
+  ];
+  const read = [
+    ...new Set([...baseRead, ...normalizedValues(task, "Read")]),
+  ].sort();
+  const explicitAutonomy = normalizedValues(task, "Autonomy boundary", {
+    ordered: true,
+  });
+  const autonomy = [...explicitAutonomy];
+  if (!autonomy.some((item) => /^Default:/i.test(item))) {
+    autonomy.unshift("Default: hard-stop");
+  }
+  // A repository declaration supplies the default a task did not author; it
+  // never edits one the task did, because a repository-wide default that could
+  // override a task's stated boundary would make the capsule unreadable on its
+  // own. The entry names its source so an inherited authorization is never
+  // mistaken for one this task decided.
+  if (explicitAutonomy.length === 0) {
+    const { declared } = readStandingAuthorization(repo);
+    if (declared.length > 0) {
+      autonomy.push(
+        `Standing authorization (${CONFIG_RELATIVE_PATH.split(path.sep).join("/")}): `
+          + declared.join(", ")
+      );
+    }
+  }
+  if (!autonomy.some((item) => /^Pre-authorized fallback:/i.test(item))) {
+    autonomy.push("Pre-authorized fallback: none");
+  }
+  // Optional capability metadata, resolved as the autonomy boundary above is: the
+  // task keeps whatever it authored, the repository declaration supplies only
+  // what the task left silent, and the entry names its source. A declaration
+  // that could overwrite an authored tier would make the capsule unreadable on
+  // its own — you could not tell what this task decided from what the file did.
+  const authoredTier = normalizeText(field(task, "Delegation")).toLowerCase();
+  let delegation = { tier: null, source: null };
+  if (authoredTier) {
+    delegation = { tier: authoredTier, source: "task" };
+  } else {
+    const { tier } = readDelegationPolicy(repo);
+    if (tier) {
+      delegation = {
+        tier,
+        source: CONFIG_RELATIVE_PATH.split(path.sep).join("/"),
+      };
+    }
+  }
+  // A question is unresolved authority when it is the subject of its Covers
+  // entry. Scanning the whole field also matched a resolved question named as
+  // supporting detail beside the fact that closed it, and the only fix
+  // available to the author was deleting the reference — so the check punished
+  // the traceability it exists to protect.
+  const questionIds = [
+    ...new Set(
+      normalizedValues(task, "Covers", { ordered: true })
+        .map((entry) => entry.match(/^(Q\d+)\b/))
+        .filter(Boolean)
+        .map((match) => match[1])
+    ),
+  ];
+  const fallback = autonomy.find((item) =>
+    /^Pre-authorized fallback:/i.test(item)
+  ) || "";
+  if (
+    questionIds.length > 0
+    && !isConcrete(fallback.replace(/^Pre-authorized fallback:\s*/i, ""))
+  ) {
+    // Name the field and prefix this check actually reads. The previous
+    // wording said "documented design authority", which sent authors to
+    // design.md — where the answer usually already is.
+    resolved.diagnostics.push(...questionIds.map((questionId) => ({
+      code: "unresolved-authority",
+      message:
+        `${questionId} is referenced in Covers but task ${task.id} declares no `
+        + "authorized fallback. Add an \"Autonomy boundary:\" field whose entry "
+        + "line begins \"Pre-authorized fallback:\" and states the reversible "
+        + "bound plus the evidence it requires. This check reads only that line "
+        + "on the task; prose in design.md does not satisfy it.",
+    })));
+  }
+  const capsule = {
+    schema: "keel-task-capsule/v1",
+    defaultsVersion: 1,
+    task: {
+      change,
+      id: task.id,
+      title: normalizeText(task.title),
+    },
+    owner: normalizeText(field(task, "Owner")) || "keel-agent",
+    mode,
+    authority,
+    read,
+    touch: normalizedValues(task, "Touch"),
+    acceptance: [...new Set([...derivedAcceptance, ...explicitAcceptance])],
+    verification: {
+      strategy: taskVerification.strategy,
+      // Emitted only when the strategy is the one that requires it, so every
+      // other task keeps the capsule shape and fingerprint it had before the
+      // field existed.
+      ...(taskVerification.reason ? { reason: taskVerification.reason } : {}),
+      // Same rule: emitted only by the strategy that declares them, so every
+      // existing task's capsule shape and fingerprint are untouched. They belong
+      // in the capsule rather than only in the file because a declaration
+      // outside the fingerprint could be edited after the run it describes.
+      ...(taskVerification.base ? { base: taskVerification.base } : {}),
+      ...(taskVerification.fields.length > 0
+        ? { fields: taskVerification.fields }
+        : {}),
+      // Emit a tag only when the check opts out of a default, so an untagged
+      // check keeps the capsule shape and fingerprint it had before either tag
+      // existed. `layer` appears only for `fast`, `regression` only when true.
+      commands: taskVerification.commands
+        .filter((entry) => entry.label)
+        .map((entry) => {
+          const emitted = { label: entry.label, check: entry.check };
+          if (entry.layer && entry.layer !== "full") emitted.layer = entry.layer;
+          if (entry.regression) emitted.regression = true;
+          // The clause stays in `check` — it is text the author wrote — and the
+          // field is what the gate reads. Emitted only when declared, so every
+          // check without one keeps the capsule shape and fingerprint it had.
+          if (entry.failsWith) emitted.failsWith = entry.failsWith;
+          if (entry.detects) emitted.detects = entry.detects;
+          if (entry.measured) emitted.measured = entry.measured;
+          return emitted;
+        }),
+    },
+    boundaries: {
+      autonomy,
+      stop: [
+        ...normalizedValues(task, "Stop Rules", { ordered: true }),
+        ...normalizedValues(task, "Stop if", { ordered: true }),
+      ],
+    },
+    coupling: {
+      mode: couplingMode,
+      candidateBoundary:
+        couplingMode === "required" ? candidateBoundary : [],
+      designContract: coupledContract,
+    },
+    // A helper and a delegate are different roles. A helper is never a second
+    // writer and this stays true whatever the repository declares; delegation
+    // is a separate entry beside it, never a helper with the guard removed.
+    helperAuthority: "read-only-evidence-only",
+    // Present only when a tier actually resolved. An unconditional field would
+    // change the compiled capsule for every task everywhere, moving every
+    // recorded anchor and drifting every live change in every consumer repo on
+    // upgrade — for repositories that declared nothing and asked for nothing.
+    // Omission preserves existing anchors without inventing a tier.
+    // A repository that does declare gets a different capsule,
+    // which is honest, because its execution genuinely differs.
+    ...(delegation.tier ? { delegation } : {}),
+    prohibitions: [
+      "must not change Acceptance",
+      // repo-action is the one mode whose authorized effect is the repository
+      // action itself, so it alone does not carry the commit prohibition.
+      // Whether the action it performed was the authorized one is a Review
+      // judgment; what the capsule fixes is the write posture.
+      ...(mode === "repo-action" ? [] : ["must not commit"]),
+      "must not continue to another task",
+      "must not mark tasks complete",
+      "must not push",
+      "must not sync or archive",
+      "must not transfer Keel ownership",
+      ...(NO_WRITE_MODES.has(mode) ? ["must not write product files"] : []),
+    ],
+  };
+  if (resolved.diagnostics.length > 0) {
+    return {
+      schema: capsule.schema,
+      capsule: null,
+      fingerprint: null,
+      diagnostics: resolved.diagnostics,
+    };
+  }
+  const serialized = JSON.stringify(canonical(capsule));
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(serialized, "utf8")
+    .digest("hex");
+  return {
+    schema: capsule.schema,
+    capsule,
+    fingerprint: {
+      algorithm: "sha256",
+      value: fingerprint,
+    },
+    diagnostics: resolved.diagnostics,
+  };
+}
+
+function loadTaskContract(repo, change, taskId) {
+  const tasksPath = path.join(repo, "openspec", "changes", change, "tasks.md");
+  if (!fs.existsSync(tasksPath)) return null;
+  const task = parseTasks(fs.readFileSync(tasksPath, "utf8")).find(
+    (candidate) => candidate.id === taskId
+  );
+  if (!task) return null;
+  return {
+    task,
+    tasksPath,
+    contract: compileTaskContract(repo, change, task),
+  };
+}
+
+module.exports = {
+  ACCEPTED_REVIEW_STATUSES,
+  declaredCommandLabels,
+  RED_GREEN_VERIFICATION_STRATEGIES,
+  SUPPORTED_VERIFICATION_STRATEGIES,
+  compileTaskContract,
+  field,
+  isConcrete,
+  isPassingReviewStatus,
+  loadTaskContract,
+  isHeadingLine,
+  parseTasks,
+  taskStartContractProblems,
+  unfilledToken,
+};

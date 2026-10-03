@@ -1,0 +1,2870 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { spawnSync } = require("child_process");
+const {
+  renderContext,
+  resolveContext,
+} = require("../src/core/context");
+const {
+  GateInputError,
+  renderGate,
+  runGate,
+} = require("../src/core/gates");
+const {
+  isKeelSourceRepo,
+  probeCapabilities,
+  renderCapabilities,
+} = require("../src/core/capabilities");
+const {
+  projectRuntime,
+  renderProjection,
+} = require("../src/core/projection");
+const {
+  compileGoalProjection,
+  renderGoalProjection,
+} = require("../src/core/goal");
+const {
+  compileHelperBrief,
+  captureHelperBaseline,
+  verifyHelperEvidence,
+  renderHelper,
+} = require("../src/core/helper");
+const {
+  compileTasksView,
+  renderTasksView,
+} = require("../src/core/tasksview");
+const {
+  GuardInputError,
+  clearGuard,
+  guardStatus,
+  renderGuard,
+  startGuard,
+} = require("../src/core/guard");
+const {
+  STANDING_AUTHORIZATION_ACTIONS,
+  readPrecedentStore,
+  readStandingAuthorization,
+  readFullModePaths,
+  readExecutorTier,
+  readMergeDeclaration,
+  fullModePathsUnreadableMessage,
+  readTriagePolicy,
+  triageIssue,
+} = require("../src/core/config");
+
+const PACKAGE_ROOT = path.resolve(__dirname, "..");
+const PACKAGE_JSON = require(path.join(PACKAGE_ROOT, "package.json"));
+const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install_to_repo.py");
+const DEFAULT_UPDATE_SOURCE = "@christang/keel";
+const VALID_TARGETS = new Set(["claude", "codex", "opencode", "both"]);
+const KEEL_SKILLS = [
+  "keel-align-expectations",
+  "keel-debug-failure",
+  "keel-handoff",
+  "keel-review-checklist",
+  "keel-tdd-or-test-first",
+];
+const OPENSPEC_COMMAND_IDS = ["propose", "explore", "apply", "sync", "archive"];
+const OPENSPEC_SKILLS = [
+  "openspec-propose",
+  "openspec-explore",
+  "openspec-apply-change",
+  "openspec-sync-specs",
+  "openspec-archive-change",
+];
+// `sync` is here because `AGENTS.md` gates it exactly as it gates archive —
+// `keel gate change-close --action sync|archive` plus `keel-review-checklist`.
+// Archive's surface said so and sync's said nothing, so an agent invoking
+// `/opsx:sync` read generic upstream instructions with no mention of the gate
+// that decides whether the sync may complete. `explore` is deliberately absent:
+// it reads and reports, reaches no gate, and changes no state, so an overlay
+// there would read as governance where there is none.
+const OPENSPEC_OVERLAY_ACTIONS = ["propose", "apply", "archive", "sync"];
+const OPENSPEC_SURFACE_OVERLAY_START =
+  `<!-- keel:openspec-surface-overlay version=${PACKAGE_JSON.version} -->`;
+const OPENSPEC_SURFACE_OVERLAY_END =
+  "<!-- keel:openspec-surface-overlay:end -->";
+const OPENSPEC_SURFACE_OVERLAY_RE =
+  /<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?<!--\s*keel:openspec-surface-overlay:end\s*-->/;
+
+const HELP = `keel ${PACKAGE_JSON.version}
+
+Usage:
+  keel context [repo] [--change name] [--task id] [--json] [--clear-handoff]
+  keel capabilities [repo] [--target claude|codex|opencode] [--json]
+  keel project [repo] --target claude|codex|opencode --event startup|resume|compaction|goal|task-view|worktree|subagent-start|subagent-stop [--authorize goal|task-view|subagent] [--subagent-mode helper|implementation] [--expected-owner owner] [--native-complete] [--change name] [--task id] [--json]
+  keel project tasks [repo] --target claude [--change name] [--json]
+  keel gate task-start|task-complete [repo] [--change name] [--task id] [--base git-ref] [--no-guard] [--record] [--keep-evidence M1,M3] [--json]
+  keel gate change-close [repo] [--change name] --action sync|archive [--base git-ref] [--json]
+  keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
+  keel lenses list|add [name] [repo] [--force]
+  keel chat role|group|post|dm|unread|read|show|<group> ... [--repo path]   (group chat between sessions; see keel chat help)
+  keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
+  keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
+  keel openspec [args...]
+  keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
+  keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
+  keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
+  keel --uninstall [repo] [--target claude|codex|opencode] [--dry-run]
+  keel --update [--dry-run] [--source npm-package-or-git-spec]
+  keel --check [repo] [--target claude|codex|opencode]
+  keel --doctor [repo] [--target claude|codex|opencode]
+  keel --version
+  keel --help
+
+Defaults:
+  repo defaults to the current working directory.
+  target defaults to claude.
+  --update refreshes the global keel CLI and the Claude and Codex plugins it
+  finds installed, not project protocol files.
+  update source defaults to ${DEFAULT_UPDATE_SOURCE}.
+
+Project layout:
+  continuity is recomputed from OpenSpec on every invocation.
+  keel/HANDOFF.md is an optional keel-handoff/v1 pointer override.
+  keel-* behavioral skills are delivered by the installed Keel plugin, not by the CLI.
+  repeat keel --install to refresh project protocol files.
+
+Examples:
+  keel context
+  keel context --json
+  keel context --change my-change --task 1.1
+  keel context --clear-handoff
+  keel gate task-start --change my-change --task 1.1 --json
+  keel gate task-complete --change my-change --task 1.1 --json
+  keel gate change-close --change my-change --action archive --json
+  keel guard start --change my-change --task 1.1 --json
+  keel guard status --json
+  keel guard clear --json
+  keel lenses list
+  keel lenses add web
+  keel lenses add web --force
+  keel triage --labels auto
+  keel triage --issue 42
+  keel --init
+  keel --install
+  keel --install --target codex
+  keel --install --target opencode
+  keel --install --dry-run
+  keel --check
+  keel --doctor
+  keel --install --force-template-update
+  keel --install --with-git-hooks
+  keel --update
+  keel --update --dry-run
+  keel --clear --dry-run
+  keel --uninstall --dry-run
+`;
+
+function printHelp() {
+  process.stdout.write(HELP);
+}
+
+function printVersion() {
+  process.stdout.write(`keel ${PACKAGE_JSON.version}\n`);
+}
+
+function fail(message, exitCode = 2) {
+  process.stderr.write(`keel: ${message}\n`);
+  process.stderr.write("Run keel --help for usage.\n");
+  process.exit(exitCode);
+}
+
+function parseArgs(argv) {
+  const parsed = {
+    action: null,
+    repo: null,
+    target: "claude",
+    dryRun: false,
+    forceTemplateUpdate: false,
+    withGitHooks: false,
+    updateSource: null,
+    help: false,
+    version: false,
+    change: null,
+    task: null,
+    json: false,
+    clearHandoff: false,
+    gateStage: null,
+    closeAction: null,
+    base: null,
+    noGuard: false,
+    record: false,
+    keepEvidence: null,
+    guardSubcommand: null,
+    lensesSubcommand: null,
+    lensName: null,
+    labels: null,
+    issue: null,
+    openspecArgs: [],
+    force: false,
+    projectionEvent: null,
+    subagentMode: null,
+    authorizations: [],
+    expectedOwner: null,
+    nativeComplete: false,
+    projectSubcommand: null,
+    expectedFingerprint: null,
+    helperQuestion: null,
+    helperCommand: null,
+    helperReads: [],
+    helperExternal: [],
+    helperVerify: false,
+    helperCaptureBaseline: false,
+    helperBaseline: null,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      continue;
+    }
+    if (arg === "--version" || arg === "-v") {
+      parsed.version = true;
+      continue;
+    }
+    if (arg === "context" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "context";
+      continue;
+    }
+    if (arg === "gate" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "gate";
+      continue;
+    }
+    if (arg === "guard" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "guard";
+      continue;
+    }
+    if (arg === "lenses" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "lenses";
+      continue;
+    }
+    if (arg === "triage" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "triage";
+      continue;
+    }
+    if (arg === "--labels" && parsed.action === "triage") {
+      parsed.labels = argv[++index] || "";
+      continue;
+    }
+    if (arg === "--issue" && parsed.action === "triage") {
+      parsed.issue = argv[++index] || "";
+      continue;
+    }
+    if (arg === "openspec" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "openspec";
+      parsed.openspecArgs = argv.slice(index + 1);
+      break;
+    }
+    if (arg === "--force") {
+      parsed.force = true;
+      continue;
+    }
+    if (
+      arg === "capabilities"
+      && parsed.action === null
+      && parsed.repo === null
+    ) {
+      parsed.action = "capabilities";
+      continue;
+    }
+    if (arg === "project" && parsed.action === null && parsed.repo === null) {
+      parsed.action = "project";
+      continue;
+    }
+    if (
+      ["--init", "--install", "--clear", "--uninstall", "--update", "--check", "--doctor"].includes(arg)
+    ) {
+      if (parsed.action !== null) {
+        fail(`choose only one action; already saw ${parsed.action}`);
+      }
+      parsed.action = arg.slice(2);
+      continue;
+    }
+    if (arg === "--dry-run") {
+      parsed.dryRun = true;
+      continue;
+    }
+    if (arg === "--json") {
+      parsed.json = true;
+      continue;
+    }
+    if (arg === "--clear-handoff") {
+      parsed.clearHandoff = true;
+      continue;
+    }
+    if (arg === "--no-guard") {
+      parsed.noGuard = true;
+      continue;
+    }
+    if (arg === "--record") {
+      parsed.record = true;
+      continue;
+    }
+    if (arg === "--keep-evidence") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--keep-evidence requires a comma-separated list of M<n> labels");
+      }
+      if (parsed.keepEvidence !== null) {
+        fail("--keep-evidence was provided more than once");
+      }
+      parsed.keepEvidence = argv[index]
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      continue;
+    }
+    if (arg === "--change" || arg === "--task") {
+      index += 1;
+      if (index >= argv.length) {
+        fail(`${arg} requires a value`);
+      }
+      const key = arg === "--change" ? "change" : "task";
+      if (parsed[key] !== null) {
+        fail(`${arg} was provided more than once`);
+      }
+      parsed[key] = argv[index];
+      continue;
+    }
+    if (arg === "--action" || arg === "--base") {
+      index += 1;
+      if (index >= argv.length) {
+        fail(`${arg} requires a value`);
+      }
+      const key = arg === "--action" ? "closeAction" : "base";
+      if (parsed[key] !== null) {
+        fail(`${arg} was provided more than once`);
+      }
+      parsed[key] = argv[index];
+      continue;
+    }
+    if (arg === "--event" || arg === "--authorize" || arg === "--expected-owner" || arg === "--subagent-mode") {
+      index += 1;
+      if (index >= argv.length) {
+        fail(`${arg} requires a value`);
+      }
+      if (arg === "--authorize") {
+        if (!parsed.authorizations.includes(argv[index])) {
+          parsed.authorizations.push(argv[index]);
+        }
+      } else {
+        const key = arg === "--event" ? "projectionEvent"
+          : arg === "--subagent-mode" ? "subagentMode" : "expectedOwner";
+        if (parsed[key] !== null) fail(`${arg} was provided more than once`);
+        parsed[key] = argv[index];
+      }
+      continue;
+    }
+    if (arg === "--native-complete") {
+      parsed.nativeComplete = true;
+      continue;
+    }
+    if (arg === "--expected-fingerprint") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--expected-fingerprint requires a value");
+      }
+      if (parsed.expectedFingerprint !== null) {
+        fail("--expected-fingerprint was provided more than once");
+      }
+      parsed.expectedFingerprint = argv[index];
+      continue;
+    }
+    if (arg === "--brief" || arg === "--command" || arg === "--baseline") {
+      index += 1;
+      if (index >= argv.length) {
+        fail(`${arg} requires a value`);
+      }
+      const key =
+        arg === "--brief"
+          ? "helperQuestion"
+          : arg === "--command"
+            ? "helperCommand"
+            : "helperBaseline";
+      if (parsed[key] !== null) {
+        fail(`${arg} was provided more than once`);
+      }
+      parsed[key] = argv[index];
+      continue;
+    }
+    if (arg === "--read" || arg === "--external") {
+      index += 1;
+      if (index >= argv.length) {
+        fail(`${arg} requires a value`);
+      }
+      const key = arg === "--read" ? "helperReads" : "helperExternal";
+      parsed[key].push(argv[index]);
+      continue;
+    }
+    if (arg === "--verify") {
+      parsed.helperVerify = true;
+      continue;
+    }
+    if (arg === "--capture-baseline") {
+      parsed.helperCaptureBaseline = true;
+      continue;
+    }
+    if (arg.startsWith("--change=") || arg.startsWith("--task=")) {
+      const key = arg.startsWith("--change=") ? "change" : "task";
+      if (parsed[key] !== null) {
+        fail(`--${key} was provided more than once`);
+      }
+      parsed[key] = arg.slice(key.length + 3);
+      continue;
+    }
+    if (arg === "--force-template-update") {
+      parsed.forceTemplateUpdate = true;
+      continue;
+    }
+    if (arg === "--with-git-hooks") {
+      parsed.withGitHooks = true;
+      continue;
+    }
+    if (arg === "--target") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--target requires claude, codex, or opencode");
+      }
+      parsed.target = argv[index];
+      continue;
+    }
+    if (arg.startsWith("--target=")) {
+      parsed.target = arg.slice("--target=".length);
+      continue;
+    }
+    if (arg === "--profile" || arg.startsWith("--profile=")) {
+      fail(
+        "--profile is no longer supported: web, hardware, and hardware-dsl "
+          + "guidance is now user-authored lenses in keel/lenses/*.md "
+          + "(scaffold with `keel lenses add`)"
+      );
+    }
+    if (arg === "--repo") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--repo requires a path");
+      }
+      if (parsed.repo !== null) {
+        fail("repo path was provided more than once");
+      }
+      parsed.repo = argv[index];
+      continue;
+    }
+    if (arg.startsWith("--repo=")) {
+      if (parsed.repo !== null) {
+        fail("repo path was provided more than once");
+      }
+      parsed.repo = arg.slice("--repo=".length);
+      continue;
+    }
+    if (arg === "--source") {
+      index += 1;
+      if (index >= argv.length) {
+        fail("--source requires an npm package or git spec");
+      }
+      if (parsed.updateSource !== null) {
+        fail("update source was provided more than once");
+      }
+      parsed.updateSource = argv[index];
+      continue;
+    }
+    if (arg.startsWith("--source=")) {
+      if (parsed.updateSource !== null) {
+        fail("update source was provided more than once");
+      }
+      parsed.updateSource = arg.slice("--source=".length);
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      fail(`unknown option: ${arg}`);
+    }
+    if (parsed.action === "gate" && parsed.gateStage === null) {
+      parsed.gateStage = arg;
+      continue;
+    }
+    if (parsed.action === "guard" && parsed.guardSubcommand === null) {
+      parsed.guardSubcommand = arg;
+      continue;
+    }
+    if (parsed.action === "project" && parsed.projectSubcommand === null) {
+      parsed.projectSubcommand = arg;
+      continue;
+    }
+    if (parsed.action === "lenses" && parsed.lensesSubcommand === null) {
+      parsed.lensesSubcommand = arg;
+      continue;
+    }
+    if (
+      parsed.action === "lenses"
+      && parsed.lensesSubcommand === "add"
+      && parsed.lensName === null
+    ) {
+      parsed.lensName = arg;
+      continue;
+    }
+    if (parsed.repo !== null) {
+      fail("repo path was provided more than once");
+    }
+    parsed.repo = arg;
+  }
+
+  if (parsed.target === "both") {
+    parsed.target = "claude";
+  }
+
+  if (!VALID_TARGETS.has(parsed.target)) {
+    fail(`invalid target: ${parsed.target}`);
+  }
+  if (
+    !["context", "gate", "capabilities", "project", "guard", "triage"].includes(
+      parsed.action
+    )
+    && (
+      parsed.change !== null
+      || parsed.task !== null
+      || parsed.json
+      || parsed.clearHandoff
+      || parsed.closeAction !== null
+      || parsed.base !== null
+      || parsed.projectionEvent !== null
+      || parsed.authorizations.length > 0
+      || parsed.expectedOwner !== null
+      || parsed.nativeComplete
+    )
+  ) {
+    fail("selection and JSON options apply only to keel context or keel gate");
+  }
+  if (parsed.action !== "context" && parsed.clearHandoff) {
+    fail("--clear-handoff applies only to keel context");
+  }
+  if (parsed.subagentMode !== null && (
+    parsed.action !== "project" || parsed.projectSubcommand !== null
+    || !["subagent-start", "subagent-stop"].includes(parsed.projectionEvent)
+    || !["helper", "implementation"].includes(parsed.subagentMode)
+  )) {
+    fail("--subagent-mode helper|implementation applies only to subagent lifecycle projection");
+  }
+  if (
+    parsed.action === "capabilities"
+    && (
+      parsed.change !== null
+      || parsed.task !== null
+      || parsed.closeAction !== null
+      || parsed.base !== null
+    )
+  ) {
+    fail("capabilities accepts only repo, --target, and --json");
+  }
+  if (
+    parsed.action !== "project"
+    && (
+      parsed.projectionEvent !== null
+      || parsed.authorizations.length > 0
+      || parsed.expectedOwner !== null
+      || parsed.nativeComplete
+    )
+  ) {
+    fail("projection options apply only to keel project");
+  }
+  if (parsed.action !== "project" && parsed.projectSubcommand !== null) {
+    fail("project subcommands apply only to keel project");
+  }
+  if (parsed.action !== "guard" && parsed.guardSubcommand !== null) {
+    fail("guard subcommands apply only to keel guard");
+  }
+  if (
+    parsed.force
+    && parsed.action !== "guard"
+    && !(parsed.action === "lenses" && parsed.lensesSubcommand === "add")
+  ) {
+    fail("--force applies only to keel guard start or keel lenses add");
+  }
+  if (parsed.action === "lenses") {
+    if (!["list", "add"].includes(parsed.lensesSubcommand || "")) {
+      fail("lenses requires list or add");
+    }
+    if (parsed.lensesSubcommand === "add" && !parsed.lensName) {
+      fail("keel lenses add requires a lens name");
+    }
+    if (parsed.lensesSubcommand === "list" && parsed.lensName) {
+      fail("keel lenses list does not take a lens name");
+    }
+  } else if (parsed.lensesSubcommand !== null || parsed.lensName !== null) {
+    fail("lens subcommands apply only to keel lenses");
+  }
+  if (parsed.action === "triage") {
+    // At least one attribute, rather than labels specifically: a repository
+    // that admits by issue number alone should not have to pass an empty label
+    // list to be answered. The requirement stays because Keel never fetches the
+    // issue, so a caller supplying nothing is expecting a fetch.
+    if (parsed.labels === null && parsed.issue === null) {
+      fail(
+        "keel triage requires --labels or --issue; Keel never fetches the "
+          + "issue, so pass what `gh issue view --json labels,number` returned"
+      );
+    }
+    if (parsed.issue !== null && !/^[1-9]\d*$/.test(parsed.issue)) {
+      fail(
+        `--issue takes an issue number as a bare number, such as --issue 62; `
+          + `got ${parsed.issue || "nothing"}`
+      );
+    }
+  } else {
+    if (parsed.labels !== null) fail("--labels applies only to keel triage");
+    if (parsed.issue !== null) fail("--issue applies only to keel triage");
+  }
+  if (parsed.noGuard && parsed.action !== "gate") {
+    fail("--no-guard applies only to keel gate task-start");
+  }
+  if (parsed.record && parsed.action !== "gate") {
+    fail("--record applies only to keel gate task-start");
+  }
+  if (parsed.projectSubcommand !== "goal" && parsed.expectedFingerprint !== null) {
+    fail("--expected-fingerprint applies only to keel project goal");
+  }
+  if (parsed.action === "project" && parsed.projectSubcommand !== null) {
+    if (!["goal", "helper", "tasks"].includes(parsed.projectSubcommand)) {
+      fail(
+        `unknown project subcommand: ${parsed.projectSubcommand}; `
+          + "only keel project goal, keel project helper, and keel project "
+          + "tasks are supported"
+      );
+    }
+    if (
+      parsed.projectionEvent !== null
+      || parsed.authorizations.length > 0
+      || parsed.nativeComplete
+    ) {
+      fail(
+        "keel project goal/helper/tasks do not take --event, --authorize, or "
+          + "--native-complete; those apply only to keel project without a "
+          + "subcommand"
+      );
+    }
+    if (parsed.projectSubcommand === "tasks" && parsed.task !== null) {
+      fail(
+        "keel project tasks projects a whole change checklist; "
+          + "--task is not supported"
+      );
+    }
+  }
+  const helperFlagsUsed =
+    parsed.helperQuestion !== null
+    || parsed.helperCommand !== null
+    || parsed.helperReads.length > 0
+    || parsed.helperExternal.length > 0
+    || parsed.helperVerify
+    || parsed.helperCaptureBaseline
+    || parsed.helperBaseline !== null;
+  if (helperFlagsUsed && parsed.projectSubcommand !== "helper") {
+    fail(
+      "--brief, --command, --read, --external, --verify, --capture-baseline, "
+        + "and --baseline apply only to keel project helper"
+    );
+  }
+
+  return parsed;
+}
+
+// The interpreter rule lives in `scripts/run_python.js` and is imported rather
+// than restated. This file used to carry its own candidate list that asked only
+// whether a command runs, so `keel --doctor` reported `python3: ok` for the
+// same 3.9.6 the runner refuses — measured 2026-08-02. Two statements of one
+// threshold drift the moment either moves; one statement cannot.
+const {
+  MINIMUM_PYTHON,
+  resolveInterpreter,
+  describeTried,
+} = require(path.join(__dirname, "..", "scripts", "run_python.js"));
+
+function npmCommand() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+// npm hoists: installed as a dependency, Keel's OpenSpec bin lands in the
+// consumer project's `node_modules/.bin`, and Keel's own package root has no
+// `node_modules` at all. Searching only the package root worked in exactly one
+// layout — a checkout of this repository, where Keel is the direct consumer —
+// which is why every scenario stayed green while `keel openspec` failed on a
+// plain install (issue #129). Walk outward the way Node resolves a module:
+// nearest wins, so a project pinning its own OpenSpec is honored over one
+// further up. The `.bin` entry is the published contract between npm and a
+// consumer; resolving through the dependency's internal bin path instead would
+// bind Keel to a path that belongs to the dependency.
+function openspecBinNames() {
+  return process.platform === "win32"
+    ? ["openspec.cmd", "openspec.exe", "openspec"]
+    : ["openspec"];
+}
+
+function openspecCandidates() {
+  const candidates = [];
+  let directory = PACKAGE_ROOT;
+  for (;;) {
+    for (const name of openspecBinNames()) {
+      const candidate = path.join(directory, "node_modules", ".bin", name);
+      if (fs.existsSync(candidate)) candidates.push(candidate);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  candidates.push(process.platform === "win32" ? "openspec.cmd" : "openspec");
+  candidates.push("openspec");
+  return [...new Set(candidates)];
+}
+
+function runCommand(command, args, options = {}) {
+  if (options.dryRun) {
+    process.stdout.write(
+      `keel: would run ${formatCommand(command, args)}`
+        + (options.cwd ? ` in ${options.cwd}` : "")
+        + "\n"
+    );
+    return 0;
+  }
+
+  const result = spawnSync(command, args, {
+    cwd: options.cwd || process.cwd(),
+    stdio: options.stdio || "inherit",
+    encoding: options.encoding || "utf8",
+    shell: process.platform === "win32",
+  });
+  if (result.error) {
+    if (options.silentNotFound && result.error.code === "ENOENT") {
+      return 127;
+    }
+    process.stderr.write(
+      `keel: failed to run ${command}: ${result.error.message}\n`
+    );
+    return 1;
+  }
+  return typeof result.status === "number" ? result.status : 1;
+}
+
+// Which OpenSpec answered is not cosmetic. `openspecCandidates` prefers the
+// installed dependency and otherwise falls back to PATH in silence, so a
+// worktree with no `node_modules` validates against whatever version happens
+// to be installed globally — measured here as 1.4.1 against a lockfile that
+// resolves 1.6.0, which rejects a requirement the shipped template writes.
+// A green pipeline and a red worktree were the same command run against two
+// different programs. Keel states which one; it does not install or select.
+function openspecReportedVersion(command) {
+  const result = spawnSync(command, ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (result.error || result.status !== 0) return null;
+  const match = `${result.stdout || ""}${result.stderr || ""}`.match(
+    /\d+\.\d+\.\d+/
+  );
+  return match ? match[0] : null;
+}
+
+// The OpenSpec that wrote this repository's surfaces: the highest
+// `generatedBy` stamp among its OpenSpec skills (#168). Every target's root is
+// read, including `.agents/skills`, where OpenSpec 1.13 writes Codex's.
+const OPENSPEC_SURFACE_ROOTS = [
+  path.join(".claude", "skills"),
+  path.join(".codex", "skills"),
+  path.join(".agents", "skills"),
+  path.join(".opencode", "skills"),
+];
+
+function surfaceGeneratorVersion(repo) {
+  let newest = null;
+  for (const root of OPENSPEC_SURFACE_ROOTS) {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(repo, root));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.startsWith("openspec-")) continue;
+      let text;
+      try {
+        text = fs.readFileSync(path.join(repo, root, entry, "SKILL.md"), "utf8");
+      } catch {
+        continue;
+      }
+      const match = text.match(/generatedBy:\s*"?(\d+\.\d+\.\d+)/);
+      if (match && (!newest || compareVersions(match[1], newest) > 0)) {
+        newest = match[1];
+      }
+    }
+  }
+  return newest;
+}
+
+// What the project declares about Keel plugin auto-update (#164). Claude reads
+// it first from `autoUpdate` on the marketplace's `extraKnownMarketplaces`
+// entry, and `keel --install --target claude` writes it. The host reports no
+// auto-update state Keel could read, so this is the declaration only; whether
+// updates actually arrive is the host's to show.
+function pluginAutoUpdateDeclaration(repo) {
+  const settingsPath = path.join(repo, ".claude", "settings.json");
+  const observation =
+    "Keel reads the declaration; the host does not expose whether updates run";
+  let entry;
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    entry = ((settings && settings.extraKnownMarketplaces) || {})[
+      "keel-marketplace"
+    ];
+  } catch {
+    entry = undefined;
+  }
+  if (entry && entry.autoUpdate === true) {
+    // A declaration in a file Git does not track exists in this checkout only:
+    // every other clone of the project starts with auto-update off (#168).
+    const inWorkTree = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    const tracked = spawnSync(
+      "git",
+      ["ls-files", "--error-unmatch", ".claude/settings.json"],
+      { cwd: repo, encoding: "utf8" }
+    );
+    if (
+      !inWorkTree.error
+      && inWorkTree.status === 0
+      && String(inWorkTree.stdout).trim() === "true"
+      && tracked.status !== 0
+    ) {
+      return [
+        "warning",
+        ".claude/settings.json declares keel-marketplace autoUpdate: true, "
+          + "but Git does not track the file, so only this checkout declares "
+          + "it; commit it with `git add .claude/settings.json`",
+      ];
+    }
+    return [
+      "ok",
+      `.claude/settings.json declares keel-marketplace autoUpdate: true; ${observation}`,
+    ];
+  }
+  if (entry && entry.autoUpdate === false) {
+    return [
+      "manual",
+      ".claude/settings.json declares keel-marketplace autoUpdate: false, "
+        + "which is the project's choice; updates arrive only through "
+        + "`claude plugin update`",
+    ];
+  }
+  return [
+    "manual",
+    "not declared, so Claude leaves auto-update off for this marketplace; "
+      + "run keel --install --target claude, or enable it under /plugin → "
+      + "Marketplaces",
+  ];
+}
+
+// The root is the repository under diagnosis, never PACKAGE_ROOT. Rooting this
+// at Keel's own install location made the line a statement about a repository
+// the reader was never shown: a consumer pinning 9.9.9 was told the version
+// Keel's checkout pins, and a global install — which ships no lockfile — was
+// told `unreadable` forever, which is exactly the drift this check was added
+// to expose. There is no fallback to PACKAGE_ROOT on purpose; falling back
+// would reinstate the misattribution and leave the reader unable to tell which
+// case they were in.
+//
+// Three outcomes, not two. A repository with no lockfile and one whose lockfile
+// names no OpenSpec both *declare* nothing, which is the ordinary case for any
+// project that does not depend on OpenSpec directly. A lockfile that exists and
+// cannot be parsed is a read failure. Collapsing them would either warn at
+// everyone or hide a real failure.
+//
+// The lockfile is the one npm installs from: `npm-shrinkwrap.json` when it
+// exists, else `package-lock.json`. A package that publishes itself — Keel
+// does since #164 — carries the shrinkwrap, because npm never publishes a
+// `package-lock.json`.
+function declaredOpenSpecVersion(repo) {
+  const lockName = ["npm-shrinkwrap.json", "package-lock.json"].find((name) =>
+    fs.existsSync(path.join(repo, name))
+  );
+  if (!lockName) return { state: "none", version: null, lockName: null };
+  let lock;
+  try {
+    lock = JSON.parse(fs.readFileSync(path.join(repo, lockName), "utf8"));
+  } catch {
+    return { state: "unreadable", version: null, lockName };
+  }
+  for (const [name, entry] of Object.entries(lock.packages || {})) {
+    if (name.endsWith("@fission-ai/openspec") && entry && entry.version) {
+      return { state: "declared", version: entry.version, lockName };
+    }
+  }
+  return { state: "none", version: null, lockName };
+}
+
+// "Not installed" and "installed and Keel cannot reach it" need different
+// advice: reinstalling is the only remedy for the first and cannot help with the
+// second, and issue #129 measured a whole class of installs being sent to it.
+// The package directory is the evidence — it is present whenever npm placed the
+// dependency, whatever happened to its `.bin` entry.
+function installedOpenSpecPackage() {
+  let directory = PACKAGE_ROOT;
+  for (;;) {
+    const candidate = path.join(
+      directory,
+      "node_modules",
+      "@fission-ai",
+      "openspec",
+      "package.json"
+    );
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(directory);
+    if (parent === directory) return null;
+    directory = parent;
+  }
+}
+
+// The remedy for an openspec Keel could not run, split by whether npm has
+// already done the thing the other branch would ask for.
+function unresolvedOpenSpecAdvice() {
+  const installed = installedOpenSpecPackage();
+  return installed
+    ? `the OpenSpec dependency is installed at ${path.dirname(installed)} but `
+      + "Keel could not run it — check that its node_modules/.bin entry exists "
+      + "and is executable; reinstalling will not change this"
+    : "reinstall keel so npm installs its OpenSpec dependency";
+}
+
+function findOpenSpecCommand() {
+  for (const command of openspecCandidates()) {
+    const status = runCommand(command, ["--version"], {
+      stdio: "ignore",
+      silentNotFound: true,
+    });
+    if (status === 0) {
+      return command;
+    }
+  }
+  return null;
+}
+
+function formatCommand(command, args) {
+  const quote = (value) => {
+    if (/^[A-Za-z0-9_./:@+-]+$/.test(value)) {
+      return value;
+    }
+    return JSON.stringify(value);
+  };
+  return [command, ...args].map(quote).join(" ");
+}
+
+function findPackedTarball(packStdout, tempDir) {
+  try {
+    const parsed = JSON.parse(packStdout);
+    const packEntries = Array.isArray(parsed) ? parsed : [parsed];
+    for (const entry of packEntries) {
+      if (entry && typeof entry.filename === "string") {
+        const candidate = path.join(tempDir, entry.filename);
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  } catch {
+    // Fall back to scanning the pack destination below.
+  }
+
+  const tarballs = fs
+    .readdirSync(tempDir)
+    .filter((entry) => entry.endsWith(".tgz"))
+    .map((entry) => path.join(tempDir, entry));
+
+  if (tarballs.length === 1) {
+    return tarballs[0];
+  }
+
+  throw new Error(
+    `expected one packed tarball in ${tempDir}, found ${tarballs.length}`
+  );
+}
+
+// One owner-run update for the machine (#204): the global CLI first, then
+// the Keel plugin of each host that has one installed, through that host's own
+// documented commands. Every component reports exactly one line saying what
+// changed, when it applies, and what is left for the owner, because a plugin
+// installed on disk is not a plugin the running sessions use, and the two used
+// to be reported as the same thing. Hooks and projections never reach this.
+function updateLine(component, status, detail) {
+  process.stdout.write(`keel update: ${component}: ${status} - ${detail}\n`);
+}
+
+function hostRun(executable, args) {
+  return spawnSync(executable, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: 5 * 60 * 1000,
+  });
+}
+
+function hostJson(executable, args) {
+  const result = hostRun(executable, args);
+  if (result.error || result.status !== 0) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+// What each host reports about its installed Keel plugin, or null when the
+// host is absent or has none. Both hosts answer `plugin list --json`, in
+// different shapes (2026-10-03: Claude a list of {id, version, installPath},
+// Codex {installed: [{pluginId, version, marketplaceSource, source}]}).
+function claudeKeel(executable) {
+  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const entry = (Array.isArray(listed) ? listed : [])
+    .find((item) => item && typeof item.id === "string" && item.id.startsWith("keel@"));
+  if (!entry) return null;
+  return { id: entry.id, market: entry.id.slice("keel@".length), version: entry.version || null };
+}
+
+function codexKeel(executable) {
+  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const items = listed && Array.isArray(listed.installed) ? listed.installed : [];
+  const entry = items.find((item) => item && item.name === "keel" && item.installed !== false);
+  if (!entry) return null;
+  const market = entry.marketplaceSource || {};
+  return {
+    id: entry.pluginId || `keel@${entry.marketplaceName}`,
+    market: entry.marketplaceName,
+    version: entry.version || null,
+    sourceType: market.sourceType || "unknown",
+    source: market.source || "",
+    path: entry.source && entry.source.path ? entry.source.path : null,
+  };
+}
+
+function readOrNull(file) {
+  try {
+    return fs.readFileSync(file);
+  } catch {
+    return null;
+  }
+}
+
+function runHostSteps(component, name, executable, steps) {
+  for (const args of steps) {
+    const result = hostRun(executable, args);
+    if (result.error || result.status !== 0) {
+      const why = result.error ? result.error.message : `exited ${result.status}`;
+      updateLine(component, "failed", `\`${name} ${args.join(" ")}\` ${why}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function versionChange(before, after) {
+  return before && after && before !== after ? `updated ${before} -> ${after}` : `current ${after || before || "unknown"}`;
+}
+
+function updateClaudePlugin(options) {
+  const component = "claude plugin";
+  const executable = process.env.KEEL_UPDATE_CLAUDE || "claude";
+  const installed = claudeKeel(executable);
+  const id = installed ? installed.id : "keel@keel-marketplace";
+  const market = installed ? installed.market : "keel-marketplace";
+  const steps = [["plugin", "marketplace", "update", market], ["plugin", "update", id]];
+  if (options.dryRun) {
+    for (const args of steps) process.stdout.write(`keel: would run claude ${args.join(" ")}\n`);
+    return true;
+  }
+  if (!installed) {
+    updateLine(component, "absent", "Claude Code is not installed here or has no Keel plugin");
+    return true;
+  }
+  if (!runHostSteps(component, "claude", executable, steps)) return false;
+  const after = claudeKeel(executable);
+  updateLine(
+    component,
+    versionChange(installed.version, after && after.version),
+    "running sessions use it at their next hook call; their skills and agents after /reload-plugins"
+  );
+  return true;
+}
+
+function updateCodexPlugin(options) {
+  const component = "codex plugin";
+  const executable = process.env.KEEL_UPDATE_CODEX || "codex";
+  const installed = codexKeel(executable);
+  const id = installed ? installed.id : "keel@keel-marketplace";
+  const market = installed ? installed.market : "keel-marketplace";
+  const steps = [["plugin", "marketplace", "upgrade", market], ["plugin", "add", id]];
+  if (options.dryRun) {
+    for (const args of steps) process.stdout.write(`keel: would run codex ${args.join(" ")}\n`);
+    return true;
+  }
+  if (!installed) {
+    updateLine(component, "absent", "Codex is not installed here or has no Keel plugin");
+    return true;
+  }
+  // `codex plugin marketplace upgrade` refreshes Git marketplaces only. A
+  // local one follows whatever its checkout holds, which is the owner's to
+  // decide, so it is named rather than re-pointed.
+  if (installed.sourceType !== "git") {
+    updateLine(
+      component,
+      "manual",
+      `its marketplace is a ${installed.sourceType} source (${installed.source}), which \`codex plugin `
+        + "marketplace upgrade` cannot refresh; to make it upgradable, run `codex plugin marketplace "
+        + `remove ${market}\` and then codex plugin marketplace add TanglmChris/keel --ref main`
+    );
+    return true;
+  }
+  if (!runHostSteps(component, "codex", executable, [steps[0]])) return false;
+  // Codex re-reads hook definitions at every call and trusts them by hash, so
+  // a changed definition stops running until the owner reviews it. Compared
+  // before `plugin add`, which deletes the old install's directory.
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const oldHooks = installed.version
+    ? readOrNull(path.join(codexHome, "plugins", "cache", market, "keel", installed.version, "hooks", "codex.json"))
+    : null;
+  const upgraded = codexKeel(executable);
+  const newHooks = upgraded && upgraded.path ? readOrNull(path.join(upgraded.path, "hooks", "codex.json")) : null;
+  const hooksChanged = oldHooks && newHooks && !oldHooks.equals(newHooks);
+  if (!runHostSteps(component, "codex", executable, [steps[1]])) return false;
+  const after = codexKeel(executable);
+  updateLine(
+    component,
+    versionChange(installed.version, after && after.version),
+    "running sessions use it at their next hook call"
+      + (hooksChanged ? "; its hook definitions changed, so Codex will ask you to review them in /hooks before they run" : "")
+  );
+  return true;
+}
+
+function updateGlobalCli(options, npm, source) {
+  if (options.dryRun) {
+    process.stdout.write(
+      `keel: would run ${formatCommand(npm, [
+        "pack",
+        source,
+        "--pack-destination",
+        "<temporary-directory>",
+        "--json",
+      ])}\n`
+    );
+    process.stdout.write(
+      `keel: would run ${formatCommand(npm, [
+        "install",
+        "-g",
+        "<packed-tarball>",
+      ])}\n`
+    );
+    return true;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "keel-update-"));
+  try {
+    const packArgs = [
+      "pack",
+      source,
+      "--pack-destination",
+      tempDir,
+      "--json",
+    ];
+    const packResult = spawnSync(npm, packArgs, {
+      encoding: "utf8",
+      stdio: ["inherit", "pipe", "inherit"],
+      shell: process.platform === "win32",
+    });
+    if (packResult.error || packResult.status !== 0) {
+      const why = packResult.error ? packResult.error.message : `exited ${packResult.status}`;
+      updateLine("cli", "failed", `npm pack ${source} ${why}`);
+      return false;
+    }
+
+    const tarball = findPackedTarball(packResult.stdout, tempDir);
+    const installResult = spawnSync(npm, ["install", "-g", tarball], {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    if (installResult.error || installResult.status !== 0) {
+      const why = installResult.error ? installResult.error.message : `exited ${installResult.status}`;
+      updateLine("cli", "failed", `npm install -g ${path.basename(tarball)} ${why}`);
+      return false;
+    }
+    const packed = /-(\d+\.\d+\.\d+[^/]*?)\.tgz$/.exec(path.basename(tarball));
+    updateLine("cli", versionChange(PACKAGE_JSON.version, packed ? packed[1] : null), "applies to the next command that runs keel");
+    return true;
+  } catch (error) {
+    updateLine("cli", "failed", error.message);
+    return false;
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function runGlobalUpdate(options) {
+  if (options.repo !== null) {
+    fail("--update refreshes the global keel CLI and does not accept a repo path");
+  }
+  if (options.target !== "claude") {
+    fail("--update refreshes the global keel CLI and does not accept --target");
+  }
+  if (options.forceTemplateUpdate) {
+    fail("--update does not accept --force-template-update; use keel --install --force-template-update for project files");
+  }
+
+  const source =
+    options.updateSource || process.env.KEEL_UPDATE_SOURCE || DEFAULT_UPDATE_SOURCE;
+  const npm = process.env.KEEL_UPDATE_NPM || npmCommand();
+
+  // Each step runs whatever the one before it did: a host that failed still
+  // leaves the others to report, and any failure fails the command.
+  const results = [
+    updateGlobalCli(options, npm, source),
+    updateClaudePlugin(options),
+    updateCodexPlugin(options),
+  ];
+  return results.every(Boolean) ? 0 : 1;
+}
+
+function runPython(script, args) {
+  if (!fs.existsSync(script)) {
+    process.stderr.write(`keel: missing packaged script: ${script}\n`);
+    return 1;
+  }
+
+  const { candidate, tried } = resolveInterpreter();
+  if (candidate) {
+    const result = spawnSync(
+      candidate.command,
+      [...candidate.prefixArgs, script, ...args],
+      { stdio: "inherit" }
+    );
+    return typeof result.status === "number" ? result.status : 1;
+  }
+
+  const minimum = MINIMUM_PYTHON.join(".");
+  process.stderr.write(
+    `keel: Python ${minimum} or newer is required. Tried `
+      + `${describeTried(tried) || "nothing"}. Install one, or set `
+      + "KEEL_PYTHON.\n"
+  );
+  return 1;
+}
+
+function installerArgs(options, extra = []) {
+  const repo = path.resolve(options.repo || process.cwd());
+  const args = [repo, "--target", options.target, ...extra];
+  if (options.dryRun) {
+    args.push("--dry-run");
+  }
+  if (options.forceTemplateUpdate) {
+    args.push("--force-template-update");
+  }
+  if (options.withGitHooks) {
+    args.push("--with-git-hooks");
+  }
+  return args;
+}
+
+function openspecToolsForTarget(target) {
+  return target;
+}
+
+function runOpenSpec(args, repo, options) {
+  const command = options.dryRun ? "openspec" : findOpenSpecCommand();
+  if (!command) {
+    process.stderr.write(
+      "keel: OpenSpec CLI is provided by Keel's npm dependencies but was not found. Reinstall keel so npm installs its dependencies.\n"
+    );
+    return 1;
+  }
+  return runCommand(command, args, {
+    cwd: repo,
+    dryRun: options.dryRun,
+  });
+}
+
+function runProjectInit(options) {
+  if (options.updateSource !== null) {
+    fail("--source only applies to --update");
+  }
+
+  const repo = path.resolve(options.repo || process.cwd());
+  if (!options.dryRun) {
+    fs.mkdirSync(repo, { recursive: true });
+  }
+
+  // Never downgrade (#168): surfaces a newer OpenSpec wrote keep their
+  // content. The protocol and Keel's overlays still move; only OpenSpec's own
+  // `--force` rewrite is skipped, and the reason is printed.
+  const surfaces = surfaceGeneratorVersion(repo);
+  const resolvedCommand = findOpenSpecCommand();
+  const resolved = resolvedCommand ? openspecReportedVersion(resolvedCommand) : null;
+  const keepSurfaces = Boolean(
+    surfaces && resolved && compareVersions(surfaces, resolved) > 0
+  );
+  if (keepSurfaces) {
+    process.stdout.write(
+      `keel: OpenSpec surfaces were written by OpenSpec ${surfaces}, newer `
+        + `than the ${resolved} Keel runs; skipped \`openspec init --force\` `
+        + "and `openspec update --force`, which would downgrade them (#168). "
+        + "The protocol and Keel's overlays are still refreshed.\n"
+    );
+  }
+
+  const openspecTools = keepSurfaces ? null : openspecToolsForTarget(options.target);
+  if (openspecTools) {
+    const initStatus = runOpenSpec(
+      ["init", "--tools", openspecTools, "--force"],
+      repo,
+      options
+    );
+    if (initStatus !== 0) {
+      return initStatus;
+    }
+  }
+
+  const installStatus = runPython(INSTALL_SCRIPT, installerArgs(options));
+  if (installStatus !== 0) {
+    return installStatus;
+  }
+
+  if (openspecTools) {
+    const updateStatus = runOpenSpec(["update", "--force"], repo, options);
+    if (updateStatus !== 0) {
+      return updateStatus;
+    }
+  }
+  if (openspecTools || keepSurfaces) {
+    return refreshInstalledTargetOverlays(repo, options.target, {
+      dryRun: options.dryRun,
+    }).status;
+  }
+
+  return 0;
+}
+
+function printDoctorLine(name, status, detail = "") {
+  process.stdout.write(`${name}: ${status}${detail ? ` - ${detail}` : ""}\n`);
+}
+
+// The `version=` attribute of the managed marker is written by every install
+// and, until this line existed, read back by nothing that runs locally: both
+// marker parsers match `keel:start(?:\s+[^>]*)?` and throw the attributes away.
+// The one reader was the plugin's SessionStart hook, and doctor reports that
+// plugin's activation as manual on every target — so the check might simply not
+// be running, with nothing to distinguish that from agreement. Doctor is the
+// model-free fallback: the declaration comes from the working tree and the
+// running version from this process, so the comparison holds with no plugin at
+// all.
+function declaredProtocolVersion(repo) {
+  const agentsPath = path.join(repo, "AGENTS.md");
+  if (!fs.existsSync(agentsPath)) return null;
+  const match = fs
+    .readFileSync(agentsPath, "utf8")
+    .match(/<!--\s*keel:start\s+version=(\d+\.\d+\.\d+)\s*-->/);
+  return match ? match[1] : null;
+}
+
+// Numeric, not lexical: "5.9.0" precedes "5.10.0" and string order says
+// otherwise. Returns a negative number when `a` is behind `b`.
+function compareVersions(a, b) {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] - right[i];
+  }
+  return 0;
+}
+
+// Printed on every run, agreeing or not. A check that is silent when it passes
+// cannot be told apart from a check that did not run, which is the failure this
+// line exists to remove — so silence is never the report.
+function printProtocolVersionDrift(repo, target) {
+  const running = PACKAGE_JSON.version;
+  const declared = declaredProtocolVersion(repo);
+  if (!declared) {
+    printDoctorLine(
+      "protocol",
+      "not comparable",
+      `this CLI is ${running}; the repository declares no protocol version in `
+        + "an AGENTS.md `keel:start` marker — run "
+        + `keel --init --target ${target} to write one`
+    );
+    return;
+  }
+  const order = compareVersions(declared, running);
+  if (order === 0) {
+    printDoctorLine(
+      "protocol",
+      "ok",
+      `repo declares ${declared}, this CLI is ${running}`
+    );
+    return;
+  }
+  // The two directions have different repairs, and the wrong repair is a no-op
+  // that reads as a failure, so the line names the direction rather than the
+  // difference. Drift never reaches the exit code: an out-of-date install is
+  // not a broken one, and a doctor that goes red on release day is a doctor
+  // people switch off.
+  printDoctorLine(
+    "protocol",
+    "warning",
+    order < 0
+      ? `repo declares ${declared}, this CLI is ${running} — the repository is `
+        + `behind its install; run keel --install --target ${target} to bring `
+        + "the protocol forward; it leaves OpenSpec's surfaces as they are "
+        + "(#168)"
+      : `repo declares ${declared}, this CLI is ${running} — the install is `
+        + "behind the repository, which carries a protocol this CLI cannot "
+        + "enforce; update the Keel package"
+  );
+}
+
+function codexHome() {
+  const configured = (process.env.CODEX_HOME || "").trim();
+  return path.resolve(configured || path.join(os.homedir(), ".codex"));
+}
+
+function countExisting(paths) {
+  const existing = paths.filter((candidate) => fs.existsSync(candidate));
+  return { existing: existing.length, total: paths.length };
+}
+
+function formatCount(counts, location) {
+  return `${counts.existing}/${counts.total} under ${location}`;
+}
+
+function surfaceStatus(counts) {
+  return counts.existing === counts.total ? "ok" : "missing";
+}
+
+function skillRootForTarget(target) {
+  if (target === "claude") return path.join(".claude", "skills");
+  if (target === "codex") return path.join(".agents", "skills");
+  return path.join(".opencode", "skills");
+}
+
+// Which OpenSpec layout a Codex repository carries (#169). OpenSpec 1.6 wrote
+// Codex's skills under `.codex/skills` and its commands as prompts in
+// CODEX_HOME; 1.13 and later, including the 1.14 Keel pins, write skills under `.agents/skills` and
+// no command files. A repository set up under 1.6 keeps its layout, and every
+// other one — a fresh repository included — gets the one the pin writes.
+function codexOpenSpecLayout(repo) {
+  const holdsOpenSpec = (root) => {
+    try {
+      return fs
+        .readdirSync(path.join(repo, root))
+        .some((entry) => entry.startsWith("openspec-"));
+    } catch {
+      return false;
+    }
+  };
+  return holdsOpenSpec(path.join(".codex", "skills"))
+    && !holdsOpenSpec(path.join(".agents", "skills"))
+    ? "legacy"
+    : "agents";
+}
+
+function openspecSkillRootForTarget(target, repo) {
+  if (target === "claude") return path.join(".claude", "skills");
+  if (target === "codex") {
+    return codexOpenSpecLayout(repo) === "legacy"
+      ? path.join(".codex", "skills")
+      : path.join(".agents", "skills");
+  }
+  return path.join(".opencode", "skills");
+}
+
+function commandSurfaceForTarget(target, repo) {
+  if (target === "claude") {
+    const location = path.join(".claude", "commands", "opsx");
+    return {
+      location,
+      paths: OPENSPEC_COMMAND_IDS.map((id) =>
+        path.join(repo, location, `${id}.md`)
+      ),
+      remediation: "run keel --init --target claude or openspec update --force",
+    };
+  }
+  if (target === "codex" && codexOpenSpecLayout(repo) === "agents") {
+    // OpenSpec 1.13 and later surface Codex's workflows as the skills counted on the
+    // line above and writes no command file, so there is nothing to count here.
+    return {
+      location: path.join(".agents", "skills"),
+      paths: [],
+      remediation: "run keel --init --target codex or openspec update --force",
+      skillsOnly: true,
+    };
+  }
+  if (target === "codex") {
+    const home = codexHome();
+    const location = path.join(home, "prompts");
+    return {
+      location,
+      paths: OPENSPEC_COMMAND_IDS.map((id) =>
+        path.join(location, `opsx-${id}.md`)
+      ),
+      remediation: "run keel --init --target codex or openspec update --force",
+    };
+  }
+  const location = path.join(".opencode", "commands");
+  return {
+    location,
+    paths: OPENSPEC_COMMAND_IDS.map((id) =>
+      path.join(repo, location, `opsx-${id}.md`)
+    ),
+    remediation: "run keel --init --target opencode or openspec update --force",
+  };
+}
+
+function commandPathForAction(target, repo, action) {
+  if (target === "claude") {
+    return path.join(repo, ".claude", "commands", "opsx", `${action}.md`);
+  }
+  if (target === "codex") {
+    return codexOpenSpecLayout(repo) === "legacy"
+      ? path.join(codexHome(), "prompts", `opsx-${action}.md`)
+      : null;
+  }
+  return path.join(repo, ".opencode", "commands", `opsx-${action}.md`);
+}
+
+function openspecOverlaySurfacesForTarget(target, repo) {
+  const skillRoot = openspecSkillRootForTarget(target, repo);
+  return OPENSPEC_OVERLAY_ACTIONS.flatMap((action) => {
+    if (action === "propose" && target === "opencode") {
+      return [];
+    }
+    const skillName = {
+      propose: "openspec-propose",
+      apply: "openspec-apply-change",
+      archive: "openspec-archive-change",
+      sync: "openspec-sync-specs",
+    }[action];
+    return [
+      {
+        action,
+        path: path.join(repo, skillRoot, skillName, "SKILL.md"),
+      },
+      {
+        action,
+        path: commandPathForAction(target, repo, action),
+      },
+    ].filter((surface) => surface.path !== null);
+  });
+}
+
+// Derived from the managed set rather than written beside it. The label was
+// the literal string "apply/archive", which was correct while those were the
+// managed actions and became wrong — silently — the moment a third joined them.
+// `propose` is excluded because its overlay governs authoring rather than a
+// state-changing command, and the doctor line counts the command surfaces.
+function overlayActionLabel() {
+  return OPENSPEC_OVERLAY_ACTIONS.filter((action) => action !== "propose")
+    .join("/");
+}
+
+function overlayTitleForAction(action) {
+  return {
+    propose: "Keel Authoring Overlay",
+    apply: "Keel Apply Overlay",
+    archive: "Keel Archive Overlay",
+    sync: "Keel Sync Overlay",
+  }[action];
+}
+
+function keelOpenSpecOverlay(action) {
+  if (action === "propose") {
+    const lines = [
+      OPENSPEC_SURFACE_OVERLAY_START,
+      "## Keel Authoring Overlay",
+      "",
+      "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+      "",
+      "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
+      "",
+      "### Expectation alignment before specs and tasks finalize",
+      "",
+      "- Before specs and executable tasks are finalized, run `keel-align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.",
+      "- Inspect repository code, tests, docs, and existing OpenSpec authority before asking the user a question those sources can answer; record verified facts as F<n> and escalate only user-owned product choices.",
+      "- Label inferred expectations as candidates; user silence never authorizes a material product decision, and unaccepted material candidates stay Q<n> or are explicitly discarded.",
+      "- In deep mode ask one material decision at a time, explain why it matters, and provide a recommended answer; stop once executable authority is clear.",
+      "- Route accepted outcomes to their durable owners (proposal, design, specs, tasks); create no separate alignment ledger and keep HANDOFF pointer-only.",
+      "- A proposal may start as a concise hypothesis, but no affected task becomes executable while a material expectation is unaccepted, unverified, unowned, and undiscarded.",
+      OPENSPEC_SURFACE_OVERLAY_END,
+      "",
+    ];
+    return lines.join("\n");
+  }
+  // Sync mirrors archive's structure and not its content: the two are gated and
+  // owned identically, so the ownership, subagent, and delegation-language
+  // rules are the same statements with `sync` in them. What differs is the
+  // artifact consequence — archive warns about re-applying a promoted delta,
+  // and sync is the thing that promotes it, so it says so from its own side. A
+  // reader who only ever sees one of the two surfaces still learns the pairing.
+  const syncBody = [
+    "- The current agent owns the sync decision and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
+    "- Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.",
+    "- Before syncing, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
+    "- Target-native subagents may help with bounded assessment or evidence production only; they cannot sync, change acceptance, or bypass completion gates.",
+    "- Do not treat generic OpenSpec sync delegation language as authority to transfer Keel ownership.",
+    "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+    "- Syncing promotes the change's spec delta into `openspec/specs/`. A later archive of the same change must use `--skip-specs`, because archive is not idempotent over an already-promoted delta.",
+  ];
+  if (action === "sync") {
+    return [
+      OPENSPEC_SURFACE_OVERLAY_START,
+      `## ${overlayTitleForAction(action)}`,
+      "",
+      "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+      "",
+      "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
+      "",
+      ...syncBody,
+      OPENSPEC_SURFACE_OVERLAY_END,
+      "",
+    ].join("\n");
+  }
+  const actionBody =
+    action === "apply"
+      ? [
+          "- The current agent remains the Keel task owner and selects one unchecked task or a small contiguous task group from `tasks.md`.",
+          "- Run the Task Authoring Gate: each relevant critical expectation must be covered by a slice, deferred to a durable owner, or explicitly discarded.",
+          "- Run the Slice Start Gate: selected current slices must name source expectations and include Read, Touch, Acceptance, Commands, and Stop/Autonomy boundaries before implementation.",
+          "- Rough future slices may remain drafts, but cannot be selected for implementation or marked complete.",
+          "- Obey the selected task contract: Read is required starting context, Touch is the write boundary, Commands prove Acceptance, and the Autonomy boundary controls fallback decisions.",
+          "- A target-native helper returns report/evidence only, and a model-chosen guarded delegate may write inside `Touch`; both cannot mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance.",
+          "- The current agent reviews all subagent output, command evidence, and diffs before marking any task complete.",
+          "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
+          "- A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.",
+          "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+          "- Consult the repository's standing authorization in `keel/config.yaml` before asking the user to confirm a repository action: a standing-authorized action proceeds without a per-occurrence confirmation, and an undeclared action still requires the confirmation it requires today.",
+          "- A standing authorization covers the action and never substitutes for a gate, evidence, or Review; it removes the confirmation, not the record, and it is not a trigger to perform the action.",
+        ]
+      : [
+          "- The current agent owns final sync/archive decisions and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
+          "- Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
+          "- Target-native subagents may help with bounded assessment or evidence production only; they cannot archive, sync, change acceptance, or bypass completion gates.",
+          "- The current agent reviews any subagent report before running `openspec-sync-specs`, `/opsx:sync`, or `/opsx:archive`.",
+          "- Do not treat generic OpenSpec archive delegation language as authority to transfer Keel ownership.",
+          "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
+          "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
+          "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
+          "- A repository that standing-authorizes `archive` in `keel/config.yaml` does not need the per-occurrence archive confirmation; a repository that declares nothing still needs it.",
+          "- The completion gate and follow-up ownership checks still run unchanged under a standing authorization; it removes the confirmation, not the proof.",
+        ];
+
+  const lines = [
+    OPENSPEC_SURFACE_OVERLAY_START,
+    `## ${overlayTitleForAction(action)}`,
+    "",
+    "Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.",
+    "",
+    "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
+    "",
+    "### Target-native subagent gate",
+    "",
+    "- The current agent remains responsible for Keel ownership, task/archive decisions, scope control, and final reporting.",
+    "- Use a target-native subagent when the current agent decides it is useful for a bounded helper step, or as a delegate implementing the selected task using existing task write authority when a guard manifest is active and matches the task, fingerprint and Touch; optional `delegation:` tiers are metadata.",
+    "- Target-native subagents acting as helpers return report/evidence only. A delegate may write, and only inside `Touch`; its reported command results are a claim, and the current agent re-runs each `M<n>` check itself before recording Evidence.",
+    "- Delegation is refused with no active guard manifest, because an absent manifest passes every write through silently and looks identical to a checked one.",
+    "- Neither may mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance; the current agent reviews all output before acting.",
+    "- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions. Compile it with `keel project --event subagent-start` for a read-only helper or add `--subagent-mode implementation` for a guarded delegate; no extra user activation is required. Host policy remains authoritative; Keel adds no separate carrier because the host already has one.",
+    "- Prohibited actions include scope expansion, Acceptance changes, completion marking, sync/archive decisions, commits, handoff changes, and cross-runtime delegation unless the selected task or user explicitly authorizes them.",
+    ...actionBody,
+    OPENSPEC_SURFACE_OVERLAY_END,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function mergeOpenSpecSurfaceOverlay(content, action) {
+  const overlay = keelOpenSpecOverlay(action);
+  if (OPENSPEC_SURFACE_OVERLAY_RE.test(content)) {
+    return content.replace(OPENSPEC_SURFACE_OVERLAY_RE, overlay.trimEnd());
+  }
+  const separator = content.endsWith("\n") ? "\n" : "\n\n";
+  return `${content}${separator}${overlay}`;
+}
+
+// The block plus the whitespace the merge above inserted in front of it, and
+// nothing else. Removing only the marked span leaves the separator behind, and
+// the file it is left in belongs to OpenSpec — so the match takes the newlines
+// immediately before the block and the one that closes it, and the replacement
+// puts a single newline back. A blank line anywhere else in the file is not
+// this code's business.
+const OPENSPEC_SURFACE_OVERLAY_REMOVE_RE =
+  /\n*<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?<!--\s*keel:openspec-surface-overlay:end\s*-->[ \t]*\n?/;
+
+function stripOpenSpecSurfaceOverlay(content) {
+  let next = content;
+  // A loop rather than one replace: the merge only ever writes one block, so a
+  // file carrying two is already unexpected, and leaving one of them behind is
+  // the outcome this is cheapest to rule out.
+  while (OPENSPEC_SURFACE_OVERLAY_RE.test(next)) {
+    next = next.replace(OPENSPEC_SURFACE_OVERLAY_REMOVE_RE, (match, offset) =>
+      offset === 0 ? "" : "\n"
+    );
+  }
+  return next;
+}
+
+function removeOpenSpecSurfaceOverlay(repo, target, options = {}) {
+  const counts = {
+    removed: 0,
+    absent: 0,
+    missing: 0,
+  };
+
+  for (const surface of openspecOverlaySurfacesForTarget(target, repo)) {
+    // `keel --install` without `--init` never creates the OpenSpec surfaces,
+    // so a repository can legitimately reach uninstall with none of them.
+    if (!fs.existsSync(surface.path)) {
+      counts.missing += 1;
+      continue;
+    }
+    const content = fs.readFileSync(surface.path, "utf8");
+    const next = stripOpenSpecSurfaceOverlay(content);
+    if (next === content) {
+      counts.absent += 1;
+      continue;
+    }
+    counts.removed += 1;
+    if (options.dryRun) {
+      process.stdout.write(
+        `keel: would remove OpenSpec ${surface.action} overlay from ${surface.path}\n`
+      );
+      continue;
+    }
+    fs.writeFileSync(surface.path, next, "utf8");
+  }
+
+  // Always reported, including `removed=0`: an uninstall that found nothing to
+  // clean and an uninstall that never looked leave the same tree behind, and
+  // the second one is the defect this exists to close.
+  process.stdout.write(
+    `keel: ${options.dryRun ? "would remove " : ""}OpenSpec ${overlayActionLabel()} `
+      + `overlay removed=${counts.removed} absent=${counts.absent} `
+      + `missing=${counts.missing}\n`
+  );
+
+  return { status: 0, ...counts };
+}
+
+function refreshOpenSpecSurfaceOverlay(repo, target, options = {}) {
+  const surfaces = openspecOverlaySurfacesForTarget(target, repo);
+  const counts = {
+    refreshed: 0,
+    current: 0,
+    missing: 0,
+  };
+
+  // A dry run and the real run classify each surface the same way, from the
+  // same read-and-compare, so the plan cannot drift from the outcome. The dry
+  // run used to list every surface without reading one, which over-reported as
+  // badly as `--check` under-reported by never reaching this step at all.
+  for (const surface of surfaces) {
+    if (!fs.existsSync(surface.path)) {
+      counts.missing += 1;
+      continue;
+    }
+    const content = fs.readFileSync(surface.path, "utf8");
+    const next = mergeOpenSpecSurfaceOverlay(content, surface.action);
+    if (next === content) {
+      counts.current += 1;
+      continue;
+    }
+    counts.refreshed += 1;
+    if (options.dryRun) {
+      process.stdout.write(
+        `keel: would refresh OpenSpec ${surface.action} overlay in ${surface.path}\n`
+      );
+      continue;
+    }
+    fs.writeFileSync(surface.path, next, "utf8");
+  }
+
+  if (counts.refreshed > 0 || counts.current > 0) {
+    process.stdout.write(
+      `keel: ${options.dryRun ? "would refresh " : ""}OpenSpec ${overlayActionLabel()} `
+        + `overlay refreshed=${counts.refreshed} current=${counts.current} `
+        + `missing=${counts.missing}\n`
+    );
+  }
+
+  return { status: 0, ...counts };
+}
+
+// A project's session usually refreshes through the one target it runs on,
+// while OpenSpec's own update rewrites every tool's surfaces at once. Each
+// target the repository carries is therefore refreshed, the selected one
+// first; a target with no surfaces is left uncreated (#204).
+function refreshInstalledTargetOverlays(repo, selected, options = {}) {
+  const targets = [selected, ...installedOpenSpecTargets(repo).filter((t) => t !== selected)];
+  let status = 0;
+  for (const target of targets) {
+    const result = refreshOpenSpecSurfaceOverlay(repo, target, options);
+    if (result.status !== 0) status = result.status;
+  }
+  return { status };
+}
+
+function hasCurrentOpenSpecOverlay(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+  return fs
+    .readFileSync(filePath, "utf8")
+    .includes(OPENSPEC_SURFACE_OVERLAY_START);
+}
+
+// An overlay from another Keel version is present, not missing: it names the
+// gates of the version that wrote it, and the remedy is a refresh. Reporting
+// it as missing sent the reader looking for files that were there (#204).
+function hasStaleOpenSpecOverlay(filePath) {
+  if (!fs.existsSync(filePath)) return false;
+  const content = fs.readFileSync(filePath, "utf8");
+  return OPENSPEC_SURFACE_OVERLAY_RE.test(content)
+    && !content.includes(OPENSPEC_SURFACE_OVERLAY_START);
+}
+
+function countOpenSpecOverlays(paths) {
+  const current = paths.filter(hasCurrentOpenSpecOverlay);
+  const stale = paths.filter(hasStaleOpenSpecOverlay);
+  return { existing: current.length, stale: stale.length, total: paths.length };
+}
+
+function overlayStatus(counts) {
+  if (counts.existing === counts.total) return "ok";
+  return counts.stale > 0 && counts.existing + counts.stale === counts.total ? "stale" : "missing";
+}
+
+function overlayCountDetail(counts, location) {
+  const stale = counts.stale > 0 ? `, ${counts.stale} from another Keel version` : "";
+  return `${formatCount(counts, location)}${stale}`;
+}
+
+function overlayRemediation(target) {
+  return `run keel --init --target ${target} or keel --install --target ${target}`;
+}
+
+// Only repository-owned surfaces enroll a target. Global Codex prompts can
+// belong to a different project and must not cause this one to be rewritten.
+function installedOpenSpecTargets(repo) {
+  return ["claude", "codex", "opencode"].filter((target) => {
+    const roots = target === "codex"
+      ? [".agents/skills", ".codex/skills"]
+      : [openspecSkillRootForTarget(target, repo)];
+    return roots.some((root) => OPENSPEC_SKILLS.some((skill) =>
+      fs.existsSync(path.join(repo, root, skill, "SKILL.md"))
+    )) || (target !== "codex" && commandSurfaceForTarget(target, repo).paths
+      .some((file) => fs.existsSync(file)));
+  });
+}
+
+function printAdditionalOverlayHealth(repo, selectedTarget) {
+  for (const target of installedOpenSpecTargets(repo)) {
+    if (target === selectedTarget) continue;
+    const counts = countOpenSpecOverlays(
+      openspecOverlaySurfacesForTarget(target, repo).map((surface) => surface.path)
+    );
+    const name = { claude: "Claude", codex: "Codex", opencode: "OpenCode" }[target];
+    printDoctorLine(
+      `${name} Keel ${overlayActionLabel()} overlay`,
+      overlayStatus(counts),
+      `${overlayCountDetail(counts, "skills and commands")}`
+        + (overlayStatus(counts) === "ok" ? "" : `; ${overlayRemediation(target)}`)
+    );
+  }
+}
+
+function printTargetSurface(repo, target) {
+  process.stdout.write("\nTarget surface:\n");
+
+  const agentsPath = path.join(repo, "AGENTS.md");
+  const hasBootstrap =
+    fs.existsSync(agentsPath)
+    && /<!--\s*keel:start(?:\s+[^>]*)?\s*-->/.test(
+      fs.readFileSync(agentsPath, "utf8")
+    );
+  printDoctorLine(
+    "bootstrap",
+    hasBootstrap ? "ok" : "missing",
+    hasBootstrap
+      ? "AGENTS.md carries the Keel managed bootstrap block"
+      : `AGENTS.md bootstrap missing; run keel --install --target ${target}`
+  );
+  if (target === "claude") {
+    const claudePath = path.join(repo, "CLAUDE.md");
+    const hasImport =
+      fs.existsSync(claudePath)
+      && fs.readFileSync(claudePath, "utf8").includes("@AGENTS.md");
+    printDoctorLine(
+      "CLAUDE import",
+      hasImport ? "ok" : "missing",
+      hasImport
+        ? "CLAUDE.md imports @AGENTS.md"
+        : "CLAUDE.md lacks the @AGENTS.md import; run keel --install --target claude"
+    );
+  }
+
+  if (target === "opencode") {
+    printDoctorLine(
+      "native plugin",
+      "manual",
+      "OpenCode has no v4 native plugin surface; existing artifacts are "
+        + "compatibility-only outside v4 support"
+    );
+  } else {
+    const manifestRelative = path.join(
+      "plugins",
+      "keel",
+      target === "codex" ? ".codex-plugin" : ".claude-plugin",
+      "plugin.json"
+    );
+    const manifestPath = path.join(repo, manifestRelative);
+    let sourceStatus = "missing";
+    let sourceDetail = `plugin source absent at ${manifestRelative}`;
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+        if (manifest.name === "keel" && manifest.version) {
+          sourceStatus = "ok";
+          sourceDetail = `plugin source valid (keel ${manifest.version}) at ${manifestRelative}`;
+          if (manifest.version.split("+")[0] !== PACKAGE_JSON.version) {
+            sourceStatus = "warning";
+            sourceDetail =
+              `plugin source version ${manifest.version} differs from CLI `
+              + `${PACKAGE_JSON.version}; align both before release`;
+          }
+        } else {
+          sourceStatus = "warning";
+          sourceDetail = `plugin source invalid at ${manifestRelative}`;
+        }
+      } catch {
+        sourceStatus = "warning";
+        sourceDetail = `plugin source unreadable at ${manifestRelative}`;
+      }
+    }
+    // Development-only check: plugins/keel/ exists only in Keel's own source
+    // repository, so in a consuming project it is permanently `missing` and
+    // there is nothing the author can do about it.
+    if (isKeelSourceRepo(repo)) {
+      printDoctorLine("native plugin source", sourceStatus, sourceDetail);
+    }
+    printDoctorLine(
+      "native plugin runtime",
+      "manual",
+      "marketplace install, enablement, hook trust/activation, and behavior "
+        + `need runtime evidence; install via ${
+          target === "codex"
+            ? "codex plugin add keel@<marketplace>"
+            : "claude plugin install keel@<marketplace>"
+        } and verify in a fresh session`
+    );
+    if (target === "claude") {
+      const [status, detail] = pluginAutoUpdateDeclaration(repo);
+      printDoctorLine("plugin auto-update", status, detail);
+    }
+  }
+
+  const openspecSkillRoot = openspecSkillRootForTarget(target, repo);
+  const openspecSkillPaths = OPENSPEC_SKILLS.map((skill) =>
+    path.join(repo, openspecSkillRoot, skill, "SKILL.md")
+  );
+  const openspecSkillCounts = countExisting(openspecSkillPaths);
+  printDoctorLine(
+    "OpenSpec action skills",
+    surfaceStatus(openspecSkillCounts),
+    formatCount(openspecSkillCounts, openspecSkillRoot)
+  );
+
+  printDoctorLine(
+    "Keel behavioral skills",
+    "plugin",
+    isKeelSourceRepo(repo)
+      ? "keel-* skills are delivered by the installed Keel plugin (see native "
+        + "plugin status above); install the plugin if it is missing"
+      : "keel-* skills are delivered by the installed Keel plugin; verify it "
+        + "with the runtime's own plugin listing, since Keel cannot observe "
+        + "installation from this repository"
+  );
+
+  const commands = commandSurfaceForTarget(target, repo);
+  if (commands.skillsOnly) {
+    printDoctorLine(
+      "OpenSpec commands",
+      "ok",
+      `none; OpenSpec 1.13 and later surface Codex's workflows as the skills under `
+        + `${commands.location}`
+    );
+  } else {
+    const commandCounts = countExisting(commands.paths);
+    const commandDetail =
+      surfaceStatus(commandCounts) === "ok"
+        ? formatCount(commandCounts, commands.location)
+        : `${formatCount(commandCounts, commands.location)}; ${commands.remediation}`;
+    printDoctorLine(
+      "OpenSpec commands",
+      surfaceStatus(commandCounts),
+      commandDetail
+    );
+  }
+
+  const overlayPaths = openspecOverlaySurfacesForTarget(target, repo).map(
+    (surface) => surface.path
+  );
+  const overlayCounts = countOpenSpecOverlays(overlayPaths);
+  const overlayDetail =
+    overlayStatus(overlayCounts) === "ok"
+      ? formatCount(overlayCounts, `${overlayActionLabel()} skills and commands`)
+      : `${overlayCountDetail(
+          overlayCounts,
+          `${overlayActionLabel()} skills and commands`
+        )}; ${overlayRemediation(target)}`;
+  printDoctorLine(
+    `Keel ${overlayActionLabel()} overlay`,
+    overlayStatus(overlayCounts),
+    overlayDetail
+  );
+
+  process.stdout.write("\n");
+  process.stdout.write(renderCapabilities(probeCapabilities(repo, target)));
+}
+
+function runDoctor(options) {
+  if (options.updateSource !== null) {
+    fail("--source only applies to --update");
+  }
+  if (options.dryRun || options.forceTemplateUpdate) {
+    fail("--doctor does not accept --dry-run or --force-template-update");
+  }
+
+  const repo = path.resolve(options.repo || process.cwd());
+  process.stdout.write(`keel doctor for ${repo}\n`);
+
+  // The version is printed, not just a verdict: `ok` with no number behind it
+  // is a claim the reader cannot check, and it was the wrong claim here for as
+  // long as this line existed.
+  const minimumPython = MINIMUM_PYTHON.join(".");
+  const interpreter = resolveInterpreter();
+  if (interpreter.candidate) {
+    printDoctorLine(
+      "python3",
+      "ok",
+      `${formatCommand(interpreter.candidate.command, interpreter.candidate.prefixArgs)}`
+        + ` (${interpreter.version})`
+    );
+  } else {
+    const runnable = interpreter.tried.filter((entry) => entry.version);
+    printDoctorLine(
+      "python3",
+      runnable.length > 0 ? "problem" : "missing",
+      runnable.length > 0
+        ? `needs ${minimumPython} or newer; found ${describeTried(runnable)}`
+        : `needs ${minimumPython} or newer; set KEEL_PYTHON or install Python 3`
+    );
+  }
+
+  const openspec = findOpenSpecCommand();
+  if (!openspec) {
+    printDoctorLine(
+      "openspec",
+      installedOpenSpecPackage() ? "problem" : "missing",
+      unresolvedOpenSpecAdvice()
+    );
+  } else {
+    const bareOpenSpecOnPath =
+      !path.isAbsolute(openspec)
+      || runCommand("openspec", ["--version"], {
+        stdio: "ignore",
+        silentNotFound: true,
+      }) === 0;
+    const resolvedVersion = openspecReportedVersion(openspec);
+    const declared = declaredOpenSpecVersion(repo);
+    const mismatched = Boolean(
+      resolvedVersion
+      && declared.state === "declared"
+      && resolvedVersion !== declared.version
+    );
+    const where = bareOpenSpecOnPath
+      ? openspec
+      : `${openspec} is keel-resolvable but bare \`openspec\` is not on PATH — use \`keel openspec\``;
+    // Two versions on one line need two owners. `repo` is the repository named
+    // on doctor's first line; the answering build is attributed by the path
+    // already printed beside it.
+    const declaredText = {
+      declared: `repo pins ${declared.version}`,
+      none: "repo declares no OpenSpec version",
+      unreadable: `repo ${declared.lockName} unreadable`,
+    }[declared.state];
+    const versions = `${resolvedVersion || "version unreadable"}, ${declaredText}`;
+    printDoctorLine(
+      "openspec",
+      mismatched || !bareOpenSpecOnPath ? "warning" : "ok",
+      mismatched
+        ? `${where} (${versions}) — validation is answering from a different `
+          + "build than this repository pins, which is what a green pipeline "
+          + "and a red worktree look like. Keel reports which one answered "
+          + "and selects none."
+        : `${where} (${versions})`
+    );
+  }
+
+  const surfaces = surfaceGeneratorVersion(repo);
+  const running = openspec ? openspecReportedVersion(openspec) : null;
+  if (surfaces && running) {
+    const newer = compareVersions(surfaces, running) > 0;
+    printDoctorLine(
+      "OpenSpec surfaces",
+      newer ? "warning" : "ok",
+      newer
+        ? `written by OpenSpec ${surfaces}, newer than the OpenSpec Keel runs `
+          + `(${running}); keel --init leaves them unrewritten rather than `
+          + `downgrading them, and keel --install --target ${options.target} `
+          + "refreshes the protocol without touching them"
+        : `written by OpenSpec ${surfaces}; Keel runs ${running}`
+    );
+  }
+
+  printProtocolVersionDrift(repo, options.target);
+
+  process.stdout.write("\nProject status:\n");
+  const checkStatus = runPython(
+    INSTALL_SCRIPT,
+    installerArgs(options, ["--check"])
+  );
+
+  if (openspec && fs.existsSync(path.join(repo, "openspec", "schemas", "keel-spec-driven"))) {
+    const schemaStatus = runCommand(
+      openspec,
+      ["schema", "validate", "keel-spec-driven"],
+      { cwd: repo }
+    );
+    printDoctorLine(
+      "keel-spec-driven schema",
+      schemaStatus === 0 ? "ok" : "failed"
+    );
+  } else {
+    printDoctorLine(
+      "keel-spec-driven schema",
+      "not checked",
+      "run keel --init or keel --install first"
+    );
+  }
+
+  printTargetSurface(repo, options.target);
+  printAdditionalOverlayHealth(repo, options.target);
+  printLensSurface(repo, options.target);
+  const authorizationOk = printStandingAuthorizationSurface(repo);
+  printPrecedentSurface(repo);
+  printTriageSurface(repo);
+  printRoutingSurface(repo);
+  printExecutorTierSurface(repo);
+  printMergeSurface(repo);
+  printFastPrePushSurface(repo);
+  printSourceRepoCliResolution(repo);
+
+  return authorizationOk ? checkStatus : 1;
+}
+
+// Only meaningful in Keel's own repository: a bare `keel` resolves to the
+// installed package, so gate commands verify the released CLI rather than the
+// working tree. The failure mode is a silently stale result, not an error, so
+// it is worth stating rather than leaving to be discovered.
+function printSourceRepoCliResolution(repo) {
+  if (!isKeelSourceRepo(repo)) return;
+  process.stdout.write("\nKeel source repository:\n");
+  printDoctorLine(
+    "gate CLI resolution",
+    "advisory",
+    "a bare `keel` runs the installed package, so gate results will not "
+      + "reflect uncommitted changes to gate, contract, or capability code; "
+      + "run `node bin/keel.js gate <stage> . --change <c> --task <t>` "
+      + "instead — the repository argument is required"
+  );
+}
+
+function readFastCheck(repo) {
+  const configPath = path.join(repo, "keel", "config.yaml");
+  if (!fs.existsSync(configPath)) return null;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    const stripped = line.trim();
+    if (stripped.startsWith("#")) continue;
+    const match = stripped.match(/^fast_check\s*:\s*(.+?)\s*$/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function gitConfigHooksPath(repo) {
+  const result = spawnSync(
+    "git",
+    ["-C", repo, "config", "--local", "--get", "core.hooksPath"],
+    { encoding: "utf8" }
+  );
+  if (result.status !== 0) return null;
+  const value = (result.stdout || "").trim();
+  return value || null;
+}
+
+function printStandingAuthorizationSurface(repo) {
+  process.stdout.write("\nStanding authorization:\n");
+  const { declared, scopes, unknown, message } = readStandingAuthorization(repo);
+  if (unknown.length > 0) {
+    printDoctorLine("authorize", "failed", message);
+    return false;
+  }
+  printDoctorLine(
+    "authorize",
+    declared.length > 0 ? "ok" : "none",
+    declared.length > 0
+      ? `declared in keel/config.yaml: ${declared.join(", ")}`
+      : "undeclared; every action stays hard-stop"
+  );
+  for (const action of STANDING_AUTHORIZATION_ACTIONS) {
+    // Keyed on the action, never on the declared string. A scoped entry is
+    // `issue:acme/widgets` in the file, so a membership test against the bare
+    // name reports it `not authorized` on the same screen that has just listed
+    // it as declared — a diagnostic contradicting itself six lines apart.
+    if (!scopes.has(action)) {
+      printDoctorLine(action, "not authorized");
+      continue;
+    }
+    const scope = scopes.get(action);
+    printDoctorLine(
+      action,
+      "authorized",
+      scope ? `scoped to ${scope}` : ""
+    );
+  }
+  // Said once, and only where it applies. Keel invokes no tracker client and
+  // observes none that an agent runs, so the scope is a declaration carried to
+  // the people who read it rather than a boundary anything holds. A reader who
+  // took it for a sandbox would be relying on nothing.
+  if ([...scopes.values()].some((scope) => scope !== null)) {
+    printDoctorLine(
+      "scope",
+      "carried",
+      "Keel records a scope and does not enforce it — it invokes no tracker "
+        + "client and cannot observe one, so the boundary is kept by whoever "
+        + "acts, not by this check"
+    );
+  }
+  return true;
+}
+
+function printRoutingSurface(repo) {
+  process.stdout.write("\nFull/Lite routing:\n");
+  const { paths, unreadable } = readFullModePaths(repo);
+  if (unreadable.length > 0) {
+    // Same verdict the projection reaches, from the same read: a diagnostic
+    // that reported health while `keel context` reported the conservative
+    // state would leave a reader to pick which one to believe.
+    printDoctorLine(
+      "full_mode_paths",
+      "failed",
+      `${fullModePathsUnreadableMessage(unreadable)} Every change routes Full `
+        + "until it is corrected."
+    );
+    return;
+  }
+  if (paths.length === 0) {
+    printDoctorLine(
+      "full_mode_paths",
+      "none",
+      "undeclared; routing follows the size heuristic alone"
+    );
+    return;
+  }
+  printDoctorLine(
+    "full_mode_paths",
+    "ok",
+    `declared in keel/config.yaml: ${paths.length} `
+      + `${paths.length === 1 ? "path always routes" : "paths always route"} Full`
+  );
+  for (const entry of paths) printDoctorLine(entry.path, "Full", entry.reason);
+}
+
+// Reported whether or not it is declared, because the default is the state a
+// reader most needs to see: a repository that declared nothing is loading every
+// skill's guidance and has no other surface that says so.
+// Reported whether or not it is declared: the doctor is where a reader goes to
+// learn what is and is not declared, and "undeclared" is itself the answer to
+// "does anything here claim merges are reviewed".
+function printMergeSurface(repo) {
+  process.stdout.write("\nMerge:\n");
+  const merge = readMergeDeclaration(repo);
+  if (!merge.declared) {
+    printDoctorLine("merge", "undeclared", "nothing here claims how merges happen");
+    return;
+  }
+  if (merge.unknown.length > 0) {
+    printDoctorLine("merge", "unreadable", merge.message);
+    return;
+  }
+  printDoctorLine(
+    "merge",
+    merge.kind === "repository" ? `repository:${merge.check}` : merge.kind,
+    merge.kind === "repository"
+      ? `declared in keel/config.yaml - the default branch merges when ${merge.check} passes, with no human review; the agent still never merges`
+      : "declared in keel/config.yaml - a person merges"
+  );
+}
+
+function printExecutorTierSurface(repo) {
+  process.stdout.write("\nExecutor tier:\n");
+  const { declared, tier, unknown, message } = readExecutorTier(repo);
+  if (unknown.length > 0) {
+    printDoctorLine("executor_tier", "unreadable", message);
+    return;
+  }
+  printDoctorLine(
+    "executor_tier",
+    tier,
+    (declared ? "declared in keel/config.yaml" : "undeclared; the default")
+      + " - affects which skill guidance is read and nothing else"
+  );
+}
+
+function printTriageSurface(repo) {
+  process.stdout.write("\nUnattended triage:\n");
+  const { labels, issues, unreadable } = readTriagePolicy(repo);
+  // An unreadable declaration is reported as broken rather than as absent. The
+  // owner who typed it needs to know their file is the reason nothing runs,
+  // which "undeclared" would tell them is not the case.
+  if (unreadable.length > 0) {
+    printDoctorLine(
+      "triage",
+      "unreadable",
+      `keel/config.yaml declares triage entries Keel could not read — `
+        + `${unreadable.join(", ")}; no issue starts work unattended until the `
+        + "declaration is corrected"
+    );
+    return;
+  }
+  // Only the declared sources are named. Naming a source with nothing under it
+  // would read as a policy that exists, on the one surface asked to answer
+  // "what may start work here" in a single line.
+  const declared = [];
+  if (labels.length > 0) declared.push(`issues labelled ${labels.join(", ")}`);
+  if (issues.length > 0) declared.push(`issues numbered ${issues.join(", ")}`);
+  printDoctorLine(
+    "triage",
+    declared.length > 0 ? "ok" : "none",
+    declared.length > 0
+      ? `${declared.join(", and ")} may start work unattended; `
+        + "admission decides nothing after it, and no declaration authorizes a merge"
+      : "undeclared; no issue starts work unattended"
+  );
+}
+
+function printPrecedentSurface(repo) {
+  process.stdout.write("\nPrecedent store:\n");
+  const store = readPrecedentStore(repo);
+  if (store.precedents.length === 0) {
+    printDoctorLine(
+      "precedents",
+      "none",
+      store.declared
+        ? `declared at ${store.declared}, which holds no precedents here; `
+          + "an absent store behaves exactly as an undeclared one"
+        : "undeclared; no precedent informs any decision"
+    );
+    return;
+  }
+  const authorized = store.precedents.filter(
+    (item) => item.status === "authorized"
+  ).length;
+  printDoctorLine("precedents", String(store.precedents.length), store.declared);
+  printDoctorLine(
+    "authorized",
+    String(authorized),
+    `${store.precedents.length - authorized} recorded, offered as a `
+      + "recommendation rather than applied"
+  );
+  const incomplete = store.precedents.filter((item) => !item.complete);
+  printDoctorLine(
+    "incomplete",
+    String(incomplete.length),
+    incomplete.length > 0
+      ? `missing a Rationale, so not applicable to any decision: ${incomplete
+        .map((item) => item.name)
+        .join(", ")}`
+      : "every precedent states why, which is the part that transfers"
+  );
+}
+
+function printFastPrePushSurface(repo) {
+  process.stdout.write("\nFast pre-push surface:\n");
+  const fastCheck = readFastCheck(repo);
+  printDoctorLine(
+    "fast_check",
+    fastCheck ? "ok" : "none",
+    fastCheck
+      ? `declared in keel/config.yaml: ${fastCheck}`
+      : "undeclared; add a fast_check line to keel/config.yaml"
+  );
+  const hookPresent = fs.existsSync(path.join(repo, ".githooks", "pre-push"));
+  printDoctorLine(
+    "pre-push hook",
+    hookPresent ? "ok" : "none",
+    hookPresent
+      ? ".githooks/pre-push present"
+      : "run keel --install --with-git-hooks to scaffold it"
+  );
+  const hooksPath = gitConfigHooksPath(repo);
+  printDoctorLine(
+    "core.hooksPath",
+    hooksPath === ".githooks" ? "ok" : hooksPath ? "other" : "unset",
+    hooksPath || "default (.git/hooks)"
+  );
+}
+
+const SHIPPED_LENS_DIR = path.join(PACKAGE_ROOT, "assets", "lenses");
+const EXPECTED_LENS_TEMPLATES = ["web", "hardware", "hardware-dsl"];
+
+function targetSkillsDir(repo, target) {
+  if (target === "codex") return path.join(repo, ".agents", "skills");
+  if (target === "opencode") return path.join(repo, ".opencode", "skills");
+  return path.join(repo, ".claude", "skills");
+}
+
+function legacyProfileSkills(repo, target) {
+  try {
+    return fs
+      .readdirSync(targetSkillsDir(repo, target), { withFileTypes: true })
+      .filter(
+        (entry) => entry.isDirectory() && /^keel-profile-/.test(entry.name)
+      )
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    return [];
+  }
+}
+
+function printLensSurface(repo, target) {
+  process.stdout.write("\nDomain lens surface:\n");
+  const shipped = lensNames(SHIPPED_LENS_DIR);
+  const missing = EXPECTED_LENS_TEMPLATES.filter(
+    (name) => !shipped.includes(name)
+  );
+  printDoctorLine(
+    "lens templates",
+    missing.length === 0 ? "ok" : "incomplete",
+    missing.length === 0
+      ? `shipped: ${EXPECTED_LENS_TEMPLATES.join(", ")}; scaffold with keel lenses add`
+      : `missing template(s): ${missing.join(", ")}`
+  );
+  const installed = lensNames(path.join(repo, "keel", "lenses"));
+  printDoctorLine(
+    "installed lenses",
+    installed.length > 0 ? "ok" : "none",
+    installed.length > 0
+      ? `keel/lenses/: ${installed.join(", ")}`
+      : "no user lenses yet; keel lenses add scaffolds one"
+  );
+  const legacy = legacyProfileSkills(repo, target);
+  if (legacy.length > 0) {
+    printDoctorLine(
+      "legacy profiles",
+      "migrate",
+      `found ${legacy.join(", ")}; v3 keel-profile-* skills are replaced by `
+        + "pluggable lenses (keel lenses add). Left untouched; not active state."
+    );
+  }
+}
+
+function lensNames(dir) {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => name.slice(0, -3))
+      .sort();
+  } catch (error) {
+    return [];
+  }
+}
+
+function runLensesList(repo) {
+  const shipped = lensNames(SHIPPED_LENS_DIR);
+  const installed = lensNames(path.join(repo, "keel", "lenses"));
+  process.stdout.write("Shipped lens templates (assets/lenses/):\n");
+  if (shipped.length === 0) {
+    process.stdout.write("  (none)\n");
+  } else {
+    for (const name of shipped) {
+      const mark = installed.includes(name) ? " (installed)" : "";
+      process.stdout.write(`  ${name}${mark}\n`);
+    }
+  }
+  process.stdout.write("\nInstalled lenses (keel/lenses/):\n");
+  if (installed.length === 0) {
+    process.stdout.write("  (none) — run keel lenses add <name>\n");
+  } else {
+    for (const name of installed) {
+      const mark = shipped.includes(name) ? "" : " (custom)";
+      process.stdout.write(`  ${name}${mark}\n`);
+    }
+  }
+  return 0;
+}
+
+function runLensesAdd(repo, name, force) {
+  const source = path.join(SHIPPED_LENS_DIR, `${name}.md`);
+  if (!fs.existsSync(source)) {
+    const available = lensNames(SHIPPED_LENS_DIR).join(", ") || "(none)";
+    fail(`unknown lens template: ${name}; shipped templates: ${available}`);
+  }
+  const destDir = path.join(repo, "keel", "lenses");
+  const dest = path.join(destDir, `${name}.md`);
+  if (fs.existsSync(dest) && !force) {
+    process.stderr.write(
+      `keel: keel/lenses/${name}.md already exists; pass --force to overwrite\n`
+    );
+    return 3;
+  }
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.copyFileSync(source, dest);
+  process.stdout.write(
+    `keel: wrote keel/lenses/${name}.md from the ${name} template; `
+      + "edit it to fit this repository\n"
+  );
+  return 0;
+}
+
+function runAction(options) {
+  if (options.updateSource !== null && options.action !== "update") {
+    fail("--source only applies to --update");
+  }
+  if (options.withGitHooks && options.action !== "install") {
+    fail("--with-git-hooks only applies to --install");
+  }
+
+  if (options.action === "openspec") {
+    const openspec = findOpenSpecCommand();
+    if (!openspec) {
+      process.stderr.write(
+        `keel: openspec is not resolvable; ${unresolvedOpenSpecAdvice()}\n`
+      );
+      return 1;
+    }
+    const status = runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    if (status !== 0 || options.openspecArgs[0] !== "update") return status;
+    const repo = process.cwd();
+    for (const target of installedOpenSpecTargets(repo)) {
+      process.stdout.write(`keel: restoring ${target} OpenSpec overlays after update\n`);
+      const result = refreshOpenSpecSurfaceOverlay(repo, target);
+      if (result.status !== 0) return result.status;
+    }
+    return status;
+  }
+
+  if (options.action === "context") {
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("context does not accept install or update options");
+    }
+    if (options.task && !options.change) {
+      fail("context requires --change when --task is provided");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    let result;
+    try {
+      if (options.clearHandoff) {
+        fs.rmSync(path.join(repo, "keel", "HANDOFF.md"), { force: true });
+      }
+      result = resolveContext(repo, options);
+    } catch (error) {
+      process.stderr.write(`keel: context input error: ${error.message}\n`);
+      return 1;
+    }
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderContext(result)
+    );
+    return 0;
+  }
+
+  if (options.action === "gate") {
+    if (!options.gateStage) {
+      fail("gate requires task-start, task-complete, or change-close");
+    }
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("gate does not accept install or update options");
+    }
+    if (options.task && !options.change) {
+      fail("gate requires --change when --task is provided");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    let result;
+    try {
+      result = runGate(repo, options.gateStage, options);
+    } catch (error) {
+      if (error instanceof GateInputError) {
+        process.stderr.write(`keel: gate input error: ${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderGate(result)
+    );
+    if (result.status === "pass") return 0;
+    if (result.status === "needs-review") return 4;
+    return 3;
+  }
+
+  if (options.action === "guard") {
+    if (!["start", "status", "clear"].includes(options.guardSubcommand || "")) {
+      fail("guard requires start, status, or clear");
+    }
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("guard does not accept install or update options");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    let result;
+    try {
+      if (options.guardSubcommand === "start") {
+        result = startGuard(repo, options);
+      } else if (options.guardSubcommand === "status") {
+        result = guardStatus(repo);
+      } else {
+        result = clearGuard(repo);
+      }
+    } catch (error) {
+      if (error instanceof GuardInputError) {
+        process.stderr.write(`keel: guard input error: ${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderGuard(result)
+    );
+    return ["started", "active", "absent", "cleared"].includes(result.status)
+      ? 0
+      : 3;
+  }
+
+  if (options.action === "triage") {
+    const repo = path.resolve(options.repo || process.cwd());
+    const labels = String(options.labels || "")
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean);
+    const verdict = triageIssue(repo, labels, options.issue);
+    const payload = {
+      schemaVersion: 1,
+      command: "triage",
+      ...verdict,
+      warnings: [
+        "Admission starts work and authorizes nothing after it; every gate, "
+          + "evidence requirement, Review, and the write guard still apply.",
+        "An unattended run may open a pull request and may not merge one.",
+        "Keel schedules nothing; the loop belongs to the host runtime.",
+      ],
+    };
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    } else {
+      process.stdout.write(`Triage: ${verdict.status}\n${verdict.reason}\n`);
+    }
+    return 0;
+  }
+  if (options.action === "lenses") {
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("lenses does not accept install or update options");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    if (options.lensesSubcommand === "list") {
+      return runLensesList(repo);
+    }
+    return runLensesAdd(repo, options.lensName, options.force);
+  }
+
+  if (options.action === "capabilities") {
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("capabilities does not accept install or update options");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    const result = probeCapabilities(repo, options.target);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(result, null, 2)}\n`
+        : renderCapabilities(result)
+    );
+    return 0;
+  }
+
+  if (options.action === "project") {
+    if (options.dryRun || options.forceTemplateUpdate || options.updateSource) {
+      fail("project does not accept install or update options");
+    }
+    if (options.task && !options.change) {
+      fail("project requires --change when --task is provided");
+    }
+    const repo = path.resolve(options.repo || process.cwd());
+    if (options.projectSubcommand === "goal") {
+      const result = compileGoalProjection(repo, options);
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(result, null, 2)}\n`
+          : renderGoalProjection(result)
+      );
+      return result.status === "ready" ? 0 : 3;
+    }
+    if (options.projectSubcommand === "tasks") {
+      const result = compileTasksView(repo, options);
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(result, null, 2)}\n`
+          : renderTasksView(result)
+      );
+      return result.status === "ready" ? 0 : 3;
+    }
+    if (options.projectSubcommand === "helper") {
+      let result;
+      try {
+        if (options.helperCaptureBaseline) {
+          result = captureHelperBaseline(repo, options);
+        } else if (options.helperVerify) {
+          result = verifyHelperEvidence(repo, options);
+        } else {
+          result = compileHelperBrief(repo, options);
+        }
+      } catch (error) {
+        process.stderr.write(`keel: helper input error: ${error.message}\n`);
+        return 1;
+      }
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(result, null, 2)}\n`
+          : renderHelper(result)
+      );
+      const okStates = ["ready", "verified", "captured"];
+      return okStates.includes(result.status) ? 0 : 3;
+    }
+    let result;
+    try {
+      result = projectRuntime(repo, options);
+    } catch (error) {
+      process.stderr.write(`keel: projection input error: ${error.message}\n`);
+      return 1;
+    }
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(result, null, 2)}\n`
+        : renderProjection(result)
+    );
+    return 0;
+  }
+
+  if (options.action === "init") {
+    return runProjectInit(options);
+  }
+
+  if (options.action === "install") {
+    const installStatus = runPython(INSTALL_SCRIPT, installerArgs(options));
+    if (installStatus !== 0) {
+      return installStatus;
+    }
+    return refreshInstalledTargetOverlays(
+      path.resolve(options.repo || process.cwd()),
+      options.target,
+      { dryRun: options.dryRun }
+    ).status;
+  }
+
+  if (options.action === "update") {
+    return runGlobalUpdate(options);
+  }
+
+  if (options.action === "clear" || options.action === "uninstall") {
+    const uninstallStatus = runPython(
+      INSTALL_SCRIPT,
+      installerArgs(options, ["--uninstall"])
+    );
+    if (uninstallStatus !== 0) {
+      return uninstallStatus;
+    }
+    return removeOpenSpecSurfaceOverlay(
+      path.resolve(options.repo || process.cwd()),
+      options.target,
+      { dryRun: options.dryRun }
+    ).status;
+  }
+
+  if (options.action === "check") {
+    if (options.dryRun || options.forceTemplateUpdate) {
+      fail("--check does not accept --dry-run or --force-template-update");
+    }
+    const checkStatus = runPython(
+      INSTALL_SCRIPT,
+      installerArgs(options, ["--check"])
+    );
+    if (checkStatus !== 0) {
+      return checkStatus;
+    }
+    process.stdout.write("\nDry-run install plan:\n");
+    const planStatus = runPython(
+      INSTALL_SCRIPT,
+      installerArgs({ ...options, dryRun: true })
+    );
+    if (planStatus !== 0) {
+      return planStatus;
+    }
+    // The overlay refresh is a Node-side step the installer's plan never sees,
+    // so without this `--check` reports an empty plan for a run that writes.
+    return refreshInstalledTargetOverlays(
+      path.resolve(options.repo || process.cwd()),
+      options.target,
+      { dryRun: true }
+    ).status;
+  }
+
+  if (options.action === "doctor") {
+    return runDoctor(options);
+  }
+
+  fail("missing action");
+}
+
+function main() {
+  // `keel mail` parses its own arguments: it is host-neutral messaging between
+  // sessions (#180), sharing no option with the gate and projection commands.
+  if (process.argv[2] === "mail") {
+    return require("../src/core/mail").runMail(process.argv.slice(3));
+  }
+  // `keel chat` likewise: the group chat between sessions (#187).
+  if (process.argv[2] === "chat") {
+    return require("../src/core/chat/cli").runChat(process.argv.slice(3));
+  }
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help || (!options.action && !options.version)) {
+    printHelp();
+    return 0;
+  }
+  if (options.version) {
+    printVersion();
+    return 0;
+  }
+  return runAction(options);
+}
+
+// Not `process.exit()`: stdout to a pipe is asynchronous, and exiting discards
+// whatever the operating system has not yet accepted. Nothing is lost while the
+// payload fits the pipe buffer, which is why this was invisible at the 64KB
+// default — and under the memory pressure that shrinks buffers to a page or
+// two, a consumer receives a valid prefix of an incomplete document with no
+// error and no change of exit code. Setting the code instead lets the event
+// loop drain the write and end the process on its own.
+process.exitCode = main();
