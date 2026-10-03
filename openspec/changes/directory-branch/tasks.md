@@ -40,7 +40,7 @@
       - Scope check: `git status --short` shows `scripts/directory_tree.js` and `assets/directory/icon.png` (new) and `scripts/validate_plugin.py`, this task's Touch, plus this change's own directory. `the-tarball-is-the-repository` now counts 67 packed files, because the icon and the script are both under npm `files`.
       - Findings: none
 
-- [ ] 1.2 `scripts/directory_branch.js` advances `claude-directory`, and the release job runs it in place of the pinned entry
+- [x] 1.2 `scripts/directory_branch.js` advances `claude-directory`, and the release job runs it in place of the pinned entry
   - Covers:
     - keel-native-plugin-package / Each release updates the directory branch / Each release advances the directory branch
     - keel-native-plugin-package / Each release updates the directory branch / The release notes name the branch commit
@@ -68,9 +68,21 @@
   - Stop Rules:
     - Stop if pushing a branch from the release job would need a permission or secret the workflow does not already have, because granting one is the owner's decision.
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:5cc83c5388d053a7759b7f9eb6b67475d69966a2e7e9eba3c15fce67664415c3
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-branch-advances` reports `directory-branch-advances scenario passed.` In a scratch repository whose `origin` is a scratch bare repository, `node scripts/directory_branch.js 9.9.9 aaaa…` creates origin's `claude-directory` and prints the commit it pushed. The commit's message names `9.9.9` and the sha, its manifest names `keel-openspec`, and its file list equals a `directory_tree.js` build. A second identical run leaves the branch at the same commit. A run with `--tree` naming a copy whose README was changed adds exactly one commit, whose parent is the previous head.
+    - M1.red: fail. Before the script existed, the scenario reported `directory-branch-advances: scripts/directory_branch.js does not exist.`, which carries the declared signature `directory-branch-advances:`.
+    - M1.green: pass. The same scenario passes with `scripts/directory_branch.js`. It builds the tree (or takes `--tree`), checks out `origin/claude-directory` into a temporary worktree or starts it as an orphan, replaces its contents, commits only when the index differs, pushes unless `--no-push`, prints the head, and removes the worktree.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario release-notes-name-the-directory-branch` reports `release-notes-name-the-directory-branch scenario passed.` The release step runs `node scripts/directory_branch.js "$VERSION" "$SHA"` and writes a "Directory listing" section naming `keel-openspec`, `claude-directory`, and the printed commit. `publish.yml` no longer mentions `official_entry.js`, and the file is deleted. Run through bash with `directory=abc123`, the notes line prints "Anthropic's plugin directory lists this release as `keel-openspec`, from branch `claude-directory` at abc123.", and the workflow still parses as YAML.
+    - M2.red: fail. Before the workflow edit, the scenario reported `release-notes-name-the-directory-branch: the release step does not run scripts/directory_branch.js for the version and sha.`, which carries the declared signature `release-notes-name-the-directory-branch:`.
+    - M2.green: pass. The same scenario passes once the step runs the script, the notes name the branch, and `scripts/official_entry.js` is removed.
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 drives the real script against real git, with a bare repository standing in for GitHub. It checks the three behaviors of the added scenario: the branch starts and advances by one commit, an unchanged tree adds nothing, and the printed commit is the pushed one. M2 is structural, because the step runs only in GitHub Actions. Task 2.2 owns the real run, observing `claude-directory` and the notes after 5.90.0 lands. The Stop rule held: the publish job already has `contents: write`, and `actions/checkout` keeps its token for `git push`.
+      - Scope check: `git status --short` shows `scripts/directory_branch.js` (new), `scripts/official_entry.js` (deleted), `.github/workflows/publish.yml`, `scripts/validate_plugin.py`, `README.md`, and `README.zh-CN.md`, all in this task's Touch, plus this change's own `tasks.md`. The old `official-directory-entry` scenario was removed with the script it tested.
+      - Findings: none
 
 ## 2. Release, and the owner submits
 
@@ -148,7 +160,7 @@
 
 ## Change Evidence
 
-- C1: `todo`
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`, with `directory-tree-is-the-package-renamed`, `directory-branch-advances`, and `release-notes-name-the-directory-branch` registered and `official-directory-entry` removed.
 
 ## Invalidates
 

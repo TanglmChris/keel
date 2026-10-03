@@ -19558,98 +19558,127 @@ def validate_directory_tree_is_the_package_renamed_scenario() -> int:
     return 0
 
 
-def validate_official_directory_entry_scenario() -> int:
-    """Each release states the entry Anthropic's official directory would list.
+def validate_directory_branch_advances_scenario() -> int:
+    """Issue #175: each release advances the branch the directory tracks.
 
-    The directory pins third-party plugins to a commit of a git repository, so
-    the entry is only useful pinned to the commit the release tag points at.
-    Keel prints it and submits nothing.
+    The directory follows a branch rather than a pinned commit, so the release
+    job commits the directory tree to `claude-directory` and pushes it. A run
+    with nothing new commits nothing, so a re-run of a release adds no noise.
     """
-    label = "official-directory-entry"
-    script = ROOT / "scripts/official_entry.js"
-    sha = "0123456789abcdef0123456789abcdef01234567"
-
-    def run(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["node", str(script), *args],
-            cwd=ROOT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
-
-    # M1 — the entry, pinned to the given commit.
-    printed = run("5.80.0", sha)
-    try:
-        entry = json.loads(printed.stdout) if printed.returncode == 0 else None
-    except ValueError:
-        entry = None
-    if not isinstance(entry, dict):
-        report(
-            f"{label} M1 printed no official directory entry: exit "
-            f"{printed.returncode}, {(printed.stderr or printed.stdout).strip()!r}"
-        )
+    label = "directory-branch-advances:"
+    script = ROOT / "scripts/directory_branch.js"
+    if not script.is_file():
+        report(f"{label} scripts/directory_branch.js does not exist.")
         return 1
-    manifest = json.loads(
-        (ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
-    )
-    want = {
-        "name": "keel",
-        "description": manifest.get("description"),
-        "category": "development",
-        "source": {"source": "url", "url": KEEL_REPOSITORY_GIT_URL, "sha": sha},
-        "homepage": "https://github.com/TanglmChris/keel",
-    }
-    if entry != want:
-        report(
-            f"{label} M1 printed an entry that is not the release's: "
-            f"{entry!r}, expected {want!r}"
-        )
-        return 1
+    sha = "a" * 40
+    with tempfile.TemporaryDirectory(prefix="keel-directory-branch-", ignore_cleanup_errors=True) as raw:
+        base = Path(raw)
+        origin = base / "origin.git"
+        work = base / "work"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+        write_text(work / "README.md", "scratch\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(work), *a], text=True, capture_output=True, check=False)
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "init")
+        git("remote", "add", "origin", str(origin))
+        git("push", "-q", "origin", "main")
 
-    # M2 — a pin the directory could not use is refused, and prints nothing a
-    # careless pipe could paste.
-    for args in (("5.80", sha), ("5.80.0", sha[:-1])):
-        refused = run(*args)
-        if refused.returncode == 0 or refused.stdout.strip():
-            report(
-                f"{label} M2 accepted a malformed pin {args!r}: exit "
-                f"{refused.returncode}, stdout {refused.stdout!r}"
-            )
+        def run(*extra: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(["node", str(script), "9.9.9", sha, *extra], cwd=work, text=True,
+                                  capture_output=True, check=False, timeout=180)
+
+        def branch_head() -> str:
+            out = subprocess.run(["git", "-C", str(origin), "rev-parse", "--verify", "-q",
+                                  "refs/heads/claude-directory"], text=True, capture_output=True)
+            return out.stdout.strip()
+
+        first = run()
+        head = branch_head()
+        if first.returncode != 0 or not head:
+            report(f"{label} the first run did not create origin's claude-directory: "
+                   f"exit={first.returncode} {first.stdout}{first.stderr}")
+            return 1
+        if head not in first.stdout:
+            report(f"{label} the run did not print the commit it pushed ({head}): {first.stdout!r}")
+            return 1
+        show = lambda ref, path: subprocess.run(["git", "-C", str(origin), "show", f"{ref}:{path}"],
+                                                text=True, capture_output=True).stdout
+        message = subprocess.run(["git", "-C", str(origin), "log", "-1", "--format=%s", head],
+                                 text=True, capture_output=True).stdout
+        if "9.9.9" not in message or sha not in message:
+            report(f"{label} the commit message does not name the version and sha: {message!r}")
+            return 1
+        if json.loads(show(head, ".claude-plugin/plugin.json") or "{}").get("name") != "keel-openspec":
+            report(f"{label} the branch manifest does not name keel-openspec.")
+            return 1
+        listed = set(subprocess.run(["git", "-C", str(origin), "ls-tree", "-r", "--name-only", head],
+                                    text=True, capture_output=True).stdout.split())
+        reference = base / "reference"
+        subprocess.run(["node", str(ROOT / "scripts/directory_tree.js"), str(reference)], check=True,
+                       capture_output=True)
+        built = {p.relative_to(reference).as_posix() for p in reference.rglob("*") if p.is_file()}
+        if listed != built:
+            report(f"{label} the branch files differ from a directory_tree.js build: "
+                   f"extra={sorted(listed - built)!r} missing={sorted(built - listed)!r}")
             return 1
 
-    # M3 — the release job appends the entry for the tag's commit to the notes
-    # before it creates the release.
-    workflow = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
-    step = workflow[workflow.find("name: Tag and release the landed version"):]
-    create = step.find("gh release create")
-    append = step.find('node scripts/official_entry.js "$VERSION" "$SHA"')
-    if append < 0:
-        report(
-            f"{label} M3 release notes do not carry the official directory "
-            "entry: the release step never runs `node scripts/official_entry.js "
-            '"$VERSION" "$SHA"`.'
-        )
-        return 1
-    if create < 0:
-        report(f"{label} M3 the release step no longer runs `gh release create`.")
-        return 1
-    if create < append:
-        report(
-            f"{label} M3 the release step creates the release before it "
-            "writes the official directory entry, so the notes miss it."
-        )
-        return 1
-    if ">> notes.md" not in step[append:create]:
-        report(
-            f"{label} M3 the release step runs official_entry.js but does not "
-            "append its output to notes.md."
-        )
-        return 1
+        second = run()
+        if second.returncode != 0 or branch_head() != head:
+            report(f"{label} a run with an unchanged tree moved the branch: "
+                   f"exit={second.returncode} head={branch_head()} was {head}")
+            return 1
 
-    report(f"{label} scenario passed.")
+        changed = base / "changed"
+        shutil.copytree(reference, changed)
+        write_text(changed / "README.md", (changed / "README.md").read_text(encoding="utf-8") + "\nplanted\n")
+        third = run("--tree", str(changed))
+        new_head = branch_head()
+        parent = subprocess.run(["git", "-C", str(origin), "rev-parse", f"{new_head}^"],
+                                text=True, capture_output=True).stdout.strip()
+        if third.returncode != 0 or new_head == head or parent != head:
+            report(f"{label} a changed package did not add exactly one commit on top: "
+                   f"exit={third.returncode} new={new_head} parent={parent} was {head}")
+            return 1
+
+    if "directory-branch-advances" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("directory-branch-advances scenario passed.")
+    return 0
+
+
+def validate_release_notes_name_the_directory_branch_scenario() -> int:
+    """Issue #175: the release step advances the branch and names its commit.
+
+    The step replaces the pinned "Official directory entry", which described a
+    commit the directory no longer reads.
+    """
+    label = "release-notes-name-the-directory-branch:"
+    workflow = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+    start = workflow.find("- name: Tag and release the landed version")
+    if start < 0:
+        report(f"{label} the release step is missing from publish.yml.")
+        return 1
+    following = workflow.find("\n      - name:", start + 1)
+    step = workflow[start:] if following < 0 else workflow[start:following]
+    if 'node scripts/directory_branch.js "$VERSION" "$SHA"' not in step:
+        report(f"{label} the release step does not run scripts/directory_branch.js for the version and sha.")
+        return 1
+    for needle in ("keel-openspec", "claude-directory"):
+        if needle not in step:
+            report(f"{label} the release notes written by the step do not name {needle}.")
+            return 1
+    if "official_entry.js" in workflow:
+        report(f"{label} publish.yml still references official_entry.js.")
+        return 1
+    if (ROOT / "scripts/official_entry.js").exists():
+        report(f"{label} scripts/official_entry.js still exists.")
+        return 1
+    if "release-notes-name-the-directory-branch" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("release-notes-name-the-directory-branch scenario passed.")
     return 0
 
 
@@ -35440,7 +35469,8 @@ SCENARIOS: tuple = (
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
-    ("official-directory-entry", validate_official_directory_entry_scenario),
+    ("directory-branch-advances", validate_directory_branch_advances_scenario),
+    ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),
     ("directory-tree-is-the-package-renamed", validate_directory_tree_is_the_package_renamed_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
