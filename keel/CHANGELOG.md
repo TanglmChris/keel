@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.88.0 - Keel runs OpenSpec 1.14
+
+OpenSpec 1.14.0 shipped on 2026-09-30. A repository whose surfaces 1.14.0 had already written got a `keel --doctor` warning that they were newer than the OpenSpec Keel runs, 1.13.2 (TanglmChris/rtl_ppa_prj#71). This release moves the pin, so Keel runs the OpenSpec that wrote them.
+
+- `npm-shrinkwrap.json` now pins OpenSpec 1.14.0 for every install. The suite passes unchanged, every published spec validates strictly under it, and 1.14 writes the same surface layout for Claude, Codex, and OpenCode as 1.13. Its new `.agents/skills/.openspec-target` marker file is left alone.
+- The Codex doctor line, its scenario, and the protocol's runtime-surface line now say the `.agents/skills` layout belongs to OpenSpec 1.13 and later, rather than naming 1.13 as the pin.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.88.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.87.0 - Codex wakes when addressed, and the bridge reaches real Slack
 
 5.86 left two gaps the owner hit on the same day. Codex still could not wake when someone addressed it, and a session that answered a record kept seeing it as unread (#203, #201). The first run against real Slack then showed the bridge as shipped never connected from its login item, and Slack refused the documented manifest (#187). This release wakes Codex only for what is addressed to it, continuing one compacting thread. Answered records now count as read, and the bridge runs from launchd and behind a proxy.

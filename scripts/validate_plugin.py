@@ -41,8 +41,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.87.0"
-PROTOCOL_VERSION = "5.87.0"
+PACKAGE_VERSION = "5.88.0"
+PROTOCOL_VERSION = "5.88.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1248,7 +1248,7 @@ def validate_target_surface_scenario() -> int:
         if (
             codex_doctor.returncode != 0
             or "OpenSpec commands: ok" not in codex_doctor.stdout
-            or "OpenSpec 1.13 surfaces Codex's workflows" not in codex_doctor.stdout
+            or "OpenSpec 1.13 and later surface Codex's workflows" not in codex_doctor.stdout
             or "OpenSpec action skills: ok" not in codex_doctor.stdout
             or ".agents/skills" not in posix_paths(codex_doctor.stdout)
             or "bootstrap: ok" not in codex_doctor.stdout
@@ -5192,7 +5192,7 @@ def openspec_overlay_files(
         }
     if target == "codex":
         assert codex_home is not None
-        # OpenSpec 1.13, which Keel pins, writes Codex's workflows as skills
+        # OpenSpec 1.13 and later, including the 1.14 Keel pins, write Codex's workflows as skills
         # under `.agents/skills` and no command files (#169).
         return {
             "apply": [repo / ".agents/skills/openspec-apply-change/SKILL.md"],
