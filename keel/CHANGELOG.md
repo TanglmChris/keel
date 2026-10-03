@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.91.0 - A task field cites its provenance
+
+`keel --doctor` in rtl_ppa_prj failed its state check on eight lines of one active `tasks.md`, and every one was correct work (#213). Among them: a Scope check naming the base it compared against, which `keel-review-checklist` asks for; an Acceptance check naming the commit a result ran on; a cache buffer's `no dirty groups`; and a negation about another checkout. One was an Acceptance criterion of a completed task, so rewording it would have moved a recorded fingerprint.
+
+- Issue #213: inside a task field, a hash-shaped token is refused only where a state claim binds it. That means a context word naming it directly (`commit a1b2c3d`, `HEAD is at a1b2c3d`, `已合入 a1b2c3d`), or the token followed by `committed`, `merged`, or `pushed`. A context word elsewhere on the line no longer makes a cited base a record.
+- Issue #213: inside a task field, `dirty` and `uncommitted` are refused only as a claim about the work: predicative (`the work is still uncommitted`, `the worktree was dirty`) or a `Status:` value. Attributive and negated uses pass. `not committed` and `pending commit` stay refused.
+- Task titles, headings, and notes sections keep the line-wide rules, and every earlier fixture of this check still holds unchanged.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.91.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.90.2 - Keel has a privacy policy, and the directory listing links it
 
 The portal warned that the listing named no privacy policy, and its compliance step asks the owner to attest that one describes the data the plugin handles (#175).
