@@ -172,7 +172,7 @@
       - Scope check: `git status --short` shows the version markers, `keel/CHANGELOG.md`, and the promoted spec, all in this task's Touch, plus this change's own `tasks.md`.
       - Findings: none
 
-- [ ] 2.2 Release 5.90.1 with the trimmed tree
+- [x] 2.2 Release 5.90.1 with the trimmed tree
   - Covers:
     - E1
   - Read:
@@ -212,12 +212,12 @@
     - Contract: keel-task-capsule/v1 sha256:b717bb3e3e8180482cc09f7721ef906c86161ed47e16fcab5606db6f3c7a9aa4
     - Blocker: none
     - Reauthorizations: none
-    - M1: pending
+    - M1: pass. `node scripts/bump_version.js patch` moved every marker from 5.90.0 to 5.90.1, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.90.1 section written into the stub.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: 1.3's trimmed tree ships under 5.90.1, and 2.3 observes the branch and the portal for it.
+      - Scope check: `git status --short` shows the version markers and `keel/CHANGELOG.md`, plus `scripts/validate_plugin.py`, all in this task's Touch. The `scripts/validate_plugin.py` change splits one condition in 1.3's scenario that `assertion-shape-count` refused, so a CLI that fails to run and a CLI that reports another version now fail with different messages.
+      - Findings: none
 
 - [ ] 2.3 The release job creates `claude-directory`, and the portal validates it as keel-openspec
   - Mode: diagnose-only
@@ -250,7 +250,7 @@
 
 ## Change Evidence
 
-- C1: pass. `npm test` reports `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`, with `directory-tree-is-the-package-renamed`, `directory-branch-advances`, and `release-notes-name-the-directory-branch` registered and `official-directory-entry` removed.
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`, with `directory-tree-is-the-package-renamed`, `directory-branch-advances`, and `release-notes-name-the-directory-branch` registered and `official-directory-entry` removed. After 1.3 trimmed the tree, `npm test` again reports `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 

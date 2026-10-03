@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.90.0"
-PROTOCOL_VERSION = "5.90.0"
+PACKAGE_VERSION = "5.90.1"
+PROTOCOL_VERSION = "5.90.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19533,8 +19533,11 @@ def validate_directory_tree_is_the_package_renamed_scenario() -> int:
         version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
         cli = subprocess.run(["node", str(tree / "bin/keel.js"), "--version"], text=True,
                              capture_output=True, check=False)
-        if cli.returncode != 0 or version not in cli.stdout:
-            report(f"{label} the tree's CLI does not run: exit={cli.returncode} {cli.stdout}{cli.stderr}")
+        if cli.returncode != 0:
+            report(f"{label} the tree's CLI does not run: exit={cli.returncode} {cli.stderr}")
+            return 1
+        if version not in cli.stdout:
+            report(f"{label} the tree's CLI reports {cli.stdout.strip()!r}, not {version}.")
             return 1
         consumer = Path(raw) / "consumer"
         consumer.mkdir()

@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.90.1 - The directory listing carries only what the plugin runs
+
+The portal's first validation of `claude-directory` passed the name and publisher checks and scanned every file. Two of its holds came from scripts the plugin never runs, and the listing showed no homepage (#175).
+
+- Issue #175: the directory tree keeps, from `scripts/`, only `run_python.js` and `install_to_repo.py`, the scripts the shipped code runs. The test suite, the release helpers, and the tree builder itself are left out: 63 files instead of 69. The npm package is unchanged.
+- Issue #175: the directory manifest names `https://github.com/TanglmChris/keel` as its homepage.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.90.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.90.0 - Anthropic's directory lists Keel as keel-openspec
 
 Anthropic's plugin directory now takes submissions through the claude.ai developer portal, and it tracks a branch of the repository rather than a pinned commit. Validating this repository there found three problems (#175):
