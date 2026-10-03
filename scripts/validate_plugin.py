@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.90.1"
-PROTOCOL_VERSION = "5.90.1"
+PACKAGE_VERSION = "5.90.2"
+PROTOCOL_VERSION = "5.90.2"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19526,9 +19526,17 @@ def validate_directory_tree_is_the_package_renamed_scenario() -> int:
         if manifest.get("homepage") != "https://github.com/TanglmChris/keel":
             report(f"{label} the tree manifest's homepage is {manifest.get('homepage')!r}.")
             return 1
-        renamed = {k: v for k, v in manifest.items() if k not in ("name", "homepage")}
-        if renamed != {k: v for k, v in root_manifest.items() if k not in ("name", "homepage")}:
-            report(f"{label} the tree manifest differs from the root manifest beyond name and homepage.")
+        policy = "https://github.com/TanglmChris/keel/blob/main/PRIVACY.md"
+        if manifest.get("privacyPolicyUrl") != policy:
+            report(f"{label} the tree manifest's privacyPolicyUrl is {manifest.get('privacyPolicyUrl')!r}, not {policy}.")
+            return 1
+        if not (ROOT / "PRIVACY.md").is_file():
+            report(f"{label} the privacyPolicyUrl names PRIVACY.md, which the repository does not have.")
+            return 1
+        added = ("name", "homepage", "privacyPolicyUrl")
+        renamed = {k: v for k, v in manifest.items() if k not in added}
+        if renamed != {k: v for k, v in root_manifest.items() if k not in added}:
+            report(f"{label} the tree manifest differs from the root manifest beyond name, homepage, and privacyPolicyUrl.")
             return 1
         version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
         cli = subprocess.run(["node", str(tree / "bin/keel.js"), "--version"], text=True,

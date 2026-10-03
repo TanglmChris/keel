@@ -707,6 +707,11 @@ npm test                  # baseline + all scenarios in parallel
 node scripts/bump_version.js <patch|minor|major>   # bump every version pin at once
 ```
 
+## Privacy
+
+Keel runs no server and collects nothing itself. [PRIVACY.md](PRIVACY.md) lists what it stores on your
+machine and what can leave it, including the bundled OpenSpec CLI's telemetry and how to turn it off.
+
 ## License
 
 [MIT](LICENSE) © 2026 TanglmChris. See the **[中文完整手册](README.zh-CN.md)** for the full

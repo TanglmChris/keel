@@ -119,6 +119,48 @@
       - Scope check: `git status --short` shows `scripts/directory_tree.js` and `scripts/validate_plugin.py`, plus this change's own directory (tasks, design D5 and F4, and the delta wording). The promoted main spec is updated in the same edit so it says the same as the delta.
       - Findings: none
 
+- [x] 1.4 A privacy policy states what Keel stores and sends, and the directory manifest links it
+  - Covers:
+    - keel-native-plugin-package / Each release updates the directory branch / The tree is the package with the directory's name
+    - D6
+    - F5
+  - Read:
+    - README.md
+    - src/core/chat/store.js
+  - Touch:
+    - PRIVACY.md
+    - README.md
+    - README.zh-CN.md
+    - scripts/directory_tree.js
+    - scripts/validate_plugin.py
+    - openspec/specs/keel-native-plugin-package/spec.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` requires the tree manifest to differ from the root manifest only by `name: keel-openspec`, `homepage: https://github.com/TanglmChris/keel`, and `privacyPolicyUrl: https://github.com/TanglmChris/keel/blob/main/PRIVACY.md`, and requires `PRIVACY.md` to exist at the repository root. Fails with: `directory-tree-is-the-package-renamed:`
+    - M2: `PRIVACY.md` names the local chat store, the `~/.keel/` state, Slack tokens kept only in the Keychain or the environment, the optional Slack bridge, `keel --update`'s network use, and the bundled OpenSpec telemetry with its opt-out. Both READMEs link it, and `claude plugin validate` passes on a built tree.
+    - M3 (regression): `npm test` passes the baseline and every registered scenario.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a statement in `PRIVACY.md` cannot be traced to the code or to a dependency's documentation, because the owner attests to it in the portal.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:4b9361ed8d4416e4248cdf08020c61fa6c54eaa16b518ff6c841332dcb205c36
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario directory-tree-is-the-package-renamed` reports `directory-tree-is-the-package-renamed scenario passed.` The tree manifest differs from the root only by `name: keel-openspec`, `homepage: https://github.com/TanglmChris/keel`, and `privacyPolicyUrl: https://github.com/TanglmChris/keel/blob/main/PRIVACY.md`, and `PRIVACY.md` exists at the root.
+    - M1.red: fail. With the test extended and the builder unchanged, the scenario reported `directory-tree-is-the-package-renamed: the tree manifest's privacyPolicyUrl is None, not https://github.com/TanglmChris/keel/blob/main/PRIVACY.md.`, which carries the declared signature `directory-tree-is-the-package-renamed:`.
+    - M1.green: pass. The same scenario passes once `directory_tree.js` sets `privacyPolicyUrl`.
+    - M2: pass. `PRIVACY.md` names `.git/keel-chat/` (`src/core/chat/store.js`), `~/.keel/` (`bridge.js`, `wake.js`), the `keel-chat-slack` Keychain service and environment tokens (`lifecycle.js`), the Slack bridge, `keel --update`'s npm and marketplace traffic, and OpenSpec telemetry with `openspec config set telemetry.enabled false`, `OPENSPEC_TELEMETRY=0`, and `DO_NOT_TRACK=1` (OpenSpec README line 253 and `dist/telemetry/index.js`). README.md and README.zh-CN.md each gain a Privacy section linking it, and `claude plugin validate` on a freshly built tree prints `✔ Validation passed`.
+    - M2.red: fail. Before this task, no `PRIVACY.md` existed, neither README linked one, and the built tree's manifest carried no `privacyPolicyUrl`.
+    - M2.green: pass. All three are present, as recorded under M2.
+    - M3: pass. `npm test` prints `validation --all passed: baseline plus 222 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 asserts the shipped manifest field on a tree built through the public builder, and M2 traces every statement in the policy to the code or to OpenSpec's own documentation, which was the Stop rule's condition. That matters because the owner attests to the policy in the portal.
+      - Scope check: `git status --short` shows `PRIVACY.md`, both READMEs, `scripts/directory_tree.js`, `scripts/validate_plugin.py`, and the promoted main spec, all in Touch, plus this change's own directory.
+      - Findings: Discard reason: OpenSpec telemetry stays on by default, because the policy discloses it and how to opt out, and changing a bundled dependency's default is a separate decision that D6 leaves open.
+
 ## 2. Release, and the owner submits
 
 - [x] 2.1 Release 5.90.0 with the change promoted
@@ -219,6 +261,53 @@
       - Scope check: `git status --short` shows the version markers and `keel/CHANGELOG.md`, plus `scripts/validate_plugin.py`, all in this task's Touch. The `scripts/validate_plugin.py` change splits one condition in 1.3's scenario that `assertion-shape-count` refused, so a CLI that fails to run and a CLI that reports another version now fail with different messages.
       - Findings: none
 
+- [x] 2.4 Release 5.90.2 with the privacy policy
+  - Covers:
+    - E1
+  - Read:
+    - keel/CHANGELOG.md
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers and a changelog entry. The behavior was proven in 1.4, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js patch` moves every marker to 5.90.2, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.90.2 section written into the stub.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:cf066d543ddba1b07953cff1221dabfd82311c9b0c61f5be82efdddd47dee0cc
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js patch` moved every marker to 5.90.2. With the 5.90.2 section written, `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree and the changelog names both 1.4 changes. The release's own effect, `claude-directory` at 5.90.2, is checked by 2.3 M1 after landing.
+      - Scope check: the bump touched exactly the version-marker files in Touch, plus `keel/CHANGELOG.md`. The other dirty paths are 1.4's, which its gate already attributed.
+      - Findings: none
+
 - [ ] 2.3 The release job creates `claude-directory`, and the portal validates it as keel-openspec
   - Mode: diagnose-only
   - Covers:
@@ -231,17 +320,24 @@
   - Verify:
     - Strategy: evidence-first
     - Reason: this observes what the real release job and the real portal did with 5.90.0. Neither can run before the release, so there is no red.
-    - M1: after 5.90.1 lands, `git ls-remote origin claude-directory` names a commit. That commit's `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.1, the commit carries no development-only script, and the v5.90.1 release notes name that commit.
-    - M2: the portal's Validate on `TanglmChris/keel` at branch `claude-directory` passes with no "Name matches a known brand" hold, scans every file, finds the icon, and raises no hold naming `scripts/validate_plugin.py` or `scripts/directory_tree.js`. Submitting is done only after the owner confirms the filled-in submission and the data-handling answers.
+    - M1: after 5.90.2 lands, `git ls-remote origin claude-directory` names a commit. That commit's `.claude-plugin/plugin.json` names `keel-openspec` at 5.90.2 with a `privacyPolicyUrl`, the commit carries no development-only script, and the v5.90.2 release notes name that commit.
+    - M2: the portal's Validate on `TanglmChris/keel` at branch `claude-directory` passes with no "Name matches a known brand" hold, scans every file, finds the icon, raises no hold naming `scripts/validate_plugin.py` or `scripts/directory_tree.js`, and shows no missing-privacy-policy warning. The owner fills in the contact email, ticks the compliance attestations, and submits.
   - Autonomy boundary:
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Stop Rules:
-    - Stop before the portal's final submit, and ask the owner to confirm what it will publish.
+    - Stop at the portal's compliance step: the contact email, the attestations, and the submit are the owner's.
   - Evidence:
-    - Contract: `todo`
+    - Contract: keel-task-capsule/v1 sha256:0cb6c9df3d4bc0b3b845964b8e667d7d9cf99570db6158f1d993d7b10c4cf952
     - Blocker: none
     - Reauthorizations: none
+    - M1: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
 
 ## Change Verify
 
@@ -261,5 +357,5 @@
 
 ## Expectation Coverage
 
-- E1: Anthropic's directory sees a plugin named `keel-openspec`, with an icon, small enough to be scanned whole, while npm, the repository name, and `keel@keel-marketplace` installs are unchanged. Covered by: 1.1, 1.3, 2.1, 2.2, 2.3
+- E1: Anthropic's directory sees a plugin named `keel-openspec`, with an icon, small enough to be scanned whole, while npm, the repository name, and `keel@keel-marketplace` installs are unchanged. Covered by: 1.1, 1.3, 1.4, 2.1, 2.2, 2.4, 2.3
 - E2: Each release refreshes what the directory tracks without the owner acting, and only the owner submits. Covered by: 1.2, 2.1, 2.3
