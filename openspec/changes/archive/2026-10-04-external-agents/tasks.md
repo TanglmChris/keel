@@ -136,7 +136,7 @@
       - Scope check: `git status --short` lists `AGENTS.md`, `README.md`, `README.zh-CN.md`, `PRIVACY.md`, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory. `assets/bootstrap/AGENTS.md` was restored to HEAD.
       - Findings: Discard reason: an agent in a project that never declares `external_agents:` learns of `keel agents brief` only from the READMEs, so it may call an external CLI directly without a brief. That is the freedom the owner asked to keep, and the bootstrap's budget rationale spends nothing on a declaration-inert rule.
 
-- [ ] 2.2 Release and promote the spec
+- [x] 2.2 Release and promote the spec
   - Covers:
     - E1
   - Touch:
@@ -173,9 +173,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:a952e905fd4a18dd60a3ed55253563da28a792500dfd62c1af163c1d616d9377
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.92.0. With the 5.92.0 section written, `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirements are promoted into a new `openspec/specs/keel-external-agents/spec.md` with its Purpose, and `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the new spec validates strictly beside the other 29, and the changelog names the catalog, the declaration, the brief and its refusals, and why the bootstrap block is unchanged.
+      - Scope check: the bump touched the version-marker files in Touch, including the bootstrap block's version marker only, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
 
 ## Change Verify
 
@@ -184,7 +191,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. After 2.2's version bump and spec promotion, `npm test` reports `validation --all passed: baseline plus 226 scenarios, 1 skipped: output-survives-the-pipe.` (macOS pipe sizing, unrelated), including `external-agent-catalog`, `external-agent-brief`, and `external-agents-are-documented`.
 
 ## Invalidates
 
