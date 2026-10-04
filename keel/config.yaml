@@ -1,14 +1,16 @@
 # Keel project configuration.
 #
-# Eight independent declarations live here: fast_check, which names a command;
+# Nine independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
 # which names which work may start without being asked about at all;
 # delegation, which carries optional capability metadata; full_mode_paths, which names the
 # paths whose change always takes the complete flow; executor_tier, which
-# names how much stepwise guidance this project's skills should load; and
-# merge, which names who merges into the default branch.
+# names how much stepwise guidance this project's skills should load;
+# merge, which names who merges into the default branch; and
+# external_agents, which names the external model CLIs this project allows and
+# the paths that must not be handed to one.
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -204,3 +206,28 @@ triage:
 # protection on `main` requiring `full-gate` refuses the merge if that job is
 # ever wrong. No person reviews before merge; `full-gate` is the last gate.
 merge: repository:full-gate
+
+# external_agents (optional): the external model CLIs (codex, dsh, ...) this
+# project allows, and the paths that must not be sent to one. `keel agents
+# brief` compiles the brief such an agent is handed and refuses it when the
+# agent is not allowed or a path the brief names matches egress_deny:
+#
+#   external_agents:
+#     allow:
+#       - codex
+#     egress_deny:
+#       - secrets/**: vendor keys under NDA
+#
+# An absent block allows nothing: sending the repository to another provider
+# is a decision a project makes once, explicitly. Each egress_deny entry
+# carries its reason, and an entry Keel cannot read refuses every brief until
+# it is corrected, because a deny list that dropped an entry would send what it
+# was written to keep. Tool paths, templates and pitfalls are machine facts and
+# live in Keel's catalog and ~/.keel/agents.json, not here (`keel agents`).
+#
+# What this does NOT do: Keel launches no agent and cannot observe what one
+# reads beyond the brief, so egress_deny guards what is handed over, not what
+# an agent can open in its directory. The delegation rules are unchanged: the
+# session stays the owner and re-runs every check before recording Evidence.
+#
+# This repository declares none.

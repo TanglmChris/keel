@@ -97,6 +97,7 @@ const CONFIG_DECLARATIONS = [
   "full_mode_paths",
   "executor_tier",
   "merge",
+  "external_agents",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");

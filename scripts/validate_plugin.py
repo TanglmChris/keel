@@ -35350,7 +35350,10 @@ def validate_external_agent_catalog_scenario() -> int:
         for needle in (codex.get("command"), "read-only", "workspace-write", codex.get("sendsTo"),
                        *[p["text"] for p in codex["pitfalls"]],
                        *[p["date"] for p in codex["pitfalls"]]):
-            if not needle or needle not in text:
+            if not needle:
+                report(f"{label} the codex entry has an empty command, destination, or pitfall.")
+                return 1
+            if needle not in text:
                 report(f"{label} `keel agents codex` does not print {needle!r}.")
                 return 1
 
@@ -35394,6 +35397,174 @@ def validate_external_agent_catalog_scenario() -> int:
             return 1
 
     report("external-agent-catalog scenario passed.")
+    return 0
+
+
+def external_agent_brief_task() -> str:
+    return (
+        "- [ ] 1.1 Speed up the parser\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - docs/spec.md\n"
+        "    - secrets/vendor.key\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
+        "    - M1: node test.js proves the parser is faster\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: pending\n"
+        "    - Review:\n"
+        "      - Status: pending\n"
+        "      - Acceptance check: pending\n"
+        "      - Scope check: pending\n"
+        "      - Findings: pending\n"
+        "    - Blocker: none\n"
+    )
+
+
+def validate_external_agent_brief_scenario() -> int:
+    """The brief is the delegation brief, checked for egress and write boundary.
+
+    #219: Keel compiles what the external agent is handed and prints the command;
+    the session runs it. The brief refuses what the project has not allowed, a
+    path the project said must not leave, and any write into the session's own
+    checkout, because the host's write guard never sees an external process.
+    """
+    label = "external-agent-brief:"
+    with tempfile.TemporaryDirectory(prefix="keel-agent-brief-") as raw:
+        base = Path(raw)
+        env, calls = _external_agents_env(base)
+        repo = base / "repo"
+        repo.mkdir()
+        write_gate_fixture(repo, external_agent_brief_task())
+        write_text(repo / "docs/spec.md", "spec\n")
+        write_text(repo / "secrets/vendor.key", "key\n")
+        write_text(repo / "src/feature.js", "// feature\n")
+        for command in (["init", "-q"], ["add", "-A"],
+                        ["-c", "user.email=k@example.com", "-c", "user.name=k",
+                         "commit", "-q", "-m", "fixture"]):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True)
+        prompt = base / "brief.md"
+
+        def brief(name: str, mode: str, directory: Path) -> tuple[dict, str]:
+            if prompt.exists():
+                prompt.unlink()
+            result = run_keel(repo, "agents", "brief", name, "--mode", mode,
+                              "--dir", str(directory), "--out", str(prompt),
+                              "--change", "demo", "--task", "1.1", "--json", env=env)
+            try:
+                return json.loads(result.stdout), result.stdout + result.stderr
+            except json.JSONDecodeError:
+                return {}, result.stdout + result.stderr
+
+        def refused(payload: dict, output: str, *needles: str, what: str) -> bool:
+            reasons = " ".join(payload.get("reasons") or [])
+            if payload.get("status") != "blocked":
+                report(f"{label} {what} was not refused: {output.strip()[:400]}")
+                return False
+            for needle in needles:
+                if needle not in reasons:
+                    report(f"{label} {what} was refused without naming {needle!r}: {reasons}")
+                    return False
+            if prompt.exists():
+                report(f"{label} {what} was refused but still wrote a prompt file.")
+                return False
+            return True
+
+        # Absent declaration allows nothing, and says how to declare.
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "external_agents:", "allow:", what="an undeclared project"):
+            return 1
+        # An agent outside allow.
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n")
+        payload, out = brief("dsh", "helper", repo)
+        if not refused(payload, out, "dsh", "codex", what="an agent outside allow"):
+            return 1
+        # A deny entry without a reason refuses every brief.
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n"
+                                     "  egress_deny:\n    - secrets/**\n")
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "secrets/**", what="a deny entry without a reason"):
+            return 1
+        # A denied Read path refuses, naming path, pattern and reason.
+        write_authorize_config(repo, "external_agents:\n  allow: [codex, dsh]\n"
+                                     "  egress_deny:\n    - secrets/**: vendor NDA keys\n")
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "secrets/vendor.key", "secrets/**", "vendor NDA keys",
+                       what="a denied Read path"):
+            return 1
+        # A clean helper brief.
+        write_authorize_config(repo, "external_agents:\n  allow: [codex, dsh]\n"
+                                     "  egress_deny:\n    - private/**: customer data\n")
+        payload, out = brief("codex", "helper", repo)
+        if payload.get("status") != "ready":
+            report(f"{label} a clean helper brief was refused: {out.strip()[:600]}")
+            return 1
+        if not prompt.exists():
+            report(f"{label} a clean helper brief reported ready but wrote no prompt file.")
+            return 1
+        text = prompt.read_text(encoding="utf-8")
+        for needle in ("Speed up the parser", "docs/spec.md", "secrets/vendor.key",
+                       "M1: node test.js", "commit", "push", "OpenSpec"):
+            if needle not in text:
+                report(f"{label} the prompt file does not carry {needle!r}.")
+                return 1
+        command = payload.get("run") or ""
+        for needle in ("read-only", str(repo), str(prompt)):
+            if needle not in command:
+                report(f"{label} the printed command does not name {needle!r}: {command}")
+                return 1
+        if "cannot observe" not in " ".join(payload.get("warnings") or []):
+            report(f"{label} the brief does not say Keel cannot observe what the agent reads.")
+            return 1
+        # A helper with no sandbox over the session's own checkout.
+        payload, out = brief("dsh", "helper", repo)
+        if not refused(payload, out, "sandbox", "worktree", what="a dsh helper over the checkout"):
+            return 1
+        # Implementation with no guard: the projection's own reason.
+        projected = run_keel(repo, "project", "--target", "claude", "--event", "subagent-start",
+                             "--subagent-mode", "implementation", "--change", "demo",
+                             "--task", "1.1", "--json", env=env)
+        expected = " ".join(json.loads(projected.stdout).get("reasons") or [])
+        payload, out = brief("codex", "implementation", repo)
+        if not expected:
+            report(f"{label} the projection gave no reason to compare against: {projected.stdout[:400]}")
+            return 1
+        if not refused(payload, out, expected, what="an unguarded implementation"):
+            return 1
+        started = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                           "--record", "--json", env=env)
+        if json.loads(started.stdout).get("status") != "pass":
+            report(f"{label} the fixture task did not start: {started.stdout[:400]}")
+            return 1
+        payload, out = brief("codex", "implementation", repo)
+        if not refused(payload, out, "worktree", what="an implementation over the checkout"):
+            return 1
+        worktree = base / "agent-wt"
+        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(worktree)],
+                       cwd=repo, check=True, capture_output=True)
+        payload, out = brief("codex", "implementation", worktree)
+        if payload.get("status") != "ready":
+            report(f"{label} an implementation brief over a separate worktree was refused: "
+                   f"{out.strip()[:600]}")
+            return 1
+        if not prompt.exists():
+            report(f"{label} an implementation brief reported ready but wrote no prompt file.")
+            return 1
+        command = payload.get("run") or ""
+        for needle in ("workspace-write", str(worktree)):
+            if needle not in command:
+                report(f"{label} the implementation command does not name {needle!r}: {command}")
+                return 1
+        if calls.exists():
+            report(f"{label} an agent was launched: {calls.read_text(encoding='utf-8').strip()}")
+            return 1
+
+    report("external-agent-brief scenario passed.")
     return 0
 
 
@@ -35842,6 +36013,7 @@ SCENARIOS: tuple = (
         validate_a_task_field_cites_its_provenance_scenario,
     ),
     ("external-agent-catalog", validate_external_agent_catalog_scenario),
+    ("external-agent-brief", validate_external_agent_brief_scenario),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),

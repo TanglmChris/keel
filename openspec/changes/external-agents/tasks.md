@@ -49,7 +49,7 @@
       - Scope check: `git status --short` lists `src/core/agents.js`, `src/core/config.js`, `bin/keel.js`, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory.
       - Findings: none
 
-- [ ] 1.2 The project declaration and `keel agents brief`
+- [x] 1.2 The project declaration and `keel agents brief`
   - Covers:
     - keel-external-agents / A project declares which external agents it allows and what must not leave / An absent declaration allows nothing
     - keel-external-agents / A project declares which external agents it allows and what must not leave / An agent outside allow is refused
@@ -88,9 +88,19 @@
   - Stop Rules:
     - Stop if the brief cannot reuse `projectRuntime` without changing what `keel project --event subagent-start` returns, because D8 makes the brief that projection.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:244860a44f2c7d1470bd6161936eec18fe93bd57f0d77dabdc9597a931e0df31
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-brief` reports `external-agent-brief scenario passed.`
+    - M1.red: fail. Before `keel agents brief` existed the scenario reported `external-agent-brief: an undeclared project was not refused: keel agents: unexpected argument codex`, carrying the declared signature `external-agent-brief:`.
+    - M1.green: pass. With `compileBrief` and `runBrief` in `src/core/agents.js` and `external_agents` in `CONFIG_DECLARATIONS`, the same scenario passes: each refusal names its cause and writes no prompt file, the clean helper and the worktree implementation briefs are written with their commands, and neither stub recorded an invocation.
+    - M2: pass. `model-chosen-subagents`, `the-routing-rule-reaches-the-decision`, and `an-authorization-names-its-repository` each report `scenario passed.`
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario drives `keel agents brief` in a real git repository with a real `git worktree add`, compares the unguarded refusal against what `keel project --event subagent-start --subagent-mode implementation` itself returns, and checks every refusal writes nothing. A first full `npm test` run found two things: a combined assertion in this change's scenarios, now split so each failure names its own cause (`assertion-shape-count` back at 80), and 2.1's scenario name referenced before it is registered, which is why M3 defers to C1 rather than running before 2.1.
+      - Scope check: `git status --short` lists `src/core/agents.js`, `src/core/config.js`, `scripts/validate_plugin.py`, and `keel/config.yaml`, all in Touch, plus this change's own directory. `bin/keel.js` was not changed again in this task.
+      - Findings: Discard reason: a worktree created from HEAD lacks an uncommitted change directory, so the agent cannot read tasks.md there. The brief inlines the task, Acceptance, Read, Touch, checks, and prohibitions, which is what the agent needs; requiring a commit first would add a repository action this command must not take.
 
 ## 2. Protocol, documentation and release
 
@@ -157,6 +167,15 @@
     - Contract: pending
     - Blocker: none
     - Reauthorizations: none
+
+## Change Verify
+
+- Strategy: regression-first
+- C1: `npm test` passes the baseline and every registered scenario once the change's scenarios all exist, including `external-agent-catalog`, `external-agent-brief`, and `external-agents-are-documented`.
+
+## Change Evidence
+
+- C1: pending
 
 ## Invalidates
 
