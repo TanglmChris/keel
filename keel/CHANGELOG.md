@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.92.0 - External model CLIs are delegates with a compiled brief
+
+Sessions in rtl_ppa_prj hand work to the codex CLI, and the machine also has DeepSeek Harness (`dsh`). The rules for calling one lived in that project's docs, restating Keel's delegation rules, and every other project would restate them again (#219). The owner's principle: keep the model free to call what it wants, including its own subagents; Keel provides the interface, the gates, and the pitfalls.
+
+- Issue #219: `keel agents [name]` lists a catalog of external model CLIs on demand: where each executable resolves, whether the project allows it, its command template, the sandbox it offers per mode, where it sends data, and pitfalls each stamped with a date and a source. Keel bundles `codex` and `dsh`; `~/.keel/agents.json` adds an agent or overrides a field. The catalog carries no judgement of what an agent suits, and nothing of it reaches `keel context` or session start.
+- Issue #219: `external_agents:` in `keel/config.yaml` names the agents a project allows and, under `egress_deny:`, the paths that must not be sent, each with its reason. An absent block allows nothing, and an entry Keel cannot read refuses every brief.
+- Issue #219: `keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` compiles the same brief `keel project --event subagent-start` publishes, keeps every refusal it applies (implementation still needs the matching guard), and refuses an agent the project does not allow, a Read or Touch path that `egress_deny` names, and a write-capable run in the session's own checkout, because the host's write guard never sees an external process. It writes the brief and prints the command. Keel launches nothing.
+- The installed bootstrap block is unchanged. Its byte budget is spent only on rules every session uses, and `external_agents:` is inert until a project declares it, as delegation is. The repository protocol, both READMEs, and `PRIVACY.md` name the new command and channel.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.92.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.91.0 - A task field cites its provenance
 
 `keel --doctor` in rtl_ppa_prj failed its state check on eight lines of one active `tasks.md`, and every one was correct work (#213). Among them: a Scope check naming the base it compared against, which `keel-review-checklist` asks for; an Acceptance check naming the commit a result ran on; a cache buffer's `no dirty groups`; and a negation about another checkout. One was an Acceptance criterion of a completed task, so rewording it would have moved a recorded fingerprint.

@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.91.0"
-PROTOCOL_VERSION = "5.91.0"
+PACKAGE_VERSION = "5.92.0"
+PROTOCOL_VERSION = "5.92.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -35250,6 +35250,376 @@ def validate_codex_receiving_scenario() -> int:
     return result.returncode
 
 
+EXTERNAL_AGENT_FACT_FIELDS = {
+    "name", "source", "executable", "resolved", "allowed",
+    "command", "sandbox", "sendsTo", "pitfalls",
+}
+
+
+def _external_agents_env(base: Path) -> tuple[dict[str, str], Path]:
+    """An environment whose Keel home and PATH belong to the fixture.
+
+    The stub `codex` stands in for the real one so resolution is checked against
+    a path the scenario controls; it records any invocation, because a catalog
+    or a brief that launched the agent would be the one thing Keel promised not
+    to do.
+    """
+    home = base / "home"
+    home.mkdir()
+    stub_bin = base / "bin"
+    stub_bin.mkdir()
+    calls = base / "calls.log"
+    for name in ("codex", "dsh"):
+        stub = stub_bin / name
+        stub.write_text(f"#!/bin/sh\necho {name} \"$@\" >> '{calls}'\n", encoding="utf-8")
+        stub.chmod(0o755)
+    env = dict(os.environ)
+    env["KEEL_HOME"] = str(home)
+    env["PATH"] = f"{stub_bin}{os.pathsep}{env.get('PATH', '')}"
+    return env, calls
+
+
+def validate_external_agent_catalog_scenario() -> int:
+    """The catalog records facts, merges the machine file, and stays on demand.
+
+    #219: an external model CLI writes outside the host's write guard and sends
+    the repository to another provider. What Keel offers about one is facts a
+    reader can check — template, sandboxes, destination, dated pitfalls — and
+    never a judgement of what it is good at, because a judgement resident in the
+    session steers the agent that reads it (owner, 2026-10-04).
+    """
+    label = "external-agent-catalog:"
+    with tempfile.TemporaryDirectory(prefix="keel-agents-") as raw:
+        base = Path(raw)
+        env, calls = _external_agents_env(base)
+        repo = base / "repo"
+        repo.mkdir()
+        write_gate_fixture(repo, standing_authorization_task())
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n")
+
+        def listing() -> dict | None:
+            result = run_keel(repo, "agents", "--json", env=env)
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                report(f"{label} `keel agents --json` printed no JSON: "
+                       f"{(result.stdout + result.stderr).strip()[:400]}")
+                return None
+
+        payload = listing()
+        if payload is None:
+            return 1
+        agents = {item.get("name"): item for item in payload.get("agents") or []}
+        for name in ("codex", "dsh"):
+            if agents.get(name, {}).get("source") != "bundled":
+                report(f"{label} {name} is not listed as a bundled entry: {agents.get(name)}")
+                return 1
+        stub = str(base / "bin" / "codex")
+        if agents["codex"].get("resolved") != stub:
+            report(f"{label} codex resolved to {agents['codex'].get('resolved')!r}, not the stub on PATH.")
+            return 1
+        dsh_path = agents["dsh"].get("executable")
+        expected = dsh_path if dsh_path and Path(dsh_path).exists() else None
+        if agents["dsh"].get("resolved") != expected:
+            report(f"{label} dsh resolution {agents['dsh'].get('resolved')!r} disagrees with "
+                   f"whether {dsh_path!r} exists.")
+            return 1
+        if agents["codex"].get("allowed") is not True or agents["dsh"].get("allowed") is not False:
+            report(f"{label} allowance is not read from external_agents: allow: "
+                   f"codex={agents['codex'].get('allowed')!r} dsh={agents['dsh'].get('allowed')!r}")
+            return 1
+        for name, item in agents.items():
+            extra = set(item) - EXTERNAL_AGENT_FACT_FIELDS
+            if extra:
+                report(f"{label} {name} carries fields outside the fact fields: {sorted(extra)}. "
+                       "The catalog records facts, not a judgement of what an agent suits.")
+                return 1
+            pitfalls = item.get("pitfalls") or []
+            if not pitfalls:
+                report(f"{label} {name} records no pitfall.")
+                return 1
+            for pitfall in pitfalls:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(pitfall.get("date", ""))) \
+                        or not str(pitfall.get("source", "")).strip():
+                    report(f"{label} {name} has a pitfall without a date and a source: {pitfall}")
+                    return 1
+
+        shown = run_keel(repo, "agents", "codex", env=env)
+        text = shown.stdout
+        codex = agents["codex"]
+        for needle in (codex.get("command"), "read-only", "workspace-write", codex.get("sendsTo"),
+                       *[p["text"] for p in codex["pitfalls"]],
+                       *[p["date"] for p in codex["pitfalls"]]):
+            if not needle:
+                report(f"{label} the codex entry has an empty command, destination, or pitfall.")
+                return 1
+            if needle not in text:
+                report(f"{label} `keel agents codex` does not print {needle!r}.")
+                return 1
+
+        # A machine entry declaring one field overrides that field only.
+        custom = base / "bin" / "dsh"
+        (base / "home" / "agents.json").write_text(
+            json.dumps({"agents": {"dsh": {"executable": str(custom)}}}), encoding="utf-8")
+        payload = listing()
+        if payload is None:
+            return 1
+        dsh = {item.get("name"): item for item in payload.get("agents") or []}.get("dsh") or {}
+        if dsh.get("source") != "machine" or dsh.get("executable") != str(custom):
+            report(f"{label} the machine entry did not override dsh: {dsh}")
+            return 1
+        if dsh.get("command") != agents["dsh"].get("command"):
+            report(f"{label} a machine entry declaring only an executable replaced the bundled template.")
+            return 1
+
+        # A malformed machine file is named and none of it is used.
+        (base / "home" / "agents.json").write_text("{not json", encoding="utf-8")
+        payload = listing()
+        if payload is None:
+            return 1
+        problems = " ".join(payload.get("problems") or [])
+        if "agents.json" not in problems:
+            report(f"{label} a malformed agents.json was not reported: {payload.get('problems')}")
+            return 1
+        sources = {item.get("source") for item in payload.get("agents") or []}
+        if sources != {"bundled"}:
+            report(f"{label} a malformed agents.json still contributed entries: {sources}")
+            return 1
+
+        # Session start carries no catalog.
+        context = run_keel(repo, "context", env=env)
+        for needle in ("dsh", "DeepSeek", "/dev/null", "workspace-write"):
+            if needle in context.stdout:
+                report(f"{label} `keel context` carries catalog text {needle!r}.")
+                return 1
+        if calls.exists():
+            report(f"{label} an agent was launched: {calls.read_text(encoding='utf-8').strip()}")
+            return 1
+
+    report("external-agent-catalog scenario passed.")
+    return 0
+
+
+def external_agent_brief_task() -> str:
+    return (
+        "- [ ] 1.1 Speed up the parser\n"
+        "  - Covers:\n"
+        "    - E1: public behavior\n"
+        "  - Read:\n"
+        "    - docs/spec.md\n"
+        "    - secrets/vendor.key\n"
+        "  - Touch:\n"
+        "    - src/feature.js\n"
+        "  - Verify:\n"
+        "    - Strategy: evidence-first\n"
+        "    - Reason: this is a gate fixture; it exercises contract structure and has no executable behavior that can fail first\n"
+        "    - M1: node test.js proves the parser is faster\n"
+        "  - Evidence:\n"
+        "    - Contract: pending\n"
+        "    - M1: pending\n"
+        "    - Review:\n"
+        "      - Status: pending\n"
+        "      - Acceptance check: pending\n"
+        "      - Scope check: pending\n"
+        "      - Findings: pending\n"
+        "    - Blocker: none\n"
+    )
+
+
+def validate_external_agent_brief_scenario() -> int:
+    """The brief is the delegation brief, checked for egress and write boundary.
+
+    #219: Keel compiles what the external agent is handed and prints the command;
+    the session runs it. The brief refuses what the project has not allowed, a
+    path the project said must not leave, and any write into the session's own
+    checkout, because the host's write guard never sees an external process.
+    """
+    label = "external-agent-brief:"
+    with tempfile.TemporaryDirectory(prefix="keel-agent-brief-") as raw:
+        base = Path(raw)
+        env, calls = _external_agents_env(base)
+        repo = base / "repo"
+        repo.mkdir()
+        write_gate_fixture(repo, external_agent_brief_task())
+        write_text(repo / "docs/spec.md", "spec\n")
+        write_text(repo / "secrets/vendor.key", "key\n")
+        write_text(repo / "src/feature.js", "// feature\n")
+        for command in (["init", "-q"], ["add", "-A"],
+                        ["-c", "user.email=k@example.com", "-c", "user.name=k",
+                         "commit", "-q", "-m", "fixture"]):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True)
+        prompt = base / "brief.md"
+
+        def brief(name: str, mode: str, directory: Path) -> tuple[dict, str]:
+            if prompt.exists():
+                prompt.unlink()
+            result = run_keel(repo, "agents", "brief", name, "--mode", mode,
+                              "--dir", str(directory), "--out", str(prompt),
+                              "--change", "demo", "--task", "1.1", "--json", env=env)
+            try:
+                return json.loads(result.stdout), result.stdout + result.stderr
+            except json.JSONDecodeError:
+                return {}, result.stdout + result.stderr
+
+        def refused(payload: dict, output: str, *needles: str, what: str) -> bool:
+            reasons = " ".join(payload.get("reasons") or [])
+            if payload.get("status") != "blocked":
+                report(f"{label} {what} was not refused: {output.strip()[:400]}")
+                return False
+            for needle in needles:
+                if needle not in reasons:
+                    report(f"{label} {what} was refused without naming {needle!r}: {reasons}")
+                    return False
+            if prompt.exists():
+                report(f"{label} {what} was refused but still wrote a prompt file.")
+                return False
+            return True
+
+        # Absent declaration allows nothing, and says how to declare.
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "external_agents:", "allow:", what="an undeclared project"):
+            return 1
+        # An agent outside allow.
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n")
+        payload, out = brief("dsh", "helper", repo)
+        if not refused(payload, out, "dsh", "codex", what="an agent outside allow"):
+            return 1
+        # A deny entry without a reason refuses every brief.
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n"
+                                     "  egress_deny:\n    - secrets/**\n")
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "secrets/**", what="a deny entry without a reason"):
+            return 1
+        # A denied Read path refuses, naming path, pattern and reason.
+        write_authorize_config(repo, "external_agents:\n  allow: [codex, dsh]\n"
+                                     "  egress_deny:\n    - secrets/**: vendor NDA keys\n")
+        payload, out = brief("codex", "helper", repo)
+        if not refused(payload, out, "secrets/vendor.key", "secrets/**", "vendor NDA keys",
+                       what="a denied Read path"):
+            return 1
+        # A clean helper brief.
+        write_authorize_config(repo, "external_agents:\n  allow: [codex, dsh]\n"
+                                     "  egress_deny:\n    - private/**: customer data\n")
+        payload, out = brief("codex", "helper", repo)
+        if payload.get("status") != "ready":
+            report(f"{label} a clean helper brief was refused: {out.strip()[:600]}")
+            return 1
+        if not prompt.exists():
+            report(f"{label} a clean helper brief reported ready but wrote no prompt file.")
+            return 1
+        text = prompt.read_text(encoding="utf-8")
+        for needle in ("Speed up the parser", "docs/spec.md", "secrets/vendor.key",
+                       "M1: node test.js", "commit", "push", "OpenSpec"):
+            if needle not in text:
+                report(f"{label} the prompt file does not carry {needle!r}.")
+                return 1
+        command = payload.get("run") or ""
+        for needle in ("read-only", str(repo), str(prompt)):
+            if needle not in command:
+                report(f"{label} the printed command does not name {needle!r}: {command}")
+                return 1
+        if "cannot observe" not in " ".join(payload.get("warnings") or []):
+            report(f"{label} the brief does not say Keel cannot observe what the agent reads.")
+            return 1
+        # A helper with no sandbox over the session's own checkout.
+        payload, out = brief("dsh", "helper", repo)
+        if not refused(payload, out, "sandbox", "worktree", what="a dsh helper over the checkout"):
+            return 1
+        # Implementation with no guard: the projection's own reason.
+        projected = run_keel(repo, "project", "--target", "claude", "--event", "subagent-start",
+                             "--subagent-mode", "implementation", "--change", "demo",
+                             "--task", "1.1", "--json", env=env)
+        expected = " ".join(json.loads(projected.stdout).get("reasons") or [])
+        payload, out = brief("codex", "implementation", repo)
+        if not expected:
+            report(f"{label} the projection gave no reason to compare against: {projected.stdout[:400]}")
+            return 1
+        if not refused(payload, out, expected, what="an unguarded implementation"):
+            return 1
+        started = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1",
+                           "--record", "--json", env=env)
+        if json.loads(started.stdout).get("status") != "pass":
+            report(f"{label} the fixture task did not start: {started.stdout[:400]}")
+            return 1
+        payload, out = brief("codex", "implementation", repo)
+        if not refused(payload, out, "worktree", what="an implementation over the checkout"):
+            return 1
+        worktree = base / "agent-wt"
+        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(worktree)],
+                       cwd=repo, check=True, capture_output=True)
+        payload, out = brief("codex", "implementation", worktree)
+        if payload.get("status") != "ready":
+            report(f"{label} an implementation brief over a separate worktree was refused: "
+                   f"{out.strip()[:600]}")
+            return 1
+        if not prompt.exists():
+            report(f"{label} an implementation brief reported ready but wrote no prompt file.")
+            return 1
+        command = payload.get("run") or ""
+        for needle in ("workspace-write", str(worktree)):
+            if needle not in command:
+                report(f"{label} the implementation command does not name {needle!r}: {command}")
+                return 1
+        if calls.exists():
+            report(f"{label} an agent was launched: {calls.read_text(encoding='utf-8').strip()}")
+            return 1
+
+    report("external-agent-brief scenario passed.")
+    return 0
+
+
+def validate_external_agents_are_documented_scenario() -> int:
+    """The command reaches the protocol, the READMEs, and the privacy policy.
+
+    #219: an agent that never reads the README must still learn that external
+    model CLIs are delegates with a compiled brief, so the bootstrap block and
+    this repository's protocol name it. The privacy policy lists what leaves the
+    machine, and handing a repository to codex or dsh is now one of those ways.
+    """
+    label = "external-agents-are-documented:"
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    protocol = flat(ROOT / "AGENTS.md")
+    if "keel agents brief" not in protocol:
+        report(f"{label} AGENTS.md does not name `keel agents brief`.")
+        return 1
+    if "launches nothing" not in protocol:
+        report(f"{label} AGENTS.md does not say Keel launches nothing.")
+        return 1
+    # The installed bootstrap spends its byte budget only on rules every session
+    # uses; `external_agents:` is inert until declared, as delegation is, so it
+    # reaches an agent where it is declared instead (D9).
+    if "keel agents" in flat(ROOT / "assets/bootstrap/AGENTS.md"):
+        report(f"{label} the bootstrap block names `keel agents`, spending its budget on a "
+               "declaration that is inert until a project makes it.")
+        return 1
+    for path in (ROOT / "README.md", ROOT / "README.zh-CN.md"):
+        text = path.read_text(encoding="utf-8")
+        blocks = re.findall(r"```bash\n(.*?)```", text, re.S)
+        if not any("keel agents" in block for block in blocks):
+            report(f"{label} {path.name} lists no `keel agents` in a command block.")
+            return 1
+        yaml_blocks = re.findall(r"```yaml\n(.*?)```", text, re.S)
+        example = next((block for block in yaml_blocks if "external_agents:" in block), "")
+        if not example:
+            report(f"{label} {path.name} shows no `external_agents:` example.")
+            return 1
+        for key in ("allow:", "egress_deny:"):
+            if key not in example:
+                report(f"{label} {path.name}'s external_agents example has no {key}.")
+                return 1
+    privacy = (ROOT / "PRIVACY.md").read_text(encoding="utf-8")
+    leaves = privacy.split("## What leaves your machine", 1)[-1].split("\n## ", 1)[0]
+    if "External model CLIs" not in leaves:
+        report(f"{label} PRIVACY.md does not list external model CLIs under what leaves the machine.")
+        return 1
+
+    report("external-agents-are-documented scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -35694,6 +36064,9 @@ SCENARIOS: tuple = (
         "a-task-field-cites-its-provenance",
         validate_a_task_field_cites_its_provenance_scenario,
     ),
+    ("external-agent-catalog", validate_external_agent_catalog_scenario),
+    ("external-agent-brief", validate_external_agent_brief_scenario),
+    ("external-agents-are-documented", validate_external_agents_are_documented_scenario),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),

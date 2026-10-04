@@ -1,0 +1,205 @@
+# Tasks
+
+## 1. External agents
+
+- [x] 1.1 The catalog and `keel agents`
+  - Covers:
+    - keel-external-agents / The external agent catalog records facts and is read on demand / Bundled entries list with their resolution
+    - keel-external-agents / The external agent catalog records facts and is read on demand / A machine entry overrides a bundled one
+    - keel-external-agents / The external agent catalog records facts and is read on demand / A malformed machine file is reported, not half-read
+    - keel-external-agents / The external agent catalog records facts and is read on demand / Session start carries no catalog
+    - D2
+    - D3
+    - F3
+    - F4
+    - F5
+  - Read:
+    - src/core/config.js
+    - src/core/chat/wake.js
+    - bin/keel.js
+  - Touch:
+    - src/core/agents.js
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-catalog` runs `keel agents` and `keel agents --json` with `KEEL_HOME` pointed at a temporary directory and PATH holding a stub `codex`. It requires `codex` and `dsh` listed as bundled, `codex` resolved to the stub and `dsh` resolved or `not found` by whether its catalog path exists; `keel agents codex` printing its template, its read-only and workspace-write sandboxes, its destination, and each pitfall with a date and a source; `codex` listed as allowed and `dsh` as not allowed when `keel/config.yaml` declares `external_agents:` with `allow:` naming `codex`; a machine `agents.json` entry declaring only an executable for `dsh` listed with source `machine`, that path, and its bundled template unchanged; a malformed `agents.json` named with its parse error beside the bundled list; no catalog entry carrying a field outside the fact fields; and `keel context` naming no entry. Fails with: `external-agent-catalog:`
+    - M2: `npm pack --dry-run --json` lists `src/core/agents.js`.
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario cli` and `model-chosen-subagents` each pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if a fact can only be written as a judgment of what an agent is good at, because D2 keeps that out of the catalog.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6a26bdc24d39066f912543f7022d5bbc1384f0cd2482d96dd25b216dcdf2c9cd
+    - Blocker: none
+    - Reauthorizations: before any Evidence, Touch gained `src/core/config.js` so the listing can say whether the project allows an agent, M1 gained that assertion, and a machine entry now overrides field by field; the contract was re-recorded.
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-catalog` reports `external-agent-catalog scenario passed.`
+    - M1.red: fail. Before `keel agents` existed the scenario reported `external-agent-catalog: \`keel agents --json\` printed no JSON: keel: selection and JSON options apply only to keel context or keel gate`, carrying the declared signature `external-agent-catalog:`.
+    - M1.green: pass. With `src/core/agents.js`, `readExternalAgents` in `src/core/config.js`, and the `agents` dispatch in `bin/keel.js`, the same scenario passes.
+    - M2: pass. `npm pack --dry-run --json` lists `src/core/agents.js`.
+    - M2.red: fail. Before the file existed, the same listing did not contain `src/core/agents.js`.
+    - M2.green: pass. After it was written, the listing contains it.
+    - M3: pass. `cli` and `model-chosen-subagents` each report `scenario passed.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario drives the public `keel agents` command under a fixture KEEL_HOME and PATH, checks the listing, one entry, the field-wise machine override, the malformed-file refusal, the fact-field limit, and that `keel context` carries none of it, and a stub records that no agent was launched.
+      - Scope check: `git status --short` lists `src/core/agents.js`, `src/core/config.js`, `bin/keel.js`, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory.
+      - Findings: none
+
+- [x] 1.2 The project declaration and `keel agents brief`
+  - Covers:
+    - keel-external-agents / A project declares which external agents it allows and what must not leave / An absent declaration allows nothing
+    - keel-external-agents / A project declares which external agents it allows and what must not leave / An agent outside allow is refused
+    - keel-external-agents / A project declares which external agents it allows and what must not leave / A deny entry without a reason refuses every brief
+    - keel-external-agents / The external agent brief is the delegation brief, checked for egress / A clean helper brief is written and its command printed
+    - keel-external-agents / The external agent brief is the delegation brief, checked for egress / A denied path refuses the brief
+    - keel-external-agents / The external agent brief is the delegation brief, checked for egress / Implementation still needs the matching guard
+    - keel-external-agents / The checkout is an external agent's write boundary / Implementation in the session's own checkout is refused
+    - keel-external-agents / The checkout is an external agent's write boundary / A helper with no sandbox needs a worktree
+    - keel-external-agents / The checkout is an external agent's write boundary / A separate worktree is accepted
+    - D1
+    - D4
+    - D5
+    - D6
+    - D7
+    - D8
+    - F1
+    - F2
+  - Read:
+    - src/core/projection.js
+    - src/core/config.js
+  - Touch:
+    - src/core/agents.js
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - keel/config.yaml
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-brief` builds a git repository with one ready task and a stub `codex` and `dsh` on PATH that record any invocation to a file. It requires `keel agents brief` to be refused with the `external_agents:` example when no block is declared, refused naming `dsh` and the allowed list when only `codex` is allowed, and refused naming the entry while an `egress_deny` entry has no reason. With `codex` allowed and nothing denied, a helper brief over the current checkout must write the prompt file holding the task title, each Read path, each `M<n>` check, and the commit, push, and OpenSpec prohibitions, and must print a command naming `read-only`, the directory, and the prompt file. A Read path matching `egress_deny` must refuse naming the path, pattern, and reason and write no prompt file. A `dsh` helper over the current checkout must be refused for a missing sandbox. An implementation brief must be refused with the reason `keel project --event subagent-start --subagent-mode implementation` gives when no guard is active, refused over the current checkout once the guard is active, and written over a `git worktree add` directory with the command naming `workspace-write` and that directory. Neither stub may have recorded an invocation. Fails with: `external-agent-brief:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario model-chosen-subagents`, `the-routing-rule-reaches-the-decision`, and `an-authorization-names-its-repository` each pass.
+    - M3 (regression): `npm test` passes the baseline and every registered scenario.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Stop Rules:
+    - Stop if the brief cannot reuse `projectRuntime` without changing what `keel project --event subagent-start` returns, because D8 makes the brief that projection.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:244860a44f2c7d1470bd6161936eec18fe93bd57f0d77dabdc9597a931e0df31
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-brief` reports `external-agent-brief scenario passed.`
+    - M1.red: fail. Before `keel agents brief` existed the scenario reported `external-agent-brief: an undeclared project was not refused: keel agents: unexpected argument codex`, carrying the declared signature `external-agent-brief:`.
+    - M1.green: pass. With `compileBrief` and `runBrief` in `src/core/agents.js` and `external_agents` in `CONFIG_DECLARATIONS`, the same scenario passes: each refusal names its cause and writes no prompt file, the clean helper and the worktree implementation briefs are written with their commands, and neither stub recorded an invocation.
+    - M2: pass. `model-chosen-subagents`, `the-routing-rule-reaches-the-decision`, and `an-authorization-names-its-repository` each report `scenario passed.`
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario drives `keel agents brief` in a real git repository with a real `git worktree add`, compares the unguarded refusal against what `keel project --event subagent-start --subagent-mode implementation` itself returns, and checks every refusal writes nothing. A first full `npm test` run found two things: a combined assertion in this change's scenarios, now split so each failure names its own cause (`assertion-shape-count` back at 80), and 2.1's scenario name referenced before it is registered, which is why M3 defers to C1 rather than running before 2.1.
+      - Scope check: `git status --short` lists `src/core/agents.js`, `src/core/config.js`, `scripts/validate_plugin.py`, and `keel/config.yaml`, all in Touch, plus this change's own directory. `bin/keel.js` was not changed again in this task.
+      - Findings: Discard reason: a worktree created from HEAD lacks an uncommitted change directory, so the agent cannot read tasks.md there. The brief inlines the task, Acceptance, Read, Touch, checks, and prohibitions, which is what the agent needs; requiring a commit first would add a repository action this command must not take.
+
+## 2. Protocol, documentation and release
+
+- [x] 2.1 Name the command in the protocol, the READMEs, and the privacy policy
+  - Covers:
+    - D9
+    - I2
+    - I3
+  - Touch:
+    - AGENTS.md
+    - README.md
+    - README.zh-CN.md
+    - PRIVACY.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agents-are-documented` requires this repository's `AGENTS.md` protocol to name `keel agents brief` and say Keel launches nothing, the installed bootstrap block to stay unchanged in naming neither (D9), both READMEs to list `keel agents` in their command blocks and show an `external_agents:` example with `allow:` and `egress_deny:`, and `PRIVACY.md` to list external model CLIs under what leaves the machine. Fails with: `external-agents-are-documented:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario skill-portability-policy` and `delegation-resident-text` each pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7762862db2ea4f3122f68e0e7f7e10bcd08733ea8579e591883ac03216d630b0
+    - Blocker: none
+    - Reauthorizations: Touch first gained `AGENTS.md` before any Evidence. Then, with M1 only red, the bootstrap block came out of Touch and M1 now requires it unchanged, because its byte budget's recorded rationale declines a declaration that is inert until made (D9 updated); M2 gained `delegation-resident-text`, the check that caught it. The contract was re-recorded and M1's red re-taken against the revised scenario.
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agents-are-documented` reports `external-agents-are-documented scenario passed.`
+    - M1.red: fail. With `AGENTS.md` at HEAD and the revised scenario, it reported `external-agents-are-documented: AGENTS.md does not name \`keel agents brief\`.`, carrying the declared signature `external-agents-are-documented:`.
+    - M1.green: pass. With the protocol sentence, both READMEs' sections, command lines and examples, and the PRIVACY.md entry, the same scenario passes; the bootstrap block is unchanged.
+    - M2: pass. `skill-portability-policy` and `delegation-resident-text` each report `scenario passed.` The latter had failed at 1552 bytes against the 1400-byte bootstrap budget while the bootstrap carried a sentence, which is what moved D9.
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario reads the shipped files themselves — the command blocks and yaml examples inside fenced blocks, and the PRIVACY.md section by heading — and also asserts the bootstrap stays free of a declaration that is inert until made, so the D9 decision cannot be undone silently.
+      - Scope check: `git status --short` lists `AGENTS.md`, `README.md`, `README.zh-CN.md`, `PRIVACY.md`, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory. `assets/bootstrap/AGENTS.md` was restored to HEAD.
+      - Findings: Discard reason: an agent in a project that never declares `external_agents:` learns of `keel agents brief` only from the READMEs, so it may call an external CLI directly without a brief. That is the freedom the owner asked to keep, and the bootstrap's budget rationale spends nothing on a declaration-inert rule.
+
+- [x] 2.2 Release and promote the spec
+  - Covers:
+    - E1
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-external-agents/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion. The behavior was proven in 1.1, 1.2, and 2.1, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to 5.92.0, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with the 5.92.0 section written.
+    - M2: the delta is promoted into `openspec/specs/keel-external-agents/spec.md`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a952e905fd4a18dd60a3ed55253563da28a792500dfd62c1af163c1d616d9377
+    - Blocker: none
+    - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.92.0. With the 5.92.0 section written, `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirements are promoted into a new `openspec/specs/keel-external-agents/spec.md` with its Purpose, and `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the new spec validates strictly beside the other 29, and the changelog names the catalog, the declaration, the brief and its refusals, and why the bootstrap block is unchanged.
+      - Scope check: the bump touched the version-marker files in Touch, including the bootstrap block's version marker only, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
+
+## Change Verify
+
+- Strategy: regression-first
+- C1: `npm test` passes the baseline and every registered scenario once the change's scenarios all exist, including `external-agent-catalog`, `external-agent-brief`, and `external-agents-are-documented`.
+
+## Change Evidence
+
+- C1: pass. After 2.2's version bump and spec promotion, `npm test` reports `validation --all passed: baseline plus 226 scenarios, 1 skipped: output-survives-the-pipe.` (macOS pipe sizing, unrelated), including `external-agent-catalog`, `external-agent-brief`, and `external-agents-are-documented`.
+
+## Invalidates
+
+- I1: "Eight independent declarations live here" — `keel/config.yaml`. Updated by: 1.2
+- I2: "Nothing leaves your machine unless one of the following applies." — `PRIVACY.md`, whose list names no external model CLI. Updated by: 2.1
+- I3: the command blocks headed "# Continuity — recompute what to do (stateless)" in `README.md` and `README.zh-CN.md`, which list no `keel agents`. Updated by: 2.1
+- I4: "通用部分（委派边界、产出验收、数据外发、调用模板）归 keel，提在 TanglmChris/keel#219" — rtl_ppa_prj `docs/toolchain.md`. Discard reason: the wording lives in another repository, which this change cannot edit; its own note already says the section shrinks once Keel lands, and that project's sessions own the trim.
+
+## Expectation Coverage
+
+- E1: A session can hand work to codex or dsh through a brief Keel compiles, refused when the project has not allowed the agent, when a named path is denied, or when the agent could write into the session's own checkout, with the pitfalls available on demand and none of it reaching session start. Covered by: 1.1, 1.2, 2.1, 2.2

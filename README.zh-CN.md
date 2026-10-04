@@ -185,6 +185,40 @@ keel --uninstall                  # 当 core.hooksPath 由 Keel 设置时回退
 
 `--with-git-hooks` 是显式 opt-in：普通 `keel --install` 绝不碰 git config，且这个覆盖仅限本仓、可逆。
 
+## 外部模型 CLI
+
+会话可以把活交给外部模型 CLI 当委派对象，比如 codex、DeepSeek Harness 的 `dsh`，或你自己注册的。
+调不调由模型自己判断；Keel 只提供调用接口、门控，以及大家踩过的坑。宿主自带的 subagent 不归 Keel 管，
+模型自己更懂。
+
+```bash
+keel agents                      # 事实目录：可执行文件在哪、本项目是否允许
+keel agents codex                # 命令模板、沙箱、数据发往哪里、带日期的坑
+keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> --task <t>
+```
+
+`keel agents brief` 编译的就是 `keel project --event subagent-start` 给出的那份任务说明，写成文件，
+再打印要跑的命令。**Keel 不启动任何进程**：命令由会话自己跑，对方交回的结果要由会话复跑每个检查后才算证据。
+以下情况会被拒绝：
+
+- 项目没允许的 agent（没写声明就一个都不允许）；
+- 任务要读或要改的路径命中了禁止外发的清单；
+- 在会话自己的 checkout 里做会写入的调用。宿主的写入守卫看不到外部进程，所以实现类任务，以及没有只读
+  沙箱的 CLI（如 `dsh`）即使只做评审，都要用 `git worktree add` 建的独立 worktree。
+
+```yaml
+external_agents:
+  allow:
+    - codex
+  egress_deny:
+    - secrets/**: 受 NDA 约束的厂商密钥
+```
+
+事实目录只记事实：命令模板、沙箱、数据去向，以及每条都带日期和出处的坑；不写「擅长什么」，因为这种评价
+常驻在会话里会左右主 agent 的判断，换个模型版本就过时。哪些活适合交出去由你自己写。工具路径属于本机事实：
+`~/.keel/agents.json` 可以新增 agent 或覆盖某个字段，比如 `{"agents": {"dsh": {"executable": "/path/to/dsh"}}}`。
+Keel 看不到对方在任务说明之外还读了什么，所以 `egress_deny` 防的是主动交出去的内容，管不住对方自己能打开的文件。
+
 ## 会话之间的群聊
 
 在同一个仓库里干活的各个会话——Claude Code、Codex、无人值守的执行器，还有你——用 `keel chat` 组成一个工作群：
@@ -227,6 +261,10 @@ keel chat dm <角色> <消息> | todo <群> --assignee <角色> <内容> | todos
 keel chat unread | read | notice | search <文本>
 keel chat bridge add | install | status | pause <2h> | stop | start | uninstall
 keel chat archive sync | pull
+
+# 外部模型 CLI —— 事实目录，以及 Keel 编译的任务说明（Keel 不启动进程）
+keel agents [name] [--json]
+keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # 安装 / 维护
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]
