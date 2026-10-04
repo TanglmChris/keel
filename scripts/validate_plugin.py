@@ -35568,6 +35568,58 @@ def validate_external_agent_brief_scenario() -> int:
     return 0
 
 
+def validate_external_agents_are_documented_scenario() -> int:
+    """The command reaches the protocol, the READMEs, and the privacy policy.
+
+    #219: an agent that never reads the README must still learn that external
+    model CLIs are delegates with a compiled brief, so the bootstrap block and
+    this repository's protocol name it. The privacy policy lists what leaves the
+    machine, and handing a repository to codex or dsh is now one of those ways.
+    """
+    label = "external-agents-are-documented:"
+
+    def flat(path: Path) -> str:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+    protocol = flat(ROOT / "AGENTS.md")
+    if "keel agents brief" not in protocol:
+        report(f"{label} AGENTS.md does not name `keel agents brief`.")
+        return 1
+    if "launches nothing" not in protocol:
+        report(f"{label} AGENTS.md does not say Keel launches nothing.")
+        return 1
+    # The installed bootstrap spends its byte budget only on rules every session
+    # uses; `external_agents:` is inert until declared, as delegation is, so it
+    # reaches an agent where it is declared instead (D9).
+    if "keel agents" in flat(ROOT / "assets/bootstrap/AGENTS.md"):
+        report(f"{label} the bootstrap block names `keel agents`, spending its budget on a "
+               "declaration that is inert until a project makes it.")
+        return 1
+    for path in (ROOT / "README.md", ROOT / "README.zh-CN.md"):
+        text = path.read_text(encoding="utf-8")
+        blocks = re.findall(r"```bash\n(.*?)```", text, re.S)
+        if not any("keel agents" in block for block in blocks):
+            report(f"{label} {path.name} lists no `keel agents` in a command block.")
+            return 1
+        yaml_blocks = re.findall(r"```yaml\n(.*?)```", text, re.S)
+        example = next((block for block in yaml_blocks if "external_agents:" in block), "")
+        if not example:
+            report(f"{label} {path.name} shows no `external_agents:` example.")
+            return 1
+        for key in ("allow:", "egress_deny:"):
+            if key not in example:
+                report(f"{label} {path.name}'s external_agents example has no {key}.")
+                return 1
+    privacy = (ROOT / "PRIVACY.md").read_text(encoding="utf-8")
+    leaves = privacy.split("## What leaves your machine", 1)[-1].split("\n## ", 1)[0]
+    if "External model CLIs" not in leaves:
+        report(f"{label} PRIVACY.md does not list external model CLIs under what leaves the machine.")
+        return 1
+
+    report("external-agents-are-documented scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -36014,6 +36066,7 @@ SCENARIOS: tuple = (
     ),
     ("external-agent-catalog", validate_external_agent_catalog_scenario),
     ("external-agent-brief", validate_external_agent_brief_scenario),
+    ("external-agents-are-documented", validate_external_agents_are_documented_scenario),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),

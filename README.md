@@ -646,6 +646,44 @@ This changes only what Keel *recommends*. No gate, the write guard, and completi
 exactly as they would without it, and `keel context --change <paused>` still selects it — you asked
 for it by name. Keel never pauses a change on its own.
 
+## External model CLIs
+
+A session can hand work to an external model CLI — codex, DeepSeek Harness's `dsh`, or one you
+register — as a delegate. Whether to call one is the model's choice; Keel's part is the interface,
+the gates, and the pitfalls others already hit. A host's own subagents are not involved: the model
+knows those better.
+
+```bash
+keel agents                      # the catalog: where each executable resolves, and whether this project allows it
+keel agents codex                # its template, sandboxes, where it sends data, dated pitfalls
+keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> --task <t>
+```
+
+`keel agents brief` compiles the same brief `keel project --event subagent-start` publishes, writes
+it to a file, and prints the command to run. **Keel launches nothing**; the session runs it, and
+re-runs every check before anything counts as evidence. It refuses:
+
+- an agent the project has not allowed — with no declaration, none is;
+- a Read or Touch path the project said must not leave;
+- a write-capable run in the session's own checkout. The host's write guard never sees an external
+  process, so implementation (and a helper whose CLI has no read-only sandbox, like `dsh`) needs a
+  separate `git worktree add`.
+
+```yaml
+external_agents:
+  allow:
+    - codex
+  egress_deny:
+    - secrets/**: vendor keys under NDA
+```
+
+The catalog records facts only — template, sandboxes, destination, and pitfalls each with a date and
+a source — and never what an agent is good at, because a judgement sitting in the session steers it
+and goes stale with the next model. Which work suits an external agent is yours to write. Tool paths
+are machine facts: `~/.keel/agents.json` adds an agent or overrides a field, such as
+`{"agents": {"dsh": {"executable": "/path/to/dsh"}}}`. Keel cannot see what an agent reads beyond
+the brief, so `egress_deny` guards what is handed over, not what it can open.
+
 ## Group chat between sessions
 
 Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. Each member has its own unread state, and history is kept. Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Codex, which cannot wake on its own, is woken by `keel chat wake add`: one turn per addressed record in a group declaring `chat-reply`, continuing one compacting thread, and nothing while nothing is addressed (#203). Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention: see [the Slack setup guide](docs/chat-slack-setup.md). The 5.83 `keel mail` commands keep working on direct groups.
@@ -683,6 +721,10 @@ keel chat archive sync | pull
 # Unattended triage — may this issue start work without asking?
 # Keel never fetches the issue; pass what gh returned. At least one of the two.
 keel triage [--labels <l1,l2>] [--issue <n>] [--json]
+
+# External model CLIs — catalog, and the brief Keel compiles (it launches nothing)
+keel agents [name] [--json]
+keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # Install / maintenance
 keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]

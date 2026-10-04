@@ -104,28 +104,37 @@
 
 ## 2. Protocol, documentation and release
 
-- [ ] 2.1 Name the command in the protocol, the READMEs, and the privacy policy
+- [x] 2.1 Name the command in the protocol, the READMEs, and the privacy policy
   - Covers:
     - D9
     - I2
     - I3
   - Touch:
-    - assets/bootstrap/AGENTS.md
+    - AGENTS.md
     - README.md
     - README.zh-CN.md
     - PRIVACY.md
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: vertical-tdd
-    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agents-are-documented` requires the bootstrap protocol to name `keel agents brief` and say Keel launches nothing, both READMEs to list `keel agents` in their command blocks and show an `external_agents:` example with `allow:` and `egress_deny:`, and `PRIVACY.md` to list external model CLIs under what leaves the machine. Fails with: `external-agents-are-documented:`
-    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario skill-portability-policy` passes.
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agents-are-documented` requires this repository's `AGENTS.md` protocol to name `keel agents brief` and say Keel launches nothing, the installed bootstrap block to stay unchanged in naming neither (D9), both READMEs to list `keel agents` in their command blocks and show an `external_agents:` example with `allow:` and `egress_deny:`, and `PRIVACY.md` to list external model CLIs under what leaves the machine. Fails with: `external-agents-are-documented:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario skill-portability-policy` and `delegation-resident-text` each pass.
   - Autonomy boundary:
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:7762862db2ea4f3122f68e0e7f7e10bcd08733ea8579e591883ac03216d630b0
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: Touch first gained `AGENTS.md` before any Evidence. Then, with M1 only red, the bootstrap block came out of Touch and M1 now requires it unchanged, because its byte budget's recorded rationale declines a declaration that is inert until made (D9 updated); M2 gained `delegation-resident-text`, the check that caught it. The contract was re-recorded and M1's red re-taken against the revised scenario.
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agents-are-documented` reports `external-agents-are-documented scenario passed.`
+    - M1.red: fail. With `AGENTS.md` at HEAD and the revised scenario, it reported `external-agents-are-documented: AGENTS.md does not name \`keel agents brief\`.`, carrying the declared signature `external-agents-are-documented:`.
+    - M1.green: pass. With the protocol sentence, both READMEs' sections, command lines and examples, and the PRIVACY.md entry, the same scenario passes; the bootstrap block is unchanged.
+    - M2: pass. `skill-portability-policy` and `delegation-resident-text` each report `scenario passed.` The latter had failed at 1552 bytes against the 1400-byte bootstrap budget while the bootstrap carried a sentence, which is what moved D9.
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario reads the shipped files themselves — the command blocks and yaml examples inside fenced blocks, and the PRIVACY.md section by heading — and also asserts the bootstrap stays free of a declaration that is inert until made, so the D9 decision cannot be undone silently.
+      - Scope check: `git status --short` lists `AGENTS.md`, `README.md`, `README.zh-CN.md`, `PRIVACY.md`, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory. `assets/bootstrap/AGENTS.md` was restored to HEAD.
+      - Findings: Discard reason: an agent in a project that never declares `external_agents:` learns of `keel agents brief` only from the READMEs, so it may call an external CLI directly without a brief. That is the freedom the owner asked to keep, and the bootstrap's budget rationale spends nothing on a declaration-inert rule.
 
 - [ ] 2.2 Release and promote the spec
   - Covers:
