@@ -35250,6 +35250,153 @@ def validate_codex_receiving_scenario() -> int:
     return result.returncode
 
 
+EXTERNAL_AGENT_FACT_FIELDS = {
+    "name", "source", "executable", "resolved", "allowed",
+    "command", "sandbox", "sendsTo", "pitfalls",
+}
+
+
+def _external_agents_env(base: Path) -> tuple[dict[str, str], Path]:
+    """An environment whose Keel home and PATH belong to the fixture.
+
+    The stub `codex` stands in for the real one so resolution is checked against
+    a path the scenario controls; it records any invocation, because a catalog
+    or a brief that launched the agent would be the one thing Keel promised not
+    to do.
+    """
+    home = base / "home"
+    home.mkdir()
+    stub_bin = base / "bin"
+    stub_bin.mkdir()
+    calls = base / "calls.log"
+    for name in ("codex", "dsh"):
+        stub = stub_bin / name
+        stub.write_text(f"#!/bin/sh\necho {name} \"$@\" >> '{calls}'\n", encoding="utf-8")
+        stub.chmod(0o755)
+    env = dict(os.environ)
+    env["KEEL_HOME"] = str(home)
+    env["PATH"] = f"{stub_bin}{os.pathsep}{env.get('PATH', '')}"
+    return env, calls
+
+
+def validate_external_agent_catalog_scenario() -> int:
+    """The catalog records facts, merges the machine file, and stays on demand.
+
+    #219: an external model CLI writes outside the host's write guard and sends
+    the repository to another provider. What Keel offers about one is facts a
+    reader can check — template, sandboxes, destination, dated pitfalls — and
+    never a judgement of what it is good at, because a judgement resident in the
+    session steers the agent that reads it (owner, 2026-10-04).
+    """
+    label = "external-agent-catalog:"
+    with tempfile.TemporaryDirectory(prefix="keel-agents-") as raw:
+        base = Path(raw)
+        env, calls = _external_agents_env(base)
+        repo = base / "repo"
+        repo.mkdir()
+        write_gate_fixture(repo, standing_authorization_task())
+        write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n")
+
+        def listing() -> dict | None:
+            result = run_keel(repo, "agents", "--json", env=env)
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                report(f"{label} `keel agents --json` printed no JSON: "
+                       f"{(result.stdout + result.stderr).strip()[:400]}")
+                return None
+
+        payload = listing()
+        if payload is None:
+            return 1
+        agents = {item.get("name"): item for item in payload.get("agents") or []}
+        for name in ("codex", "dsh"):
+            if agents.get(name, {}).get("source") != "bundled":
+                report(f"{label} {name} is not listed as a bundled entry: {agents.get(name)}")
+                return 1
+        stub = str(base / "bin" / "codex")
+        if agents["codex"].get("resolved") != stub:
+            report(f"{label} codex resolved to {agents['codex'].get('resolved')!r}, not the stub on PATH.")
+            return 1
+        dsh_path = agents["dsh"].get("executable")
+        expected = dsh_path if dsh_path and Path(dsh_path).exists() else None
+        if agents["dsh"].get("resolved") != expected:
+            report(f"{label} dsh resolution {agents['dsh'].get('resolved')!r} disagrees with "
+                   f"whether {dsh_path!r} exists.")
+            return 1
+        if agents["codex"].get("allowed") is not True or agents["dsh"].get("allowed") is not False:
+            report(f"{label} allowance is not read from external_agents: allow: "
+                   f"codex={agents['codex'].get('allowed')!r} dsh={agents['dsh'].get('allowed')!r}")
+            return 1
+        for name, item in agents.items():
+            extra = set(item) - EXTERNAL_AGENT_FACT_FIELDS
+            if extra:
+                report(f"{label} {name} carries fields outside the fact fields: {sorted(extra)}. "
+                       "The catalog records facts, not a judgement of what an agent suits.")
+                return 1
+            pitfalls = item.get("pitfalls") or []
+            if not pitfalls:
+                report(f"{label} {name} records no pitfall.")
+                return 1
+            for pitfall in pitfalls:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(pitfall.get("date", ""))) \
+                        or not str(pitfall.get("source", "")).strip():
+                    report(f"{label} {name} has a pitfall without a date and a source: {pitfall}")
+                    return 1
+
+        shown = run_keel(repo, "agents", "codex", env=env)
+        text = shown.stdout
+        codex = agents["codex"]
+        for needle in (codex.get("command"), "read-only", "workspace-write", codex.get("sendsTo"),
+                       *[p["text"] for p in codex["pitfalls"]],
+                       *[p["date"] for p in codex["pitfalls"]]):
+            if not needle or needle not in text:
+                report(f"{label} `keel agents codex` does not print {needle!r}.")
+                return 1
+
+        # A machine entry declaring one field overrides that field only.
+        custom = base / "bin" / "dsh"
+        (base / "home" / "agents.json").write_text(
+            json.dumps({"agents": {"dsh": {"executable": str(custom)}}}), encoding="utf-8")
+        payload = listing()
+        if payload is None:
+            return 1
+        dsh = {item.get("name"): item for item in payload.get("agents") or []}.get("dsh") or {}
+        if dsh.get("source") != "machine" or dsh.get("executable") != str(custom):
+            report(f"{label} the machine entry did not override dsh: {dsh}")
+            return 1
+        if dsh.get("command") != agents["dsh"].get("command"):
+            report(f"{label} a machine entry declaring only an executable replaced the bundled template.")
+            return 1
+
+        # A malformed machine file is named and none of it is used.
+        (base / "home" / "agents.json").write_text("{not json", encoding="utf-8")
+        payload = listing()
+        if payload is None:
+            return 1
+        problems = " ".join(payload.get("problems") or [])
+        if "agents.json" not in problems:
+            report(f"{label} a malformed agents.json was not reported: {payload.get('problems')}")
+            return 1
+        sources = {item.get("source") for item in payload.get("agents") or []}
+        if sources != {"bundled"}:
+            report(f"{label} a malformed agents.json still contributed entries: {sources}")
+            return 1
+
+        # Session start carries no catalog.
+        context = run_keel(repo, "context", env=env)
+        for needle in ("dsh", "DeepSeek", "/dev/null", "workspace-write"):
+            if needle in context.stdout:
+                report(f"{label} `keel context` carries catalog text {needle!r}.")
+                return 1
+        if calls.exists():
+            report(f"{label} an agent was launched: {calls.read_text(encoding='utf-8').strip()}")
+            return 1
+
+    report("external-agent-catalog scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -35694,6 +35841,7 @@ SCENARIOS: tuple = (
         "a-task-field-cites-its-provenance",
         validate_a_task_field_cites_its_provenance_scenario,
     ),
+    ("external-agent-catalog", validate_external_agent_catalog_scenario),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),

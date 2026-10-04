@@ -434,6 +434,82 @@ function readDelegationPolicy(repo) {
   return { declared: true, tier, unknown: [], accepted };
 }
 
+// `external_agents:` — which external model CLIs this project allows, and the
+// paths that must not be handed to one (#219). Absent allows nothing: every
+// other declaration here authorizes nothing when absent, and sending the
+// repository to another provider is the decision a project makes once,
+// explicitly. The block is two sub-keys, so it is read with configBlockLines
+// and classified here rather than loosening the flat readers.
+//
+// An `egress_deny` entry carries its reason, the same shape as
+// `full_mode_paths`. An entry Keel cannot read is reported by name and the
+// caller refuses every brief until it is corrected: a deny list that silently
+// dropped an entry would send exactly what it was written to keep.
+const EXTERNAL_AGENT_KEYS = ["allow", "egress_deny"];
+
+function readExternalAgents(repo) {
+  const result = { declared: false, allow: [], egressDeny: [], problems: [], unreadable: [] };
+  const block = configBlockLines(repo, "external_agents");
+  if (block === null) return result;
+  result.declared = true;
+  if (block.inline !== null) {
+    result.problems.push(
+      `keel/config.yaml declares external_agents: inline (${block.inline}); write allow: and egress_deny: on their own lines.`
+    );
+    result.unreadable.push(block.inline);
+    return result;
+  }
+  let key = null;
+  for (const line of block.lines) {
+    const sub = line.match(/^ {1,3}(\w+)\s*:\s*(.*?)\s*$/);
+    if (sub) {
+      key = sub[1];
+      if (!EXTERNAL_AGENT_KEYS.includes(key)) {
+        result.problems.push(
+          `keel/config.yaml external_agents: declares ${key}, which Keel does not read; accepted: ${EXTERNAL_AGENT_KEYS.join(", ")}.`
+        );
+        result.unreadable.push(key);
+        key = null;
+        continue;
+      }
+      // `allow: [codex, dsh]` is the one flow form read, because a one-line
+      // allowance is the common declaration.
+      const flow = sub[2].match(/^\[(.*)\]$/);
+      if (key === "allow" && flow) {
+        result.allow.push(...flow[1].split(",").map((item) => item.trim()).filter(Boolean));
+      } else if (sub[2] !== "") {
+        result.problems.push(`keel/config.yaml external_agents: ${key}: holds ${sub[2]}; write its entries as a list.`);
+        result.unreadable.push(`${key}: ${sub[2]}`);
+      }
+      continue;
+    }
+    const item = line.match(/^\s+-\s*(.*?)\s*$/);
+    if (!item || key === null) {
+      result.problems.push(`keel/config.yaml external_agents: line Keel could not read: ${line.trim()}`);
+      result.unreadable.push(line.trim());
+      continue;
+    }
+    if (key === "allow") {
+      if (/^[A-Za-z0-9._-]+$/.test(item[1])) result.allow.push(item[1]);
+      else {
+        result.problems.push(`keel/config.yaml external_agents: allow entry ${item[1]} is not an agent name.`);
+        result.unreadable.push(item[1]);
+      }
+      continue;
+    }
+    const entry = item[1].match(/^(\S+?)\s*:\s+(\S.*)$/);
+    if (!entry) {
+      result.problems.push(
+        `keel/config.yaml external_agents: egress_deny entry ${item[1]} has no reason; write it as \`- <glob>: <reason>\`. Every brief is refused until it is corrected, because a deny list that dropped an entry would send what it was written to keep.`
+      );
+      result.unreadable.push(item[1]);
+      continue;
+    }
+    result.egressDeny.push({ pattern: entry[1], reason: entry[2] });
+  }
+  return result;
+}
+
 // Which guidance an executor loads, declared by the repository rather than
 // judged by the executor. #135's argument is that "do I need this help?" is the
 // judgement a weak executor gets most wrong, so the skip is written down; the
@@ -664,6 +740,7 @@ function triageIssue(repo, labels, issue = null) {
 }
 
 module.exports = {
+  readExternalAgents,
   CONFIG_RELATIVE_PATH,
   DELEGATION_TIERS,
   EXECUTOR_TIERS,

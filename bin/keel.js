@@ -105,6 +105,7 @@ Usage:
   keel chat role|group|post|dm|unread|read|show|<group> ... [--repo path]   (group chat between sessions; see keel chat help)
   keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
+  keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -2847,6 +2848,10 @@ function main() {
   // `keel chat` likewise: the group chat between sessions (#187).
   if (process.argv[2] === "chat") {
     return require("../src/core/chat/cli").runChat(process.argv.slice(3));
+  }
+  // `keel agents` likewise: the external model CLI catalog (#219).
+  if (process.argv[2] === "agents") {
+    return require("../src/core/agents").runAgents(process.argv.slice(3));
   }
   const options = parseArgs(process.argv.slice(2));
   if (options.help || (!options.action && !options.version)) {
