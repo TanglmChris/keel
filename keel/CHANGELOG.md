@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.94.1 - A role bound after the session started still wakes it
+
+Connecting rtl_ppa_prj to Slack, the owner messaged the spec session; the record and its signal arrived, and the session never woke (#187). Claude Code takes `watchPaths` only from SessionStart, and Keel returned one only when the worktree already had a role, so a session started before its role was bound watched nothing until it restarted.
+
+- Issue #187: SessionStart in any worktree of a repository now also watches that worktree's own signal, `signal/worktree/<id>` (the first 16 hex digits of the SHA-256 of the worktree path); with no role it returns that path alone and no notice text.
+- Issue #187: a record that wakes a role also appends to the worktree signal of every worktree bound to that role, so such a session wakes on the next record addressed to it, with no plugin reload.
+- A session already running when this ships has run its SessionStart. SessionStart runs again on `/compact`, `/clear`, and resume, so one of those, or a new session, brings it under the new rule.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.94.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.94.0 - One Slack bot serves a role in each project
 
 5.93.0 tied a Slack app to one role: its token was stored under the role's name. The free plan allows 10 apps, and the owner runs several projects, each with its own PM, spec, and so on (#187). The owner wants a few bots named for what they are in Slack — PM, Spec, Verify, Design, Flow, Report, Review — each speaking for that project's role in each project's channel.

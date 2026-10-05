@@ -345,12 +345,29 @@ function writeRecord(where, fields, date = new Date()) {
   writeAtomic(where.root, target, renderRecord(record));
   refreshTranscript(where, record.group);
   // After the rename, so a host woken by the signal always finds the record.
-  for (const role of signalTargets(record)) {
-    const signal = path.join(where.root, "signal", role);
-    fs.mkdirSync(path.dirname(signal), { recursive: true });
-    fs.appendFileSync(signal, `${record.id}\n`);
+  // Each worktree bound to a woken role gets its own signal too, which a
+  // session watches from its start whether or not a role was bound yet
+  // (chat-wake-late-binding D2).
+  const targets = signalTargets(record);
+  const bound = targets.length ? readRoles(where.root) : {};
+  for (const role of targets) {
+    const signals = [path.join(where.root, "signal", role)];
+    for (const [worktree, name] of Object.entries(bound)) {
+      if (name === role) signals.push(worktreeSignalPath(where.root, worktree));
+    }
+    for (const signal of signals) {
+      fs.mkdirSync(path.dirname(signal), { recursive: true });
+      fs.appendFileSync(signal, `${record.id}\n`);
+    }
   }
   return record;
+}
+
+// A worktree's own signal file: the first 16 hex digits of the SHA-256 of its
+// path, so it names the worktree whatever role it later binds.
+function worktreeSignalPath(root, worktree) {
+  const id = require("crypto").createHash("sha256").update(worktree).digest("hex").slice(0, 16);
+  return path.join(root, "signal", "worktree", id);
 }
 
 // The transcript is derived and local (D1): regenerated whole after each
@@ -737,6 +754,7 @@ function readGroups(where, role, group) {
 
 module.exports = {
   checkName,
+  worktreeSignalPath,
   ALL,
   ChatError,
   DATA_NOTICE,
