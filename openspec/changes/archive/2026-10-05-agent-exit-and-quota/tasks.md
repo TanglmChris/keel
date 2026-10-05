@@ -43,7 +43,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E1
   - Touch:
@@ -80,9 +80,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:ea94048573e906516bc63cffecf6601f022cf073dfda9f43b02f3e7d5f569c21
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js patch` moved every marker to 5.92.1. With the 5.92.1 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The MODIFIED requirement replaces its published text in `openspec/specs/keel-external-agents/spec.md`, which updates I1, and `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the promoted requirement carries the exit-status clause and its scenario, and the changelog names both findings and the dsh credential fact.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
 
 ## Invalidates
 

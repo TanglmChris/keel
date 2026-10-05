@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.92.1 - A brief's command records the exit status
+
+Reading nine codex runs in rtl_ppa_prj found two gaps (#221). Four runs started together and three stopped on the usage limit within five minutes. Only one run recorded its exit status, so a run that finished with `exit=0` read as a failure because it left no result file.
+
+- Issue #221: the command `keel agents brief` prints runs the template in a subshell and writes its exit status to `<result>.exit`; the JSON carries `exit` and the text output names the file. The subshell keeps a template's `cd`, such as dsh's, from moving the calling shell.
+- Issue #221: the codex catalog entry records that parallel runs under one account share one quota. The dsh entry records that its headless profile fails with `MISSING_CREDENTIAL` until a DeepSeek API key is stored through the app's Models page or exported as `DEEPSEEK_API_KEY`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.92.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.92.0 - External model CLIs are delegates with a compiled brief
 
 Sessions in rtl_ppa_prj hand work to the codex CLI, and the machine also has DeepSeek Harness (`dsh`). The rules for calling one lived in that project's docs, restating Keel's delegation rules, and every other project would restate them again (#219). The owner's principle: keep the model free to call what it wants, including its own subagents; Keel provides the interface, the gates, and the pitfalls.
