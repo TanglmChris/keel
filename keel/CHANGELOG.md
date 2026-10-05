@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.95.1 - Slack formatting renders beside Chinese text
+
+The first real post after 5.95.0 showed `*重点*`, `_斜体_`, and a bold run after full-width punctuation as literal markers: Slack renders a marker only at a word boundary, and CJK text or full-width punctuation beside it is not one (#187).
+
+- Issue #187: outbound bold, italic, and strikethrough markers are wrapped in zero-width spaces, which Slack accepts as a boundary; checked against real Slack on 2026-10-05. Inbound text drops zero-width spaces before translating back to Markdown.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.95.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.95.0 - Slack shows a session's Markdown as formatting
 
 Using the rtl_ppa_prj channel, the owner found long messages hard to scan: sessions write Markdown, Slack renders its own mrkdwn, and the bridge sent the text verbatim, so the markers showed instead of formatting (#187).

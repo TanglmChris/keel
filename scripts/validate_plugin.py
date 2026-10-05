@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.95.0"
-PROTOCOL_VERSION = "5.95.0"
+PACKAGE_VERSION = "5.95.1"
+PROTOCOL_VERSION = "5.95.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3810,7 +3810,7 @@ def validate_chat_slack_format_scenario() -> int:
         chat_slack_config(rtl, {"soc": "CSOC"})
         benv = chat_bridge_environment(env, base / "home", slack)
         run_keel(rtl, "chat", "bridge", "add", env=benv)
-        body = "# Plan\n**must** land *soon*\n- item\nsee [spec](https://example.com/s) and `a**b`\n```\n**raw**\n```\nx<y&z"
+        body = "# Plan\n**must** land *soon*\n- item\nsee [spec](https://example.com/s) and `a**b`\n```\n**raw**\n```\nx<y&z\n这是**重点**内容"
         record_id = chat_json(run_keel(rtl, "chat", "post", "soc", body, "--json", env=benv)).get("id", "")
         once = run_keel(rtl, "chat", "bridge", "run", "--once", env=benv)
         if once.returncode != 0:
@@ -3824,6 +3824,10 @@ def validate_chat_slack_format_scenario() -> int:
             if needle not in sent:
                 report(f"{label} the posted text lacks {needle!r}: {sent!r}")
                 return 1
+        # Slack needs a boundary beside a marker, and CJK text is not one.
+        if "这是\u200b*重点*\u200b内容" not in sent:
+            report(f"{label} bold beside CJK text carries no zero-width boundary: {sent!r}")
+            return 1
         if "**must**" in sent:
             report(f"{label} Markdown bold reached Slack untranslated: {sent!r}")
             return 1
