@@ -165,6 +165,57 @@ function domain() {
   return `gui/${typeof process.getuid === "function" ? process.getuid() : 0}`;
 }
 
+// launchd's view of the agent (bridge-start-race D1): loaded with its state
+// and pid, unloaded, or null when launchctl gives no answer to read — a
+// system without it, or a test double that prints nothing.
+function loadedState() {
+  const result = launchctl(["print", `${domain()}/${LABEL}`]);
+  const state = result.output.match(/^\s*state = (\S+)/m);
+  if (result.ok && state) {
+    const pid = result.output.match(/^\s*pid = (\d+)/m);
+    return { loaded: true, state: state[1], pid: pid ? Number(pid[1]) : null };
+  }
+  if (!result.ok && /could not find service/i.test(result.output)) return { loaded: false };
+  return null;
+}
+
+function waitLimit() {
+  const ms = Number(process.env.KEEL_CHAT_LAUNCHCTL_WAIT_MS);
+  return Number.isFinite(ms) && ms >= 0 ? ms : 10000;
+}
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// `bootout` returns before launchd has removed the service (F1); waits,
+// bounded, until it reports the service gone or gives no answer.
+function bootout() {
+  launchctl(["bootout", `${domain()}/${LABEL}`]);
+  const deadline = Date.now() + waitLimit();
+  for (;;) {
+    const state = loadedState();
+    if (!state || !state.loaded || Date.now() >= deadline) return;
+    sleep(250);
+  }
+}
+
+// Loads the agent, retrying while a previous unload is still in progress
+// (D2); any other failure, or one that outlasts the wait, is reported with
+// launchctl's own words.
+function bootstrap(what) {
+  const deadline = Date.now() + waitLimit();
+  for (;;) {
+    const loaded = launchctl(["bootstrap", domain(), plistPath()]);
+    if (loaded.ok) return;
+    const busy = /already|in progress|5:/i.test(loaded.output);
+    if (!busy || Date.now() >= deadline) {
+      throw new ChatError(`launchctl could not ${what}: ${loaded.output}`);
+    }
+    sleep(500);
+  }
+}
+
 function install() {
   if (process.platform !== "darwin" && !process.env.KEEL_CHAT_LAUNCHCTL) {
     throw new ChatError("keel chat bridge install sets up a macOS LaunchAgent; on this system run `keel chat bridge run` under your own service manager.");
@@ -172,14 +223,13 @@ function install() {
   fs.mkdirSync(agentsDir(), { recursive: true });
   fs.mkdirSync(bridgeDir(), { recursive: true });
   fs.writeFileSync(plistPath(), plistText());
-  launchctl(["bootout", `${domain()}/${LABEL}`]);
-  const loaded = launchctl(["bootstrap", domain(), plistPath()]);
-  if (!loaded.ok) throw new ChatError(`launchctl could not load ${plistPath()}: ${loaded.output}`);
+  bootout();
+  bootstrap(`load ${plistPath()}`);
   return plistPath();
 }
 
 function uninstall() {
-  launchctl(["bootout", `${domain()}/${LABEL}`]);
+  bootout();
   try {
     fs.rmSync(plistPath());
   } catch {
@@ -188,19 +238,21 @@ function uninstall() {
   return plistPath();
 }
 
+// Returns false when launchd already has the agent loaded, and so keeps it
+// running, and nothing was done.
 function start() {
   if (!installed()) throw new ChatError("The bridge is not installed: run `keel chat bridge install` first.");
   resume();
-  const loaded = launchctl(["bootstrap", domain(), plistPath()]);
-  if (!loaded.ok && !/already|in progress|5:/i.test(loaded.output)) {
-    throw new ChatError(`launchctl could not start the bridge: ${loaded.output}`);
-  }
+  const state = loadedState();
+  if (state && state.loaded) return false;
+  bootstrap("start the bridge");
+  return true;
 }
 
 // Unloads the agent: it stays stopped until `start`, or until the next login
 // loads it again.
 function stop() {
-  launchctl(["bootout", `${domain()}/${LABEL}`]);
+  bootout();
 }
 
 module.exports = {
@@ -210,6 +262,7 @@ module.exports = {
   bridgeDir,
   install,
   installed,
+  loadedState,
   missingTokens,
   pause,
   pausedUntil,

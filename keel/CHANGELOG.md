@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.95.2 - `bridge start` succeeds only when the bridge is loaded
+
+`keel chat bridge stop` followed at once by `start` reported success while launchd had no service, and `status` reported the stopped process's last status as running (#226).
+
+- Issue #226: `start` and `install` retry `launchctl bootstrap` while it fails with `5: Input/output error` because the previous unload is still in progress, up to 10 seconds, then fail naming launchctl's output; `start` on a loaded agent says so and changes nothing. `stop`, `install`, and `uninstall` wait until launchd reports the agent gone.
+- Issue #226: the bridge records in its status whether launchd started it, and for such a status `keel chat bridge status` reports not running when launchd has unloaded the agent or runs another pid. A bridge run by hand is still judged by its pid.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.95.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.95.1 - Slack formatting renders beside Chinese text
 
 The first real post after 5.95.0 showed `*重点*`, `_斜体_`, and a bold run after full-width punctuation as literal markers: Slack renders a marker only at a word boundary, and CJK text or full-width punctuation beside it is not one (#187).

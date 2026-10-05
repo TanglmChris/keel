@@ -726,6 +726,8 @@ function machineName() {
 function writeStatus(ctx) {
   const status = {
     pid: process.pid,
+    // launchd names the agent it started in XPC_SERVICE_NAME (D4).
+    launchd: process.env.XPC_SERVICE_NAME === lifecycle.LABEL,
     machine: machineName(),
     connected: Boolean(ctx.connected),
     projects: ctx.projects.map((project) => project.where.worktree),
@@ -812,6 +814,12 @@ function readStatus() {
     running = true;
   } catch {
     running = false;
+  }
+  // A status file a launchd-started bridge wrote is current only while
+  // launchd still runs that pid (D4); a bridge run by hand has only its pid.
+  if (running && status.launchd && lifecycle.installed()) {
+    const state = lifecycle.loadedState();
+    if (state && (!state.loaded || (state.pid && state.pid !== status.pid))) running = false;
   }
   return { ...status, running, connected: running && Boolean(status.connected) };
 }
