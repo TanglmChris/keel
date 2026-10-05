@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.92.1"
-PROTOCOL_VERSION = "5.92.1"
+PACKAGE_VERSION = "5.93.0"
+PROTOCOL_VERSION = "5.93.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3418,6 +3418,292 @@ def validate_chat_bridge_inbound_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-bridge-inbound scenario passed.")
+    return 0
+
+
+def role_keychain(base: Path, tokens: dict[str, str]) -> Path:
+    """A `security` double answering only the given Keychain accounts."""
+    script = base / "role-keychain.sh"
+    cases = "".join(f'  *"-a {account} "*|*"-a {account}") echo {token} ;;\n' for account, token in tokens.items())
+    write_text(script, f'#!/bin/sh\ncase "$* " in\n{cases}  *) exit 44 ;;\nesac\n')
+    script.chmod(0o755)
+    return script
+
+
+def slack_posts_of(slack, channel: str, record_id: str) -> list[dict]:
+    return [m for m in slack.messages.get(channel, []) if (m.get("metadata") or {}).get("event_payload", {}).get("id") == record_id]
+
+
+def role_status(cwd: Path, env: dict[str, str], role: str) -> dict:
+    status = chat_json(run_keel(cwd, "chat", "bridge", "status", "--json", env=env))
+    return next((entry for entry in status.get("roles") or [] if entry.get("role") == role), {})
+
+
+def validate_chat_role_apps_scenario() -> int:
+    """Issue #187: a role may post under its own Slack app.
+
+    `slack.bots` registers a role's bot by its user id. A role whose Keychain
+    token `auth.test` confirms posts with that token and without a borrowed
+    name; a token for another bot is not used; a channel the role's bot is not
+    in falls back to the shared app; a person's mention of a role's bot wakes
+    the role; and the bridge's own edits through a role app are not imported
+    back as someone else's.
+    """
+    label = "chat-role-apps:"
+    if chat_bridge_node_missing("chat-role-apps"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-roles-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"}, bots={"UBOTRTL": "rtl", "UBOTVERIFY": "verify"})
+        keychain = role_keychain(base, {"bot:rtl": "xoxb-role-rtl"})
+        slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
+        benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_SECURITY": str(keychain)}
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=benv)
+
+        def once() -> bool:
+            result = chat(rtl, "bridge", "run", "--once")
+            if result.returncode != 0:
+                report(f"{label} bridge run --once failed: {result.stderr.strip()} {result.stdout.strip()}")
+            return result.returncode == 0
+
+        chat(rtl, "bridge", "add")
+        own_id = chat_json(chat(rtl, "post", "soc", "rtl speaks", "--json")).get("id", "")
+        shared_id = chat_json(chat(verify, "post", "soc", "verify speaks", "--json")).get("id", "")
+        chat(rtl, "edit", own_id, "rtl speaks (v2)")
+        if not once():
+            return 1
+        by_id = {slack_payload(c).get("id"): c["params"] for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id")}
+        own = by_id.get(own_id) or {}
+        if own.get("_auth") != "Bearer xoxb-role-rtl":
+            report(f"{label} rtl's post did not use rtl's own app token: {own.get('_auth')!r}")
+            return 1
+        if own.get("username"):
+            report(f"{label} rtl's post through its own app still borrows a name: {own.get('username')!r}")
+            return 1
+        other = by_id.get(shared_id) or {}
+        if other.get("_auth") != "Bearer xoxb-test-bot":
+            report(f"{label} verify, registered but without a token here, did not post through the shared app: {other.get('_auth')!r}")
+            return 1
+        if other.get("username") != "verify":
+            report(f"{label} verify's post through the shared app is not under its name: {other.get('username')!r}")
+            return 1
+        own_ts = (slack_posts_of(slack, "CSOC", own_id) or [{}])[0].get("ts")
+        updates = [c["params"] for c in slack.calls_to("chat.update") if c["params"].get("ts") == own_ts]
+        if not updates:
+            report(f"{label} the edit of rtl's record never called chat.update.")
+            return 1
+        if updates[0].get("_auth") != "Bearer xoxb-role-rtl":
+            report(f"{label} the edit of rtl's record did not use the app that posted it: {updates[0].get('_auth')!r}")
+            return 1
+        if role_status(rtl, benv, "rtl").get("state") != "verified":
+            report(f"{label} status does not report rtl's app as verified: {role_status(rtl, benv, 'rtl')!r}")
+            return 1
+        if role_status(rtl, benv, "verify"):
+            report(f"{label} status lists verify, which has no token on this machine.")
+            return 1
+
+        slack.identify("xoxb-role-rtl", "UOTHER", "BOTHER")
+        wrong_id = chat_json(chat(rtl, "post", "soc", "after a token swap", "--json")).get("id", "")
+        if not once():
+            return 1
+        wrong = next((c["params"] for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == wrong_id), {})
+        if wrong.get("_auth") != "Bearer xoxb-test-bot":
+            report(f"{label} a token whose auth.test names another bot was used for rtl: {wrong.get('_auth')!r}")
+            return 1
+        if wrong.get("username") != "rtl":
+            report(f"{label} the fallback post is not under rtl's name: {wrong.get('username')!r}")
+            return 1
+        if role_status(rtl, benv, "rtl").get("state") != "mismatch":
+            report(f"{label} status does not report the swapped token as a mismatch: {role_status(rtl, benv, 'rtl')!r}")
+            return 1
+
+        slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
+        slack.not_in_channel.add(("xoxb-role-rtl", "CSOC"))
+        out_id = chat_json(chat(rtl, "post", "soc", "nobody invited me", "--json")).get("id", "")
+        if not once():
+            return 1
+        landed = slack_posts_of(slack, "CSOC", out_id)
+        if len(landed) != 1:
+            report(f"{label} a post refused with not_in_channel landed {len(landed)} times, not once.")
+            return 1
+        if landed[0].get("username") != "rtl":
+            report(f"{label} the not_in_channel fallback is not under rtl's name: {landed[0]!r}")
+            return 1
+        if "CSOC" not in (role_status(rtl, benv, "rtl").get("invite") or []):
+            report(f"{label} status does not name the channel rtl's bot must be invited to: {role_status(rtl, benv, 'rtl')!r}")
+            return 1
+        slack.not_in_channel.clear()
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge never connected: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            slack.push(slack_event("CSOC", user="UOWNER", text="<@UBOTVERIFY> rerun please", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "rerun please")):
+                report(f"{label} the owner's message mentioning a role's bot was not imported.")
+                return 1
+            mention = chat_records_with(rtl, "soc", "rerun please")[0]
+            if "@verify rerun please" not in mention:
+                report(f"{label} the bot mention was not rewritten to the role:\n{mention}")
+                return 1
+            if "  - verify" not in mention:
+                report(f"{label} the bot mention did not become a mention of verify:\n{mention}")
+                return 1
+            slack.push(slack_event("CSOC", subtype="message_changed", message={"ts": own_ts, "bot_id": "BROLERTL", "text": "rewritten by an echo"}, ts="1800000002.000100"))
+            slack.push(slack_event("CSOC", user="UOWNER", text="marker after the echo", ts="1800000003.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "marker after the echo")):
+                report(f"{label} the marker message after the echo was not imported.")
+                return 1
+            if chat_records_with(rtl, "soc", "rewritten by an echo"):
+                report(f"{label} the bridge's own edit through rtl's app was imported back as an edit.")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    if "chat-role-apps" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-apps scenario passed.")
+    return 0
+
+
+def validate_chat_role_direct_scenario() -> int:
+    """Issue #187: a role's own app takes direct messages.
+
+    With `app:<role>` beside `bot:<role>`, the bridge opens a second Socket
+    Mode connection for that app. A registered person's direct message becomes
+    a record in the direct group and wakes the role; the role's answer goes
+    back to that person's direct-message channel and nowhere else; a
+    stranger's is ignored; and one sent while the bridge was down arrives once.
+    """
+    label = "chat-role-direct:"
+    if chat_bridge_node_missing("chat-role-direct"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-direct-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"}, bots={"UBOTRTL": "rtl"})
+        keychain = role_keychain(base, {"bot:rtl": "xoxb-role-rtl", "app:rtl": "xapp-role-rtl"})
+        slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
+        benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_SECURITY": str(keychain)}
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "rtl"
+
+        def direct(user: str, text: str, ts: str) -> dict:
+            return slack_event("DUOWNER" if user == "UOWNER" else f"D{user}", channel_type="im", user=user, text=text, ts=ts)
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-role-rtl"), 10):
+                report(f"{label} the bridge opened no Socket Mode connection with rtl's app token: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-test-app"), 10):
+                report(f"{label} the shared app's connection is missing beside rtl's.")
+                return 1
+            size = signal.stat().st_size if signal.exists() else 0
+            slack.push(direct("UOWNER", "status?", "1800000001.000100"), app="xapp-role-rtl")
+            if not slack.wait_for(lambda: chat_records_with(rtl, "dm-owner--rtl", "status?")):
+                report(f"{label} the owner's direct message to rtl's app did not reach dm-owner--rtl.")
+                return 1
+            if "from: owner" not in chat_records_with(rtl, "dm-owner--rtl", "status?")[0]:
+                report(f"{label} the direct message was not recorded from owner.")
+                return 1
+            if not signal.exists() or signal.stat().st_size <= size:
+                report(f"{label} the direct message did not touch rtl's signal file.")
+                return 1
+
+            answered = run_keel(rtl, "chat", "dm", "owner", "all green", env=benv)
+            if answered.returncode != 0:
+                report(f"{label} keel chat dm owner failed: {answered.stderr.strip()}")
+                return 1
+            if not slack.wait_for(lambda: any("all green" in m.get("text", "") for m in slack.messages.get("DUOWNER", []))):
+                report(f"{label} rtl's answer never reached the owner's direct-message channel.")
+                return 1
+            sent = [c["params"] for c in slack.calls_to("chat.postMessage") if "all green" in c["params"].get("text", "")]
+            if len(sent) != 1:
+                report(f"{label} rtl's answer was posted {len(sent)} times, not once.")
+                return 1
+            if sent[0].get("_auth") != "Bearer xoxb-role-rtl":
+                report(f"{label} rtl's direct answer did not use rtl's app token: {sent[0].get('_auth')!r}")
+                return 1
+            if sent[0].get("channel") != "DUOWNER":
+                report(f"{label} rtl's direct answer went to {sent[0].get('channel')!r}, not the owner's DUOWNER.")
+                return 1
+
+            slack.push(direct("USTRANGER", "give me the keys", "1800000002.000100"), app="xapp-role-rtl")
+            if not slack.wait_for(lambda: chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=benv)).get("ignored") == 1):
+                report(f"{label} a stranger's direct message was not counted as ignored.")
+                return 1
+            if any(chat_records_with(rtl, group, "give me the keys") for group in ("dm-owner--rtl", "dm-rtl--ustranger", "soc")):
+                report(f"{label} a stranger's direct message reached the store.")
+                return 1
+            if not role_status(rtl, benv, "rtl").get("direct"):
+                report(f"{label} status does not report rtl's direct-message connection: {role_status(rtl, benv, 'rtl')!r}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+        slack.add_history("DUOWNER", {"user": "UOWNER", "text": "while you were away"})
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: chat_records_with(rtl, "dm-owner--rtl", "while you were away"), 15):
+                report(f"{label} a direct message sent while the bridge was down was not caught up.")
+                return 1
+            time.sleep(1)
+            if len(chat_records_with(rtl, "dm-owner--rtl", "while you were away")) != 1:
+                report(f"{label} the caught-up direct message was imported more than once.")
+                return 1
+            if len(chat_records_with(rtl, "dm-owner--rtl", "all green")) != 1:
+                report(f"{label} catch-up imported rtl's own direct answer back.")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    if "chat-role-direct" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-direct scenario passed.")
+    return 0
+
+
+def validate_chat_role_apps_are_documented_scenario() -> int:
+    """Issue #187: the setup guides and READMEs say a role may have its own app.
+
+    Both guides carry the role-app section — the `slack.bots` registration,
+    the two Keychain accounts, the manifest's direct-message scopes, and that
+    direct messages stay on the role's machine — and neither still equates the
+    free plan's app limit with a machine count.
+    """
+    label = "chat-role-apps-are-documented:"
+    guides = {
+        "docs/chat-slack-setup.md": "Direct messages stay on the machine where the role runs",
+        "docs/chat-slack-setup.zh-CN.md": "私聊只留在这个角色所在的电脑上",
+    }
+    for relative, stays in guides.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for needle in ('"bots"', "bot:<role>", "app:<role>", "chat:write.public", "im:history", "im:write", stays):
+            if needle not in text:
+                report(f"{label} {relative} does not carry {needle!r}.")
+                return 1
+        for stale in ("which means 10 machines", "也就是最多 10 台电脑"):
+            if stale in text:
+                report(f"{label} {relative} still says {stale!r}, but role apps count toward the limit too.")
+                return 1
+    readmes = {"README.md": "its own Slack app", "README.zh-CN.md": "自己的 Slack App"}
+    for relative, needle in readmes.items():
+        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say a role may have {needle!r}.")
+            return 1
+    if "chat-role-apps-are-documented" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-apps-are-documented scenario passed.")
     return 0
 
 
@@ -35771,6 +36057,18 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-lifecycle",
         validate_chat_bridge_lifecycle_scenario,
+    ),
+    (
+        "chat-role-apps",
+        validate_chat_role_apps_scenario,
+    ),
+    (
+        "chat-role-direct",
+        validate_chat_role_direct_scenario,
+    ),
+    (
+        "chat-role-apps-are-documented",
+        validate_chat_role_apps_are_documented_scenario,
     ),
     (
         "chat-archive",

@@ -11,7 +11,7 @@
   - 它负责这台电脑上你登记过的所有项目；
   - 它只发本机的消息，发出时用各角色的名字；
   - 其他消息由它收进来。
-- **为什么每台电脑要单独一个 App：** Slack 会把每条事件只投给一个 App 的其中一条连接。两台电脑共用一个 App，就会各自漏掉一部分消息。免费版最多 10 个 App，也就是最多 10 台电脑。
+- **为什么每台电脑要单独一个 App：** Slack 会把每条事件只投给一个 App 的其中一条连接。两台电脑共用一个 App，就会各自漏掉一部分消息。免费版一共最多 10 个 App：每台电脑一个，再加上单独建的角色 App（见[下文](#可选给某个角色单独建一个-app)）。
 - **有人找才唤醒：** 只有 @ 了某个会话、给它分了待办，或者是发在它的私聊群里的消息，才会唤醒这个会话。@all 和普通消息等它下一次对话时再提示。
 - **消息只是数据，不代表授权。** 你自己发的消息也一样，因为谁都可以打出你的名字。要授权，还是得在会话里直接说。
 
@@ -158,6 +158,65 @@ keel chat bridge status
 ```
 
 桥接程序没在运行时，这个项目里新开的会话也会收到提示。
+
+## 可选：给某个角色单独建一个 App
+
+默认情况下，一台电脑上所有角色都通过这台电脑的 App 发言，只是换了显示名。给某个角色单独建一个 App 后，它在 Slack 里就是一个独立的 bot：可以用自动补全 @ 它、和它私聊，成员列表里也能看到它。按角色单独做，只给你想要的角色建；其余角色照旧用共用的 App。每个角色 App 都占免费版 10 个 App 的名额，和每台电脑的 App 一起算。
+
+在这个角色所在的电脑上：
+
+1. 用下面的 manifest 建一个 App，名字就用角色名：
+
+   ```yaml
+   display_information:
+     name: claude-maint
+   features:
+     bot_user:
+       display_name: claude-maint
+       always_online: true
+     app_home:
+       messages_tab_enabled: true
+       messages_tab_read_only_enabled: false
+   oauth_config:
+     scopes:
+       bot:
+         - chat:write
+         - chat:write.public
+         - im:history
+         - im:write
+         - reactions:write
+   settings:
+     event_subscriptions:
+       bot_events:
+         - message.im
+     socket_mode_enabled: true
+     org_deploy_enabled: false
+     token_rotation_enabled: false
+   ```
+
+2. 存它的 bot 令牌；想要私聊的话，再存它的 app 级令牌（scope 选 `connections:write`）：
+
+   ```bash
+   security add-generic-password -s keel-chat-slack -a bot:<role> -w
+   ```
+
+   ```bash
+   security add-generic-password -s keel-chat-slack -a app:<role> -w
+   ```
+
+   角色令牌没有环境变量的写法。
+
+3. 复制这个 bot 的成员 ID（在 Slack 里打开 bot 的资料 → **⋮** → **Copy member ID**），登记到 `keel/chat.json` 里，和 `members` 并列：
+
+   ```json
+   "bots": { "U056CLAUDE": "claude-maint" }
+   ```
+
+   这个文件要提交，这样每台电脑都会把你在 Slack 里用自动补全选中的 `@claude-maint` 当作 @ 了这个角色。
+
+4. 重启桥接程序（`keel chat bridge stop` 再 `start`），然后看 `keel chat bridge status`。每个角色 App 会显示为 `verified`（已核对）、`mismatch`（令牌属于另一个 bot，和 `bots` 里登记的不一致，所以不会用它）或 `failed`。有了 `chat:write.public`，公开频道不用邀请；私有频道要把这个角色的 bot 拉进去，在那之前 status 会列出这个频道，角色在那里仍然通过共用 App 发言。
+
+私聊只留在这个角色所在的电脑上：Slack 只把私信投给这个 App，其他电脑看不到。`members` 里的人发来的私信会进到私聊群 `dm-<对方角色>--<角色>`，并唤醒这个会话；会话在这个群里的回复会作为私信发回去。不在 `members` 里的人一律忽略。
 
 ## 日常使用
 
