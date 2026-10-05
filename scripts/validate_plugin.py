@@ -3311,7 +3311,9 @@ def validate_chat_bridge_inbound_scenario() -> int:
             if "  - verify" not in owner_record:
                 report(f"{label} the owner's @verify did not become a mention:\n{owner_record}")
                 return 1
-            if not signal.exists() or not signal.stat().st_size:
+            # The record is written before the signal is appended (#231), so
+            # wait for the signal rather than reading it once.
+            if not slack.wait_for(lambda: signal.exists() and signal.stat().st_size, 5):
                 report(f"{label} the owner's mention did not touch verify's signal file.")
                 return 1
 
