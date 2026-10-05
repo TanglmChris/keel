@@ -6,11 +6,11 @@
   "plugins": [
     {
       "name": "keel",
-      "version": "5.95.0",
+      "version": "5.95.1",
       "source": {
         "source": "url",
         "url": "https://github.com/TanglmChris/keel.git",
-        "ref": "v5.95.0"
+        "ref": "v5.95.1"
       },
       "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code."
     }
