@@ -660,8 +660,9 @@ keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> -
 ```
 
 `keel agents brief` compiles the same brief `keel project --event subagent-start` publishes, writes
-it to a file, and prints the command to run. **Keel launches nothing**; the session runs it, and
-re-runs every check before anything counts as evidence. It refuses:
+it to a file, and prints the command to run, which writes the agent's exit status to a `.exit` file
+beside its result. **Keel launches nothing**; the session runs it, and re-runs every check before
+anything counts as evidence. It refuses:
 
 - an agent the project has not allowed — with no declaration, none is;
 - a Read or Touch path the project said must not leave;
