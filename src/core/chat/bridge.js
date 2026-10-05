@@ -582,6 +582,10 @@ async function handleEvent(ctx, event) {
     return;
   }
   if (event.type !== "message") return;
+  if (event.channel_type === "im") {
+    if (ctx.sharedDirect) handleDirectEvent(ctx, ctx.sharedDirect, event);
+    return;
+  }
   const channel = event.channel;
   if (!projectsFor(ctx, channel).length) return;
   switch (event.subtype) {
@@ -753,13 +757,13 @@ function botReport(ctx) {
   return [...(ctx.bots || new Map()).values()].map((app) => {
     let directNote = null;
     if (app.state === "verified" && app.appToken && app.serves.length > 1) directNote = `off: serves ${app.serves.length} roles, and a direct message cannot say which project it is for`;
-    else if (app.state === "verified" && !app.appToken) directNote = `off: no app:${app.name} token`;
+    else if (app.state === "verified" && !app.appToken) directNote = app.shared ? "off: no shared app-level token" : `off: no app:${app.name} token`;
     return {
       bot: app.name,
       state: app.state,
       ...(app.reason ? { reason: app.reason } : {}),
       roles: app.serves.map((entry) => entry.label),
-      direct: Boolean(app.connected),
+      direct: Boolean(app.shared ? app.serves.length === 1 && ctx.connected : app.connected),
       ...(directNote ? { direct_note: directNote } : {}),
       invite: [...app.invite].sort(),
     };
@@ -786,6 +790,14 @@ async function verifyBots(ctx) {
       }
     }
     bots.set(name, app);
+  }
+  // The shared app serves a role too when a project maps its own bot user to
+  // one (chat-shared-app-direct D1). Its tokens and connection are ctx's.
+  if (ctx.self.user_id && ctx.projects.some((project) => project.settings.bots[ctx.self.user_id])) {
+    bots.set("shared", {
+      name: "shared", shared: true, role: null, token: ctx.token, appToken: ctx.appToken, state: "verified", reason: null,
+      user_id: ctx.self.user_id, bot_id: ctx.self.bot_id, serves: [], invite: new Set(), connected: false, socket: null, ims: new Map(),
+    });
   }
   for (const project of ctx.projects) {
     project.roleBots = new Map();
@@ -886,8 +898,17 @@ async function createContext(log, { needApp }) {
   ctx.bots = await verifyBots(ctx);
   for (const project of ctx.projects) project.directApps = directApps(ctx).filter((app) => app.serves[0].project === project);
   for (const app of directApps(ctx)) {
+    if (app.shared) continue;
     app.onHello = () => catchUpDirect(ctx, app);
     app.onEvent = (event) => handleDirectEvent(ctx, app, event);
+  }
+  // Direct messages to the shared app arrive on its one connection (D3).
+  ctx.sharedDirect = directApps(ctx).find((app) => app.shared) || null;
+  if (ctx.sharedDirect) {
+    ctx.onHello = async () => {
+      await catchUp(ctx);
+      await catchUpDirect(ctx, ctx.sharedDirect);
+    };
   }
   // Posts and actions through a verified role app are this bridge's own (D5).
   const verified = [...ctx.bots.values()].filter((app) => app.state === "verified");
@@ -971,7 +992,7 @@ async function keepConnected(ctx, conn) {
 }
 
 function connections(ctx) {
-  return [ctx, ...directApps(ctx)];
+  return [ctx, ...directApps(ctx).filter((app) => !app.shared)];
 }
 
 function packageVersion() {

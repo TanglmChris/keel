@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.96.1"
-PROTOCOL_VERSION = "5.96.1"
+PACKAGE_VERSION = "5.97.0"
+PROTOCOL_VERSION = "5.97.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3705,6 +3705,73 @@ def validate_chat_role_direct_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-role-direct scenario passed.")
+    return 0
+
+
+def validate_chat_shared_app_direct_scenario() -> int:
+    """Owner's decision of 2026-10-05: the shared app may serve one role.
+
+    Mapping the shared app's own bot user to a role in `slack.bots` makes it
+    take that role's direct messages on its existing connection, without a
+    second one, and post the role's answers as itself.
+    """
+    label = "chat-shared-app-direct:"
+    if chat_bridge_node_missing("chat-shared-app-direct"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-shared-direct-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"}, bots={"UBOT": "rtl"})
+        benv = chat_bridge_environment(env, base / "home", slack)
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-test-app"), 10):
+                report(f"{label} the shared app never connected: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            slack.push(slack_event("DUOWNER", channel_type="im", user="UOWNER", text="status?", ts="1800000001.000100"), app="xapp-test-app")
+            if not slack.wait_for(lambda: chat_records_with(rtl, "dm-owner--rtl", "status?")):
+                report(f"{label} the owner's direct message to the shared app did not reach dm-owner--rtl.")
+                return 1
+            if "from: owner" not in chat_records_with(rtl, "dm-owner--rtl", "status?")[0]:
+                report(f"{label} the direct message was not recorded from owner.")
+                return 1
+            answered = run_keel(rtl, "chat", "dm", "owner", "all green", env=benv)
+            if answered.returncode != 0:
+                report(f"{label} keel chat dm owner failed: {answered.stderr.strip()}")
+                return 1
+            if not slack.wait_for(lambda: any("all green" in m.get("text", "") for m in slack.messages.get("DUOWNER", []))):
+                report(f"{label} rtl's answer never reached the owner's direct-message channel.")
+                return 1
+            sent = [c["params"] for c in slack.calls_to("chat.postMessage") if "all green" in c["params"].get("text", "")]
+            if len(sent) != 1:
+                report(f"{label} rtl's answer was posted {len(sent)} times, not once.")
+                return 1
+            if sent[0].get("_auth") != "Bearer xoxb-test-bot":
+                report(f"{label} rtl's answer did not use the shared token: {sent[0].get('_auth')!r}")
+                return 1
+            if len(slack.sockets_for("xapp-test-app")) != 1:
+                report(f"{label} the shared app token holds {len(slack.sockets_for('xapp-test-app'))} connections, not one.")
+                return 1
+            if bot_status(rtl, benv, "shared").get("direct") is not True:
+                report(f"{label} status does not report the shared app's direct messages as connected: {bot_status(rtl, benv, 'shared')!r}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    for relative in ("docs/chat-slack-setup.md", "docs/chat-slack-setup.zh-CN.md"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        if "im:history" not in text:
+            report(f"{label} {relative} does not name the im:history scope direct messages need.")
+            return 1
+        if not any(phrase in text for phrase in ("shared app's own bot user", "共用 app 自己的 bot 用户")):
+            report(f"{label} {relative} does not describe direct messages through the shared app.")
+            return 1
+    if "chat-shared-app-direct" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-shared-app-direct scenario passed.")
     return 0
 
 
@@ -36570,6 +36637,10 @@ SCENARIOS: tuple = (
     (
         "chat-role-direct",
         validate_chat_role_direct_scenario,
+    ),
+    (
+        "chat-shared-app-direct",
+        validate_chat_shared_app_direct_scenario,
     ),
     (
         "chat-role-apps-are-documented",
