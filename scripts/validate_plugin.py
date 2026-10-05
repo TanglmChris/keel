@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.94.1"
-PROTOCOL_VERSION = "5.94.1"
+PACKAGE_VERSION = "5.95.0"
+PROTOCOL_VERSION = "5.95.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3789,6 +3789,72 @@ def validate_chat_shared_bots_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-shared-bots scenario passed.")
+    return 0
+
+
+def validate_chat_slack_format_scenario() -> int:
+    """Issue #187: Markdown shows as formatting in Slack, and back.
+
+    A record's Markdown is posted as Slack mrkdwn — bold, italic, headings,
+    bullets, links, escaped `&<>` — with code left alone and the local record
+    unchanged; a person's mrkdwn arrives in the store as Markdown; and the
+    setup guides tell sessions they may format with Markdown.
+    """
+    label = "chat-slack-format:"
+    if chat_bridge_node_missing("chat-slack-format"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-format-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        benv = chat_bridge_environment(env, base / "home", slack)
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        body = "# Plan\n**must** land *soon*\n- item\nsee [spec](https://example.com/s) and `a**b`\n```\n**raw**\n```\nx<y&z"
+        record_id = chat_json(run_keel(rtl, "chat", "post", "soc", body, "--json", env=benv)).get("id", "")
+        once = run_keel(rtl, "chat", "bridge", "run", "--once", env=benv)
+        if once.returncode != 0:
+            report(f"{label} bridge run --once failed: {once.stderr.strip()}")
+            return 1
+        sent = next((c["params"].get("text", "") for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == record_id), None)
+        if sent is None:
+            report(f"{label} the record was never posted.")
+            return 1
+        for needle in ("*Plan*", "*must*", "_soon_", "• item", "<https://example.com/s|spec>", "`a**b`", "```\n**raw**\n```", "x&lt;y&amp;z"):
+            if needle not in sent:
+                report(f"{label} the posted text lacks {needle!r}: {sent!r}")
+                return 1
+        if "**must**" in sent:
+            report(f"{label} Markdown bold reached Slack untranslated: {sent!r}")
+            return 1
+        if body not in (chat_log(rtl, "soc") / f"{record_id}.md").read_text(encoding="utf-8"):
+            report(f"{label} translation changed the local record.")
+            return 1
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge never connected: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            slack.push(slack_event("CSOC", user="UOWNER", text="*urgent* _today_ ~old~ see <https://example.com|this> a &lt; b", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "today")):
+                report(f"{label} the owner's formatted message was not imported.")
+                return 1
+            stored = chat_records_with(rtl, "soc", "today")[0]
+            if "**urgent** *today* ~~old~~ see [this](https://example.com) a < b" not in stored:
+                report(f"{label} the owner's mrkdwn was not stored as Markdown:\n{stored}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    for relative, needle in (("docs/chat-slack-setup.md", "format with ordinary Markdown"), ("docs/chat-slack-setup.zh-CN.md", "用普通的 Markdown")):
+        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say {needle!r}.")
+            return 1
+    if "chat-slack-format" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-slack-format scenario passed.")
     return 0
 
 
@@ -36194,6 +36260,10 @@ SCENARIOS: tuple = (
     (
         "chat-shared-bots",
         validate_chat_shared_bots_scenario,
+    ),
+    (
+        "chat-slack-format",
+        validate_chat_slack_format_scenario,
     ),
     (
         "chat-archive",

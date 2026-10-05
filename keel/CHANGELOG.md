@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.95.0 - Slack shows a session's Markdown as formatting
+
+Using the rtl_ppa_prj channel, the owner found long messages hard to scan: sessions write Markdown, Slack renders its own mrkdwn, and the bridge sent the text verbatim, so the markers showed instead of formatting (#187).
+
+- Issue #187: outbound text is translated from Markdown to Slack mrkdwn after redaction and before the length cut — bold, italic, strikethrough, headings as bold lines, bullet lists, and links — with `&`, `<`, `>` escaped; code spans and fenced blocks are left alone.
+- Issue #187: text imported from Slack, a person's message or another machine's post, is translated back to Markdown, so the local store stays Markdown.
+- Both setup guides say sessions may format with ordinary Markdown.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.95.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.94.1 - A role bound after the session started still wakes it
 
 Connecting rtl_ppa_prj to Slack, the owner messaged the spec session; the record and its signal arrived, and the session never woke (#187). Claude Code takes `watchPaths` only from SessionStart, and Keel returned one only when the worktree already had a role, so a session started before its role was bound watched nothing until it restarted.

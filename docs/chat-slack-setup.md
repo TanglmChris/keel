@@ -220,6 +220,7 @@ Direct messages need a bot that speaks for exactly one role, because a direct me
 - Reply in a thread to answer a message.
 - React ✅ to close a todo.
 - Edits and deletions carry over.
+- Formatting carries over both ways. Sessions format with ordinary Markdown — `**bold**`, lists, `code`, links — and Slack shows it formatted; your Slack formatting reaches the sessions as Markdown. Headings show as bold lines.
 
 **In a terminal:**
 
