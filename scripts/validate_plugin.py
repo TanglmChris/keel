@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.97.0"
-PROTOCOL_VERSION = "5.97.0"
+PACKAGE_VERSION = "5.98.0"
+PROTOCOL_VERSION = "5.98.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4454,6 +4454,189 @@ def validate_collected_feedback_is_recorded_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("collected-feedback-is-recorded scenario passed.")
+    return 0
+
+
+def validate_shift_change_scenario() -> int:
+    """Owner's decision of 2026-10-05: a role's session changes shift through Keel.
+
+    The coordinator requests it, the role's readiness check names every loose
+    end, `ready` stores the shift note outside the worktree and closes the
+    request, `start` wakes the cleared role only once the note waits, the
+    session-start notice points to the note, and `resume` consumes it.
+    """
+    label = "shift-change:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        remote = base / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=rtl, check=True)
+        for tree in (rtl, verify):
+            subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=tree, check=True, capture_output=True)
+        common = mailbox_common_dir(rtl) / "keel-chat"
+        signal = common / "signal" / "verify"
+
+        def shift(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "shift", *args, env=env)
+
+        def notice() -> str:
+            session = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
+                cwd=verify, env={**env, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
+                text=True, capture_output=True, check=False,
+                input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(verify)}),
+            )
+            return chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        size = signal.stat().st_size if signal.exists() else 0
+        requested = shift(rtl, "request", "verify")
+        if requested.returncode != 0:
+            report(f"{label} keel shift request failed: {requested.stderr.strip()}")
+            return 1
+        request = [r for r in chat_records_with(rtl, "dm-rtl--verify", "shift") if "kind: todo" in r and "keel-shift" in r]
+        if not request:
+            report(f"{label} no keel-shift todo reached dm-rtl--verify: {requested.stdout.strip()}")
+            return 1
+        if "assignee: verify" not in request[0]:
+            report(f"{label} the shift request is not assigned to verify:\n{request[0]}")
+            return 1
+        if not signal.exists():
+            report(f"{label} the request created no signal file for verify.")
+            return 1
+        if signal.stat().st_size <= size:
+            report(f"{label} the request did not touch verify's signal file.")
+            return 1
+        if shift(rtl, "start", "verify").returncode == 0:
+            report(f"{label} keel shift start succeeded before verify was ready.")
+            return 1
+
+        # Every kind of loose end at once.
+        write_text(verify / "scratch.txt", "uncommitted\n")
+        write_text(verify / "pushed-not.txt", "x\n")
+        subprocess.run(["git", "add", "pushed-not.txt"], cwd=verify, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "local only"], cwd=verify, check=True)
+        write_text(verify / "keel" / "guard.json", "{}\n")
+        temp_tree = Path(tempfile.gettempdir()) / f"keel-shift-tmp-{os.getpid()}"
+        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(temp_tree)], cwd=verify, check=True, capture_output=True)
+        run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "Rerun the regression", env=env)
+        sleeper = subprocess.Popen(["sleep", "60"], cwd=verify)
+        try:
+            checked = shift(verify, "check", "--json")
+            if checked.returncode != 1:
+                report(f"{label} keel shift check exited {checked.returncode} with loose ends present.")
+                return 1
+            text = checked.stdout
+            for needle in ("scratch.txt", "local only", "guard.json", str(sleeper.pid), temp_tree.name, "Rerun the regression"):
+                if needle not in text:
+                    report(f"{label} keel shift check does not name {needle!r}: {text.strip()[:600]}")
+                    return 1
+            refused = shift(verify, "ready", "next: rerun R007")
+            if refused.returncode == 0:
+                report(f"{label} keel shift ready succeeded with loose ends present.")
+                return 1
+            if "scratch.txt" not in refused.stdout + refused.stderr:
+                report(f"{label} the refused ready does not name the loose ends: {refused.stderr.strip()}")
+                return 1
+            if (common / "shift" / "verify.md").exists():
+                report(f"{label} a refused ready stored a note.")
+                return 1
+        finally:
+            sleeper.kill()
+            sleeper.wait()
+
+        (verify / "scratch.txt").unlink()
+        (verify / "keel" / "guard.json").unlink()
+        subprocess.run(["git", "push", "-q"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "worktree", "remove", "--force", str(temp_tree)], cwd=verify, check=True)
+        todo_id = next(r for r in chat_records_with(rtl, "soc", "Rerun the regression"))
+        open_todo = re.search(r"^id: (\S+)", todo_id, re.M).group(1)
+        run_keel(verify, "chat", "done", open_todo, env=env)
+        run_keel(verify, "chat", "read", env=env)
+        clean = shift(verify, "check")
+        if clean.returncode != 0:
+            report(f"{label} keel shift check is not ready on a clean worktree: {clean.stdout.strip()} {clean.stderr.strip()}")
+            return 1
+
+        ready = shift(verify, "ready", "next: rerun R007 on 1b64e8c")
+        if ready.returncode != 0:
+            report(f"{label} keel shift ready failed on a clean worktree: {ready.stderr.strip()}")
+            return 1
+        note = common / "shift" / "verify.md"
+        if not note.exists():
+            report(f"{label} no shift note was stored at {note}.")
+            return 1
+        if "rerun R007 on 1b64e8c" not in note.read_text(encoding="utf-8"):
+            report(f"{label} the stored shift note lacks the text given to ready.")
+            return 1
+        for needle in ("clear_session", "/clear"):
+            if needle not in ready.stdout:
+                report(f"{label} keel shift ready does not say how to clear the session ({needle!r}): {ready.stdout.strip()}")
+                return 1
+        reply = chat_records_with(rtl, "dm-rtl--verify", "done")
+        if not reply:
+            report(f"{label} ready did not reply done to the request.")
+            return 1
+        if "kind: done" not in "".join(chat_records_with(rtl, "dm-rtl--verify", "")):
+            report(f"{label} the shift request was not closed.")
+            return 1
+
+        status = shift(rtl, "status")
+        if "verify: note waiting" not in status.stdout:
+            report(f"{label} keel shift status does not list verify with a waiting note: {status.stdout.strip()}")
+            return 1
+        if "keel shift resume" not in notice():
+            report(f"{label} the session-start notice does not point to the waiting note.")
+            return 1
+
+        size = signal.stat().st_size
+        started = shift(rtl, "start", "verify", "then pick up #157")
+        if started.returncode != 0:
+            report(f"{label} keel shift start failed after ready: {started.stderr.strip()}")
+            return 1
+        if not chat_records_with(rtl, "dm-rtl--verify", "keel shift resume"):
+            report(f"{label} the cold-start message does not name keel shift resume.")
+            return 1
+        if signal.stat().st_size <= size:
+            report(f"{label} the cold-start message did not touch verify's signal file.")
+            return 1
+
+        resumed = shift(verify, "resume")
+        if resumed.returncode != 0:
+            report(f"{label} keel shift resume failed: {resumed.stderr.strip()}")
+            return 1
+        if "rerun R007 on 1b64e8c" not in resumed.stdout:
+            report(f"{label} keel shift resume did not print the note: {resumed.stdout.strip()}")
+            return 1
+        if note.exists():
+            report(f"{label} resume left the note waiting.")
+            return 1
+        if not list((common / "shift" / "history").glob("verify-*.md")):
+            report(f"{label} resume did not keep the note in history.")
+            return 1
+        if not chat_records_with(rtl, "dm-rtl--verify", "on shift"):
+            report(f"{label} resume did not tell the coordinator verify is on shift.")
+            return 1
+        if "keel shift resume" in notice():
+            report(f"{label} the notice still points to a note already resumed.")
+            return 1
+        again = shift(verify, "resume")
+        if "no shift note" not in again.stdout.lower():
+            report(f"{label} a second resume does not say no note waits: {again.stdout.strip()} {again.stderr.strip()}")
+            return 1
+
+    for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
+        if not (ROOT / relative).exists():
+            report(f"{label} {relative} is missing.")
+            return 1
+    for readme, guide in (("README.md", "docs/shift-change.md"), ("README.zh-CN.md", "docs/shift-change.zh-CN.md")):
+        if guide not in (ROOT / readme).read_text(encoding="utf-8"):
+            report(f"{label} {readme} does not link {guide}.")
+            return 1
+    if "shift-change" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-change scenario passed.")
     return 0
 
 
@@ -36923,6 +37106,7 @@ SCENARIOS: tuple = (
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("collected-feedback-is-recorded", validate_collected_feedback_is_recorded_scenario),
+    ("shift-change", validate_shift_change_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
