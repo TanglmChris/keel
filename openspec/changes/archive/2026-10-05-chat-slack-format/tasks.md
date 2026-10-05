@@ -44,7 +44,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E1
   - Touch:
@@ -81,9 +81,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:ff5cee8934d968a90b508d86e9dc85d8caa6514c527f9e3599d45ce7bc21a31d
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.95.0. With the 5.95.0 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirement sits before the catch-up requirement in `openspec/specs/keel-chat-slack-bridge/spec.md`; `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the promoted spec carries the translation requirement with both scenarios, and the changelog names both directions and the guide lines.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
 
 ## Change Verify
 
@@ -92,7 +99,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 232 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 
