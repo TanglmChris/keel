@@ -56,6 +56,26 @@ function notePath(where, role) {
   return path.join(shiftDir(where), `${role}.md`);
 }
 
+// A worktree with no chat role keeps its note per worktree (shift-without-role
+// D1): its directory name for a reader, a hash of its path for uniqueness.
+function worktreeNotePath(where) {
+  const id = require("crypto").createHash("sha256").update(where.worktree).digest("hex").slice(0, 8);
+  return path.join(shiftDir(where), "worktree", `${path.basename(where.worktree)}-${id}.md`);
+}
+
+// Where this worktree's note is written: the role's when it has one.
+function ownNotePath(where, role) {
+  return role ? notePath(where, role) : worktreeNotePath(where);
+}
+
+// The note waiting for this worktree: its role's first, then its own.
+function waitingNote(where, role) {
+  for (const file of [role ? notePath(where, role) : null, worktreeNotePath(where)]) {
+    if (file && fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
 function writeFileAtomic(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.tmp`;
@@ -71,11 +91,11 @@ function isShift(record) {
 
 // Every process: pid, parent, elapsed time, command.
 function processTable() {
-  const result = spawnSync("ps", ["-axo", "pid=,ppid=,etime=,command="], { encoding: "utf8" });
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid=,etime=,command="], { encoding: "utf8" });
   const table = new Map();
   for (const line of String(result.stdout || "").split("\n")) {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-    if (match) table.set(Number(match[1]), { pid: Number(match[1]), ppid: Number(match[2]), elapsed: match[3], command: match[4] });
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+    if (match) table.set(Number(match[1]), { pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), elapsed: match[4], command: match[5] });
   }
   return table;
 }
@@ -110,14 +130,16 @@ const IDLE_SHELL = /^-?(?:\S*\/)?(?:zsh|bash|sh|dash|fish)(?:\s+-[il]+)*\s*$/;
 
 function liveProcesses(worktree) {
   const table = processTable();
-  // The checking process and its ancestors are the session doing the check.
+  // The checking process and its ancestors are the session doing the check,
+  // and its process group is the command line it runs in (`… | head`).
   const own = new Set();
   for (let pid = process.pid; pid && !own.has(pid); pid = (table.get(pid) || {}).ppid) own.add(pid);
+  const group = (table.get(process.pid) || {}).pgid;
   const found = [];
   for (const [pid, cwd] of processDirectories()) {
     if (own.has(pid) || !inside(realpath(cwd), worktree)) continue;
     const row = table.get(pid);
-    if (!row || IDLE_SHELL.test(row.command)) continue;
+    if (!row || row.pgid === group || IDLE_SHELL.test(row.command)) continue;
     found.push(row);
   }
   return found.sort((a, b) => a.pid - b.pid);
@@ -246,7 +268,7 @@ function readNoteText(options) {
 }
 
 function ready(where, options) {
-  const role = requireRole(where);
+  const role = store.currentRole(where);
   const result = check(where, role);
   if (!result.ready && !options.forceReason) {
     throw new ShiftError(`${renderCheck(result)}\nResolve these, or give --force-reason "<why they may stay>".`);
@@ -255,14 +277,16 @@ function ready(where, options) {
   if (!text.trim()) throw new ShiftError("keel shift ready needs the shift note: give it as text, with --file, or on stdin.");
   const stamp = store.isoLocal(new Date());
   const head = [
-    `# Shift note: ${role}`,
+    `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
     `Written ${stamp} in ${result.worktree}.`,
     options.forceReason ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
     "",
   ].join("\n");
-  writeFileAtomic(notePath(where, role), `${head}\n${text}\n`);
-  const open = shiftRequests(where, role).filter((r) => r.open);
+  const note = ownNotePath(where, role);
+  writeFileAtomic(note, `${head}\n${text}\n`);
+  // Requests are chat records; without a role there is none to close (D2).
+  const open = role ? shiftRequests(where, role).filter((r) => r.open) : [];
   for (const todo of open) {
     store.post(where, {
       group: todo.group,
@@ -271,7 +295,7 @@ function ready(where, options) {
       text: `done — ${role} is ready for the shift change; the note waits for \`keel shift resume\`.${options.forceReason ? ` Left as is: ${options.forceReason}.` : ""}`,
     });
   }
-  return { role, note: notePath(where, role), closed: open.map((todo) => todo.id) };
+  return { role: role || null, note, closed: open.map((todo) => todo.id) };
 }
 
 function start(where, role, text) {
@@ -289,14 +313,15 @@ function start(where, role, text) {
 }
 
 function resume(where) {
-  const role = requireRole(where);
-  const note = notePath(where, role);
-  if (!fs.existsSync(note)) return { role, note: null, text: null };
+  const role = store.currentRole(where);
+  const note = waitingNote(where, role);
+  if (!note) return { role: role || null, note: null, text: null };
   const text = fs.readFileSync(note, "utf8");
   const stamp = store.isoLocal(new Date()).replace(/[:+]/g, "");
-  const history = path.join(shiftDir(where), "history", `${role}-${stamp}.md`);
+  const history = path.join(shiftDir(where), "history", `${role || path.basename(note, ".md")}-${stamp}.md`);
   fs.mkdirSync(path.dirname(history), { recursive: true });
   fs.renameSync(note, history);
+  if (!role) return { role: null, note: history, text, told: null };
   // The cold-start message has done its work once the note is read.
   for (const record of store.unread(where, role)) {
     if (isShift(record)) store.advanceCursor(where, role, record.group, record.id);
@@ -320,10 +345,12 @@ function status(where) {
     entry(todo.assignee).request = { id: todo.id, from: todo.from, created: todo.created, open: todo.open };
   }
   const dir = shiftDir(where);
-  for (const file of safeList(dir)) {
-    if (!file.endsWith(".md")) continue;
-    const stat = fs.statSync(path.join(dir, file));
-    entry(file.slice(0, -3)).note = store.isoLocal(stat.mtime);
+  for (const [folder, prefix] of [[dir, ""], [path.join(dir, "worktree"), "worktree "]]) {
+    for (const file of safeList(folder)) {
+      if (!file.endsWith(".md")) continue;
+      const stat = fs.statSync(path.join(folder, file));
+      entry(`${prefix}${file.slice(0, -3)}`).note = store.isoLocal(stat.mtime);
+    }
   }
   for (const file of safeList(path.join(dir, "history"))) {
     const match = file.match(/^(.+)-(\d{4}-\d{2}-\d{2}T\d+)\.md$/);
@@ -356,7 +383,7 @@ const CLEAR_HINT = [
   "- Claude desktop app: call `clear_session(\"self\")` (the owner approves it), or type /clear;",
   "- Claude Code CLI: /clear;",
   "- Codex: start a new session in this worktree.",
-  "The coordinator's `keel shift start` then wakes the new shift.",
+  "The coordinator's `keel shift start` then wakes the new shift; without chat roles, tell the new session to run `keel shift resume`.",
 ].join("\n");
 
 function runShift(argv) {
@@ -390,7 +417,8 @@ function runShift(argv) {
       }
       case "ready": {
         const result = ready(where, { ...options, text: rest.join(" ") });
-        out({ ...result, clear: CLEAR_HINT }, `Stored the shift note for ${result.role} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${CLEAR_HINT}`);
+        const whose = result.role || "this worktree (no chat role, so no request to close)";
+        out({ ...result, clear: CLEAR_HINT }, `Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${CLEAR_HINT}`);
         return 0;
       }
       case "start": {
@@ -402,7 +430,7 @@ function runShift(argv) {
       case "resume": {
         const result = resume(where);
         if (!result.note) {
-          out(result, `No shift note waits for ${result.role}.`);
+          out(result, `No shift note waits for ${result.role || "this worktree"}.`);
           return 0;
         }
         out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)`);
@@ -426,10 +454,14 @@ function runShift(argv) {
   }
 }
 
-function pendingNote(where, role) {
-  const note = notePath(where, role);
-  if (!fs.existsSync(note)) return null;
-  return store.isoLocal(fs.statSync(note).mtime);
+// The waiting note for a repository path, for `keel context` (D3); null when
+// none waits or the path is not a repository.
+function waitingFor(repo) {
+  const where = store.locate(repo);
+  if (!where) return null;
+  const note = waitingNote(where, store.currentRole(where));
+  if (!note) return null;
+  return { note, since: store.isoLocal(fs.statSync(note).mtime) };
 }
 
-module.exports = { check, pendingNote, runShift };
+module.exports = { check, runShift, waitingFor };
