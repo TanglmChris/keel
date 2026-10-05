@@ -114,6 +114,13 @@ function ensureSignal(where, role) {
   return signal;
 }
 
+function ensureWorktreeSignal(where) {
+  const signal = store.worktreeSignalPath(where.root, where.worktree);
+  fs.mkdirSync(path.dirname(signal), { recursive: true });
+  if (!fs.existsSync(signal)) fs.writeFileSync(signal, "");
+  return signal;
+}
+
 // For a Slack-enabled project, whether this machine's bridge is carrying the
 // chat, so a session does not assume the owner's phone can reach it (D18).
 function bridgeLine(where) {
@@ -161,6 +168,13 @@ function hook(event, input, { mail = false } = {}) {
   } catch {
     role = null;
   }
+  // A session's watch list is fixed at SessionStart, so a worktree with no role
+  // yet still watches its own signal, which a role bound later will touch
+  // (chat-wake-late-binding D1). Nothing else is said until there is a role.
+  if (where && !role && event === "session-start") {
+    const watched = ensureWorktreeSignal(where);
+    return { code: 0, stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [watched] } })}\n` };
+  }
   if (!where || !role) return { code: 0 };
   if (event === "session-end") {
     touchPresence(where, role, "offline");
@@ -171,7 +185,7 @@ function hook(event, input, { mail = false } = {}) {
   const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
     const output = {
-      hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role)] },
+      hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role), ensureWorktreeSignal(where)] },
     };
     const context = [bridgeLine(where), text].filter(Boolean).join("\n");
     if (context) output.hookSpecificOutput.additionalContext = context;
