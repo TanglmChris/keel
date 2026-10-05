@@ -71,14 +71,14 @@ const BUNDLED = {
     sendsTo: "DeepSeek, through the provider the profile configures (by default deepseek-official, model deepseek-flash)",
     pitfalls: [
       {
-        date: "2026-10-04",
-        source: "dsh --version, 0.2.0-rc.2",
-        text: "The CLI lives inside the app bundle and is not on PATH.",
+        date: "2026-10-05",
+        source: "ls -l ~/.local/bin/dsh and dsh --version, 0.2.0-rc.2 (rtl_ppa_prj #191)",
+        text: "The CLI lives inside the app bundle. A `~/.local/bin/dsh` on PATH, where one exists, is a symlink to that same file, so the catalog keeps the bundle path, which works with or without it.",
       },
       {
         date: "2026-10-05",
-        source: "dsh --profile headless, 0.2.0-rc.2",
-        text: "The headless profile fails with MISSING_CREDENTIAL until a DeepSeek API key is stored through the app's Models page or DEEPSEEK_API_KEY is exported where it is launched.",
+        source: "dsh --profile headless, 0.2.0-rc.2 (rtl_ppa_prj #191)",
+        text: "First use needs a DeepSeek API key, stored once through the app's Models page or exported as DEEPSEEK_API_KEY where it is launched; until then the headless profile fails with MISSING_CREDENTIAL. With the key stored it runs from any directory.",
       },
       {
         date: "2026-10-04",
