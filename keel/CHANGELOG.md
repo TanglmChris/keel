@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.97.0 - The shared app can take direct messages for one role
+
+Every role now has a bot of its own, so on 2026-10-05 the owner gave the shared app (my-keel-bot) to the Keel maintenance session as its identity.
+
+- A project's `slack.bots` may map the shared app's own bot user to a role. When exactly one role across the relayed projects is mapped that way, the shared app takes that role's direct messages on its existing Socket Mode connection, opening no second one, and posts that role's records as itself. Mapped to two roles, it takes none.
+- Status lists the shared app beside the registered bots.
+- The setup guides name what direct messages need on the Slack side: `im:history`, `im:write`, the Messages tab, the `message.im` event, and a reinstall.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.97.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.96.1 - Fixes from the sessions' own feedback
 
 On 2026-10-05 eight rtl_ppa_prj sessions reported how they use Slack, external models, and Keel itself, gathered by rtl_ppa_flow. This release takes the wording and catalog fixes. The larger asks are owned by #236, #240, #241, #242, and #243.

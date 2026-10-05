@@ -212,6 +212,8 @@ This is committed, so every machine turns `@PM` in that project's channel into a
 
 Direct messages need a bot that speaks for exactly one role, because a direct message cannot say which project it is for: a bot serving more than one role takes no direct messages, and status says so. Direct messages stay on the machine where the bot runs: Slack delivers them only to that app. A direct message from someone in `members` lands in the direct group `dm-<their role>--<role>` and wakes the session; its replies there go back as direct messages. Anyone not in `members` is ignored.
 
+The shared app can take direct messages for one role too: map the shared app's own bot user to that role in one project's `slack.bots`, for example a role for a maintenance session that has no channel of its own. It receives them on its existing connection and needs no second token. It does need the direct-message scopes `im:history` and `im:write`, the App Home Messages tab with users allowed to send messages, and the `message.im` bot event, followed by a reinstall of the app. The one-role rule applies: mapped to two roles, it takes none.
+
 ## Daily use
 
 **In Slack:**
