@@ -11,6 +11,11 @@ const FENCE = /```[\s\S]*?```/g;
 const SPAN = /`[^`\n]*`/g;
 // A placeholder for a bold marker, so a later italic pass cannot read it.
 const BOLD = "\u0001";
+// Slack renders `*x*` only between word boundaries, and CJK text or
+// full-width punctuation right beside a marker is not one: a zero-width space
+// on each side of every marker pair supplies the boundary, checked against
+// real Slack on 2026-10-05 (#187). Inbound text drops them again.
+const ZWSP = "\u200b";
 
 // Calls `prose` on the text outside code and `code` on the code itself.
 function byCode(text, prose, code) {
@@ -47,13 +52,13 @@ function proseToSlack(text) {
     .replace(/^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, `${BOLD}$1${BOLD}`)
     .replace(/\*\*(?!\s)([^\n]+?)\*\*/g, `${BOLD}$1${BOLD}`)
     .replace(/__(?!\s)([^\n]+?)__/g, `${BOLD}$1${BOLD}`)
-    .replace(/(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])/g, "$1_$2_")
-    .replace(/~~(?!\s)([^\n]+?)~~/g, "~$1~")
-    .split(BOLD).join("*");
+    .replace(/(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])/g, `$1${ZWSP}_$2_${ZWSP}`)
+    .replace(/~~(?!\s)([^\n]+?)~~/g, `${ZWSP}~$1~${ZWSP}`)
+    .replace(new RegExp(`${BOLD}([^${BOLD}]+)${BOLD}`, "g"), `${ZWSP}*$1*${ZWSP}`);
 }
 
 function proseFromSlack(text) {
-  return unescape(text
+  return unescape(text.split(ZWSP).join("")
     .replace(/<((?:https?:\/\/|mailto:)[^|>\s]+)\|([^>]+)>/g, "[$2]($1)")
     .replace(/<((?:https?:\/\/|mailto:)[^|>\s]+)>/g, "$1")
     .replace(/(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])/g, `$1${BOLD}${BOLD}$2${BOLD}${BOLD}`)
