@@ -132,13 +132,23 @@ function bridgeLine(where) {
   }
   if (!settings.enabled) return null;
   const status = require("./bridge").fullStatus();
+  let line;
   if (!status.running) {
-    return "keel chat bridge: not running on this machine, so Slack messages are not reaching this session "
+    line = "keel chat bridge: not running on this machine, so Slack messages are not reaching this session "
       + "(local chat still works). `keel chat bridge start`, or `keel chat bridge install` once, brings it up.";
+  } else if (status.paused) {
+    line = `keel chat bridge: paused until ${status.paused_until}; messages wait until then.`;
+  } else {
+    line = `keel chat bridge: running${status.connected ? " and connected" : ", reconnecting"}, serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}.`;
   }
-  if (status.paused) return `keel chat bridge: paused until ${status.paused_until}; messages wait until then.`;
-  return `keel chat bridge: running${status.connected ? " and connected" : ", reconnecting"}, serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}.`;
+  return settings.owner ? `${line}\n${OWNER_RULE}` : line;
 }
+
+// The owner's rule of 2026-10-05 (chat-owner-mention D1-D3): Slack notifies
+// the owner only for a mention, and the bridge mentions them only for
+// `@owner`, so whether a message reaches their phone is the session's choice.
+const OWNER_RULE = "Slack notifies the owner only for messages that write `@owner`: write it in any message the owner "
+  + "needs to see or decide on, and leave it out of routine discussion.";
 
 const HOST_EVENTS = {
   "session-start": "SessionStart",

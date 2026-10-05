@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.95.2"
-PROTOCOL_VERSION = "5.95.2"
+PACKAGE_VERSION = "5.95.3"
+PROTOCOL_VERSION = "5.95.3"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4208,6 +4208,72 @@ def validate_chat_bridge_start_race_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-bridge-start-race scenario passed.")
+    return 0
+
+
+def validate_chat_owner_mention_scenario() -> int:
+    """Owner's rule of 2026-10-05: a Slack message the owner needs mentions them.
+
+    The session-start notice of a Slack-enabled project that names an owner
+    tells the session to write `@owner` on what the owner needs to see or
+    decide, and says nothing of it when no owner is named; a record with
+    `@owner` is posted as a real mention; both setup guides state the rule.
+    """
+    label = "chat-owner-mention:"
+    if chat_bridge_node_missing("chat-owner-mention"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-owner-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def notice() -> str:
+            session = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
+                cwd=rtl, env={**benv, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
+                text=True, capture_output=True, check=False,
+                input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(rtl)}),
+            )
+            return chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        told = notice()
+        if "@owner" not in told:
+            report(f"{label} the session-start notice does not tell the session to write @owner: {told!r}")
+            return 1
+        if "decide" not in told:
+            report(f"{label} the notice does not say which messages need @owner: {told!r}")
+            return 1
+
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        record_id = chat_json(run_keel(rtl, "chat", "post", "soc", "@owner 需要你决定 CSR 复位值", "--json", env=benv)).get("id", "")
+        once = run_keel(rtl, "chat", "bridge", "run", "--once", env=benv)
+        posted = [c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == record_id]
+        if not posted:
+            report(f"{label} the @owner record was not posted: {once.stderr.strip()}")
+            return 1
+        if not posted[0]["params"].get("text", "").startswith("<@UOWNER>"):
+            report(f"{label} the @owner record was not posted as a mention: {posted[0]['params'].get('text')!r}")
+            return 1
+
+        config = json.loads((rtl / "keel" / "chat.json").read_text(encoding="utf-8"))
+        del config["slack"]["owner"]
+        write_text(rtl / "keel" / "chat.json", json.dumps(config, indent=2) + "\n")
+        untold = notice()
+        if "@owner" in untold:
+            report(f"{label} the notice asks for @owner although no owner is named: {untold!r}")
+            return 1
+
+    for guide, needle in (("docs/chat-slack-setup.md", "needs to see or decide"), ("docs/chat-slack-setup.zh-CN.md", "需要你知道或决定")):
+        if needle not in (ROOT / guide).read_text(encoding="utf-8"):
+            report(f"{label} {guide} does not state the owner-mention rule ({needle!r}).")
+            return 1
+
+    if "chat-owner-mention" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-owner-mention scenario passed.")
     return 0
 
 
@@ -36368,6 +36434,10 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-start-race",
         validate_chat_bridge_start_race_scenario,
+    ),
+    (
+        "chat-owner-mention",
+        validate_chat_owner_mention_scenario,
     ),
     (
         "chat-role-apps",

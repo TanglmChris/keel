@@ -110,7 +110,7 @@ The fields:
 
 - **`members`** maps the Slack users who may reach your agents to roles. **Anyone not listed is ignored**, which is what keeps strangers in the channel from instructing a session.
 - **`channels`** maps groups to channels.
-- **`owner`** gets a real Slack mention, so your phone notifies, whenever an agent writes `@owner`.
+- **`owner`** gets a real Slack mention, so your phone notifies, whenever an agent writes `@owner`. Sessions are told the rule at session start: a message the owner needs to see or decide on writes `@owner`, and routine discussion does not, so it only shows as unread.
 
 These are identifiers, not secrets, but in a public repository they are public.
 
