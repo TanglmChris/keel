@@ -2663,15 +2663,43 @@ def validate_chat_claude_hooks_scenario() -> int:
         if not script.is_file():
             report(f"{label} {script.relative_to(ROOT)} does not exist.")
             return 1
+        late_watch: list[str] = []
         for cwd in (unbound, plain):
             for event, host_event in events:
                 quiet = hook(cwd, event, host_event)
                 if quiet.returncode != 0:
                     report(f"{label} {event} exited {quiet.returncode} in {cwd.name}, which has no role.")
                     return 1
+                if cwd == unbound and event == "session-start":
+                    # A session may start before its worktree's role is bound;
+                    # it still watches the worktree's signal, and nothing else.
+                    output = chat_json(quiet).get("hookSpecificOutput", {})
+                    watched = output.get("watchPaths") or []
+                    if len(watched) != 1:
+                        report(f"{label} session-start in a worktree with no role does not watch exactly one path: {quiet.stdout.strip()!r}")
+                        return 1
+                    if "/signal/worktree/" not in watched[0]:
+                        report(f"{label} session-start in a worktree with no role watches something other than the worktree signal: {watched!r}")
+                        return 1
+                    if output.get("additionalContext"):
+                        report(f"{label} session-start in a worktree with no role printed notice text: {quiet.stdout.strip()!r}")
+                        return 1
+                    late_watch = watched
+                    continue
                 if quiet.stdout.strip() or quiet.stderr.strip():
                     report(f"{label} {event} wrote output in {cwd.name}, which has no role: {(quiet.stdout + quiet.stderr).strip()!r}")
                     return 1
+        chat(unbound, "role", "--set", "late")
+        chat(unbound, "group", "create", "side", "--member", "poster")
+        run_keel(unbound, "chat", "post", "side", "@late please look", env={**env, "KEEL_CHAT_ROLE": "poster"})
+        late_signal = Path(late_watch[0])
+        if not late_signal.exists() or not late_signal.stat().st_size:
+            report(f"{label} a mention of a role bound after session start did not touch the worktree signal that session watches.")
+            return 1
+        late_wake = hook(unbound, "file-changed", "FileChanged")
+        if late_wake.returncode != 2:
+            report(f"{label} file-changed exited {late_wake.returncode} for a role bound after session start, not 2.")
+            return 1
 
         signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "verify"
 
@@ -2717,8 +2745,12 @@ def validate_chat_claude_hooks_scenario() -> int:
         if mention_id not in start_output.get("additionalContext", ""):
             report(f"{label} the session-start notice does not name the mention: {start.stdout.strip()} {start.stderr.strip()}")
             return 1
-        if start_output.get("watchPaths") != [str(signal)]:
-            report(f"{label} session-start watchPaths is {start_output.get('watchPaths')!r}, not [{str(signal)!r}].")
+        watch = start_output.get("watchPaths") or []
+        if watch[:1] != [str(signal)]:
+            report(f"{label} session-start does not watch the role's signal first: {watch!r}, not starting with {str(signal)!r}.")
+            return 1
+        if [path for path in watch[1:] if "/signal/worktree/" in path] != watch[1:2] or len(watch) != 2:
+            report(f"{label} session-start does not also watch exactly the worktree signal: {watch!r}.")
             return 1
 
         before_dm = signal_size()
