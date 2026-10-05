@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.93.0 - A role may speak through its own Slack app
+
+In Slack every role on a machine spoke through that machine's one keel app, which only swapped the display name (#187). The owner could tell who wrote a message, but could not mention a session the way Slack mentions work, message one privately, or see it in the member list. The owner chose to make a per-role app optional, role by role.
+
+- Issue #187: `keel/chat.json` `slack.bots` registers a role's own app by its bot user id. A person's `<@U…>` mention of that bot resolves to the role on every machine and wakes it.
+- Issue #187: on the machine where the role runs, the bridge reads the role's bot token from the Keychain (`keel-chat-slack`, account `bot:<role>`) and checks it with `auth.test` against the registered id. The role's records then post under the app's own name, and edits and retractions go through the same app. A token for another bot is not used. A private channel the role's bot is not in falls back to the shared app, and `keel chat bridge status` names the role and the channel to invite it to.
+- Issue #187: with an app-level token as well (`app:<role>`), the role's app opens its own Socket Mode connection. A direct message from a registered person becomes a record in `dm-<person>--<role>` and wakes the session, and the session's replies go back as direct messages. Direct messages stay on that machine and are caught up after downtime. Anyone not in `members` is ignored.
+- Roles without an app, and projects without `slack.bots`, behave exactly as before. Both setup guides add the optional role-app section, and the app-limit sentence now counts role apps. The two-machine test stays parked on #187.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.93.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.92.1 - A brief's command records the exit status
 
 Reading nine codex runs in rtl_ppa_prj found two gaps (#221). Four runs started together and three stopped on the usage limit within five minutes. Only one run recorded its exit status, so a run that finished with `exit=0` read as a failure because it left no result file.
