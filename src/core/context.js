@@ -792,7 +792,8 @@ function renderProtocol(protocol) {
   }
   return protocol.authorized
     ? `${head} — standing-authorized (authorize: protocol-refresh); run it `
-      + "before other work and leave the diff for the owner to commit"
+      + "before other work and leave the diff uncommitted: the authorization "
+      + "covers the refresh, and committing it is a separate action"
     : `${head} — ask before running it; keel/config.yaml does not `
       + "standing-authorize protocol-refresh";
 }

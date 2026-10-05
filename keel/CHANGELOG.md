@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.96.1 - Fixes from the sessions' own feedback
+
+On 2026-10-05 eight rtl_ppa_prj sessions reported how they use Slack, external models, and Keel itself, gathered by rtl_ppa_flow. This release takes the wording and catalog fixes. The larger asks are owned by #236, #240, #241, #242, and #243.
+
+- The Slack owner rule adds: send a risk or decision as its own message with `@owner`, not inside a status update.
+- `keel context`'s protocol-refresh line says the standing authorization covers the refresh and that committing it is a separate action (#238).
+- The Expectation Coverage report names the identifiers that make an entry compared, `D<n>`, `F<n>`, `A<n>`, or `Q<n>` before `Covered by:`, with an example (#239).
+- `keel-tdd-or-test-first` advises declaring a `Fails with:` literal that every red of the check shares (#237; the gate still takes one literal).
+- `keel agents codex` warns that a run can exit non-zero after its products exist, so the brief writes its result file first. The general pitfalls warn against stopping a delegate with `pkill -f`.
+- The hardware lens names tools that silently accept a broken reference, such as Verilator binding an SVA to a missing signal.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.96.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.96.0 - Issue numbers in Slack link to GitHub
 
 At the owner's request, an issue a session mentions in Slack opens on GitHub with a click.
