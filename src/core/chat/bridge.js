@@ -45,6 +45,40 @@ function readRegistry() {
   }
 }
 
+// The bots this machine holds tokens for, by name (chat-shared-bots D1). Names
+// only: the tokens stay in the Keychain.
+function botsFile() {
+  return path.join(keelHome(), "chat", "bots.json");
+}
+
+function readBots() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(botsFile(), "utf8"));
+    return Array.isArray(parsed.bots) ? parsed.bots.filter((entry) => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBots(bots) {
+  const file = botsFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify({ bots: [...new Set(bots)].sort() }, null, 2)}\n`);
+  fs.renameSync(temp, file);
+}
+
+function addBot(name) {
+  store.checkName(name, "Bot");
+  writeBots([...readBots(), name]);
+  return name;
+}
+
+function removeBot(name) {
+  writeBots(readBots().filter((entry) => entry !== name));
+  return name;
+}
+
 function writeRegistry(projects) {
   const file = registryFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -161,12 +195,10 @@ function iconFields(project, role) {
   return icon.startsWith(":") ? { icon_emoji: icon } : { icon_url: icon };
 }
 
-// The verified app of `role` that `project` registered, or null: the role
-// then speaks through the shared app (chat-role-apps D3).
+// The verified bot that `project` maps to `role`, or null: the role then
+// speaks through the shared app (chat-shared-bots D2).
 function roleApp(ctx, project, role) {
-  const app = ctx.roles.get(role);
-  if (!app || app.state !== "verified") return null;
-  return project.settings.bots[app.user_id] === role ? app : null;
+  return (project.roleBots && project.roleBots.get(role)) || null;
 }
 
 async function postRecord(ctx, project, record, channel, direct = null) {
@@ -279,9 +311,11 @@ function pendingOutbound(project) {
 
 const DIRECT_KINDS = new Set(["message", "todo", "done", "edit", "retract"]);
 
-// Role apps that take direct messages: verified, with an app-level token (D6).
+// Bots that take direct messages: verified, with an app-level token, and
+// serving exactly one role, since a direct message cannot say which project it
+// is for (chat-shared-bots D4).
 function directApps(ctx) {
-  return [...(ctx.roles || new Map()).values()].filter((app) => app.state === "verified" && app.appToken);
+  return [...(ctx.bots || new Map()).values()].filter((app) => app.state === "verified" && app.appToken && app.serves.length === 1);
 }
 
 // Each direct group between a registered person and a role whose app takes
@@ -695,7 +729,7 @@ function writeStatus(ctx) {
     last_event: ctx.stats.last_event,
     ignored: ctx.stats.ignored,
     unposted: unpostedCount(ctx.projects),
-    roles: roleReport(ctx),
+    bots: botReport(ctx),
     updated: store.isoLocal(new Date()),
   };
   const file = statusFile();
@@ -709,49 +743,57 @@ function writeStatus(ctx) {
   }
 }
 
-// Each role app this machine holds a token for (D8). A role registered with
-// no token here lives on another machine and is not listed.
-function roleReport(ctx) {
-  return [...(ctx.roles || new Map()).values()].map((app) => ({
-    role: app.role,
-    state: app.state,
-    ...(app.reason ? { reason: app.reason } : {}),
-    direct: Boolean(app.connected),
-    invite: [...app.invite].sort(),
-  }));
+// Each bot this machine lists, with the roles it serves (chat-shared-bots D5).
+function botReport(ctx) {
+  return [...(ctx.bots || new Map()).values()].map((app) => {
+    let directNote = null;
+    if (app.state === "verified" && app.appToken && app.serves.length > 1) directNote = `off: serves ${app.serves.length} roles, and a direct message cannot say which project it is for`;
+    else if (app.state === "verified" && !app.appToken) directNote = `off: no app:${app.name} token`;
+    return {
+      bot: app.name,
+      state: app.state,
+      ...(app.reason ? { reason: app.reason } : {}),
+      roles: app.serves.map((entry) => entry.label),
+      direct: Boolean(app.connected),
+      ...(directNote ? { direct_note: directNote } : {}),
+      invite: [...app.invite].sort(),
+    };
+  });
 }
 
-// Checks every registered role's Keychain token with auth.test and keeps it
-// only for the bot user the registration names (D3).
-async function verifyRoles(ctx) {
-  const declared = new Map();
-  for (const project of ctx.projects) {
-    for (const [user, role] of Object.entries(project.settings.bots)) {
-      if (!declared.has(role)) declared.set(role, new Set());
-      declared.get(role).add(user);
-    }
-  }
-  const roles = new Map();
-  for (const [role, users] of declared) {
-    const tokens = lifecycle.roleTokens(role);
-    if (!tokens.bot) continue;
-    const app = { role, token: tokens.bot, appToken: tokens.app, state: "failed", reason: null, user_id: null, bot_id: null, invite: new Set(), connected: false, socket: null, ims: new Map() };
-    try {
-      const auth = await slack.callWithRetry("auth.test", {}, tokens.bot, { attempts: 2 });
-      app.user_id = auth.user_id || null;
-      app.bot_id = auth.bot_id || null;
-      if (users.has(app.user_id)) {
+// Checks each listed bot's Keychain token with auth.test, then gives each
+// project's role the bot its `slack.bots` maps to it (D2).
+async function verifyBots(ctx) {
+  const bots = new Map();
+  for (const name of readBots()) {
+    const tokens = lifecycle.botTokens(name);
+    const app = { name, role: null, token: tokens.bot, appToken: tokens.app, state: "failed", reason: null, user_id: null, bot_id: null, serves: [], invite: new Set(), connected: false, socket: null, ims: new Map() };
+    if (!tokens.bot) {
+      app.reason = `no bot:${name} token in the Keychain`;
+    } else {
+      try {
+        const auth = await slack.callWithRetry("auth.test", {}, tokens.bot, { attempts: 2 });
+        app.user_id = auth.user_id || null;
+        app.bot_id = auth.bot_id || null;
         app.state = "verified";
-      } else {
-        app.state = "mismatch";
-        app.reason = `bot:${role} belongs to ${app.user_id}, not the ${[...users].join(" or ")} keel/chat.json registers`;
+      } catch (error) {
+        app.reason = error.message;
       }
-    } catch (error) {
-      app.reason = error.message;
     }
-    roles.set(role, app);
+    bots.set(name, app);
   }
-  return roles;
+  for (const project of ctx.projects) {
+    project.roleBots = new Map();
+    for (const app of bots.values()) {
+      if (app.state !== "verified") continue;
+      const role = project.settings.bots[app.user_id];
+      if (!role) continue;
+      project.roleBots.set(role, app);
+      app.serves.push({ project, role, label: `${project.where.project}/${role}` });
+    }
+  }
+  for (const app of bots.values()) if (app.serves.length === 1) app.role = app.serves[0].role;
+  return bots;
 }
 
 function readStatus() {
@@ -782,7 +824,7 @@ function fullStatus() {
     last_event: null,
     ignored: 0,
     unposted: 0,
-    roles: [],
+    bots: [],
     ...status,
     paused: Boolean(until),
     paused_until: until ? new Date(until).toISOString() : null,
@@ -821,14 +863,14 @@ async function createContext(log, { needApp }) {
   ctx.onEvent = (event) => handleEvent(ctx, event);
   const auth = await slack.callWithRetry("auth.test", {}, bot);
   ctx.self = { bot_id: auth.bot_id || null, user_id: auth.user_id || null };
-  ctx.roles = await verifyRoles(ctx);
-  for (const project of ctx.projects) project.directApps = directApps(ctx).filter((app) => roleApp(ctx, project, app.role));
+  ctx.bots = await verifyBots(ctx);
+  for (const project of ctx.projects) project.directApps = directApps(ctx).filter((app) => app.serves[0].project === project);
   for (const app of directApps(ctx)) {
     app.onHello = () => catchUpDirect(ctx, app);
     app.onEvent = (event) => handleDirectEvent(ctx, app, event);
   }
   // Posts and actions through a verified role app are this bridge's own (D5).
-  const verified = [...ctx.roles.values()].filter((app) => app.state === "verified");
+  const verified = [...ctx.bots.values()].filter((app) => app.state === "verified");
   ctx.ownBots = new Set([ctx.self.bot_id, ...verified.map((app) => app.bot_id)].filter(Boolean));
   ctx.ownUsers = new Set([ctx.self.user_id, ...verified.map((app) => app.user_id)].filter(Boolean));
   return ctx;
@@ -1008,6 +1050,9 @@ async function run(log) {
 
 module.exports = {
   METADATA_TYPE,
+  addBot,
+  readBots,
+  removeBot,
   addProject,
   keelHome,
   readPosted,

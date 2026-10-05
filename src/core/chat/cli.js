@@ -38,6 +38,7 @@ const USAGE = [
   "keel chat bridge install|uninstall|start|stop   (the macOS login item that keeps the bridge running)",
   "keel chat bridge pause <30m|2h|1d> | resume",
   "keel chat bridge status [--json]",
+  "keel chat bot add|remove <name> | list   (the Slack bots this machine holds Keychain tokens for, as bot:<name> and app:<name>)",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat notice --check   (for schedulers: no output; exit 0 only when something addressed to you is unread, else 1)",
   "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
@@ -370,6 +371,38 @@ function dispatch(where, options) {
   }
 }
 
+// The machine's bot list (chat-shared-bots D1). It needs no repository and
+// shows only whether each Keychain entry exists, never its value.
+function runBot(rest) {
+  const bridge = require("./bridge");
+  const lifecycle = require("./lifecycle");
+  const [action, name] = rest;
+  switch (action) {
+    case "add":
+      if (!name) throw new ChatError("keel chat bot add needs a bot name.");
+      out(`Listed bot ${bridge.addBot(name)}. Store its tokens as Keychain accounts bot:${name} and app:${name} of service keel-chat-slack, map its Slack user id to a role in each project's keel/chat.json slack.bots, and restart the bridge.`);
+      return 0;
+    case "remove":
+      if (!name) throw new ChatError("keel chat bot remove needs a bot name.");
+      out(`Unlisted bot ${bridge.removeBot(name)}; its Keychain entries are untouched. Restart the bridge to stop using it.`);
+      return 0;
+    case "list": {
+      const bots = bridge.readBots();
+      if (!bots.length) {
+        out("No bots listed on this machine. Add one with `keel chat bot add <name>`.");
+        return 0;
+      }
+      for (const bot of bots) {
+        const tokens = lifecycle.botTokens(bot);
+        out(`${bot}: bot token ${tokens.bot ? "stored" : "missing"}, app token ${tokens.app ? "stored" : "missing"}`);
+      }
+      return 0;
+    }
+    default:
+      throw new ChatError(`Unknown keel chat bot action ${JSON.stringify(action)}: use add, remove, or list.`);
+  }
+}
+
 function runBridge(where, rest, options) {
   const bridge = require("./bridge");
   const lifecycle = require("./lifecycle");
@@ -393,10 +426,11 @@ function runBridge(where, rest, options) {
       const lines = [`keel chat bridge: ${status.installed ? "installed as a login item" : "not installed"}; ${status.running ? `running (pid ${status.pid}), ${status.connected ? "connected" : "not connected"}` : "not running"}${status.paused ? `, paused until ${status.paused_until}` : ""}.`];
       if (status.running) lines.push(`Serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}; last event ${status.last_event || "none yet"}; ${status.unposted} waiting to send; ${status.ignored} ignored from unregistered senders.`);
       else lines.push("Slack messages are not reaching this machine's sessions; local chat still works and nothing is lost.");
-      for (const app of status.roles || []) {
-        const parts = [`Role app ${app.role}: ${app.state}`];
+      for (const app of status.bots || []) {
+        const parts = [`Bot ${app.bot}: ${app.state}`];
         if (app.reason) parts.push(app.reason);
-        if (app.state === "verified") parts.push(app.direct ? "direct messages connected" : "no direct messages");
+        if (app.state === "verified") parts.push(app.roles.length ? `serves ${app.roles.join(", ")}` : "serves no role: no project's slack.bots maps its id");
+        if (app.state === "verified") parts.push(app.direct ? "direct messages connected" : `direct messages ${app.direct_note || "not connected"}`);
         if (app.invite && app.invite.length) parts.push(`invite it to ${app.invite.join(", ")}; until then it posts through the shared app there`);
         lines.push(`${parts.join("; ")}.`);
       }
@@ -509,6 +543,8 @@ function runChat(argv) {
     if (options.positionals[0] === "bridge" && !["add", "remove"].includes(options.positionals[1])) {
       return runBridge(null, options.positionals.slice(1), options);
     }
+    // The bot list belongs to the machine, like the bridge.
+    if (options.positionals[0] === "bot") return runBot(options.positionals.slice(1));
     // A notice is read by hosts on every prompt: outside a repository it says
     // nothing and still exits 0.
     if (options.positionals[0] === "notice" && !store.locate(cwd)) return 0;

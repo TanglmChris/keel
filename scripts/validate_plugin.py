@@ -3434,9 +3434,9 @@ def slack_posts_of(slack, channel: str, record_id: str) -> list[dict]:
     return [m for m in slack.messages.get(channel, []) if (m.get("metadata") or {}).get("event_payload", {}).get("id") == record_id]
 
 
-def role_status(cwd: Path, env: dict[str, str], role: str) -> dict:
+def bot_status(cwd: Path, env: dict[str, str], bot: str) -> dict:
     status = chat_json(run_keel(cwd, "chat", "bridge", "status", "--json", env=env))
-    return next((entry for entry in status.get("roles") or [] if entry.get("role") == role), {})
+    return next((entry for entry in status.get("bots") or [] if entry.get("bot") == bot), {})
 
 
 def validate_chat_role_apps_scenario() -> int:
@@ -3471,6 +3471,7 @@ def validate_chat_role_apps_scenario() -> int:
             return result.returncode == 0
 
         chat(rtl, "bridge", "add")
+        chat(rtl, "bot", "add", "rtl")
         own_id = chat_json(chat(rtl, "post", "soc", "rtl speaks", "--json")).get("id", "")
         shared_id = chat_json(chat(verify, "post", "soc", "verify speaks", "--json")).get("id", "")
         chat(rtl, "edit", own_id, "rtl speaks (v2)")
@@ -3499,10 +3500,10 @@ def validate_chat_role_apps_scenario() -> int:
         if updates[0].get("_auth") != "Bearer xoxb-role-rtl":
             report(f"{label} the edit of rtl's record did not use the app that posted it: {updates[0].get('_auth')!r}")
             return 1
-        if role_status(rtl, benv, "rtl").get("state") != "verified":
-            report(f"{label} status does not report rtl's app as verified: {role_status(rtl, benv, 'rtl')!r}")
+        if bot_status(rtl, benv, "rtl").get("roles") != ["rtl/rtl"]:
+            report(f"{label} status does not list bot rtl serving rtl/rtl: {bot_status(rtl, benv, 'rtl')!r}")
             return 1
-        if role_status(rtl, benv, "verify"):
+        if bot_status(rtl, benv, "verify"):
             report(f"{label} status lists verify, which has no token on this machine.")
             return 1
 
@@ -3517,8 +3518,8 @@ def validate_chat_role_apps_scenario() -> int:
         if wrong.get("username") != "rtl":
             report(f"{label} the fallback post is not under rtl's name: {wrong.get('username')!r}")
             return 1
-        if role_status(rtl, benv, "rtl").get("state") != "mismatch":
-            report(f"{label} status does not report the swapped token as a mismatch: {role_status(rtl, benv, 'rtl')!r}")
+        if bot_status(rtl, benv, "rtl").get("roles") != []:
+            report(f"{label} status does not list the bot whose id no project maps as serving nothing: {bot_status(rtl, benv, 'rtl')!r}")
             return 1
 
         slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
@@ -3533,8 +3534,8 @@ def validate_chat_role_apps_scenario() -> int:
         if landed[0].get("username") != "rtl":
             report(f"{label} the not_in_channel fallback is not under rtl's name: {landed[0]!r}")
             return 1
-        if "CSOC" not in (role_status(rtl, benv, "rtl").get("invite") or []):
-            report(f"{label} status does not name the channel rtl's bot must be invited to: {role_status(rtl, benv, 'rtl')!r}")
+        if "CSOC" not in (bot_status(rtl, benv, "rtl").get("invite") or []):
+            report(f"{label} status does not name the channel rtl's bot must be invited to: {bot_status(rtl, benv, 'rtl')!r}")
             return 1
         slack.not_in_channel.clear()
 
@@ -3593,6 +3594,7 @@ def validate_chat_role_direct_scenario() -> int:
         slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
         benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_SECURITY": str(keychain)}
         run_keel(rtl, "chat", "bridge", "add", env=benv)
+        run_keel(rtl, "chat", "bot", "add", "rtl", env=benv)
         signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "rtl"
 
         def direct(user: str, text: str, ts: str) -> dict:
@@ -3643,8 +3645,8 @@ def validate_chat_role_direct_scenario() -> int:
             if any(chat_records_with(rtl, group, "give me the keys") for group in ("dm-owner--rtl", "dm-rtl--ustranger", "soc")):
                 report(f"{label} a stranger's direct message reached the store.")
                 return 1
-            if not role_status(rtl, benv, "rtl").get("direct"):
-                report(f"{label} status does not report rtl's direct-message connection: {role_status(rtl, benv, 'rtl')!r}")
+            if bot_status(rtl, benv, "rtl").get("direct") is not True:
+                report(f"{label} status does not report rtl's direct-message connection: {bot_status(rtl, benv, 'rtl')!r}")
                 return 1
         finally:
             stop_chat_bridge(bridge)
@@ -3669,6 +3671,92 @@ def validate_chat_role_direct_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-role-direct scenario passed.")
+    return 0
+
+
+def validate_chat_shared_bots_scenario() -> int:
+    """Issue #187: one registered bot is a different role in each project.
+
+    A bot listed once with `keel chat bot add` serves the role each project's
+    `slack.bots` maps its id to: both projects post with its token to their own
+    channels, a mention of it in one project's channel reaches only that
+    project's role, and a bot serving two roles opens no direct-message
+    connection, because a direct message cannot say which project it is for.
+    """
+    label = "chat-shared-bots:"
+    if chat_bridge_node_missing("chat-shared-bots"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-shared-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        env = chat_environment()
+        keychain = role_keychain(base, {"bot:pm": "xoxb-bot-pm", "app:pm": "xapp-bot-pm"})
+        slack.identify("xoxb-bot-pm", "UBOTPM", "BBOTPM")
+        benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_SECURITY": str(keychain)}
+        repos = {}
+        for name, channel in (("a", "CA"), ("b", "CB")):
+            repo = mailbox_repository(base / name)
+            run_keel(repo, "chat", "role", "--set", f"{name}-pm", env=env)
+            run_keel(repo, "chat", "group", "create", "ops", env=env)
+            chat_slack_config(repo, {"ops": channel}, bots={"UBOTPM": f"{name}-pm"})
+            run_keel(repo, "chat", "bridge", "add", env=benv)
+            repos[name] = repo
+        added = run_keel(repos["a"], "chat", "bot", "add", "pm", env=benv)
+        if added.returncode != 0:
+            report(f"{label} keel chat bot add pm failed: {added.stderr.strip()}")
+            return 1
+        listed = run_keel(repos["a"], "chat", "bot", "list", env=benv)
+        if "pm" not in listed.stdout:
+            report(f"{label} keel chat bot list does not show pm: {listed.stdout.strip()} {listed.stderr.strip()}")
+            return 1
+        if "xoxb-bot-pm" in listed.stdout + listed.stderr:
+            report(f"{label} keel chat bot list printed a token.")
+            return 1
+        ids = {name: chat_json(run_keel(repo, "chat", "post", "ops", f"{name} reporting", "--json", env=benv)).get("id", "") for name, repo in repos.items()}
+
+        bridge = start_chat_bridge(repos["a"], benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-test-app"), 10):
+                report(f"{label} the bridge never connected: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            for name, channel in (("a", "CA"), ("b", "CB")):
+                if not slack.wait_for(lambda: slack_posts_of(slack, channel, ids[name])):
+                    report(f"{label} project {name}'s post never reached {channel}.")
+                    return 1
+                sent = next(c["params"] for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == ids[name])
+                if sent.get("_auth") != "Bearer xoxb-bot-pm":
+                    report(f"{label} project {name}'s role did not post through the shared pm bot: {sent.get('_auth')!r}")
+                    return 1
+            slack.push(slack_event("CA", user="UOWNER", text="<@UBOTPM> status?", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(repos["a"], "ops", "status?")):
+                report(f"{label} the owner's mention of the pm bot in CA did not reach project a.")
+                return 1
+            if "  - a-pm" not in chat_records_with(repos["a"], "ops", "status?")[0]:
+                report(f"{label} the mention in CA did not become a mention of a-pm.")
+                return 1
+            if chat_records_with(repos["b"], "ops", "status?"):
+                report(f"{label} a mention in project a's channel reached project b.")
+                return 1
+            if slack.sockets_for("xapp-bot-pm"):
+                report(f"{label} a bot serving two roles opened a direct-message connection.")
+                return 1
+            pm = bot_status(repos["a"], benv, "pm")
+            if sorted(pm.get("roles") or []) != ["a/a-pm", "b/b-pm"]:
+                report(f"{label} status does not list pm serving a/a-pm and b/b-pm: {pm!r}")
+                return 1
+            if pm.get("direct") is not False:
+                report(f"{label} status does not report pm's direct messages as off: {pm!r}")
+                return 1
+            if "2 roles" not in str(pm.get("direct_note", "")):
+                report(f"{label} status does not say why pm's direct messages are off: {pm!r}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    if "chat-shared-bots" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-shared-bots scenario passed.")
     return 0
 
 
@@ -36069,6 +36157,10 @@ SCENARIOS: tuple = (
     (
         "chat-role-apps-are-documented",
         validate_chat_role_apps_are_documented_scenario,
+    ),
+    (
+        "chat-shared-bots",
+        validate_chat_shared_bots_scenario,
     ),
     (
         "chat-archive",
