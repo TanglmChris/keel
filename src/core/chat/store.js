@@ -48,7 +48,7 @@ const FIELD_ORDER = [
 const RESERVED_GROUPS = new Set([
   "role", "group", "post", "dm", "unread", "read", "show", "list", "help",
   "hook", "notice", "todo", "todos", "done", "edit", "retract", "search",
-  "bridge", "archive", "transcript",
+  "bridge", "archive", "transcript", "bot",
 ]);
 
 class ChatError extends Error {}
@@ -736,6 +736,7 @@ function readGroups(where, role, group) {
 }
 
 module.exports = {
+  checkName,
   ALL,
   ChatError,
   DATA_NOTICE,
