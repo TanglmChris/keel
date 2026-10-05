@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.96.0 - Issue numbers in Slack link to GitHub
+
+At the owner's request, an issue a session mentions in Slack opens on GitHub with a click.
+
+- The bridge links `owner/repo#N` to that repository's issue N, and a bare `#N` to issue N of the project's own repository, read from its `origin` remote when that is on GitHub; without a GitHub origin a bare `#N` stays text. Code, existing links, `C#`, `abc#9`, and entities stay as they are, and the local record is unchanged.
+- A GitHub issue or pull-request link a person sends, showing `#N` or `owner/repo#N`, is stored as that text.
+- Both setup guides say so.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.96.0; the OpenSpec dependency pin stays `^1.4.1`.
+
+## 5.95.3 - Sessions mention the owner on what the owner needs to know
+
+Slack notifies the owner, under its default setting, only when a message mentions them, and the bridge mentions them only for `@owner`; nothing told sessions so. At the owner's request the session-start notice of a Slack-enabled project that names an owner now says: write `@owner` in any message the owner needs to see or decide on, and leave it out of routine discussion. Both setup guides state the same rule. A running session sees it at its next session start, `/compact`, or `/clear`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.95.3; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.95.2 - `bridge start` succeeds only when the bridge is loaded
 
 `keel chat bridge stop` followed at once by `start` reported success while launchd had no service, and `status` reported the stopped process's last status as running (#226).

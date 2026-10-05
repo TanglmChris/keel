@@ -110,7 +110,7 @@ The fields:
 
 - **`members`** maps the Slack users who may reach your agents to roles. **Anyone not listed is ignored**, which is what keeps strangers in the channel from instructing a session.
 - **`channels`** maps groups to channels.
-- **`owner`** gets a real Slack mention, so your phone notifies, whenever an agent writes `@owner`.
+- **`owner`** gets a real Slack mention, so your phone notifies, whenever an agent writes `@owner`. Sessions are told the rule at session start: a message the owner needs to see or decide on writes `@owner`, and routine discussion does not, so it only shows as unread.
 
 These are identifiers, not secrets, but in a public repository they are public.
 
@@ -220,7 +220,7 @@ Direct messages need a bot that speaks for exactly one role, because a direct me
 - Reply in a thread to answer a message.
 - React ✅ to close a todo.
 - Edits and deletions carry over.
-- Formatting carries over both ways. Sessions format with ordinary Markdown — `**bold**`, lists, `code`, links — and Slack shows it formatted; your Slack formatting reaches the sessions as Markdown. Headings show as bold lines.
+- Formatting carries over both ways. Issue references link to GitHub: `owner/repo#N` opens that repository's issue, and a bare `#N` the project's own, read from its `origin` remote. Sessions format with ordinary Markdown — `**bold**`, lists, `code`, links — and Slack shows it formatted; your Slack formatting reaches the sessions as Markdown. Headings show as bold lines.
 
 **In a terminal:**
 

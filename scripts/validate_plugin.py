@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.95.2"
-PROTOCOL_VERSION = "5.95.2"
+PACKAGE_VERSION = "5.96.0"
+PROTOCOL_VERSION = "5.96.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3864,6 +3864,82 @@ def validate_chat_slack_format_scenario() -> int:
     return 0
 
 
+def validate_chat_issue_links_scenario() -> int:
+    """Owner's request of 2026-10-05: an issue mentioned in Slack links to GitHub.
+
+    `owner/repo#N` links to that repository, and a bare `#N` to the project's
+    own repository read from a GitHub `origin`; `C#`, `abc#9`, and code stay
+    text; a project without a GitHub origin keeps a bare `#N` as text; and an
+    issue link a person sends comes back as the text it showed.
+    """
+    label = "chat-issue-links:"
+    if chat_bridge_node_missing("chat-issue-links"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-issues-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        benv = chat_bridge_environment(env, base / "home", slack)
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        subprocess.run(["git", "remote", "remove", "origin"], cwd=rtl, capture_output=True, check=False)
+        subprocess.run(["git", "remote", "add", "origin", "git@github.com:acme/rtl.git"], cwd=rtl, capture_output=True, check=True)
+
+        def posted(body: str) -> str:
+            record_id = chat_json(run_keel(rtl, "chat", "post", "soc", body, "--json", env=benv)).get("id", "")
+            once = run_keel(rtl, "chat", "bridge", "run", "--once", env=benv)
+            sent = next((c["params"].get("text", "") for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == record_id), None)
+            if sent is None:
+                raise AssertionError(f"the record was never posted: {once.stderr.strip()}")
+            if body not in (chat_log(rtl, "soc") / f"{record_id}.md").read_text(encoding="utf-8"):
+                raise AssertionError("linking changed the local record")
+            return sent
+
+        try:
+            sent = posted("see #42, acme/other#7, C# and abc#9 and `#5`")
+            for needle in ("<https://github.com/acme/rtl/issues/42|#42>", "<https://github.com/acme/other/issues/7|acme/other#7>", "C# and abc#9", "`#5`"):
+                if needle not in sent:
+                    report(f"{label} the posted text lacks {needle!r}: {sent!r}")
+                    return 1
+            subprocess.run(["git", "remote", "remove", "origin"], cwd=rtl, capture_output=True, check=True)
+            sent = posted("see #43 and acme/other#8")
+            if "github.com/acme/rtl" in sent or "see #43 and" not in sent:
+                report(f"{label} a bare #43 was linked although origin is not on GitHub: {sent!r}")
+                return 1
+            if "<https://github.com/acme/other/issues/8|acme/other#8>" not in sent:
+                report(f"{label} acme/other#8 was not linked without an origin: {sent!r}")
+                return 1
+        except AssertionError as error:
+            report(f"{label} {error}")
+            return 1
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets, 10):
+                report(f"{label} the bridge never connected: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            slack.push(slack_event("CSOC", user="UOWNER", text="<https://github.com/acme/rtl/issues/42|#42> done", ts="1800000001.000100"))
+            if not slack.wait_for(lambda: chat_records_with(rtl, "soc", "done")):
+                report(f"{label} the owner's message was not imported.")
+                return 1
+            stored = chat_records_with(rtl, "soc", "done")[0]
+            if "#42 done" not in stored or "](" in stored:
+                report(f"{label} the issue link did not come back as its text:\n{stored}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    for relative, needle in (("docs/chat-slack-setup.md", "link to GitHub"), ("docs/chat-slack-setup.zh-CN.md", "跳转到 GitHub")):
+        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say {needle!r}.")
+            return 1
+    if "chat-issue-links" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-issue-links scenario passed.")
+    return 0
+
+
 def validate_chat_role_apps_are_documented_scenario() -> int:
     """Issue #187: the setup guides and READMEs describe shared bots.
 
@@ -4210,6 +4286,72 @@ def validate_chat_bridge_start_race_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-bridge-start-race scenario passed.")
+    return 0
+
+
+def validate_chat_owner_mention_scenario() -> int:
+    """Owner's rule of 2026-10-05: a Slack message the owner needs mentions them.
+
+    The session-start notice of a Slack-enabled project that names an owner
+    tells the session to write `@owner` on what the owner needs to see or
+    decide, and says nothing of it when no owner is named; a record with
+    `@owner` is posted as a real mention; both setup guides state the rule.
+    """
+    label = "chat-owner-mention:"
+    if chat_bridge_node_missing("chat-owner-mention"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-owner-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        benv = chat_bridge_environment(env, base / "home", slack)
+
+        def notice() -> str:
+            session = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
+                cwd=rtl, env={**benv, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
+                text=True, capture_output=True, check=False,
+                input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(rtl)}),
+            )
+            return chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        told = notice()
+        if "@owner" not in told:
+            report(f"{label} the session-start notice does not tell the session to write @owner: {told!r}")
+            return 1
+        if "decide" not in told:
+            report(f"{label} the notice does not say which messages need @owner: {told!r}")
+            return 1
+
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        record_id = chat_json(run_keel(rtl, "chat", "post", "soc", "@owner 需要你决定 CSR 复位值", "--json", env=benv)).get("id", "")
+        once = run_keel(rtl, "chat", "bridge", "run", "--once", env=benv)
+        posted = [c for c in slack.calls_to("chat.postMessage") if slack_payload(c).get("id") == record_id]
+        if not posted:
+            report(f"{label} the @owner record was not posted: {once.stderr.strip()}")
+            return 1
+        if not posted[0]["params"].get("text", "").startswith("<@UOWNER>"):
+            report(f"{label} the @owner record was not posted as a mention: {posted[0]['params'].get('text')!r}")
+            return 1
+
+        config = json.loads((rtl / "keel" / "chat.json").read_text(encoding="utf-8"))
+        del config["slack"]["owner"]
+        write_text(rtl / "keel" / "chat.json", json.dumps(config, indent=2) + "\n")
+        untold = notice()
+        if "@owner" in untold:
+            report(f"{label} the notice asks for @owner although no owner is named: {untold!r}")
+            return 1
+
+    for guide, needle in (("docs/chat-slack-setup.md", "needs to see or decide"), ("docs/chat-slack-setup.zh-CN.md", "需要你知道或决定")):
+        if needle not in (ROOT / guide).read_text(encoding="utf-8"):
+            report(f"{label} {guide} does not state the owner-mention rule ({needle!r}).")
+            return 1
+
+    if "chat-owner-mention" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-owner-mention scenario passed.")
     return 0
 
 
@@ -36372,6 +36514,10 @@ SCENARIOS: tuple = (
         validate_chat_bridge_start_race_scenario,
     ),
     (
+        "chat-owner-mention",
+        validate_chat_owner_mention_scenario,
+    ),
+    (
         "chat-role-apps",
         validate_chat_role_apps_scenario,
     ),
@@ -36390,6 +36536,10 @@ SCENARIOS: tuple = (
     (
         "chat-slack-format",
         validate_chat_slack_format_scenario,
+    ),
+    (
+        "chat-issue-links",
+        validate_chat_issue_links_scenario,
     ),
     (
         "chat-archive",

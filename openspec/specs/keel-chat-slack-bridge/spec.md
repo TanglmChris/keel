@@ -102,7 +102,7 @@ When a verified bot's `app:<name>` token is present and the bot serves exactly o
 
 ### Requirement: Formatting is translated between Markdown and Slack mrkdwn
 
-Before posting, after redaction and before the length cut, the bridge MUST translate a record's Markdown to Slack mrkdwn: `**x**` and `__x__` to `*x*`, a single `*x*` or `_x_` to `_x_`, `~~x~~` to `~x~`, a heading line to a bold line, a `- `, `* `, or `+ ` list line to a `• ` line, and `[text](url)` to `<url|text>`, escaping `&`, `<`, and `>`; text in code spans and fenced code blocks MUST otherwise pass unchanged. Text imported from Slack — a registered person's message or another machine's post — MUST be translated back: `*x*` to `**x**`, `_x_` to `*x*`, `~x~` to `~~x~~`, `<url|text>` to `[text](url)`, `<url>` to `url`, and `&amp;`, `&lt;`, `&gt;` unescaped.
+Before posting, after redaction and before the length cut, the bridge MUST translate a record's Markdown to Slack mrkdwn: `**x**` and `__x__` to `*x*`, a single `*x*` or `_x_` to `_x_`, `~~x~~` to `~x~`, a heading line to a bold line, a `- `, `* `, or `+ ` list line to a `• ` line, `[text](url)` to `<url|text>`, `owner/repo#N` to a link to that repository's issue N, and a bare `#N` to a link to issue N of the repository the project's `origin` remote names on GitHub (left as text when `origin` is not on GitHub), escaping `&`, `<`, and `>`; text in code spans and fenced code blocks MUST otherwise pass unchanged. Text imported from Slack — a registered person's message or another machine's post — MUST be translated back: `*x*` to `**x**`, `_x_` to `*x*`, `~x~` to `~~x~~`, a GitHub issue or pull-request link showing `#N` or `owner/repo#N` to that text, `<url|text>` to `[text](url)`, `<url>` to `url`, and `&amp;`, `&lt;`, `&gt;` unescaped.
 
 #### Scenario: Markdown is sent as mrkdwn
 - **WHEN** `rtl` posts a message containing `**must**`, `*soon*`, `# Plan`, `- item`, `[spec](https://example.com/s)`, `` `a**b` ``, and `x<y&z`
@@ -111,6 +111,18 @@ Before posting, after redaction and before the length cut, the bridge MUST trans
 #### Scenario: A person's mrkdwn is stored as Markdown
 - **WHEN** the registered owner sends `*urgent* _today_ ~old~ see <https://example.com|this> a &lt; b`
 - **THEN** the imported record's text is `**urgent** *today* ~~old~~ see [this](https://example.com) a < b`
+
+#### Scenario: Issue references link to GitHub
+- **WHEN** a project whose `origin` is `git@github.com:acme/rtl.git` posts `see #42, acme/other#7, C# and abc#9`
+- **THEN** the posted text contains `<https://github.com/acme/rtl/issues/42|#42>` and `<https://github.com/acme/other/issues/7|acme/other#7>`, leaves `C#` and `abc#9` as text, and the local record is unchanged
+
+#### Scenario: A bare reference stays text without a GitHub origin
+- **WHEN** a project with no `origin` remote posts `see #42 and acme/other#7`
+- **THEN** the posted text keeps `#42` as text and still links `acme/other#7`
+
+#### Scenario: An issue link comes back as its text
+- **WHEN** the registered owner sends `<https://github.com/acme/rtl/issues/42|#42> done`
+- **THEN** the imported record's text is `#42 done`
 
 ### Requirement: Missed traffic is caught up after downtime
 
@@ -130,7 +142,7 @@ The bridge MUST read the app and bot tokens from `KEEL_SLACK_APP_TOKEN` and `KEE
 
 ### Requirement: The bridge runs unattended but stays visible and controllable
 
-`keel chat bridge install` MUST write a user LaunchAgent plist (`RunAtLoad`, `KeepAlive`, absolute node and CLI paths) and load it with `launchctl`; `uninstall`, `start`, and `stop` MUST unload or load it; `pause <duration>` MUST make the running bridge disconnect and queue until the time passes; `status` MUST report installed, running, connected, paused, served projects, last event, ignored count, and unposted count. `start` MUST retry a bootstrap that fails because an unload is still in progress until it succeeds or a bounded wait ends, MUST fail naming launchctl's output when the service still cannot be loaded, and MUST NOT report success for a failed bootstrap; `stop` and `install` MUST wait, bounded, until launchd has unloaded the service. For a status file written by a bridge launchd started, and where launchd reports the service's state, `status` MUST report the bridge as not running when the service is unloaded or its pid differs from the status file's. The running bridge MUST write its status, post an online notice to mapped channels on start and a stopped notice on clean stop, reconnect with backoff after a disconnect or a `refresh_requested`, and exit so launchd restarts it when Keel's package version changes. For a Slack-enabled project the session-start notice MUST include one bridge status line.
+`keel chat bridge install` MUST write a user LaunchAgent plist (`RunAtLoad`, `KeepAlive`, absolute node and CLI paths) and load it with `launchctl`; `uninstall`, `start`, and `stop` MUST unload or load it; `pause <duration>` MUST make the running bridge disconnect and queue until the time passes; `status` MUST report installed, running, connected, paused, served projects, last event, ignored count, and unposted count. `start` MUST retry a bootstrap that fails because an unload is still in progress until it succeeds or a bounded wait ends, MUST fail naming launchctl's output when the service still cannot be loaded, and MUST NOT report success for a failed bootstrap; `stop` and `install` MUST wait, bounded, until launchd has unloaded the service. For a status file written by a bridge launchd started, and where launchd reports the service's state, `status` MUST report the bridge as not running when the service is unloaded or its pid differs from the status file's. The running bridge MUST write its status, post an online notice to mapped channels on start and a stopped notice on clean stop, reconnect with backoff after a disconnect or a `refresh_requested`, and exit so launchd restarts it when Keel's package version changes. For a Slack-enabled project the session-start notice MUST include one bridge status line and, when `slack.owner` is set, one line stating that Slack notifies the owner only for messages that write `@owner`, so a message the owner needs to see or decide on writes it.
 
 #### Scenario: Pause queues and resume delivers
 - **WHEN** `keel chat bridge pause 2s` runs, `rtl` posts during the pause, and the pause expires
@@ -155,6 +167,10 @@ The bridge MUST read the app and bot tokens from `KEEL_SLACK_APP_TOKEN` and `KEE
 #### Scenario: A stale status file is not reported as running
 - **WHEN** a status file written under launchd names a live pid but the launchctl double reports the service unloaded, or loaded with another pid
 - **THEN** `keel chat bridge status --json` reports `running: false`
+
+#### Scenario: The session learns to mention the owner
+- **WHEN** the SessionStart chat hook runs for a bound role in a Slack-enabled project that names an owner, and again in one whose `keel/chat.json` names none
+- **THEN** the first notice contains `@owner` with the rule and the second does not
 
 ### Requirement: The chat store is archived to an orphan branch without exposing it publicly
 

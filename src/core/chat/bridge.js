@@ -172,7 +172,7 @@ function bodyText(record) {
 // `[redacted]`, and neither the cut pointer nor the owner mention is Markdown
 // to translate (chat-slack-format D1).
 function slackText(project, record, text) {
-  let result = mrkdwn.toSlack(redact(text));
+  let result = mrkdwn.toSlack(redact(text), { repo: project.github });
   if (result.length > TEXT_LIMIT) {
     result = `${result.slice(0, TEXT_LIMIT)}… (cut; full text: \`keel chat show ${record.id}\`)`;
   }
@@ -850,8 +850,17 @@ function prepareProjects() {
       if (!project.channelGroups.has(channel)) project.channelGroups.set(channel, group);
     }
     buildTsIndex(project);
+    project.github = githubRepo(project.where.worktree);
   }
   return projects;
+}
+
+// `owner/repo` of the project's `origin` when it is on GitHub, which a bare
+// `#N` in a record links to (chat-issue-links D1); null otherwise.
+function githubRepo(worktree) {
+  const result = require("child_process").spawnSync("git", ["remote", "get-url", "origin"], { cwd: worktree, encoding: "utf8", timeout: 5000 });
+  const match = String(result.stdout || "").trim().match(/github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
+  return result.status === 0 && match ? match[1] : null;
 }
 
 async function createContext(log, { needApp }) {
