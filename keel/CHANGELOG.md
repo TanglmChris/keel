@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.99.0 - A shift change needs no chat role
+
+The owner pointed out on 2026-10-05 that Keel is used where no chat is set up, so a shift change must not depend on one.
+
+- `keel shift check`, `ready`, and `resume` work in a worktree with no `keel chat` role. The note is then kept per worktree, at `keel-chat/shift/worktree/<name>-<id>.md`, still outside every worktree. `request`, `start`, the closing reply, and the on-shift message stay chat features for repositories with roles.
+- A waiting note is announced by `keel context` (a `Shift:` line and `shift` in its JSON, changing no status or selection) and by the SessionStart projection on every host. In a repository without OpenSpec, the projection checks for a note on disk before spawning anything, and stays silent otherwise. The chat hook's own line is gone.
+- The readiness check skips its own command line's process group, so `keel shift check | head` no longer lists `head`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.98.0 - `keel shift`: a role's session changes shift through Keel
 
 rtl_ppa_prj clears its long-lived role sessions at phase boundaries, by a procedure its PM drafted on 2026-10-05 (rtl_ppa_prj #213). On the same day the owner decided that Keel's shift change replaces it: the PM only tells a session to change shift, and the handoff context goes into a temporary file Keel keeps, for the cold start.

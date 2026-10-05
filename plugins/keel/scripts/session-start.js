@@ -445,6 +445,47 @@ function fallback(reason) {
   );
 }
 
+// The git common directory of `cwd`, read from `.git` without spawning git.
+function gitCommonDir(cwd) {
+  for (let dir = cwd; dir && dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    const dotGit = path.join(dir, ".git");
+    let stat;
+    try {
+      stat = fs.statSync(dotGit);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) return dotGit;
+    const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)$/m);
+    if (!match) return null;
+    const gitdir = path.resolve(dir, match[1].trim());
+    return /[\\/]worktrees[\\/][^\\/]+$/.test(gitdir) ? path.dirname(path.dirname(gitdir)) : gitdir;
+  }
+  return null;
+}
+
+// A repository without OpenSpec gets no projection, except a note from the
+// previous shift (shift-without-role D3): checked on disk first, so the
+// common case spawns nothing.
+function shiftOnly(cwd) {
+  const common = gitCommonDir(cwd);
+  if (!common || !fs.existsSync(path.join(common, "keel-chat", "shift"))) return 0;
+  const result = runKeel(cwd, ["context", "--json"], keelCommand().command);
+  let context = null;
+  try {
+    context = JSON.parse(result.stdout);
+  } catch {
+    return 0;
+  }
+  if (!context || !context.shift || !context.shift.since) return 0;
+  const shift = `shift: your previous shift left a note (${context.shift.since}); run \`keel shift resume\` before anything else.`;
+  emit(
+    `Keel: ${shift} It authorizes nothing.`,
+    panel([`Keel: ${shift[0].toUpperCase()}${shift.slice(1)}`, DISPOSABLE])
+  );
+  return 0;
+}
+
 function main() {
   const input = readStdin();
   const handed = handOff(__filename, input, 12000);
@@ -459,7 +500,7 @@ function main() {
     typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
 
   if (!fs.existsSync(path.join(cwd, "openspec"))) {
-    return 0;
+    return shiftOnly(cwd);
   }
 
   const cli = keelCommand();
@@ -571,6 +612,12 @@ function main() {
   }
   const pointer = precedentPointer(cwd);
   if (pointer) lines.push(`- ${pointer}`);
+  // A note from the previous shift (shift-without-role D3), on every host.
+  if (context.shift && context.shift.since) {
+    const shift = `shift: your previous shift left a note (${context.shift.since}); run \`keel shift resume\` before anything else.`;
+    lines.push(`- ${shift}`);
+    human.splice(human.length - 1, 0, shift[0].toUpperCase() + shift.slice(1));
+  }
   lines.push(`- report this state ${DISCLOSURE}; it authorizes nothing.`);
   emit(lines.join("\n"), panel(human));
   return 0;

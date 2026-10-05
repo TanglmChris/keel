@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.98.0"
-PROTOCOL_VERSION = "5.98.0"
+PACKAGE_VERSION = "5.99.0"
+PROTOCOL_VERSION = "5.99.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4481,13 +4481,12 @@ def validate_shift_change_scenario() -> int:
             return run_keel(cwd, "shift", *args, env=env)
 
         def notice() -> str:
-            session = subprocess.run(
-                ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), "session-start"],
-                cwd=verify, env={**env, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'},
-                text=True, capture_output=True, check=False,
-                input=json.dumps({"hook_event_name": "SessionStart", "cwd": str(verify)}),
+            # The SessionStart projection, which every host runs (shift-without-role D3).
+            session = run_session_start_hook(
+                verify, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(verify)},
+                keel_cli=f'node "{ROOT / "bin" / "keel.js"}"', extra_env={k: v for k, v in env.items() if k.startswith("KEEL_")},
             )
-            return chat_json(session).get("hookSpecificOutput", {}).get("additionalContext", "")
+            return session_start_context(session) or ""
 
         size = signal.stat().st_size if signal.exists() else 0
         requested = shift(rtl, "request", "verify")
@@ -4520,7 +4519,9 @@ def validate_shift_change_scenario() -> int:
         temp_tree = Path(tempfile.gettempdir()) / f"keel-shift-tmp-{os.getpid()}"
         subprocess.run(["git", "worktree", "add", "-q", "--detach", str(temp_tree)], cwd=verify, check=True, capture_output=True)
         run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "Rerun the regression", env=env)
-        sleeper = subprocess.Popen(["sleep", "60"], cwd=verify)
+        # Its own session, as a job a session leaves behind would be: the check
+        # skips its own command line's process group.
+        sleeper = subprocess.Popen(["sleep", "60"], cwd=verify, start_new_session=True)
         try:
             checked = shift(verify, "check", "--json")
             if checked.returncode != 1:
@@ -4637,6 +4638,71 @@ def validate_shift_change_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-change scenario passed.")
+    return 0
+
+
+def validate_shift_without_role_scenario() -> int:
+    """Owner's remark of 2026-10-05: a shift change needs no chat role.
+
+    In a worktree with no `keel chat` role, `ready` keeps the note per
+    worktree, `keel context` and the SessionStart projection point to it
+    without changing the context's status, and `resume` consumes it.
+    """
+    label = "shift-without-role:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-norole-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "solo")
+        env = chat_environment()
+        common = mailbox_common_dir(repo) / "keel-chat"
+
+        def context() -> dict:
+            return chat_json(run_keel(repo, "context", "--json", env=env))
+
+        before = context().get("status")
+        ready = run_keel(repo, "shift", "ready", "next: rerun R007", env=env)
+        if ready.returncode != 0:
+            report(f"{label} keel shift ready refused in a worktree without a chat role: {ready.stderr.strip()}")
+            return 1
+        notes = list((common / "shift" / "worktree").glob("*.md"))
+        if len(notes) != 1:
+            report(f"{label} ready kept {len(notes)} worktree notes under keel-chat/shift/worktree/, not one.")
+            return 1
+        text = run_keel(repo, "context", env=env).stdout
+        if "keel shift resume" not in text:
+            report(f"{label} keel context does not point to the waiting note: {text.strip()}")
+            return 1
+        if context().get("status") != before:
+            report(f"{label} the waiting note changed the context status from {before!r} to {context().get('status')!r}.")
+            return 1
+        session = run_session_start_hook(
+            repo, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(repo)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        if "keel shift resume" not in (session_start_context(session) or ""):
+            report(f"{label} the SessionStart projection does not point to the waiting note.")
+            return 1
+        resumed = run_keel(repo, "shift", "resume", env=env)
+        if "rerun R007" not in resumed.stdout:
+            report(f"{label} keel shift resume did not print the note: {resumed.stdout.strip()} {resumed.stderr.strip()}")
+            return 1
+        if notes[0].exists():
+            report(f"{label} resume left the worktree note waiting.")
+            return 1
+        if not list((common / "shift" / "history").glob("*.md")):
+            report(f"{label} resume did not keep the note in history.")
+            return 1
+        if "keel shift resume" in run_keel(repo, "context", env=env).stdout:
+            report(f"{label} keel context still points to a note already resumed.")
+            return 1
+
+    for relative, needle in (("docs/shift-change.md", "no chat role"), ("docs/shift-change.zh-CN.md", "不绑定聊天角色")):
+        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say a chat role is optional ({needle!r}).")
+            return 1
+    if "shift-without-role" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-without-role scenario passed.")
     return 0
 
 
@@ -37107,6 +37173,7 @@ SCENARIOS: tuple = (
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("collected-feedback-is-recorded", validate_collected_feedback_is_recorded_scenario),
     ("shift-change", validate_shift_change_scenario),
+    ("shift-without-role", validate_shift_without_role_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

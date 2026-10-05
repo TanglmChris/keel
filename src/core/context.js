@@ -715,6 +715,10 @@ function resolveContext(repo, options) {
 
   const protocol = protocolRefresh(repo, keelVersion(), authorization);
   if (protocol) context.protocol = protocol;
+  // A note from this worktree's previous shift (shift-without-role D3): a
+  // pointer for the new session, which changes no status or selection.
+  const shift = require("./shift").waitingFor(repo);
+  if (shift) context.shift = shift;
 
   // Set here rather than by the caller, so every consumer of the projection —
   // text, JSON, and any host reading it — carries the version without having
@@ -781,6 +785,10 @@ function protocolRefresh(repo, running, authorization) {
     authorized: authorization.scopes.has("protocol-refresh"),
     deferred: fs.existsSync(path.join(repo, "keel", "guard.json")),
   };
+}
+
+function shiftLine(shift) {
+  return `Shift: your previous shift left a note (${shift.since}); run \`keel shift resume\` before anything else`;
 }
 
 function renderProtocol(protocol) {
@@ -859,6 +867,7 @@ function renderContext(result) {
     );
   }
   if (result.protocol) lines.push(renderProtocol(result.protocol));
+  if (result.shift) lines.push(shiftLine(result.shift));
   for (const reason of result.reasons) lines.push(`Reason: ${reason}`);
   for (const warning of result.warnings) lines.push(`Warning: ${warning}`);
   return `${lines.join("\n")}\n`;
