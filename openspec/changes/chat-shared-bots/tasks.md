@@ -60,7 +60,7 @@
 
 ## 2. Setup guide
 
-- [ ] 2.1 The setup guides describe shared bots
+- [x] 2.1 The setup guides describe shared bots
   - Covers:
     - D1
     - D2
@@ -84,9 +84,18 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:304f1d00df22bea1189de6e307fc44574f5a40a268e31a29588bc2bf7c02f77d
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-role-apps-are-documented` reports `chat-role-apps-are-documented scenario passed.`
+    - M1.red: fail. Updated for shared bots, before the edits the scenario reported `chat-role-apps-are-documented: docs/chat-slack-setup.md does not carry 'keel chat bot add'.`, carrying the declared signature `chat-role-apps-are-documented:`.
+    - M1.green: pass. With the role-app section of both guides rewritten as "bots that speak for roles" (generic names, `keel chat bot add`, `bot:<name>` / `app:<name>`, the per-project `bots` mapping, one bot per role per project, no direct messages for a bot serving several roles) and one sentence in each README, the same scenario passes.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario reads the shipped guides and READMEs for each element and refuses the stale `bot:<role>` form, which updates I1 and I2.
+      - Scope check: `git status --short` lists both guides, both READMEs, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory.
+      - Findings: none
 
 ## 3. Release
 

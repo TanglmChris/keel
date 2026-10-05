@@ -3761,32 +3761,33 @@ def validate_chat_shared_bots_scenario() -> int:
 
 
 def validate_chat_role_apps_are_documented_scenario() -> int:
-    """Issue #187: the setup guides and READMEs say a role may have its own app.
+    """Issue #187: the setup guides and READMEs describe shared bots.
 
-    Both guides carry the role-app section — the `slack.bots` registration,
-    the two Keychain accounts, the manifest's direct-message scopes, and that
-    direct messages stay on the role's machine — and neither still equates the
-    free plan's app limit with a machine count.
+    Both guides carry the bot section — `keel chat bot add`, the Keychain
+    accounts named by bot, the `slack.bots` mapping, that one bot serves a role
+    in each of several projects, and that such a bot takes no direct messages
+    — and neither still ties a token to a role or equates the app limit with a
+    machine count.
     """
     label = "chat-role-apps-are-documented:"
     guides = {
-        "docs/chat-slack-setup.md": "Direct messages stay on the machine where the role runs",
-        "docs/chat-slack-setup.zh-CN.md": "私聊只留在这个角色所在的电脑上",
+        "docs/chat-slack-setup.md": ("serve a role in each of several projects", "takes no direct messages"),
+        "docs/chat-slack-setup.zh-CN.md": ("在多个项目里各当一个角色", "不接私聊"),
     }
-    for relative, stays in guides.items():
+    for relative, phrases in guides.items():
         text = (ROOT / relative).read_text(encoding="utf-8")
-        for needle in ('"bots"', "bot:<role>", "app:<role>", "chat:write.public", "im:history", "im:write", stays):
+        for needle in ('"bots"', "keel chat bot add", "bot:<name>", "app:<name>", "chat:write.public", "im:history", *phrases):
             if needle not in text:
                 report(f"{label} {relative} does not carry {needle!r}.")
                 return 1
-        for stale in ("which means 10 machines", "也就是最多 10 台电脑"):
+        for stale in ("bot:<role>", "which means 10 machines", "也就是最多 10 台电脑"):
             if stale in text:
-                report(f"{label} {relative} still says {stale!r}, but role apps count toward the limit too.")
+                report(f"{label} {relative} still says {stale!r}.")
                 return 1
-    readmes = {"README.md": "its own Slack app", "README.zh-CN.md": "自己的 Slack App"}
+    readmes = {"README.md": "one bot can serve several projects", "README.zh-CN.md": "一个 bot 可以服务多个项目"}
     for relative, needle in readmes.items():
         if needle not in (ROOT / relative).read_text(encoding="utf-8"):
-            report(f"{label} {relative} does not say a role may have {needle!r}.")
+            report(f"{label} {relative} does not say {needle!r}.")
             return 1
     if "chat-role-apps-are-documented" not in {name for name, _ in SCENARIOS}:
         report(f"{label} scenario is not registered.")
