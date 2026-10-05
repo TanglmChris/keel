@@ -1,6 +1,6 @@
 {
   "name": "keel-openspec",
-  "version": "5.93.0",
+  "version": "5.94.0",
   "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
   "author": {
     "name": "TanglmChris",

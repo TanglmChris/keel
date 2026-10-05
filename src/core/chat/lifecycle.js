@@ -48,11 +48,11 @@ function tokens() {
   return { app: app || null, bot: bot || null };
 }
 
-// A role's own app (chat-role-apps D2): Keychain only, on the machine where
-// the role runs, because an environment variable would have to encode a role
-// name in its own name.
-function roleTokens(role) {
-  return { bot: keychainToken(`bot:${role}`), app: keychainToken(`app:${role}`) };
+// A registered bot's tokens (chat-shared-bots D1): Keychain only, by the
+// bot's name, because an environment variable would have to encode that name
+// in its own.
+function botTokens(name) {
+  return { bot: keychainToken(`bot:${name}`), app: keychainToken(`app:${name}`) };
 }
 
 function missingTokens(which) {
@@ -204,7 +204,7 @@ function stop() {
 }
 
 module.exports = {
-  roleTokens,
+  botTokens,
   KEYCHAIN_SERVICE,
   LABEL,
   bridgeDir,
