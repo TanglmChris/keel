@@ -46,7 +46,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E1
   - Touch:
@@ -83,9 +83,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:52042b7a4a6a29ee8ba5d727688003581ecc9c0bbb9e89fabf4853bfa4fa3678
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js patch` moved every marker to 5.94.1. With the 5.94.1 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The MODIFIED requirement replaces its published text in `openspec/specs/keel-cross-host-mailbox/spec.md`, which updates I1; `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.` A first promotion script matched an empty title and overwrote the spec's head; it was restored from Git and redone before this run.
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the promoted requirement carries the worktree signal and the late-binding scenario, and the changelog says how an already-running session comes under the rule.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
 
 ## Change Verify
 
@@ -94,7 +101,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 231 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 
