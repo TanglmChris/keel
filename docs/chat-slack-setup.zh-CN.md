@@ -224,7 +224,7 @@ keel chat bridge status
 - 直接在频道里发言。手打 `@claude-maint`、`@cm` 或 `@all`，没有自动补全。
 - 在 thread 里回复某条消息。
 - 给待办点 ✅，就算完成。
-- 格式双向同步。会话用普通的 Markdown 写（`**粗体**`、列表、`代码`、链接），Slack 上显示为对应格式；你在 Slack 里用的格式，传给会话时转成 Markdown。标题在 Slack 上显示为粗体行。
+- 格式双向同步。消息里的 issue 编号点击可跳转到 GitHub：`owner/repo#N` 打开那个仓库的 issue，单写 `#N` 打开本项目的（按 `origin` 远端识别）。会话用普通的 Markdown 写（`**粗体**`、列表、`代码`、链接），Slack 上显示为对应格式；你在 Slack 里用的格式，传给会话时转成 Markdown。标题在 Slack 上显示为粗体行。
 
 **在终端里：**
 

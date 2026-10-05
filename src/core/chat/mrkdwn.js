@@ -16,6 +16,11 @@ const BOLD = "\u0001";
 // on each side of every marker pair supplies the boundary, checked against
 // real Slack on 2026-10-05 (#187). Inbound text drops them again.
 const ZWSP = "\u200b";
+// An issue reference at a word boundary, `owner/repo#N` or a bare `#N`, and
+// any Slack link already made, which is matched first so that a reference
+// inside one is left alone (chat-issue-links D3).
+const ISSUE = /(<[^>\n]*>)|(?<![\w#/;&.-])((?:([\w.-]+\/[\w.-]+))?#(\d{1,7}))(?![\w#])/g;
+const ISSUE_LINK = /<https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+\|((?:[\w.-]+\/[\w.-]+)?#\d+)>/g;
 
 // Calls `prose` on the text outside code and `code` on the code itself.
 function byCode(text, prose, code) {
@@ -45,9 +50,20 @@ function unescape(text) {
   return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
-function proseToSlack(text) {
-  return escape(text)
-    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/g, (match, label, url) => `<${url}|${label}>`)
+// `owner/repo#N` links to that repository; a bare `#N` to `repo`, the
+// project's own GitHub repository, and stays text without one (D1, D2).
+function linkIssues(text, repo) {
+  return text.replace(ISSUE, (match, link, ref, named, number) => {
+    if (link) return link;
+    const target = named || repo;
+    if (!target) return match;
+    return `<https://github.com/${target}/issues/${number}|${ref}>`;
+  });
+}
+
+function proseToSlack(text, repo) {
+  return linkIssues(escape(text)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/g, (match, label, url) => `<${url}|${label}>`), repo)
     .replace(/^(\s*)[-*+][ \t]+/gm, "$1• ")
     .replace(/^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm, `${BOLD}$1${BOLD}`)
     .replace(/\*\*(?!\s)([^\n]+?)\*\*/g, `${BOLD}$1${BOLD}`)
@@ -59,6 +75,7 @@ function proseToSlack(text) {
 
 function proseFromSlack(text) {
   return unescape(text.split(ZWSP).join("")
+    .replace(ISSUE_LINK, "$1")
     .replace(/<((?:https?:\/\/|mailto:)[^|>\s]+)\|([^>]+)>/g, "[$2]($1)")
     .replace(/<((?:https?:\/\/|mailto:)[^|>\s]+)>/g, "$1")
     .replace(/(^|[^\w*])\*(?![\s*])([^*\n]+?)\*(?![\w*])/g, `$1${BOLD}${BOLD}$2${BOLD}${BOLD}`)
@@ -67,8 +84,8 @@ function proseFromSlack(text) {
     .split(BOLD).join("*"));
 }
 
-function toSlack(text) {
-  return byCode(String(text || ""), proseToSlack, escape);
+function toSlack(text, { repo = null } = {}) {
+  return byCode(String(text || ""), (prose) => proseToSlack(prose, repo), escape);
 }
 
 function fromSlack(text) {
