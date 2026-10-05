@@ -70,7 +70,7 @@
 # how one store serves several projects.
 #
 # A declared path that is not there behaves exactly as no declaration — the
-# state a fresh clone and CI land in, since the store below is private.
+# state a fresh clone and CI land in when the store is private.
 #
 # What this does NOT do: a precedent informs a decision and never substitutes
 # for a proof. Gates, evidence, Review, and the write guard are untouched by
@@ -88,11 +88,6 @@ authorize:
   # `change-close` asks an unresolved follow-up for a durable owner and accepts
   # an https reference, and until now nothing here could create one.
   - issue:TanglmChris/keel
-
-# TanglmChris/decision-precedents, a private repository. Every other clone of
-# this one — including CI — will not have it, and that is the point: a declared
-# path that is not there must behave exactly as no declaration.
-precedents: ../decision-precedents
 
 # triage (optional): what admits work into an unattended run. Two sources,
 # either sufficient on its own — the labels an issue carries, and the issue
