@@ -99,7 +99,7 @@
 
 ## 3. Release
 
-- [ ] 3.1 Release and promote the spec
+- [x] 3.1 Release and promote the spec
   - Covers:
     - E1
   - Touch:
@@ -136,9 +136,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:a545dad245bc8665e82af01a3a7cfa6c3663daed631ecadf4c0bfe7b893f68f6
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.94.0. With the 5.94.0 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. Both MODIFIED requirements and the token requirement replace their published text in `openspec/specs/keel-chat-slack-bridge/spec.md`, which updates I3; `published-specs-validate-strictly` reports `30 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the promoted spec carries the bot list, per-project assignment, and the one-role direct-message rule, and the changelog names the change and the 5.93.0 compatibility.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the promoted spec, both in Touch.
+      - Findings: none
 
 ## Change Verify
 
@@ -147,7 +154,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. `npm test` reports `validation --all passed: baseline plus 231 scenarios, 1 skipped: output-survives-the-pipe.`, with `chat-shared-bots`, the updated `chat-role-apps`, `chat-role-direct`, and `chat-role-apps-are-documented` passing.
 
 ## Invalidates
 

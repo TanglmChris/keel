@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.94.0 - One Slack bot serves a role in each project
+
+5.93.0 tied a Slack app to one role: its token was stored under the role's name. The free plan allows 10 apps, and the owner runs several projects, each with its own PM, spec, and so on (#187). The owner wants a few bots named for what they are in Slack — PM, Spec, Verify, Design, Flow, Report, Review — each speaking for that project's role in each project's channel.
+
+- Issue #187: a machine lists its bots by name with `keel chat bot add|remove <name>`; `keel chat bot list` shows whether each bot's Keychain entries (`bot:<name>`, `app:<name>`) exist, never their values.
+- Issue #187: `keel/chat.json` `slack.bots` keeps its form, a bot user id mapped to a role, and now means "this project's role speaks through this bot". The bridge checks each listed bot with `auth.test` and gives it the role each project maps its id to, so one bot is a different role in each project. Since the map is keyed by the bot's id, a bot speaks for at most one role per project.
+- Issue #187: a bot takes direct messages only while it speaks for exactly one role, because a direct message cannot say which project it is for; status reports a bot serving several roles with direct messages off.
+- `keel chat bridge status` lists bots with the `<project>/<role>` each serves, replacing the per-role list and its `mismatch` state. A 5.93.0 Keychain entry stored under a role's name keeps working once that name is listed with `keel chat bot add`. `bot` is now a reserved group name. Both setup guides describe bots in place of per-role apps.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.94.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.93.0 - A role may speak through its own Slack app
 
 In Slack every role on a machine spoke through that machine's one keel app, which only swapped the display name (#187). The owner could tell who wrote a message, but could not mention a session the way Slack mentions work, message one privately, or see it in the member list. The owner chose to make a per-role app optional, role by role.
