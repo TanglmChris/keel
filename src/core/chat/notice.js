@@ -148,7 +148,8 @@ function bridgeLine(where) {
 // the owner only for a mention, and the bridge mentions them only for
 // `@owner`, so whether a message reaches their phone is the session's choice.
 const OWNER_RULE = "Slack notifies the owner only for messages that write `@owner`: write it in any message the owner "
-  + "needs to see or decide on, and leave it out of routine discussion.";
+  + "needs to see or decide on, and leave it out of routine discussion. Send a risk or decision as its own message "
+  + "with `@owner` rather than inside a status update.";
 
 const HOST_EVENTS = {
   "session-start": "SessionStart",

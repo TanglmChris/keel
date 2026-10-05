@@ -62,6 +62,11 @@ const BUNDLED = {
         source: "codex exec --help, codex-cli 0.159.3",
         text: "`-s` takes read-only, workspace-write, or danger-full-access. `-C` sets the directory it works in and `-o` the file its last message is written to.",
       },
+      {
+        date: "2026-10-05",
+        source: "rtl_ppa_prj design session, codex_wcmux run",
+        text: "A run can exit non-zero after its products exist: one hit its quota while tidying up and never wrote its result file. Have the brief write the result file before any cleanup, and on a non-zero exit read the products before calling the run failed.",
+      },
     ],
   },
   dsh: {
@@ -96,6 +101,11 @@ const BUNDLED = {
 
 // Pitfalls of handing work to any external process, whichever CLI it is.
 const GENERAL_PITFALLS = [
+  {
+    date: "2026-10-05",
+    source: "rtl_ppa_prj verify session",
+    text: "Stop a delegate by its PID or by its own output directory, never `pkill -f <pattern>`: a pattern matched other sessions' processes of the same command and killed them, twice in one day.",
+  },
   {
     date: "2026-10-04",
     source: RTL_TOOLCHAIN,
