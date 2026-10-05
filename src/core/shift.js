@@ -149,13 +149,24 @@ function temporaryRoots() {
   return [...new Set([os.tmpdir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].map(realpath))];
 }
 
+// Linked worktrees under a temporary directory, split by owner
+// (shift-temp-owner D1): one in a Claude scratchpad of a session started in
+// this worktree is this worktree's; any other is someone else's, or unknown.
 function temporaryWorktrees(where) {
   const listed = git(where.worktree, ["worktree", "list", "--porcelain"]);
-  if (!listed.ok) return [];
+  if (!listed.ok) return { own: [], other: [] };
   const trees = listed.out.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => realpath(line.slice(9)));
   const main = trees[0];
   const roots = temporaryRoots();
-  return trees.filter((tree) => tree !== main && tree !== where.worktree && roots.some((root) => inside(tree, root)));
+  const slug = where.worktree.replace(/[^A-Za-z0-9]/g, "-");
+  const own = [];
+  const other = [];
+  for (const tree of trees) {
+    if (tree === main || tree === where.worktree || !roots.some((root) => inside(tree, root))) continue;
+    const scratch = tree.match(/[\\/]claude-\d+[\\/]([^\\/]+)[\\/][^\\/]+[\\/]scratchpad(?:[\\/]|$)/);
+    (scratch && scratch[1] === slug ? own : other).push(tree);
+  }
+  return { own, other };
 }
 
 function check(where, role) {
@@ -180,7 +191,9 @@ function check(where, role) {
     items.push({ kind: "process", detail: `PID ${row.pid}, running ${row.elapsed}: ${row.command}` });
   }
 
-  for (const tree of temporaryWorktrees(where)) items.push({ kind: "temporary-worktree", detail: tree });
+  const temporary = temporaryWorktrees(where);
+  for (const tree of temporary.own) items.push({ kind: "temporary-worktree", detail: tree });
+  for (const tree of temporary.other) notes.push(`temporary worktree of another session, or of unknown owner, not counted: ${tree}`);
 
   if (role) {
     for (const todo of store.openTodos(where, { assignee: role })) {
