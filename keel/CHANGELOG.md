@@ -1,5 +1,18 @@
 # Keel Changelog
 
+## 5.98.0 - `keel shift`: a role's session changes shift through Keel
+
+rtl_ppa_prj clears its long-lived role sessions at phase boundaries, by a procedure its PM drafted on 2026-10-05 (rtl_ppa_prj #213). On the same day the owner decided that Keel's shift change replaces it: the PM only tells a session to change shift, and the handoff context goes into a temporary file Keel keeps, for the cold start.
+
+- `keel shift request <role>`: the coordinator asks a role to change shift with a todo in their direct group, which wakes it.
+- `keel shift check`: a read-only readiness check. It reports uncommitted changes, commits on no remote, an active task write guard, processes running in the worktree (not the session itself or an idle terminal shell), temporary linked worktrees, and open todos or unread messages addressed to the role. It exits 1 if any are present.
+- `keel shift ready "<note>"`: refused while the check reports anything, unless `--force-reason` is given. It stores the note at `keel-chat/shift/<role>.md` in the git common directory, outside every worktree, closes the request, and says how to clear the session on each host.
+- `keel shift start <role>`: refused until the note waits. It wakes the cleared role to run `keel context` and `keel shift resume`.
+- `keel shift resume`: prints the note, moves it to history, and tells the coordinator the role is on shift. While a note waits, the role's session-start notice says so.
+- `keel shift status`: lists each role's state.
+- Guides: `docs/shift-change.md` and `docs/shift-change.zh-CN.md`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.98.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.97.0 - The shared app can take direct messages for one role
 
 Every role now has a bot of its own, so on 2026-10-05 the owner gave the shared app (my-keel-bot) to the Keel maintenance session as its identity.

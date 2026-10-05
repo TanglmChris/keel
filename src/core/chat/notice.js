@@ -151,6 +151,14 @@ const OWNER_RULE = "Slack notifies the owner only for messages that write `@owne
   + "needs to see or decide on, and leave it out of routine discussion. Send a risk or decision as its own message "
   + "with `@owner` rather than inside a status update.";
 
+// A shift note waiting for this role (shift-change D7): the new shift reads it
+// before anything else.
+function shiftLine(where, role) {
+  const since = require("../shift").pendingNote(where, role);
+  if (!since) return null;
+  return `keel shift: your previous shift left a note (${since}); run \`keel context\`, then \`keel shift resume\`, before anything else.`;
+}
+
 const HOST_EVENTS = {
   "session-start": "SessionStart",
   "user-prompt-submit": "UserPromptSubmit",
@@ -198,7 +206,7 @@ function hook(event, input, { mail = false } = {}) {
     const output = {
       hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role), ensureWorktreeSignal(where)] },
     };
-    const context = [bridgeLine(where), text].filter(Boolean).join("\n");
+    const context = [bridgeLine(where), shiftLine(where, role), text].filter(Boolean).join("\n");
     if (context) output.hookSpecificOutput.additionalContext = context;
     return { code: 0, stdout: `${JSON.stringify(output)}\n` };
   }
