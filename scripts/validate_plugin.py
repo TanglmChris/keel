@@ -35620,6 +35620,82 @@ def validate_external_agents_are_documented_scenario() -> int:
     return 0
 
 
+def validate_external_agent_exit_status_scenario() -> int:
+    """The printed command records the agent's exit status (#221).
+
+    Of nine codex runs read in rtl_ppa_prj, one recorded its exit status; a run
+    that finished with `exit=0` read as a failure because it left no result
+    file. The status is the one signal that is not the agent's own report.
+    """
+    label = "external-agent-exit-status:"
+    with tempfile.TemporaryDirectory(prefix="keel-agent-exit-") as raw:
+        base = Path(raw).resolve()
+        env, _calls = _external_agents_env(base)
+        for name in ("codex", "dsh"):
+            stub = base / "bin" / name
+            stub.write_text("#!/bin/sh\ncat > /dev/null\nexit 3\n", encoding="utf-8")
+            stub.chmod(0o755)
+        (base / "home" / "agents.json").write_text(
+            json.dumps({"agents": {"dsh": {"executable": str(base / "bin" / "dsh")}}}),
+            encoding="utf-8")
+        repo = base / "repo"
+        repo.mkdir()
+        write_gate_fixture(repo, external_agent_brief_task())
+        write_text(repo / "src/feature.js", "// feature\n")
+        write_authorize_config(repo, "external_agents:\n  allow: [codex, dsh]\n")
+        for command in (["init", "-q"], ["add", "-A"],
+                        ["-c", "user.email=k@example.com", "-c", "user.name=k",
+                         "commit", "-q", "-m", "fixture"]):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True)
+        worktree = base / "agent-wt"
+        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(worktree)],
+                       cwd=repo, check=True, capture_output=True)
+
+        for name, directory in (("codex", repo), ("dsh", worktree)):
+            prompt = base / f"{name}-brief.md"
+            result = run_keel(repo, "agents", "brief", name, "--mode", "helper",
+                              "--dir", str(directory), "--out", str(prompt),
+                              "--change", "demo", "--task", "1.1", "--json", env=env)
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                report(f"{label} {name} brief printed no JSON: {(result.stdout + result.stderr)[:400]}")
+                return 1
+            if payload.get("status") != "ready":
+                report(f"{label} {name} brief was refused: {payload.get('reasons')}")
+                return 1
+            exit_file = payload.get("exit")
+            if not exit_file:
+                report(f"{label} the {name} brief names no exit file.")
+                return 1
+            text = run_keel(repo, "agents", "brief", name, "--mode", "helper",
+                            "--dir", str(directory), "--out", str(prompt),
+                            "--change", "demo", "--task", "1.1", env=env).stdout
+            if exit_file not in text:
+                report(f"{label} the {name} text output does not name the exit file {exit_file}.")
+                return 1
+            ran = subprocess.run(["sh", "-c", f"{payload['run']}\npwd"], cwd=base, env=env,
+                                 capture_output=True, text=True)
+            if not Path(exit_file).exists():
+                report(f"{label} running the {name} command wrote no exit file: {ran.stderr[:300]}")
+                return 1
+            status = Path(exit_file).read_text(encoding="utf-8").strip()
+            if status != "3":
+                report(f"{label} the {name} exit file holds {status!r}, not the stub's 3.")
+                return 1
+            if ran.stdout.strip().splitlines()[-1:] != [str(base)]:
+                report(f"{label} running the {name} command moved the shell to {ran.stdout.strip()!r}.")
+                return 1
+
+        shown = run_keel(repo, "agents", "codex", env=env).stdout
+        if not re.search(r"parallel[^\n]*quota", shown, re.I):
+            report(f"{label} `keel agents codex` has no pitfall about parallel runs sharing one quota.")
+            return 1
+
+    report("external-agent-exit-status scenario passed.")
+    return 0
+
+
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("core-gates", validate_core_gates_scenario),
@@ -36067,6 +36143,7 @@ SCENARIOS: tuple = (
     ("external-agent-catalog", validate_external_agent_catalog_scenario),
     ("external-agent-brief", validate_external_agent_brief_scenario),
     ("external-agents-are-documented", validate_external_agents_are_documented_scenario),
+    ("external-agent-exit-status", validate_external_agent_exit_status_scenario),
     ("validation-runner", validate_validation_runner_scenario),
     ("section-boundary", validate_section_boundary_scenario),
     ("review-entry-extent", validate_review_entry_extent_scenario),

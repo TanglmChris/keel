@@ -48,6 +48,11 @@ const BUNDLED = {
         text: "It has a usage quota. When the quota is hit it names the time it can retry.",
       },
       {
+        date: "2026-10-04",
+        source: "https://github.com/TanglmChris/keel/issues/221",
+        text: "Parallel runs under one account share one quota. Four runs started together and three stopped on the usage limit within five minutes, leaving half-done work in their worktrees.",
+      },
+      {
         date: "2026-10-02",
         source: "https://github.com/TanglmChris/keel/issues/194",
         text: "A recurring check that asks the model to poll for messages burned the whole quota. Never have it poll with the model.",
@@ -69,6 +74,11 @@ const BUNDLED = {
         date: "2026-10-04",
         source: "dsh --version, 0.2.0-rc.2",
         text: "The CLI lives inside the app bundle and is not on PATH.",
+      },
+      {
+        date: "2026-10-05",
+        source: "dsh --profile headless, 0.2.0-rc.2",
+        text: "The headless profile fails with MISSING_CREDENTIAL until a DeepSeek API key is stored through the app's Models page or DEEPSEEK_API_KEY is exported where it is launched.",
       },
       {
         date: "2026-10-04",
@@ -478,13 +488,18 @@ function compileBrief(repo, options) {
   fs.writeFileSync(out, renderBrief({
     agent: entry, mode: options.mode, dir, projection, source: projected.source, result,
   }));
-  const run = fillCommand(entry.command, {
+  // A subshell, so a `cd` in a template does not move the caller, and the exit
+  // status beside the result, because it is the one account of how the run
+  // ended that is not the agent's own report (#221).
+  const exit = `${result.replace(/\.md$/, "")}.exit`;
+  const filled = fillCommand(entry.command, {
     executable: resolveExecutable(entry.executable) || entry.executable,
     sandbox: entry.sandbox[options.mode] || "",
     dir,
     prompt: out,
     out: result,
   });
+  const run = `( ${filled} ); echo $? > ${shellQuote(exit)}`;
   return {
     schemaVersion: 1,
     command: "agents brief",
@@ -493,6 +508,7 @@ function compileBrief(repo, options) {
     mode: options.mode,
     prompt: out,
     result,
+    exit,
     run,
     source: projected.source,
     reasons: [],
@@ -528,7 +544,7 @@ function runBrief(argv) {
   if (json) process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   else if (payload.status === "ready") {
     process.stdout.write(
-      `Brief: ${payload.prompt}\nRun: ${payload.run}\n`
+      `Brief: ${payload.prompt}\nRun: ${payload.run}\nExit status: written to ${payload.exit}\n`
         + payload.warnings.map((item) => `Warning: ${item}\n`).join("")
     );
   } else {

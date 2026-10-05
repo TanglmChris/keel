@@ -198,7 +198,7 @@ keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> -
 ```
 
 `keel agents brief` 编译的就是 `keel project --event subagent-start` 给出的那份任务说明，写成文件，
-再打印要跑的命令。**Keel 不启动任何进程**：命令由会话自己跑，对方交回的结果要由会话复跑每个检查后才算证据。
+再打印要跑的命令；这条命令会把 agent 的退出码写进结果旁边的 `.exit` 文件。**Keel 不启动任何进程**：命令由会话自己跑，对方交回的结果要由会话复跑每个检查后才算证据。
 以下情况会被拒绝：
 
 - 项目没允许的 agent（没写声明就一个都不允许）；
