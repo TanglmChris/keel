@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.0"
-PROTOCOL_VERSION = "5.99.0"
+PACKAGE_VERSION = "5.99.1"
+PROTOCOL_VERSION = "5.99.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4516,7 +4516,14 @@ def validate_shift_change_scenario() -> int:
         subprocess.run(["git", "add", "pushed-not.txt"], cwd=verify, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "local only"], cwd=verify, check=True)
         write_text(verify / "keel" / "guard.json", "{}\n")
-        temp_tree = Path(tempfile.gettempdir()) / f"keel-shift-tmp-{os.getpid()}"
+        # A Claude scratchpad of a session started in verify, and one of a
+        # session started elsewhere (shift-temp-owner D1).
+        scratch = Path(tempfile.gettempdir()) / f"claude-{os.getuid()}"
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(verify.resolve()))
+        temp_tree = scratch / slug / f"keel-test-{os.getpid()}" / "scratchpad" / "own-tmp-tree"
+        other_tree = scratch / "-some-other-dir" / f"keel-test-{os.getpid()}" / "scratchpad" / "other-tmp-tree"
+        for tree in (temp_tree, other_tree):
+            tree.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "worktree", "add", "-q", "--detach", str(temp_tree)], cwd=verify, check=True, capture_output=True)
         run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "Rerun the regression", env=env)
         # Its own session, as a job a session leaves behind would be: the check
@@ -4558,6 +4565,19 @@ def validate_shift_change_scenario() -> int:
         if clean.returncode != 0:
             report(f"{label} keel shift check is not ready on a clean worktree: {clean.stdout.strip()} {clean.stderr.strip()}")
             return 1
+        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(other_tree)], cwd=verify, check=True, capture_output=True)
+        try:
+            foreign = shift(verify, "check")
+            if foreign.returncode != 0:
+                report(f"{label} another session's temporary worktree blocked the check: {foreign.stdout.strip()}")
+                return 1
+            if "other-tmp-tree" not in foreign.stdout:
+                report(f"{label} another session's temporary worktree is not listed as a note: {foreign.stdout.strip()}")
+                return 1
+        finally:
+            subprocess.run(["git", "worktree", "remove", "--force", str(other_tree)], cwd=verify, check=False, capture_output=True)
+            shutil.rmtree(scratch / slug / f"keel-test-{os.getpid()}", ignore_errors=True)
+            shutil.rmtree(scratch / "-some-other-dir" / f"keel-test-{os.getpid()}", ignore_errors=True)
 
         ready = shift(verify, "ready", "next: rerun R007 on 1b64e8c")
         if ready.returncode != 0:

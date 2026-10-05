@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.99.1 - Another session's temporary worktree no longer blocks a shift change
+
+rtl_ppa_flow ran `keel shift check` on 2026-10-06. It reported three temporary worktrees from other sessions' scratchpads and said not ready. As 5.99.0 counted them, one session's leftover would block every session of the repository.
+
+- A temporary linked worktree counts only when it lies in a Claude scratchpad of a session started in this worktree: `claude-<uid>/<slug>/<session>/scratchpad/`, where the slug is the worktree path with each non-alphanumeric character turned into `-`. Any other temporary worktree is listed as a note with its path and does not affect readiness.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.0 - A shift change needs no chat role
 
 The owner pointed out on 2026-10-05 that Keel is used where no chat is set up, so a shift change must not depend on one.

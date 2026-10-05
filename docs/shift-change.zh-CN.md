@@ -22,7 +22,7 @@
 - 不在任何远端上的提交。仓库没有远端时跳过，并给出提示。
 - 还开着的任务写保护（`keel/guard.json`）。
 - 工作目录在本 worktree 里的进程，正在执行检查的会话本身除外。
-- 临时目录下的关联 worktree，本 worktree 和主 worktree 除外。
+- 在本 worktree 里启动的会话、其 Claude scratchpad 下的临时 worktree。其他临时 worktree（比如别的会话的）只作为提示列出，不影响是否就绪。
 - 分配给该角色的未完成待办，以及会唤醒它的未读消息。
 
 项目可以在旁边加自己的检查，比如临时目录下的构建产物：写个脚本，先调用 `keel shift check`，再查本项目特有的项。

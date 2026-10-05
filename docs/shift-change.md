@@ -22,7 +22,7 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 - Commits on no remote. Skipped, with a note, when the repository has no remote.
 - An active task write guard (`keel/guard.json`).
 - Processes whose working directory is inside the worktree, other than the session running the check.
-- Linked worktrees under a temporary directory, other than this one and the main one.
+- Temporary worktrees in a Claude scratchpad of a session started in this worktree. Other temporary worktrees, such as another session's, are listed as notes and do not block.
 - Open todos assigned to the role, and unread messages that would wake it.
 
 A project can run its own checks beside it, such as build products under a scratch directory, from a script that calls `keel shift check` first.
