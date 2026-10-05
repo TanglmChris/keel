@@ -52,7 +52,7 @@
       - Scope check: `git status --short` lists `scripts/fake_slack.py`, `scripts/validate_plugin.py`, and `src/core/chat/{bridge,cli,config,lifecycle}.js`, all in Touch, plus this change's own directory. `assertion-shape-count` still reports 80 sites.
       - Findings: none
 
-- [ ] 1.2 A role's app takes direct messages
+- [x] 1.2 A role's app takes direct messages
   - Covers:
     - keel-chat-slack-bridge / A role's app takes direct messages / The owner messages a session privately
     - keel-chat-slack-bridge / A role's app takes direct messages / The session answers privately
@@ -77,9 +77,19 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:b693c3258584e69313253cc161be7fdb865f770fc4a21e42306b0e92e2915762
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-role-direct` reports `chat-role-direct scenario passed.`
+    - M1.red: fail. Before the change the scenario reported `chat-role-direct: the bridge opened no Socket Mode connection with rtl's app token:`, carrying the declared signature `chat-role-direct:`.
+    - M1.green: pass. With one queue fed by every connection, a kept-up Socket Mode connection per direct-capable role app, direct-message import into `dm-<person>--<role>`, direct outbound through `conversations.open` with the role's token, and direct catch-up from the last ts, the same scenario passes, including the restart that catches up a message sent while down without re-importing the role's own answer.
+    - M2: pass. `chat-role-apps`, `chat-bridge-inbound`, and `chat-bridge-lifecycle` each report `scenario passed.`; `chat-bridge-outbound` also still passes after the connection refactor.
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario pushes direct messages only on the role app's own connection, reads the token and channel of the answer as sent, and checks the stranger, status, and catch-up through the running bridge, so each requirement clause is observed at the Slack boundary.
+      - Scope check: `git status --short` lists `scripts/validate_plugin.py` and `src/core/chat/bridge.js`, both in Touch, plus this change's own directory. `assertion-shape-count` still reports 80 sites.
+      - Findings: none
 
 ## 2. Setup guide
 

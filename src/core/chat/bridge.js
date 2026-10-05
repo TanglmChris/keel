@@ -169,7 +169,7 @@ function roleApp(ctx, project, role) {
   return project.settings.bots[app.user_id] === role ? app : null;
 }
 
-async function postRecord(ctx, project, record, channel) {
+async function postRecord(ctx, project, record, channel, direct = null) {
   const { where } = project;
   const call = (method, params, token = ctx.token) => slack.callWithRetry(method, params, token, {
     onWait: (name, seconds) => ctx.log(`Slack asked to wait ${seconds}s before ${name}.`),
@@ -183,7 +183,9 @@ async function postRecord(ctx, project, record, channel) {
       return;
     }
     if (record.kind === "done") {
-      await call("reactions.add", { channel: target.channel, timestamp: target.ts, name: "white_check_mark" });
+      // The shared app is not in a role's direct-message channel.
+      const poster = target.direct && target.as ? roleApp(ctx, project, target.as) : null;
+      await call("reactions.add", { channel: target.channel, timestamp: target.ts, name: "white_check_mark" }, poster ? poster.token : ctx.token);
     } else {
       // Slack lets only the app that posted a message change it (D4).
       const poster = target.as ? roleApp(ctx, project, target.as) : null;
@@ -210,6 +212,17 @@ async function postRecord(ctx, project, record, channel) {
     const parent = readPosted(where, record.reply_to);
     if (parent && parent.ts) params.thread_ts = parent.thread_ts || parent.ts;
     else params.text = `↳ reply to ${record.reply_to}\n${params.text}`;
+  }
+  if (direct) {
+    // A direct group goes to the person's direct-message channel, only ever
+    // through the role's own app (D6).
+    delete params.username;
+    delete params.icon_emoji;
+    delete params.icon_url;
+    const sent = await call("chat.postMessage", params, direct.token);
+    writePosted(where, record.id, { channel, ts: sent.ts, thread_ts: params.thread_ts || null, as: direct.role, direct: true });
+    rememberTs(project, channel, sent.ts, record.id);
+    return;
   }
   const app = roleApp(ctx, project, record.from);
   let response = null;
@@ -254,14 +267,51 @@ function pendingOutbound(project) {
       pending.push({ record, channel });
     }
   }
+  for (const { app, user, group } of directGroups(project)) {
+    for (const record of store.readLog(where, group)) {
+      if (!OUTBOUND_ORIGINS.has(record.origin || "local") || record.from !== app.role || !DIRECT_KINDS.has(record.kind)) continue;
+      if (readPosted(where, record.id)) continue;
+      pending.push({ record, channel: null, direct: { app, user } });
+    }
+  }
   return pending.sort((a, b) => (a.record.id < b.record.id ? -1 : 1));
+}
+
+const DIRECT_KINDS = new Set(["message", "todo", "done", "edit", "retract"]);
+
+// Role apps that take direct messages: verified, with an app-level token (D6).
+function directApps(ctx) {
+  return [...(ctx.roles || new Map()).values()].filter((app) => app.state === "verified" && app.appToken);
+}
+
+// Each direct group between a registered person and a role whose app takes
+// direct messages for this project.
+function directGroups(project) {
+  const result = [];
+  for (const app of project.directApps || []) {
+    for (const [user, person] of Object.entries(project.settings.members)) {
+      if (person === app.role) continue;
+      const group = store.directName(person, app.role);
+      result.push({ app, user, person, group });
+    }
+  }
+  return result;
+}
+
+async function imChannel(ctx, app, user) {
+  if (!app.ims.has(user)) {
+    const opened = await slack.callWithRetry("conversations.open", { users: user }, app.token);
+    app.ims.set(user, opened.channel && opened.channel.id);
+  }
+  return app.ims.get(user);
 }
 
 async function flushOutbound(ctx) {
   let posted = 0;
   for (const project of ctx.projects) {
-    for (const { record, channel } of pendingOutbound(project)) {
-      await postRecord(ctx, project, record, channel);
+    for (const { record, channel, direct } of pendingOutbound(project)) {
+      if (direct) await postRecord(ctx, project, record, await imChannel(ctx, direct.app, direct.user), direct.app);
+      else await postRecord(ctx, project, record, channel);
       posted += 1;
     }
   }
@@ -565,6 +615,67 @@ async function catchUp(ctx) {
   }
 }
 
+// --- direct messages to a role's app (D6) ---------------------------------------
+
+function handleDirectEvent(ctx, app, event) {
+  if (!event || event.type !== "message" || ![undefined, "file_share"].includes(event.subtype)) return;
+  // Its own answers, seen again by catch-up, are already local records.
+  if (event.bot_id) return;
+  ctx.stats.last_event = store.isoLocal(new Date());
+  const channel = event.channel;
+  let registered = false;
+  for (const project of ctx.projects) {
+    if (!(project.directApps || []).includes(app)) continue;
+    const person = project.settings.members[event.user];
+    noteSeen(project, channel, event.ts);
+    if (!person || person === app.role) continue;
+    registered = true;
+    if (recordAt(project, channel, event.ts)) continue;
+    const group = store.directName(person, app.role);
+    if (!store.groupState(store.readLog(project.where, group)).exists) {
+      store.createGroup(project.where, person, group, [app.role], { direct: true });
+    }
+    const record = store.writeRecord(project.where, {
+      group,
+      kind: "message",
+      from: person,
+      created: tsToIso(event.ts),
+      mentions: [],
+      origin: "slack",
+      text: humanText(project, event),
+    }, new Date(Math.round(Number(event.ts) * 1000)));
+    writePosted(project.where, record.id, { channel, ts: event.ts, origin: "slack", as: app.role, direct: true });
+    rememberTs(project, channel, event.ts, record.id);
+  }
+  if (!registered && !ctx.ownUsers.has(event.user)) ctx.stats.ignored += 1;
+}
+
+// Each registered person's direct-message channel with the role's app, from
+// the last ts processed, through the same handler as live events.
+async function catchUpDirect(ctx, app) {
+  const users = new Set();
+  for (const project of ctx.projects) {
+    if (!(project.directApps || []).includes(app)) continue;
+    for (const [user, person] of Object.entries(project.settings.members)) if (person !== app.role) users.add(user);
+  }
+  for (const user of users) {
+    const channel = await imChannel(ctx, app, user);
+    if (!channel) continue;
+    const seen = ctx.projects.filter((project) => (project.directApps || []).includes(app)).map((project) => lastSeen(project, channel));
+    const oldest = seen.some((ts) => !ts) ? null : seen.reduce((a, b) => (Number(a) < Number(b) ? a : b));
+    const messages = [];
+    let cursor = null;
+    do {
+      const page = await slack.callWithRetry("conversations.history", {
+        channel, oldest: oldest || undefined, limit: 200, cursor: cursor || undefined,
+      }, app.token);
+      messages.push(...(page.messages || []));
+      cursor = page.response_metadata && page.response_metadata.next_cursor;
+    } while (cursor);
+    for (const message of messages.reverse()) handleDirectEvent(ctx, app, { type: "message", channel, channel_type: "im", ...message });
+  }
+}
+
 // --- the running process --------------------------------------------------------
 
 function statusFile() {
@@ -624,7 +735,7 @@ async function verifyRoles(ctx) {
   for (const [role, users] of declared) {
     const tokens = lifecycle.roleTokens(role);
     if (!tokens.bot) continue;
-    const app = { role, token: tokens.bot, appToken: tokens.app, state: "failed", reason: null, user_id: null, bot_id: null, invite: new Set(), connected: false };
+    const app = { role, token: tokens.bot, appToken: tokens.app, state: "failed", reason: null, user_id: null, bot_id: null, invite: new Set(), connected: false, socket: null, ims: new Map() };
     try {
       const auth = await slack.callWithRetry("auth.test", {}, tokens.bot, { attempts: 2 });
       app.user_id = auth.user_id || null;
@@ -704,10 +815,18 @@ async function createContext(log, { needApp }) {
     connected: false,
     stopping: false,
     self: {},
+    queue: Promise.resolve(),
   };
+  ctx.onHello = () => catchUp(ctx);
+  ctx.onEvent = (event) => handleEvent(ctx, event);
   const auth = await slack.callWithRetry("auth.test", {}, bot);
   ctx.self = { bot_id: auth.bot_id || null, user_id: auth.user_id || null };
   ctx.roles = await verifyRoles(ctx);
+  for (const project of ctx.projects) project.directApps = directApps(ctx).filter((app) => roleApp(ctx, project, app.role));
+  for (const app of directApps(ctx)) {
+    app.onHello = () => catchUpDirect(ctx, app);
+    app.onEvent = (event) => handleDirectEvent(ctx, app, event);
+  }
   // Posts and actions through a verified role app are this bridge's own (D5).
   const verified = [...ctx.roles.values()].filter((app) => app.state === "verified");
   ctx.ownBots = new Set([ctx.self.bot_id, ...verified.map((app) => app.bot_id)].filter(Boolean));
@@ -724,14 +843,15 @@ async function runOnce(log) {
 }
 
 // Events are handled one at a time, in arrival order, so a reply never lands
-// before the message it answers.
-function socketSession(ctx) {
+// before the message it answers. Every connection — the shared app's and each
+// role app's — feeds the same queue. `conn` holds the connection's app token,
+// its socket and state, and what to do on hello and on each event.
+function socketSession(ctx, conn) {
   return new Promise((resolve) => {
-    let queue = Promise.resolve();
-    slack.callWithRetry("apps.connections.open", {}, ctx.appToken).then((opened) => {
+    slack.callWithRetry("apps.connections.open", {}, conn.appToken).then((opened) => {
       if (ctx.stopping) return resolve();
       const socket = new WebSocket(opened.url);
-      ctx.socket = socket;
+      conn.socket = socket;
       socket.onmessage = (message) => {
         let data = null;
         try {
@@ -741,9 +861,9 @@ function socketSession(ctx) {
         }
         if (data.envelope_id) socket.send(JSON.stringify({ envelope_id: data.envelope_id }));
         if (data.type === "hello") {
-          ctx.connected = true;
+          conn.connected = true;
           writeStatus(ctx);
-          queue = queue.then(() => catchUp(ctx)).then(() => writeStatus(ctx)).catch((error) => ctx.log(`catch-up failed: ${error.message}`));
+          ctx.queue = ctx.queue.then(() => conn.onHello()).then(() => writeStatus(ctx)).catch((error) => ctx.log(`catch-up failed: ${error.message}`));
           return;
         }
         if (data.type === "disconnect") {
@@ -751,24 +871,45 @@ function socketSession(ctx) {
           return;
         }
         if (data.type === "events_api" && data.payload) {
-          queue = queue
-            .then(() => handleEvent(ctx, data.payload.event))
+          ctx.queue = ctx.queue
+            .then(() => conn.onEvent(data.payload.event))
             .then(() => writeStatus(ctx))
             .catch((error) => ctx.log(`event failed: ${error.message}`));
         }
       };
       socket.onclose = () => {
-        ctx.connected = false;
-        ctx.socket = null;
+        conn.connected = false;
+        conn.socket = null;
         writeStatus(ctx);
         resolve();
       };
       socket.onerror = () => {};
     }, (error) => {
-      ctx.log(`could not open a Socket Mode connection: ${error.message}`);
+      ctx.log(`could not open a Socket Mode connection${conn.role ? ` for ${conn.role}'s app` : ""}: ${error.message}`);
       resolve();
     });
   });
+}
+
+// Keeps one connection up until the bridge stops, with backoff between
+// attempts and nothing while paused.
+async function keepConnected(ctx, conn) {
+  let backoff = 1000;
+  while (!ctx.stopping) {
+    if (lifecycle.pausedUntil()) {
+      await slack.sleep(500);
+      continue;
+    }
+    const opened = Date.now();
+    await socketSession(ctx, conn);
+    if (ctx.stopping || lifecycle.pausedUntil()) continue;
+    backoff = Date.now() - opened > 30000 ? 1000 : Math.min(backoff * 2, 30000);
+    await slack.sleep(backoff);
+  }
+}
+
+function connections(ctx) {
+  return [ctx, ...directApps(ctx)];
 }
 
 function packageVersion() {
@@ -819,7 +960,7 @@ async function run(log) {
     clearInterval(archiveTimer);
     stopped = (async () => {
       if (reason) await Promise.race([announce(ctx, `:red_circle: ${machine} bridge stopped${reason === "signal" ? "" : ` (${reason})`}; this machine's sessions will catch up when it restarts.`), slack.sleep(5000)]);
-      if (ctx.socket) ctx.socket.close();
+      for (const conn of connections(ctx)) if (conn.socket) conn.socket.close();
     })();
     return stopped;
   };
@@ -849,7 +990,7 @@ async function run(log) {
       return;
     }
     if (lifecycle.pausedUntil()) {
-      if (ctx.socket) ctx.socket.close();
+      for (const conn of connections(ctx)) if (conn.socket) conn.socket.close();
       return;
     }
     flush();
@@ -858,18 +999,7 @@ async function run(log) {
   process.once("SIGINT", () => stop("signal"));
   await announce(ctx, `:large_green_circle: ${machine} bridge online, relaying ${ctx.projects.length} project${ctx.projects.length === 1 ? "" : "s"}.`);
   await flush();
-  let backoff = 1000;
-  while (!ctx.stopping) {
-    if (lifecycle.pausedUntil()) {
-      await slack.sleep(500);
-      continue;
-    }
-    const opened = Date.now();
-    await socketSession(ctx);
-    if (ctx.stopping || lifecycle.pausedUntil()) continue;
-    backoff = Date.now() - opened > 30000 ? 1000 : Math.min(backoff * 2, 30000);
-    await slack.sleep(backoff);
-  }
+  await Promise.all(connections(ctx).map((conn) => keepConnected(ctx, conn)));
   if (stopped) await stopped;
   ctx.connected = false;
   writeStatus(ctx);

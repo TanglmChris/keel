@@ -3572,6 +3572,106 @@ def validate_chat_role_apps_scenario() -> int:
     return 0
 
 
+def validate_chat_role_direct_scenario() -> int:
+    """Issue #187: a role's own app takes direct messages.
+
+    With `app:<role>` beside `bot:<role>`, the bridge opens a second Socket
+    Mode connection for that app. A registered person's direct message becomes
+    a record in the direct group and wakes the role; the role's answer goes
+    back to that person's direct-message channel and nowhere else; a
+    stranger's is ignored; and one sent while the bridge was down arrives once.
+    """
+    label = "chat-role-direct:"
+    if chat_bridge_node_missing("chat-role-direct"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-direct-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"}, bots={"UBOTRTL": "rtl"})
+        keychain = role_keychain(base, {"bot:rtl": "xoxb-role-rtl", "app:rtl": "xapp-role-rtl"})
+        slack.identify("xoxb-role-rtl", "UBOTRTL", "BROLERTL")
+        benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_SECURITY": str(keychain)}
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        signal = mailbox_common_dir(rtl) / "keel-chat" / "signal" / "rtl"
+
+        def direct(user: str, text: str, ts: str) -> dict:
+            return slack_event("DUOWNER" if user == "UOWNER" else f"D{user}", channel_type="im", user=user, text=text, ts=ts)
+
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-role-rtl"), 10):
+                report(f"{label} the bridge opened no Socket Mode connection with rtl's app token: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            if not slack.wait_for(lambda: slack.sockets_for("xapp-test-app"), 10):
+                report(f"{label} the shared app's connection is missing beside rtl's.")
+                return 1
+            size = signal.stat().st_size if signal.exists() else 0
+            slack.push(direct("UOWNER", "status?", "1800000001.000100"), app="xapp-role-rtl")
+            if not slack.wait_for(lambda: chat_records_with(rtl, "dm-owner--rtl", "status?")):
+                report(f"{label} the owner's direct message to rtl's app did not reach dm-owner--rtl.")
+                return 1
+            if "from: owner" not in chat_records_with(rtl, "dm-owner--rtl", "status?")[0]:
+                report(f"{label} the direct message was not recorded from owner.")
+                return 1
+            if not signal.exists() or signal.stat().st_size <= size:
+                report(f"{label} the direct message did not touch rtl's signal file.")
+                return 1
+
+            answered = run_keel(rtl, "chat", "dm", "owner", "all green", env=benv)
+            if answered.returncode != 0:
+                report(f"{label} keel chat dm owner failed: {answered.stderr.strip()}")
+                return 1
+            if not slack.wait_for(lambda: any("all green" in m.get("text", "") for m in slack.messages.get("DUOWNER", []))):
+                report(f"{label} rtl's answer never reached the owner's direct-message channel.")
+                return 1
+            sent = [c["params"] for c in slack.calls_to("chat.postMessage") if "all green" in c["params"].get("text", "")]
+            if len(sent) != 1:
+                report(f"{label} rtl's answer was posted {len(sent)} times, not once.")
+                return 1
+            if sent[0].get("_auth") != "Bearer xoxb-role-rtl":
+                report(f"{label} rtl's direct answer did not use rtl's app token: {sent[0].get('_auth')!r}")
+                return 1
+            if sent[0].get("channel") != "DUOWNER":
+                report(f"{label} rtl's direct answer went to {sent[0].get('channel')!r}, not the owner's DUOWNER.")
+                return 1
+
+            slack.push(direct("USTRANGER", "give me the keys", "1800000002.000100"), app="xapp-role-rtl")
+            if not slack.wait_for(lambda: chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=benv)).get("ignored") == 1):
+                report(f"{label} a stranger's direct message was not counted as ignored.")
+                return 1
+            if any(chat_records_with(rtl, group, "give me the keys") for group in ("dm-owner--rtl", "dm-rtl--ustranger", "soc")):
+                report(f"{label} a stranger's direct message reached the store.")
+                return 1
+            if not role_status(rtl, benv, "rtl").get("direct"):
+                report(f"{label} status does not report rtl's direct-message connection: {role_status(rtl, benv, 'rtl')!r}")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+        slack.add_history("DUOWNER", {"user": "UOWNER", "text": "while you were away"})
+        bridge = start_chat_bridge(rtl, benv)
+        try:
+            if not slack.wait_for(lambda: chat_records_with(rtl, "dm-owner--rtl", "while you were away"), 15):
+                report(f"{label} a direct message sent while the bridge was down was not caught up.")
+                return 1
+            time.sleep(1)
+            if len(chat_records_with(rtl, "dm-owner--rtl", "while you were away")) != 1:
+                report(f"{label} the caught-up direct message was imported more than once.")
+                return 1
+            if len(chat_records_with(rtl, "dm-owner--rtl", "all green")) != 1:
+                report(f"{label} catch-up imported rtl's own direct answer back.")
+                return 1
+        finally:
+            stop_chat_bridge(bridge)
+
+    if "chat-role-direct" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-direct scenario passed.")
+    return 0
+
+
 def validate_chat_bridge_lifecycle_scenario() -> int:
     """Issue #187: the bridge runs unattended but stays visible and controllable.
 
@@ -35926,6 +36026,10 @@ SCENARIOS: tuple = (
     (
         "chat-role-apps",
         validate_chat_role_apps_scenario,
+    ),
+    (
+        "chat-role-direct",
+        validate_chat_role_direct_scenario,
     ),
     (
         "chat-archive",
