@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.95.3 - Sessions mention the owner on what the owner needs to know
+
+Slack notifies the owner, under its default setting, only when a message mentions them, and the bridge mentions them only for `@owner`; nothing told sessions so. At the owner's request the session-start notice of a Slack-enabled project that names an owner now says: write `@owner` in any message the owner needs to see or decide on, and leave it out of routine discussion. Both setup guides state the same rule. A running session sees it at its next session start, `/compact`, or `/clear`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.95.3; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.95.2 - `bridge start` succeeds only when the bridge is loaded
 
 `keel chat bridge stop` followed at once by `start` reported success while launchd had no service, and `status` reported the stopped process's last status as running (#226).
