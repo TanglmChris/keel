@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.95.1"
-PROTOCOL_VERSION = "5.95.1"
+PACKAGE_VERSION = "5.95.2"
+PROTOCOL_VERSION = "5.95.2"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4092,6 +4092,122 @@ def validate_chat_bridge_lifecycle_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-bridge-lifecycle scenario passed.")
+    return 0
+
+
+def validate_chat_bridge_start_race_scenario() -> int:
+    """Issue #226: start, stop, install, and status follow launchd's state.
+
+    A stateful launchctl double behaves like launchd after a bootout: the
+    unload is still in progress, so the next bootstraps fail with `5:
+    Input/output error`. `start` must retry until the service loads, fail
+    naming launchctl's output when it never does, and `status` must not
+    report a launchd-started bridge running from a stale status file.
+    """
+    label = "chat-bridge-start-race:"
+    if chat_bridge_node_missing("chat-bridge-start-race"):
+        return 3
+    with tempfile.TemporaryDirectory(prefix="keel-chat-race-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        state = base / "launchd"
+        state.mkdir()
+        calls = base / "launchctl.log"
+        launchctl = base / "launchctl"
+        write_text(
+            launchctl,
+            "#!/bin/sh\n"
+            f'S="{state}"\n'
+            f'echo "$@" >> "{calls}"\n'
+            'case "$1" in\n'
+            "  bootout)\n"
+            '    rm -f "$S/loaded"; echo 2 > "$S/fails"; exit 0 ;;\n'
+            "  bootstrap)\n"
+            '    if [ -f "$S/forever" ]; then echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi\n'
+            '    n=$(cat "$S/fails" 2>/dev/null || echo 0)\n'
+            '    if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$S/fails"; echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi\n'
+            '    if [ -f "$S/loaded" ]; then echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi\n'
+            '    touch "$S/loaded"; exit 0 ;;\n'
+            "  print)\n"
+            '    if [ -f "$S/loaded" ]; then printf "gui/501/dev.keel.chat-bridge = {\\n\\tstate = running\\n\\tpid = 4242\\n}\\n"; exit 0; fi\n'
+            '    echo "Could not find service \\"dev.keel.chat-bridge\\" in domain for user gui: 501" >&2; exit 113 ;;\n'
+            "esac\n"
+            "exit 0\n",
+        )
+        launchctl.chmod(0o755)
+        home = base / "home"
+        lenv = {
+            **env,
+            "KEEL_HOME": str(home),
+            "KEEL_CHAT_LAUNCHCTL": str(launchctl),
+            "KEEL_CHAT_LAUNCH_AGENTS_DIR": str(base / "LaunchAgents"),
+            "KEEL_CHAT_LAUNCHCTL_WAIT_MS": "8000",
+        }
+
+        installed = run_keel(rtl, "chat", "bridge", "install", env=lenv)
+        if installed.returncode != 0:
+            report(f"{label} install failed although the unload finishes: {installed.stderr.strip()}")
+            return 1
+        if not (state / "loaded").exists():
+            report(f"{label} install returned without the agent loaded: {calls.read_text(encoding='utf-8')!r}")
+            return 1
+        stopped = run_keel(rtl, "chat", "bridge", "stop", env=lenv)
+        if stopped.returncode != 0 or (state / "loaded").exists():
+            report(f"{label} stop did not unload the agent: {stopped.stderr.strip()}")
+            return 1
+        write_text(calls, "")
+        started = run_keel(rtl, "chat", "bridge", "start", env=lenv)
+        bootstraps = [line for line in calls.read_text(encoding="utf-8").splitlines() if line.startswith("bootstrap")]
+        if started.returncode != 0:
+            report(f"{label} start after stop failed instead of waiting for the unload: {started.stderr.strip()}")
+            return 1
+        if len(bootstraps) != 3:
+            report(f"{label} start asked launchctl to bootstrap {len(bootstraps)} times, not 3: {bootstraps!r}")
+            return 1
+        if not (state / "loaded").exists():
+            report(f"{label} start reported success with the agent not loaded.")
+            return 1
+
+        run_keel(rtl, "chat", "bridge", "stop", env=lenv)
+        (state / "forever").touch()
+        failed = run_keel(rtl, "chat", "bridge", "start", env={**lenv, "KEEL_CHAT_LAUNCHCTL_WAIT_MS": "1500"})
+        if failed.returncode == 0:
+            report(f"{label} start reported success although every bootstrap failed: {failed.stdout.strip()}")
+            return 1
+        if "5: Input/output error" not in failed.stderr:
+            report(f"{label} the failed start does not name launchctl's output: {failed.stderr.strip()}")
+            return 1
+        (state / "forever").unlink()
+
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            status_file = home / "chat" / "bridge" / "status.json"
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            stale = {"pid": holder.pid, "connected": True, "projects": [], "launchd": True}
+
+            def running(record: dict) -> object:
+                write_text(status_file, json.dumps(record))
+                return chat_json(run_keel(rtl, "chat", "bridge", "status", "--json", env=lenv)).get("running")
+
+            if running(stale) is not False:
+                report(f"{label} status reports a launchd bridge running while launchd has unloaded it.")
+                return 1
+            (state / "loaded").touch()
+            if running(stale) is not False:
+                report(f"{label} status reports running from a status file whose pid launchd does not run.")
+                return 1
+            manual = {key: value for key, value in stale.items() if key != "launchd"}
+            if running(manual) is not True:
+                report(f"{label} status no longer reports a bridge run by hand from its live pid.")
+                return 1
+        finally:
+            holder.kill()
+            holder.wait()
+
+    if "chat-bridge-start-race" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-start-race scenario passed.")
     return 0
 
 
@@ -36248,6 +36364,10 @@ SCENARIOS: tuple = (
     (
         "chat-bridge-lifecycle",
         validate_chat_bridge_lifecycle_scenario,
+    ),
+    (
+        "chat-bridge-start-race",
+        validate_chat_bridge_start_race_scenario,
     ),
     (
         "chat-role-apps",

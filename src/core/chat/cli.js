@@ -444,8 +444,7 @@ function runBridge(where, rest, options) {
       out(`Removed ${lifecycle.uninstall()}; the bridge no longer runs on this machine.`);
       return 0;
     case "start":
-      lifecycle.start();
-      out("Started the bridge.");
+      out(lifecycle.start() ? "Started the bridge." : "The bridge is already loaded; launchd keeps it running.");
       return 0;
     case "stop":
       lifecycle.stop();
