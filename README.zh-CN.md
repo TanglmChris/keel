@@ -231,7 +231,7 @@ Keel 看不到对方在任务说明之外还读了什么，所以 `egress_deny` 
 
 Codex 自己不会在闲着时醒来，可以在它的 worktree 里运行 `keel chat wake add`：在声明了 `chat-reply` 的群里，每条找它的消息启动一轮，接着同一个会自动压缩的线程，没人找时什么都不跑（#203）。其他宿主依靠下一次对话时的提醒，不要让模型定期检查群聊。确实需要定时检查时，先用 `keel chat notice --check` 把关，每次运行都开新线程；让会话加入群聊时，也要明确告诉它不要设置定时或循环检查（#194）。
 
-每台电脑配一个 Slack App、跑一个桥接程序，同一批群就能实时连到其他电脑上的会话和你的手机；角色也可以通过 Slack bot 发言，在 Slack 里能直接 @ 它；一个 bot 可以服务多个项目，在每个项目的频道里代表那个项目的角色。聊天记录同时存在孤儿分支 `keel-chat` 上，不受 Slack 保留期限制。配置方法见 [Slack 配置说明](docs/chat-slack-setup.zh-CN.md)。5.83 的 `keel mail` 命令继续可用，消息存在私聊群里。
+每台电脑配一个 Slack App、跑一个桥接程序，同一批群就能实时连到其他电脑上的会话和你的手机；角色也可以通过 Slack bot 发言，在 Slack 里能直接 @ 它；一个 bot 可以服务多个项目，在每个项目的频道里代表那个项目的角色。聊天记录同时存在孤儿分支 `keel-chat` 上，不受 Slack 保留期限制。配置方法见 [Slack 配置说明](docs/chat-slack-setup.zh-CN.md)。角色会话用 `keel shift` 换班：协调者发起，会话自查收尾、留便条、清空自己，新的一班从便条接手，见 [docs/shift-change.zh-CN.md](docs/shift-change.zh-CN.md)。5.83 的 `keel mail` 命令继续可用，消息存在私聊群里。
 
 ## 命令参考
 
