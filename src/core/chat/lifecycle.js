@@ -48,6 +48,13 @@ function tokens() {
   return { app: app || null, bot: bot || null };
 }
 
+// A role's own app (chat-role-apps D2): Keychain only, on the machine where
+// the role runs, because an environment variable would have to encode a role
+// name in its own name.
+function roleTokens(role) {
+  return { bot: keychainToken(`bot:${role}`), app: keychainToken(`app:${role}`) };
+}
+
 function missingTokens(which) {
   return new ChatError(
     `No Slack ${which}: set KEEL_SLACK_APP_TOKEN and KEEL_SLACK_BOT_TOKEN, or store them in the macOS Keychain `
@@ -197,6 +204,7 @@ function stop() {
 }
 
 module.exports = {
+  roleTokens,
   KEYCHAIN_SERVICE,
   LABEL,
   bridgeDir,
