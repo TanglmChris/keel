@@ -161,9 +161,17 @@ function iconFields(project, role) {
   return icon.startsWith(":") ? { icon_emoji: icon } : { icon_url: icon };
 }
 
+// The verified app of `role` that `project` registered, or null: the role
+// then speaks through the shared app (chat-role-apps D3).
+function roleApp(ctx, project, role) {
+  const app = ctx.roles.get(role);
+  if (!app || app.state !== "verified") return null;
+  return project.settings.bots[app.user_id] === role ? app : null;
+}
+
 async function postRecord(ctx, project, record, channel) {
   const { where } = project;
-  const call = (method, params) => slack.callWithRetry(method, params, ctx.token, {
+  const call = (method, params, token = ctx.token) => slack.callWithRetry(method, params, token, {
     onWait: (name, seconds) => ctx.log(`Slack asked to wait ${seconds}s before ${name}.`),
   });
   if (record.kind === "done" || record.kind === "edit" || record.kind === "retract") {
@@ -176,11 +184,16 @@ async function postRecord(ctx, project, record, channel) {
     }
     if (record.kind === "done") {
       await call("reactions.add", { channel: target.channel, timestamp: target.ts, name: "white_check_mark" });
-    } else if (record.kind === "edit") {
-      const original = store.findRecord(where, record.target) || {};
-      await call("chat.update", { channel: target.channel, ts: target.ts, text: slackText(project, original, bodyText({ ...original, text: record.text })) });
     } else {
-      await call("chat.delete", { channel: target.channel, ts: target.ts });
+      // Slack lets only the app that posted a message change it (D4).
+      const poster = target.as ? roleApp(ctx, project, target.as) : null;
+      const token = poster ? poster.token : ctx.token;
+      if (record.kind === "edit") {
+        const original = store.findRecord(where, record.target) || {};
+        await call("chat.update", { channel: target.channel, ts: target.ts, text: slackText(project, original, bodyText({ ...original, text: record.text })) }, token);
+      } else {
+        await call("chat.delete", { channel: target.channel, ts: target.ts }, token);
+      }
     }
     writePosted(where, record.id, { channel: target.channel, ts: target.ts, kind: record.kind });
     return;
@@ -198,8 +211,27 @@ async function postRecord(ctx, project, record, channel) {
     if (parent && parent.ts) params.thread_ts = parent.thread_ts || parent.ts;
     else params.text = `↳ reply to ${record.reply_to}\n${params.text}`;
   }
-  const response = await call("chat.postMessage", params);
+  const app = roleApp(ctx, project, record.from);
+  let response = null;
+  let as = null;
+  if (app) {
+    const own = { ...params };
+    delete own.username;
+    delete own.icon_emoji;
+    delete own.icon_url;
+    try {
+      response = await call("chat.postMessage", own, app.token);
+      as = record.from;
+    } catch (error) {
+      // A private channel nobody invited the role's bot to: the record goes
+      // out through the shared app, and status says where to invite it (D4).
+      if (!(error instanceof slack.SlackError) || error.error !== "not_in_channel") throw error;
+      app.invite.add(channel);
+    }
+  }
+  if (!response) response = await call("chat.postMessage", params);
   const posted = { channel, ts: response.ts, thread_ts: params.thread_ts || null };
+  if (as) posted.as = as;
   writePosted(where, record.id, posted);
   rememberTs(project, channel, response.ts, record.id);
   // Another project on this machine that maps the same channel gets the
@@ -323,12 +355,13 @@ async function handleBotMessage(ctx, channel, event) {
   // This bridge's own posts without a record — its online and stopped
   // notices — carry nothing to import.
   if (event.bot_id && event.bot_id === ctx.self.bot_id && !event.metadata) return;
+  const own = ctx.ownBots.has(event.bot_id);
   const metadata = await metadataOf(ctx, channel, event);
   if (!metadata || metadata.event_type !== METADATA_TYPE) return;
   const payload = metadata.event_payload || {};
   for (const project of projectsFor(ctx, channel)) {
     // This bridge's own post, for this project, is already the local record.
-    if (event.bot_id === ctx.self.bot_id && payload.project === project.where.project) continue;
+    if (own && payload.project === project.where.project) continue;
     importKeelRecord(ctx, project, channel, payload, event);
   }
 }
@@ -353,7 +386,7 @@ function lenientMentions(project, group, text) {
 
 function humanText(project, event) {
   let text = String(event.text || "").replace(/<@([A-Z0-9]+)(\|[^>]*)?>/g, (match, user) => {
-    const role = project.settings.members[user];
+    const role = project.settings.members[user] || project.settings.bots[user];
     return role ? `@${role}` : match;
   });
   for (const file of event.files || []) {
@@ -393,7 +426,7 @@ function handleHumanMessage(ctx, channel, event) {
     imported = true;
   }
   // Someone no project registered: never relayed, only counted (D16).
-  if (!registered && event.user !== ctx.self.user_id) ctx.stats.ignored += 1;
+  if (!registered && !ctx.ownUsers.has(event.user)) ctx.stats.ignored += 1;
   return imported;
 }
 
@@ -404,7 +437,7 @@ function authorOf(project, message) {
 
 function handleChanged(ctx, channel, event) {
   const message = event.message || {};
-  if (message.bot_id && message.bot_id === ctx.self.bot_id) return;
+  if (message.bot_id && ctx.ownBots.has(message.bot_id)) return;
   for (const project of projectsFor(ctx, channel)) {
     const id = recordAt(project, channel, message.ts);
     if (!id) continue;
@@ -422,7 +455,7 @@ function handleChanged(ctx, channel, event) {
 
 function handleDeleted(ctx, channel, event) {
   const previous = event.previous_message || {};
-  if (previous.bot_id && previous.bot_id === ctx.self.bot_id) return;
+  if (previous.bot_id && ctx.ownBots.has(previous.bot_id)) return;
   const ts = event.deleted_ts || previous.ts;
   for (const project of projectsFor(ctx, channel)) {
     const id = recordAt(project, channel, ts);
@@ -436,7 +469,7 @@ function handleDeleted(ctx, channel, event) {
 }
 
 function handleReaction(ctx, event) {
-  if (event.reaction !== "white_check_mark" || !event.item || event.user === ctx.self.user_id) return;
+  if (event.reaction !== "white_check_mark" || !event.item || ctx.ownUsers.has(event.user)) return;
   const channel = event.item.channel;
   for (const project of projectsFor(ctx, channel)) {
     const role = project.settings.members[event.user];
@@ -551,6 +584,7 @@ function writeStatus(ctx) {
     last_event: ctx.stats.last_event,
     ignored: ctx.stats.ignored,
     unposted: unpostedCount(ctx.projects),
+    roles: roleReport(ctx),
     updated: store.isoLocal(new Date()),
   };
   const file = statusFile();
@@ -562,6 +596,51 @@ function writeStatus(ctx) {
   } catch {
     // Status is for people; failing to write it must not stop the relay.
   }
+}
+
+// Each role app this machine holds a token for (D8). A role registered with
+// no token here lives on another machine and is not listed.
+function roleReport(ctx) {
+  return [...(ctx.roles || new Map()).values()].map((app) => ({
+    role: app.role,
+    state: app.state,
+    ...(app.reason ? { reason: app.reason } : {}),
+    direct: Boolean(app.connected),
+    invite: [...app.invite].sort(),
+  }));
+}
+
+// Checks every registered role's Keychain token with auth.test and keeps it
+// only for the bot user the registration names (D3).
+async function verifyRoles(ctx) {
+  const declared = new Map();
+  for (const project of ctx.projects) {
+    for (const [user, role] of Object.entries(project.settings.bots)) {
+      if (!declared.has(role)) declared.set(role, new Set());
+      declared.get(role).add(user);
+    }
+  }
+  const roles = new Map();
+  for (const [role, users] of declared) {
+    const tokens = lifecycle.roleTokens(role);
+    if (!tokens.bot) continue;
+    const app = { role, token: tokens.bot, appToken: tokens.app, state: "failed", reason: null, user_id: null, bot_id: null, invite: new Set(), connected: false };
+    try {
+      const auth = await slack.callWithRetry("auth.test", {}, tokens.bot, { attempts: 2 });
+      app.user_id = auth.user_id || null;
+      app.bot_id = auth.bot_id || null;
+      if (users.has(app.user_id)) {
+        app.state = "verified";
+      } else {
+        app.state = "mismatch";
+        app.reason = `bot:${role} belongs to ${app.user_id}, not the ${[...users].join(" or ")} keel/chat.json registers`;
+      }
+    } catch (error) {
+      app.reason = error.message;
+    }
+    roles.set(role, app);
+  }
+  return roles;
 }
 
 function readStatus() {
@@ -592,6 +671,7 @@ function fullStatus() {
     last_event: null,
     ignored: 0,
     unposted: 0,
+    roles: [],
     ...status,
     paused: Boolean(until),
     paused_until: until ? new Date(until).toISOString() : null,
@@ -627,6 +707,11 @@ async function createContext(log, { needApp }) {
   };
   const auth = await slack.callWithRetry("auth.test", {}, bot);
   ctx.self = { bot_id: auth.bot_id || null, user_id: auth.user_id || null };
+  ctx.roles = await verifyRoles(ctx);
+  // Posts and actions through a verified role app are this bridge's own (D5).
+  const verified = [...ctx.roles.values()].filter((app) => app.state === "verified");
+  ctx.ownBots = new Set([ctx.self.bot_id, ...verified.map((app) => app.bot_id)].filter(Boolean));
+  ctx.ownUsers = new Set([ctx.self.user_id, ...verified.map((app) => app.user_id)].filter(Boolean));
   return ctx;
 }
 

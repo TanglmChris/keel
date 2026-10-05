@@ -58,6 +58,15 @@ class FakeSlack:
         self.sockets: list[socket.socket] = []
         self.acks: list[str] = []
         self.connections_opened = 0
+        # A token's identity, as `auth.test` and its posts report it. A token
+        # not listed is the shared app's bot.
+        self.identities: dict[str, dict] = {}
+        # (token, channel) pairs `chat.postMessage` answers with
+        # `not_in_channel`, for a bot nobody invited.
+        self.not_in_channel: set[tuple[str, str]] = set()
+        # Which app token each Socket Mode connection was opened with.
+        self.socket_apps: dict[socket.socket, str] = {}
+        self.pending_apps: dict[str, str] = {}
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -95,12 +104,21 @@ class FakeSlack:
             self.messages.setdefault(channel, []).append(stored)
             return stored
 
-    def push(self, payload: dict, kind: str = "events_api") -> str:
-        """Send one Socket Mode envelope to every connected client."""
+    def identify(self, token: str, user_id: str, bot_id: str) -> None:
+        """Make `token` a bot of its own, as a role's app is."""
+        with self.lock:
+            self.identities[token] = {"user_id": user_id, "bot_id": bot_id}
+
+    def push(self, payload: dict, kind: str = "events_api", app: str | None = None) -> str:
+        """Send one Socket Mode envelope to every connected client, or only to
+        the connections opened with app token `app`."""
         with self.lock:
             envelope_id = f"env-{self._ts()}"
-        self._broadcast(json.dumps({"envelope_id": envelope_id, "type": kind, "payload": payload, "accepts_response_payload": False}))
+        self._broadcast(json.dumps({"envelope_id": envelope_id, "type": kind, "payload": payload, "accepts_response_payload": False}), app)
         return envelope_id
+
+    def sockets_for(self, app: str) -> list[socket.socket]:
+        return [sock for sock in list(self.sockets) if self.socket_apps.get(sock) == app]
 
     def push_raw(self, message: dict) -> None:
         self._broadcast(json.dumps(message))
@@ -132,9 +150,11 @@ class FakeSlack:
         self.next_ts += 1
         return f"{self.next_ts}.000100"
 
-    def _broadcast(self, text: str) -> None:
+    def _broadcast(self, text: str, app: str | None = None) -> None:
         frame = ws_frame(text)
         for sock in list(self.sockets):
+            if app is not None and self.socket_apps.get(sock) != app:
+                continue
             try:
                 sock.sendall(frame)
             except OSError:
@@ -148,11 +168,19 @@ class FakeSlack:
                     self.calls.append({"method": method, "params": params, "rate_limited": True, "at": time.time()})
                     return 429, {"Retry-After": str(retry_after)}, {"ok": False, "error": "ratelimited"}
             self.calls.append({"method": method, "params": params, "at": time.time()})
+            token = str(params.get("_auth", "")).removeprefix("Bearer ")
+            identity = self.identities.get(token, {"user_id": "UBOT", "bot_id": "BBOT"})
             if method == "auth.test":
-                return 200, {}, {"ok": True, "user_id": "UBOT", "bot_id": "BBOT", "team_id": "T1"}
+                return 200, {}, {"ok": True, **identity, "team_id": "T1"}
             if method == "apps.connections.open":
                 self.connections_opened += 1
-                return 200, {}, {"ok": True, "url": f"ws://127.0.0.1:{self.port}/socket"}
+                key = f"c{self.connections_opened}"
+                self.pending_apps[key] = token
+                return 200, {}, {"ok": True, "url": f"ws://127.0.0.1:{self.port}/socket?app={key}"}
+            if method == "conversations.open":
+                return 200, {}, {"ok": True, "channel": {"id": f"D{params.get('users', '')}"}}
+            if method == "chat.postMessage" and (token, params.get("channel", "")) in self.not_in_channel:
+                return 200, {}, {"ok": False, "error": "not_in_channel"}
             if method == "chat.postMessage":
                 metadata = params.get("metadata")
                 if isinstance(metadata, str):
@@ -162,7 +190,7 @@ class FakeSlack:
                     "type": "message",
                     "text": params.get("text", ""),
                     "username": params.get("username"),
-                    "bot_id": "BBOT",
+                    "bot_id": identity["bot_id"],
                     "metadata": metadata,
                 }
                 if params.get("thread_ts"):
@@ -238,6 +266,8 @@ class FakeSlack:
                 except OSError:
                     return
                 fake.sockets.append(sock)
+                key = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("app", [""])[0]
+                fake.socket_apps[sock] = fake.pending_apps.get(key, "")
                 self.close_connection = True
                 self._read_frames(sock)
 

@@ -52,6 +52,9 @@ function slackSettings(worktree) {
     error,
     owner: typeof slack.owner === "string" ? slack.owner : null,
     members: stringMap(slack.members),
+    // A role's own Slack app, by its bot user id (issue #187, chat-role-apps
+    // D1); a role not listed speaks through the machine's shared app.
+    bots: stringMap(slack.bots),
     channels: stringMap(slack.channels),
     icons: stringMap(slack.icons),
   };

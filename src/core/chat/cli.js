@@ -393,6 +393,13 @@ function runBridge(where, rest, options) {
       const lines = [`keel chat bridge: ${status.installed ? "installed as a login item" : "not installed"}; ${status.running ? `running (pid ${status.pid}), ${status.connected ? "connected" : "not connected"}` : "not running"}${status.paused ? `, paused until ${status.paused_until}` : ""}.`];
       if (status.running) lines.push(`Serving ${status.projects.length} project${status.projects.length === 1 ? "" : "s"}; last event ${status.last_event || "none yet"}; ${status.unposted} waiting to send; ${status.ignored} ignored from unregistered senders.`);
       else lines.push("Slack messages are not reaching this machine's sessions; local chat still works and nothing is lost.");
+      for (const app of status.roles || []) {
+        const parts = [`Role app ${app.role}: ${app.state}`];
+        if (app.reason) parts.push(app.reason);
+        if (app.state === "verified") parts.push(app.direct ? "direct messages connected" : "no direct messages");
+        if (app.invite && app.invite.length) parts.push(`invite it to ${app.invite.join(", ")}; until then it posts through the shared app there`);
+        lines.push(`${parts.join("; ")}.`);
+      }
       out(lines.join("\n"));
       return 0;
     }
