@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.96.0"
-PROTOCOL_VERSION = "5.96.0"
+PACKAGE_VERSION = "5.96.1"
+PROTOCOL_VERSION = "5.96.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4321,6 +4321,9 @@ def validate_chat_owner_mention_scenario() -> int:
         if "decide" not in told:
             report(f"{label} the notice does not say which messages need @owner: {told!r}")
             return 1
+        if "its own message" not in told:
+            report(f"{label} the notice does not say a risk or decision goes in its own message: {told!r}")
+            return 1
 
         run_keel(rtl, "chat", "bridge", "add", env=benv)
         record_id = chat_json(run_keel(rtl, "chat", "post", "soc", "@owner 需要你决定 CSR 复位值", "--json", env=benv)).get("id", "")
@@ -4350,6 +4353,38 @@ def validate_chat_owner_mention_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-owner-mention scenario passed.")
+    return 0
+
+
+def validate_collected_feedback_is_recorded_scenario() -> int:
+    """Feedback from rtl_ppa_prj sessions on 2026-10-05 reaches Keel's surfaces.
+
+    The codex catalog warns that a run can exit non-zero after its products
+    exist, the general pitfalls warn against `pkill -f`, the bundled hardware
+    lens names tools that silently accept a missing signal, and the tdd skill
+    advises a `Fails with:` literal every red of the check shares.
+    """
+    label = "collected-feedback-is-recorded:"
+    with tempfile.TemporaryDirectory(prefix="keel-feedback-") as raw:
+        repo = Path(raw)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        shown = run_keel(repo, "agents", "codex").stdout or ""
+    for needle in ("result file", "non-zero", "pkill -f"):
+        if needle not in shown:
+            report(f"{label} `keel agents codex` does not mention {needle!r}.")
+            return 1
+    lens = (ROOT / "assets/lenses/hardware.md").read_text(encoding="utf-8")
+    if "silently" not in lens or "missing signal" not in lens:
+        report(f"{label} the hardware lens does not name tools that silently accept a missing signal.")
+        return 1
+    skill = (ROOT / PLUGIN_ROOT / "skills/keel-tdd-or-test-first/SKILL.md").read_text(encoding="utf-8")
+    if "Fails with:" not in skill or "every red" not in skill:
+        report(f"{label} the tdd skill does not advise a Fails with: literal every red shares.")
+        return 1
+    if "collected-feedback-is-recorded" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("collected-feedback-is-recorded scenario passed.")
     return 0
 
 
@@ -20774,6 +20809,9 @@ def _protocol_refresh_m2(tmp: Path) -> str | None:
     lines = _protocol_lines(repo)
     if len(lines) != 1 or "standing-authorized" not in lines[0]:
         return f"M2 context did not read protocol-refresh as authorized: {lines!r}"
+    # Issue #238: the authorization covers the refresh, not its commit.
+    if "committing it is a separate action" not in lines[0]:
+        return f"M2 context does not say committing the refresh is a separate action: {lines!r}"
     doctor = run_keel(repo, "--doctor").stdout or ""
     if "protocol-refresh: authorized" not in doctor or "commit: not authorized" not in doctor:
         return (
@@ -32388,6 +32426,14 @@ def validate_coverage_claim_is_compared_scenario() -> int:
                 f"{problem_text(quiet)!r}."
             )
             return 1
+        # Issue #239: the warning names the identifiers that make an entry
+        # compared, so a reader can tell how to make it count.
+        if "D<n>, F<n>, A<n>, or Q<n>" not in said(quiet):
+            report(
+                f"{label}: the uncompared-entry warning does not name the "
+                f"identifiers that count; {said(quiet)!r}."
+            )
+            return 1
 
         # D3: the report's second suggestion is unnecessary, because the
         # comparison already refuses the case it was aimed at.
@@ -36803,6 +36849,7 @@ SCENARIOS: tuple = (
     ("directory-tree-is-the-package-renamed", validate_directory_tree_is_the_package_renamed_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
+    ("collected-feedback-is-recorded", validate_collected_feedback_is_recorded_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

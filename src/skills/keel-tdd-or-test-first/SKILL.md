@@ -25,6 +25,8 @@ Read the selected task's compiled capsule: resolved Acceptance, Verify strategy 
 
 Red-green strategies (`vertical-tdd`, `regression-first`) must record concrete per-label `.red` and `.green` Evidence entries for the same check; `keel gate task-complete` rejects absent or pending entries.
 
+A check's `Fails with:` declares one literal its red must show. Declare one that every red of the check shares — the scenario or test label the check prints, a stable message prefix — rather than one exception type: a first red is often mixed, mostly one error with a few others, and a literal only some of them carry forces a re-record that predicts nothing new.
+
 A check's Evidence may read `artifact <path> sha256:<digest>` instead of retelling the output. `keel gate task-complete` checks the file exists and the digest matches, and refuses a path outside the change's own directory — archiving moves that directory, so a pointer outside it breaks. Keel hashes the bytes and reads nothing inside them: the claim the artifact supports stays yours.
 
 ## Domain lenses

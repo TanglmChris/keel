@@ -2137,8 +2137,9 @@ function expectationProblems(repo, content, tasks, change) {
       ? `Expectation Coverage: compared ${compared} of ${compared + uncited} `
         + `\`Covered by:\` ${compared + uncited === 1 ? "entry" : "entries"} `
         + `against the Covers of the task named; ${uncited} cited no `
-        + `expectation identifier and ${uncited === 1 ? "was" : "were"} not `
-        + "compared."
+        + "D<n>, F<n>, A<n>, or Q<n> identifier before `Covered by:` and "
+        + `${uncited === 1 ? "was" : "were"} not compared`
+        + (uncited > 0 ? " (cite one there, as in `E1: … (D2). Covered by: 1.1`)." : ".")
       : null;
   return { problems, report };
 }
