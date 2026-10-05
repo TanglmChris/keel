@@ -11,7 +11,7 @@
   - it serves every project on that machine you list for it;
   - it posts only that machine's messages, under each role's name;
   - it brings everything else in.
-- **Each machine needs its own app** because Slack delivers each event to just one connection of an app, so two machines sharing an app would each miss part of the traffic. The free plan allows 10 apps, which means 10 machines.
+- **Each machine needs its own app** because Slack delivers each event to just one connection of an app, so two machines sharing an app would each miss part of the traffic. The free plan allows 10 apps in all, one per machine plus any role apps (see [below](#optional-give-a-role-its-own-app)).
 - **Mentions decide who gets woken.** Only a message that `@`-mentions a session, assigns it a todo, or is in its direct group wakes it. `@all` and ordinary messages wait for its next prompt.
 - **A message is data, never permission.** That holds for your own messages too, because anyone could type your name. You still authorize work in the session itself.
 
@@ -152,6 +152,65 @@ keel chat bridge status
 ```
 
 A session starting in this project is also told when the bridge is not running.
+
+## Optional: give a role its own app
+
+By default every role on a machine speaks through that machine's app, which only swaps the display name. A role you give its own app shows up in Slack as a bot of its own: you can `@` it with autocomplete, message it privately, and see it in the member list. Do this per role, only for the roles you want it for; every other role keeps the shared app. Each role app counts toward the free plan's 10 apps, alongside one per machine.
+
+On the machine where the role runs:
+
+1. Create an app from this manifest, named after the role:
+
+   ```yaml
+   display_information:
+     name: claude-maint
+   features:
+     bot_user:
+       display_name: claude-maint
+       always_online: true
+     app_home:
+       messages_tab_enabled: true
+       messages_tab_read_only_enabled: false
+   oauth_config:
+     scopes:
+       bot:
+         - chat:write
+         - chat:write.public
+         - im:history
+         - im:write
+         - reactions:write
+   settings:
+     event_subscriptions:
+       bot_events:
+         - message.im
+     socket_mode_enabled: true
+     org_deploy_enabled: false
+     token_rotation_enabled: false
+   ```
+
+2. Store its bot token, and its app-level token (scope `connections:write`) if you want direct messages:
+
+   ```bash
+   security add-generic-password -s keel-chat-slack -a bot:<role> -w
+   ```
+
+   ```bash
+   security add-generic-password -s keel-chat-slack -a app:<role> -w
+   ```
+
+   There is no environment-variable form for role tokens.
+
+3. Copy the bot's member ID (open the bot's profile in Slack → **⋮** → **Copy member ID**) and register it in `keel/chat.json`, next to `members`:
+
+   ```json
+   "bots": { "U056CLAUDE": "claude-maint" }
+   ```
+
+   This is committed, so every machine turns `@claude-maint` picked from Slack's autocomplete into a mention of that role.
+
+4. Restart the bridge (`keel chat bridge stop` and `start`), then check `keel chat bridge status`. It shows each role app as `verified`, `mismatch` (the token belongs to a different bot than `bots` registers, so it is not used), or `failed`. A public channel needs no invitation thanks to `chat:write.public`; in a private channel, invite the role's bot, and until then status names the channel and the role posts there through the shared app.
+
+Direct messages stay on the machine where the role runs: Slack delivers them only to that app, so other machines never see them. A direct message from someone in `members` lands in the direct group `dm-<their role>--<role>` and wakes the session; its replies there go back as direct messages. Anyone not in `members` is ignored.
 
 ## Daily use
 

@@ -93,7 +93,7 @@
 
 ## 2. Setup guide
 
-- [ ] 2.1 The setup guides and READMEs describe optional role apps
+- [x] 2.1 The setup guides and READMEs describe optional role apps
   - Covers:
     - D1
     - D2
@@ -117,9 +117,18 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:e66c284411d724f41688f3f265f9195fdb351e5fb79e0fa705cf54870981ae99
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-role-apps-are-documented` reports `chat-role-apps-are-documented scenario passed.`
+    - M1.red: fail. Before the edits the scenario reported `chat-role-apps-are-documented: docs/chat-slack-setup.md does not carry '"bots"'.`, carrying the declared signature `chat-role-apps-are-documented:`.
+    - M1.green: pass. With the optional role-app section in both guides (manifest with `chat:write.public`, `im:history`, `im:write`, and the messages tab; the `bot:<role>` and `app:<role>` Keychain accounts; the `bots` registration; status states; direct messages staying on the role's machine), the corrected app-limit sentence, and one sentence in each README, the same scenario passes.
+    - M2: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario reads the shipped files for every element the guide must carry and refuses the stale limit sentence in both languages, which updates I1 and I2.
+      - Scope check: `git status --short` lists `README.md`, `README.zh-CN.md`, both setup guides, and `scripts/validate_plugin.py`, all in Touch, plus this change's own directory.
+      - Findings: none
 
 ## 3. Release
 

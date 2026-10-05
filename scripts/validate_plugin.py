@@ -3672,6 +3672,41 @@ def validate_chat_role_direct_scenario() -> int:
     return 0
 
 
+def validate_chat_role_apps_are_documented_scenario() -> int:
+    """Issue #187: the setup guides and READMEs say a role may have its own app.
+
+    Both guides carry the role-app section — the `slack.bots` registration,
+    the two Keychain accounts, the manifest's direct-message scopes, and that
+    direct messages stay on the role's machine — and neither still equates the
+    free plan's app limit with a machine count.
+    """
+    label = "chat-role-apps-are-documented:"
+    guides = {
+        "docs/chat-slack-setup.md": "Direct messages stay on the machine where the role runs",
+        "docs/chat-slack-setup.zh-CN.md": "私聊只留在这个角色所在的电脑上",
+    }
+    for relative, stays in guides.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for needle in ('"bots"', "bot:<role>", "app:<role>", "chat:write.public", "im:history", "im:write", stays):
+            if needle not in text:
+                report(f"{label} {relative} does not carry {needle!r}.")
+                return 1
+        for stale in ("which means 10 machines", "也就是最多 10 台电脑"):
+            if stale in text:
+                report(f"{label} {relative} still says {stale!r}, but role apps count toward the limit too.")
+                return 1
+    readmes = {"README.md": "its own Slack app", "README.zh-CN.md": "自己的 Slack App"}
+    for relative, needle in readmes.items():
+        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say a role may have {needle!r}.")
+            return 1
+    if "chat-role-apps-are-documented" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-apps-are-documented scenario passed.")
+    return 0
+
+
 def validate_chat_bridge_lifecycle_scenario() -> int:
     """Issue #187: the bridge runs unattended but stays visible and controllable.
 
@@ -36030,6 +36065,10 @@ SCENARIOS: tuple = (
     (
         "chat-role-direct",
         validate_chat_role_direct_scenario,
+    ),
+    (
+        "chat-role-apps-are-documented",
+        validate_chat_role_apps_are_documented_scenario,
     ),
     (
         "chat-archive",
