@@ -20,6 +20,7 @@ const path = require("path");
 const store = require("./store");
 const { slackSettings } = require("./config");
 const { redact } = require("./redact");
+const mrkdwn = require("./mrkdwn");
 const slack = require("./slack");
 const lifecycle = require("./lifecycle");
 
@@ -167,10 +168,11 @@ function bodyText(record) {
   }
 }
 
-// Redact, then cut, then address: the cut must not split a `[redacted]`, and
-// the owner mention must survive the cut.
+// Redact, translate, cut, then address: the cut must not split a
+// `[redacted]`, and neither the cut pointer nor the owner mention is Markdown
+// to translate (chat-slack-format D1).
 function slackText(project, record, text) {
-  let result = redact(text);
+  let result = mrkdwn.toSlack(redact(text));
   if (result.length > TEXT_LIMIT) {
     result = `${result.slice(0, TEXT_LIMIT)}… (cut; full text: \`keel chat show ${record.id}\`)`;
   }
@@ -395,7 +397,7 @@ function unwrapText(project, text, kind) {
   if (project.settings.owner) result = result.replace(new RegExp(`^<@${project.settings.owner}> `), "");
   result = result.replace(/^↳ reply to \S+\n/, "");
   if (kind === "todo") result = result.replace(/^☐ todo → [^:]*: /, "");
-  return result;
+  return mrkdwn.fromSlack(result);
 }
 
 function importKeelRecord(ctx, project, channel, payload, message) {
@@ -473,6 +475,7 @@ function humanText(project, event) {
     const role = project.settings.members[user] || project.settings.bots[user];
     return role ? `@${role}` : match;
   });
+  text = mrkdwn.fromSlack(text);
   for (const file of event.files || []) {
     const link = file.permalink || file.url_private || "";
     text += `${text ? "\n" : ""}📎 ${file.name || file.title || "file"}${link ? `: ${link}` : ""}`;
