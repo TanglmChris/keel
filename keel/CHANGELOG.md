@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.99.4 - `--record` adds Evidence slots in template order
+
+Issue #236, reported by rtl_ppa_flow on 2026-10-05: an Evidence block often already holds `Contract`, `Blocker`, and `Reauthorizations` when `keel gate task-start --record` runs, and the gate appended every missing slot after `Reauthorizations:`. A session that then rewrote the block in template order left the pending lines behind, and `task-complete` reported duplicate labels.
+
+- `--record` places each missing slot directly after the nearest slot that precedes it in template order and that the block already holds, or first in the block when none does. Template order is the one the bundled tasks template and the gate already share: Contract, each check's bare, `.red`, `.green`, and `.detects` slots, Review, Blocker, Reauthorizations. Present slots never move.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.4; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.3 - The agents-brief refusal names the checkout it compared against
 
 Issue #262 reported that `keel agents brief` refused a helper worktree under `<repo>/.claude/worktrees/` as "this session's own checkout". Reproduced with the issue's layout, a worktree there is accepted. The brief is refused only when the command runs from inside `--dir` itself, because the check compares `--dir` with the checkout the command runs in. Keel cannot see the session's checkout, so the refusal's wording was the defect.

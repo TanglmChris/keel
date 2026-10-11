@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.3"
-PROTOCOL_VERSION = "5.99.3"
+PACKAGE_VERSION = "5.99.4"
+PROTOCOL_VERSION = "5.99.4"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5467,6 +5467,47 @@ def validate_record_derives_skeleton_scenario() -> int:
             return 1
         if "    - M1.red: pending" not in text:
             report(f"{label} --record did not add the missing M1.red slot beside the kept M1.")
+            return 1
+
+        # Issue #236: added slots land in template order, not at the block's end.
+        def evidence_lines(text: str) -> list[str]:
+            lines = text.splitlines()
+            start = lines.index("  - Evidence:") + 1
+            end = next((i for i in range(start, len(lines)) if not lines[i].startswith("    ")), len(lines))
+            return lines[start:end]
+
+        logs_first = red_green.replace(
+            "  - Stop if:\n",
+            "  - Evidence:\n    - Contract: pending\n    - Blocker: none\n    - Reauthorizations: none\n  - Stop if:\n",
+        )
+        write_text(tasks, logs_first)
+        code, payload = record("--record", "--no-guard")
+        if code != 0:
+            report(f"{label} --record refused a block holding Contract, Blocker and Reauthorizations: "
+                   f"{payload.get('problems')!r}")
+            return 1
+        fingerprint = payload["contract"]["fingerprint"]["value"]
+        got = evidence_lines(tasks.read_text(encoding="utf-8"))
+        want = [f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}", *expected_slots]
+        if got != want:
+            report(f"{label} --record over Contract, Blocker and Reauthorizations left the block out of "
+                   f"template order: {got!r}, expected {want!r}.")
+            return 1
+        before_review = red_green.replace(
+            "  - Stop if:\n",
+            "  - Evidence:\n    - M1: pass. node test.js printed ok.\n    - Review:\n      - Status: pending\n"
+            "      - Acceptance check: pending\n      - Scope check: pending\n      - Findings: pending\n"
+            "  - Stop if:\n",
+        )
+        write_text(tasks, before_review)
+        code, payload = record("--record", "--no-guard")
+        if code != 0:
+            report(f"{label} --record refused a block holding M1 and Review: {payload.get('problems')!r}")
+            return 1
+        got = evidence_lines(tasks.read_text(encoding="utf-8"))
+        at = got.index("    - M1: pass. node test.js printed ok.")
+        if got[at + 1:at + 3] != ["    - M1.red: pending", "    - M1.green: pending"]:
+            report(f"{label} --record did not place M1.red and M1.green directly after the kept M1: {got!r}")
             return 1
 
         write_text(tasks, no_evidence)
