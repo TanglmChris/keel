@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.100.0"
-PROTOCOL_VERSION = "5.100.0"
+PACKAGE_VERSION = "5.101.0"
+PROTOCOL_VERSION = "5.101.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2442,6 +2442,85 @@ def chat_scratch_group(base: Path) -> tuple[Path, Path, dict[str, str]]:
     return rtl, verify, env
 
 
+def validate_chat_supersedes_scenario() -> int:
+    """Issue #252: a record supersedes its author's earlier one.
+
+    A superseded record leaves unread, so it neither wakes nor is listed; a
+    group view marks both records; and unread and the notice list newest first.
+    """
+    label = "chat-supersedes:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-supersedes-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        def posted_id(result: subprocess.CompletedProcess[str]) -> str:
+            return chat_json(result).get("id", "")
+
+        first = posted_id(chat(rtl, "post", "soc", "@verify verify owns integration", "--json"))
+        second_run = chat(rtl, "post", "soc", "@verify design owns integration", "--supersedes", first, "--json")
+        second = posted_id(second_run)
+        if not first or not second:
+            report(f"{label} the posts did not return ids: {second_run.stdout} {second_run.stderr}")
+            return 1
+        unread = [r.get("id") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+        if unread != [second]:
+            report(f"{label} verify's unread is {unread!r}, not only the superseding record {second}.")
+            return 1
+        notice = chat_json(chat(verify, "notice", "--json")).get("notice", "")
+        if first in notice:
+            report(f"{label} the wake notice still lists the superseded record {first}: {notice!r}")
+            return 1
+        if second not in notice:
+            report(f"{label} the wake notice does not list the superseding record {second}: {notice!r}")
+            return 1
+        view = chat(rtl, "soc", "--peek").stdout
+        if f"(superseded by {second})" not in view:
+            report(f"{label} the group view does not mark {first} superseded by {second}: {view!r}")
+            return 1
+        if f"(supersedes {first})" not in view:
+            report(f"{label} the group view does not mark {second} as superseding {first}: {view!r}")
+            return 1
+
+        refusals = []
+        other = posted_id(chat(verify, "post", "soc", "verify's own note", "--json"))
+        refusals.append(("another author's record", chat(rtl, "post", "soc", "x", "--supersedes", other), "verify"))
+        refusals.append(("an already superseded record", chat(rtl, "post", "soc", "x", "--supersedes", first), second))
+        gone = posted_id(chat(rtl, "post", "soc", "to retract", "--json"))
+        chat(rtl, "retract", gone)
+        refusals.append(("a retracted record", chat(rtl, "post", "soc", "x", "--supersedes", gone), "retracted"))
+        chat(rtl, "group", "create", "ops", "--member", "verify")
+        elsewhere = posted_id(chat(rtl, "post", "ops", "ops note", "--json"))
+        refusals.append(("a record in another group", chat(rtl, "post", "soc", "x", "--supersedes", elsewhere), "ops"))
+        for what, result, needle in refusals:
+            if result.returncode == 0:
+                report(f"{label} superseding {what} was accepted: {result.stdout}")
+                return 1
+            if needle not in result.stderr:
+                report(f"{label} superseding {what} was refused without naming {needle!r}: {result.stderr}")
+                return 1
+
+        chat(verify, "read")
+        ordered = [posted_id(chat(rtl, "post", "soc", f"@verify step {n}", "--json")) for n in (1, 2, 3)]
+        listed = [r.get("id") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+        if listed != list(reversed(ordered)):
+            report(f"{label} unread is not newest first: {listed!r}, posted {ordered!r}.")
+            return 1
+        notice = chat_json(chat(verify, "notice", "--json")).get("notice", "")
+        positions = [notice.find(i) for i in reversed(ordered)]
+        if -1 in positions:
+            report(f"{label} the wake notice does not list all three posts: {notice!r}")
+            return 1
+        if positions != sorted(positions):
+            report(f"{label} the wake notice is not newest first: {notice!r}")
+            return 1
+
+    report("chat-supersedes scenario passed.")
+    return 0
+
+
 def validate_chat_records_scenario() -> int:
     """Issue #187: todos, edits, retractions, search, and local-time display.
 
@@ -3112,6 +3191,8 @@ def validate_chat_bridge_outbound_scenario() -> int:
         chat(rtl, "edit", root_id, "Clock fix is in (v2)")
         gone_id = chat_json(chat(rtl, "post", "soc", "wrong group", "--json")).get("id", "")
         chat(rtl, "retract", gone_id)
+        old_rule_id = chat_json(chat(rtl, "post", "soc", "verify owns integration", "--json")).get("id", "")
+        new_rule_id = chat_json(chat(rtl, "post", "soc", "design owns integration", "--supersedes", old_rule_id, "--json")).get("id", "")
         slack.rate_limit("chat.postMessage", 1)
 
         started = time.time()
@@ -3194,6 +3275,18 @@ def validate_chat_bridge_outbound_scenario() -> int:
         gone_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == gone_id)
         if not any(c["params"].get("ts") == gone_ts for c in slack.calls_to("chat.delete")):
             report(f"{label} the retraction did not call chat.delete.")
+            return 1
+        # Issue #252: a superseded record's Slack copy says so.
+        if not new_rule_id:
+            report(f"{label} the superseding post returned no id.")
+            return 1
+        old_rule_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == old_rule_id)
+        marked = [c for c in slack.calls_to("chat.update") if c["params"].get("ts") == old_rule_ts]
+        if not marked:
+            report(f"{label} the superseded record's Slack message was never updated.")
+            return 1
+        if not marked[-1]["params"].get("text", "").startswith(f"(superseded by {new_rule_id})"):
+            report(f"{label} the superseded Slack message does not open with its successor: {marked[-1]['params'].get('text')!r}")
             return 1
 
         before = len(slack.calls_to("chat.postMessage"))
@@ -37641,6 +37734,7 @@ SCENARIOS: tuple = (
     ("shift-change", validate_shift_change_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
+    ("chat-supersedes", validate_chat_supersedes_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

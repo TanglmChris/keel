@@ -191,3 +191,11 @@ The bridge MUST read the app and bot tokens from `KEEL_SLACK_APP_TOKEN` and `KEE
 #### Scenario: A second machine restores history
 - **WHEN** a clone fetches `keel-chat` and runs `keel chat archive pull`
 - **THEN** `keel chat soc --peek` shows the archived messages
+
+### Requirement: A superseded record's Slack copy says so
+
+When the bridge posts a record that supersedes another, it MUST also update the superseded record's Slack message, when it has one, so that the message opens with `(superseded by <id>)`, using the token of the app that posted that message.
+
+#### Scenario: The superseded Slack message is updated
+- **WHEN** a record in a Slack-mapped group supersedes an earlier record the bridge already posted
+- **THEN** the bridge calls `chat.update` on the earlier message with text opening `(superseded by <id>)`
