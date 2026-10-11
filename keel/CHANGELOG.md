@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.110.0 - `push-protected:`: a protected branch is pushed only after the user confirms that push
+
+Issue #280 (rtl_ppa_prj, 2026-10-11): with `push:<glob>` enforced, `main` was either open to every session or closed to all of them, the coordinator included. Owner decision, 2026-10-12: the guard asks the host, optionally for one role.
+
+- `push-protected:<branch glob>` or `push-protected:<branch glob>@<role>` in `authorize:` names a branch the Claude write guard asks about instead of refusing: a push to it returns `ask`, so Claude Code asks the user to confirm that one command. Keel stores no approval; the next push asks again.
+- With `@<role>`, a session bound to another role is refused, naming the role.
+- In `bypassPermissions` or `dontAsk`, where the host cannot be relied on to ask, the push is refused, naming the mode. The prompt itself follows Claude Code's documented `ask`, which also prompts in auto mode; it was not observed in a live session here, so #280 stays open until it is.
+- Declaring `push-protected:` turns the push check on by itself; a bare `push` beside it is refused. `keel --doctor` prints `protected push: asked`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.110.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.109.0 - `keel patrol` and `keel chat wait`: a role is told when what it waits for holds
 
 Issues #260 and #242 (rtl_ppa_prj, 2026-10-05/06): every role sat idle for over seven hours while a commit `verify` waited on had already landed, and handoffs relied on a second message nobody sent. Owner decisions, 2026-10-11: a patrol that posts its own notices, deduped against the chat; waits as chat records; issue-label routing folded in; scheduling stays with the host.

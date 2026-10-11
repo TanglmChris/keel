@@ -182,7 +182,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch
+authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>]
   - commit
   - push
 ```
@@ -223,6 +223,14 @@ push destination — naming `git push origin <branch>` instead. A bare `push` ke
 and declaring it beside a `push:` glob is refused, because it would silently widen the glob. Codex
 has no such hook, so there the scope is carried, not enforced.
 
+`push-protected:<branch glob>`, optionally `@<role>`, names a branch that is neither allowed nor
+refused but asked about (#280): a push to it makes the Claude write guard return `ask`, so Claude
+Code asks you to confirm that one command, and the next push asks again — Keel stores no approval.
+`push-protected:main@iecc-pm` lets only the session bound to `iecc-pm` ask; any other session is
+refused. A permission mode that cannot be relied on to ask, `bypassPermissions` or `dontAsk`, is
+refused too. Declaring it turns the push check on by itself, and a bare `push` beside it is
+refused.
+
 `cleanup:scratch` covers removing temporary worktrees and run output under the session's own
 scratchpad, after checking that they are merged and that no process is using them. It never covers
 a branch or another session's files, and like the tracker scopes it is carried, not enforced.
@@ -251,7 +259,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The ten names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The eleven names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 

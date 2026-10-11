@@ -2254,7 +2254,7 @@ function printStandingAuthorizationSurface(repo) {
   // observes none that an agent runs, so the scope is a declaration carried to
   // the people who read it rather than a boundary anything holds. A reader who
   // took it for a sandbox would be relying on nothing.
-  if ([...scopes.entries()].some(([action, scope]) => scope !== null && action !== "push")) {
+  if ([...scopes.entries()].some(([action, scope]) => scope !== null && action !== "push" && action !== "push-protected")) {
     printDoctorLine(
       "scope",
       "carried",
@@ -2266,6 +2266,15 @@ function printStandingAuthorizationSurface(repo) {
   // The one scope something holds (#257): the Claude write guard reads the
   // `push:` globs and refuses a `git push` to any other branch, with or
   // without a task. Codex has no such hook, so there it is a declaration too.
+  if (scopes.get("push-protected")) {
+    printDoctorLine(
+      "protected push",
+      "asked",
+      "the Claude write guard asks the user to confirm each push to these "
+        + "branches, one command at a time; a role after `@` limits who may be "
+        + "asked, and a mode that cannot ask (bypassPermissions, dontAsk) is refused"
+    );
+  }
   if (scopes.get("push")) {
     printDoctorLine(
       "push scope",
