@@ -124,6 +124,7 @@ const CONFIG_DECLARATIONS = [
   "merge",
   "external_agents",
   "read_only_roles",
+  "issue_roles",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -827,7 +828,31 @@ function readReadOnlyRoles(repo) {
   return { roles, unreadable, message };
 }
 
+// `issue_roles:` — which chat role an issue label routes to (#242), one
+// `<label>: <role>` per line, read by `keel patrol`. A label may itself hold a
+// colon (`role:verify`), so the role is what follows the last `: `. A line
+// that is not that shape is reported and routes nothing.
+function readIssueRoles(repo) {
+  const block = configBlockLines(repo, "issue_roles");
+  const routes = new Map();
+  const unreadable = [];
+  if (block === null) return { routes, unreadable };
+  if (block.inline !== null) unreadable.push(block.inline);
+  for (const line of block.lines) {
+    const text = line.replace(/\s+#.*$/, "").trim();
+    if (!text) continue;
+    const match = text.match(/^(.+?):\s+([a-z0-9][a-z0-9-]{0,31})$/);
+    if (!match) {
+      unreadable.push(text);
+      continue;
+    }
+    routes.set(match[1].replace(/^["']|["']$/g, ""), match[2]);
+  }
+  return { routes, unreadable };
+}
+
 module.exports = {
+  readIssueRoles,
   readReadOnlyRoles,
   readExternalAgents,
   CONFIG_RELATIVE_PATH,

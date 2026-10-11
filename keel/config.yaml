@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Ten independent declarations live here: fast_check, which names a command;
+# Eleven independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
@@ -10,8 +10,17 @@
 # names how much stepwise guidance this project's skills should load;
 # merge, which names who merges into the default branch; and
 # external_agents, which names the external model CLIs this project allows and
-# the paths that must not be handed to one; and read_only_roles, which names
-# the chat roles whose sessions own no change.
+# the paths that must not be handed to one; read_only_roles, which names the
+# chat roles whose sessions own no change; and issue_roles, which names the
+# chat role each issue label routes to.
+#
+# issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
+# label names one direct message per update of an issue carrying it (#242).
+# One `<label>: <role>` per line; a label may contain a colon.
+#
+# Example:
+#   issue_roles:
+#     role:verify: verify
 #
 # read_only_roles (optional): chat roles whose sessions review, verify, or
 # coordinate and never own an OpenSpec change. In a worktree bound to one,

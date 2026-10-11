@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.109.0 - `keel patrol` and `keel chat wait`: a role is told when what it waits for holds
+
+Issues #260 and #242 (rtl_ppa_prj, 2026-10-05/06): every role sat idle for over seven hours while a commit `verify` waited on had already landed, and handoffs relied on a second message nobody sent. Owner decisions, 2026-10-11: a patrol that posts its own notices, deduped against the chat; waits as chat records; issue-label routing folded in; scheduling stays with the host.
+
+- `keel chat wait <group> --commit <sha> [--remote <name>] [note]` or `--issue <n> --closed [note]` records what a role waits for, waking nobody; `keel chat waits [--json]` lists the ones not yet met.
+- `keel patrol [--issues <file>] [--idle <duration>] [--json]`, run as the coordinator's role, marks each wait whose condition holds — a commit in a `refs/remotes/<remote>/` ref, an issue `--issues` lists as closed — met and direct-messages the waiter once. Without `--issues`, issue waits are reported unchecked.
+- `issue_roles:` in `keel/config.yaml` maps an issue label to a role; with `--issues`, that role gets one direct message per update of a labelled issue.
+- It lists every role's presence, last activity, and open todos, marking those idle beyond `--idle` (default `30m`). Idleness never changes the exit status.
+- It fetches nothing, schedules nothing, calls no model, and writes nothing when nothing is new: exit 0 then, 2 when it wrote, 1 on an error.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.109.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.108.0 - `keel chat group add --listen`: listen-only members
 
 Issue #248 (rtl_ppa_prj review session, 2026-10-05): a review session got the user's decisions only through the coordinator's paraphrase, and the project traced three misreports to paraphrasing. Owner decision, 2026-10-11: a per-group listen-only flag.
