@@ -28,6 +28,9 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // scratchpad once merged and unused, never a branch or another session's
   // files (#257). Its one scope, `scratch`, says which tree it reaches.
   "cleanup",
+  // A branch the Claude write guard asks the user about, one push at a time,
+  // instead of refusing (#280); `@<role>` limits who may be asked.
+  "push-protected",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -37,7 +40,7 @@ const STANDING_AUTHORIZATION_ACTIONS = [
 // actions are declared with the resource they may reach and refused bare —
 // accepting the bare form as a convenience would make the narrow form optional
 // and the wide one the default, which is the decision inverted.
-const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup"]);
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup", "push-protected"]);
 
 // Actions whose scope narrows them but is not required (#257). A bare `push`
 // keeps the meaning it always had; `push:<branch glob>` limits it to matching
@@ -60,6 +63,7 @@ const AUTHORIZATION_SCOPES = {
   // Branch-name characters and `*`; `*` matches within one `/` segment and
   // `**` across them, as Touch globs do.
   push: { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
+  "push-protected": { form: "<branch glob>[@<role>]", pattern: /^[A-Za-z0-9._/*-]+(?:@[a-z0-9][a-z0-9-]{0,31})?$/ },
 };
 
 // How the accepted names are spelled back to an author: the scoped ones carry
@@ -295,6 +299,14 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
       );
       continue;
     }
+    if (problem.action === "push-protected") {
+      notes.push(
+        `\`${problem.entry}\` is not \`push-protected:<branch glob>\` or `
+          + "`push-protected:<branch glob>@<role>` — a glob of letters, digits, `.`, `_`, `-`, `/`, and `*`, "
+          + "and a chat role of lowercase letters, digits, and hyphens."
+      );
+      continue;
+    }
     if (problem.action === "push") {
       notes.push(
         `\`${problem.entry}\` does not name a branch glob as \`push:<branch glob>\` — `
@@ -371,15 +383,22 @@ function readStandingAuthorization(repo) {
   // because the alternative is granting the entries beside a typo while the
   // author believes they granted the typo too.
   const pushGlobs = [];
+  const protectedPushes = [];
   for (const entry of declared) {
     const classified = classifyAuthorizationEntry(entry);
     if (classified.action === "push" && classified.scope !== null && !pushGlobs.includes(classified.scope)) {
       pushGlobs.push(classified.scope);
     }
+    if (classified.action === "push-protected" && !protectedPushes.includes(classified.scope)) {
+      protectedPushes.push(classified.scope);
+    }
   }
-  if (pushGlobs.length && declared.includes("push")) {
+  if ((pushGlobs.length || protectedPushes.length) && declared.includes("push")) {
     unknown.push("push");
-    problems.push({ reason: "mixed-push", entry: "push", action: "push", scoped: pushGlobs.map((glob) => `push:${glob}`) });
+    problems.push({
+      reason: "mixed-push", entry: "push", action: "push",
+      scoped: [...pushGlobs.map((glob) => `push:${glob}`), ...protectedPushes.map((scope) => `push-protected:${scope}`)],
+    });
   }
   if (unknown.length > 0) {
     return {
@@ -387,13 +406,15 @@ function readStandingAuthorization(repo) {
       scopes: new Map(),
       chatReplyGroups: [],
       pushGlobs: [],
+      protectedPushes: [],
       unknown,
       message: standingAuthorizationUnknownMessage(unknown, problems),
     };
   }
   if (chatReplyGroups.length) scopes.set("chat-reply", chatReplyGroups.join(", "));
   if (pushGlobs.length) scopes.set("push", pushGlobs.join(", "));
-  return { declared, scopes, chatReplyGroups, pushGlobs, unknown, message: null };
+  if (protectedPushes.length) scopes.set("push-protected", protectedPushes.join(", "));
+  return { declared, scopes, chatReplyGroups, pushGlobs, protectedPushes, unknown, message: null };
 }
 
 // `full_mode_paths:` — the paths whose change always routes Full, whatever the

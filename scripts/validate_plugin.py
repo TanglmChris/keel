@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.109.0"
-PROTOCOL_VERSION = "5.109.0"
+PACKAGE_VERSION = "5.110.0"
+PROTOCOL_VERSION = "5.110.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24545,6 +24545,42 @@ def validate_authorize_block_reads_every_line_scenario() -> int:
     return 0
 
 
+def validate_push_protected_declaration_scenario() -> int:
+    """Issue #280: `push-protected:<glob>[@<role>]` is accepted and reported."""
+    label = "push-protected-declaration:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-protected-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        def fixture(name: str, entries: list[str]) -> Path:
+            repo = root / name
+            repo.mkdir()
+            write_authorize_config(repo, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+            return repo
+
+        doctor = run_keel(fixture("good", ["push:claude/*", "push-protected:main@iecc-pm"]), "--doctor")
+        line = next((l for l in doctor.stdout.splitlines() if l.strip().startswith("push-protected:")), "")
+        if "authorized" not in line or "main@iecc-pm" not in line:
+            report(f"{label} doctor's push-protected line is {line!r}.")
+            report(doctor.stdout)
+            return 1
+        if "asks the user" not in doctor.stdout:
+            report(f"{label} doctor does not say each protected push is asked: {doctor.stdout}")
+            return 1
+        for name, entries, needle in (
+            ("bad-role", ["push-protected:main@Not"], "push-protected:main@Not"),
+            ("mixed", ["push", "push-protected:main"], "push-protected:main"),
+        ):
+            refused = run_keel(fixture(name, entries), "--doctor")
+            if refused.returncode == 0:
+                report(f"{label} {entries!r} was accepted.")
+                return 1
+            if needle not in refused.stdout + refused.stderr:
+                report(f"{label} {entries!r} was refused without naming {needle!r}: {refused.stdout}")
+                return 1
+    report("push-protected-declaration scenario passed.")
+    return 0
+
+
 def validate_authorize_push_close_cleanup_scenario() -> int:
     """Issue #257: `push:<glob>`, `issue-close:<owner>/<repo>`, `cleanup:scratch`.
 
@@ -27539,7 +27575,7 @@ def validate_continuation_authorization_scenario() -> int:
 ACCEPTED_AUTHORIZE_NAMES = (
     "commit, push, push:<branch glob>, release, archive, continuation, "
     "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, "
-    "issue-close:<owner>/<repo>, cleanup:scratch"
+    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>]"
 )
 
 
@@ -27593,7 +27629,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The ten names above are the whole vocabulary.",
+        "The eleven names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -27601,7 +27637,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch" not in config_text:
+    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>]" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -30063,6 +30099,83 @@ def validate_push_branch_guard_scenario() -> int:
             report(f"{label} a bare push declaration intercepted a push.")
             return 1
     report("push-branch-guard scenario passed.")
+    return 0
+
+
+def validate_push_protected_guard_scenario() -> int:
+    """Issue #280: a protected push is asked, never stored, and role-limited.
+
+    The real hook returns `ask` for the bound role in a mode that can ask,
+    denies another role and a mode that cannot ask, and leaves `push:` and
+    unlisted branches as they were.
+    """
+    label = "push-protected-guard:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-protected-guard-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        pm = chat_worktree(repo, base / "pm")
+        rtl = chat_worktree(repo, base / "rtl")
+        env = chat_environment()
+        run_keel(pm, "chat", "role", "--set", "iecc-pm", env=env)
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+        hook_env = {k: v for k, v in os.environ.items() if k not in ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")}
+        hook_env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+
+        def declare(entries: list[str]) -> None:
+            for cwd in (pm, rtl):
+                write_authorize_config(cwd, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+
+        def decide(cwd: Path, command: str, mode: str = "default") -> dict:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd), "permission_mode": mode}
+            result = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/pretooluse-guard.js")],
+                cwd=cwd, env=hook_env, input=json.dumps(event), text=True, capture_output=True, check=False,
+            )
+            return pretooluse_decision(result) or {"permissionDecision": "pass"}
+
+        declare(["push:claude/*", "push-protected:main@iecc-pm"])
+        store_before = chat_logs_snapshot(repo)
+        for attempt in (1, 2):
+            asked = decide(pm, "git push origin HEAD:main")
+            if asked.get("permissionDecision") != "ask":
+                report(f"{label} the coordinator's push to main (attempt {attempt}) was {asked!r}, not ask.")
+                return 1
+            if "main" not in asked.get("permissionDecisionReason", ""):
+                report(f"{label} the ask does not name main: {asked!r}")
+                return 1
+        if chat_logs_snapshot(repo) != store_before:
+            report(f"{label} asking wrote to the chat store.")
+            return 1
+        other = decide(rtl, "git push origin HEAD:main")
+        if other.get("permissionDecision") != "deny":
+            report(f"{label} another role's push to main was {other!r}, not deny.")
+            return 1
+        if "iecc-pm" not in other.get("permissionDecisionReason", ""):
+            report(f"{label} the refusal does not name iecc-pm: {other!r}")
+            return 1
+        for mode in ("bypassPermissions", "dontAsk"):
+            refused = decide(pm, "git push origin HEAD:main", mode)
+            if refused.get("permissionDecision") != "deny":
+                report(f"{label} the protected push in {mode} was {refused!r}, not deny.")
+                return 1
+            if mode not in refused.get("permissionDecisionReason", ""):
+                report(f"{label} the {mode} refusal does not name the mode: {refused!r}")
+                return 1
+        if decide(rtl, "git push origin claude/fix").get("permissionDecision") != "pass":
+            report(f"{label} a declared push: branch was intercepted.")
+            return 1
+        if decide(rtl, "git push origin release").get("permissionDecision") != "deny":
+            report(f"{label} an unlisted branch was not denied.")
+            return 1
+
+        declare(["push-protected:main"])
+        if decide(rtl, "git push origin release").get("permissionDecision") != "deny":
+            report(f"{label} with only push-protected declared, an unlisted branch was not denied.")
+            return 1
+        if decide(rtl, "git push origin HEAD:main").get("permissionDecision") != "ask":
+            report(f"{label} with no role limit, a push to main was not asked.")
+            return 1
+    report("push-protected-guard scenario passed.")
     return 0
 
 
@@ -38611,6 +38724,7 @@ SCENARIOS: tuple = (
         validate_standing_authorization_declaration_scenario,
     ),
     ("authorize-push-close-cleanup", validate_authorize_push_close_cleanup_scenario),
+    ("push-protected-declaration", validate_push_protected_declaration_scenario),
     ("authorize-block-reads-every-line", validate_authorize_block_reads_every_line_scenario),
     (
         "standing-authorization-sync-confusion",
@@ -38819,6 +38933,7 @@ SCENARIOS: tuple = (
     ("native-single-task-matrix", validate_native_single_task_matrix_scenario),
     ("touch-write-guard", validate_touch_write_guard_scenario),
     ("push-branch-guard", validate_push_branch_guard_scenario),
+    ("push-protected-guard", validate_push_protected_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),
