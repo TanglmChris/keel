@@ -85,6 +85,7 @@ function markers(record) {
   if (record.reply_to) parts.push(`↳ ${record.reply_to}`);
   if (record.superseded_by) parts.push(`(superseded by ${record.superseded_by})`);
   if (record.supersedes) parts.push(`(supersedes ${record.supersedes})`);
+  if (record.ack === "requested") parts.push("(ack requested)");
   // A mention the text already spells out is not repeated; one written as an
   // alias (`@cb`) still shows the role it resolved to (#196).
   const text = String(record.text || "").toLowerCase();
