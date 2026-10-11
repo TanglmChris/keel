@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.102.0 - `keel worktrees`: a read-only overview of every session's worktree
+
+Issue #243 (PM of rtl_ppa_prj, via rtl_ppa_flow, 2026-10-05): the coordinator assembled each session's state by hand, misread one remote state, and lost another attempt to a shell loop.
+
+- `keel worktrees [--repo <path>] [--issues <file>] [--json]` lists every worktree of the repository: branch or detached head, short head, upstream with ahead/behind as of the last fetch, last commit, uncommitted paths, bound chat role with presence, the issues its branch's commits reference beyond the default branch, and Git's locked/prunable markers. A worktree whose directory is gone is listed as missing.
+- Keel fetches nothing. Issue update times appear only from a file passed with `--issues`, such as `gh issue list --json number,updatedAt` prints; an unreadable or malformed file is refused by name.
+- The command writes nothing to the repository or the chat store.
+- Implemented by codex under a brief from a Claude session, which reviewed it and re-ran every check.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.102.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.101.0 - `keel chat post --supersedes`, and unread newest first
 
 Issue #252, part of #250 (rtl_ppa_prj, 2026-10-05): a changed division-of-work rule never reached the session it affected, and two sessions asked again a question already answered.
