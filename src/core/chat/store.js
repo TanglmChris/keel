@@ -41,7 +41,7 @@ const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
   "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack",
-  "assignee", "issue", "target", "refs", "origin", "slack_channel", "slack_ts",
+  "assignee", "issue", "target", "access", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
 // A group may not take a name `keel chat <group>` would read as a subcommand.
@@ -409,13 +409,22 @@ function signalTargets(record) {
 
 function groupState(records) {
   const members = new Set();
+  // Listen-only members (#248): a member's latest join decides it.
+  const listeners = new Set();
   let archived = false;
   for (const record of records) {
-    if (record.kind === "join" && record.target) members.add(record.target);
-    if (record.kind === "leave" && record.target) members.delete(record.target);
+    if (record.kind === "join" && record.target) {
+      members.add(record.target);
+      if (record.access === "listen") listeners.add(record.target);
+      else listeners.delete(record.target);
+    }
+    if (record.kind === "leave" && record.target) {
+      members.delete(record.target);
+      listeners.delete(record.target);
+    }
     if (record.kind === "archive") archived = true;
   }
-  return { members, archived, exists: records.length > 0 };
+  return { members, listeners, archived, exists: records.length > 0 };
 }
 
 function isDirect(group) {
@@ -448,6 +457,17 @@ function requireOpenMembership(group, state, role) {
   }
 }
 
+// Posting and changing the group are what a listen-only member may not do
+// (#248 D3); reading, acknowledging, and closing its own todos stay open.
+function requireSpeaker(group, state, role) {
+  requireOpenMembership(group, state, role);
+  if (state.listeners && state.listeners.has(role)) {
+    throw new ChatError(
+      `Role ${role} is a listen-only member of group ${group}: it receives the group but does not post or change it here.`
+    );
+  }
+}
+
 function createGroup(where, actor, group, members, { direct = false } = {}) {
   checkName(group, "Group");
   if (RESERVED_GROUPS.has(group)) {
@@ -467,25 +487,25 @@ function createGroup(where, actor, group, members, { direct = false } = {}) {
   return everyone;
 }
 
-function changeMember(where, actor, group, member, kind) {
+function changeMember(where, actor, group, member, kind, { listen = false } = {}) {
   checkName(member, "Member");
   if (isDirect(group)) {
     throw new ChatError(`Direct group ${group} has fixed members.`);
   }
   const { state } = loadGroup(where, group);
-  requireOpenMembership(group, state, actor);
+  requireSpeaker(group, state, actor);
   if (kind === "join" && state.members.has(member)) {
     throw new ChatError(`Role ${member} is already a member of group ${group}.`);
   }
   if (kind === "leave" && !state.members.has(member)) {
     throw new ChatError(`Role ${member} is not a member of group ${group}.`);
   }
-  return writeRecord(where, { group, kind, from: actor, target: member });
+  return writeRecord(where, { group, kind, from: actor, target: member, access: kind === "join" && listen ? "listen" : null });
 }
 
 function archiveGroup(where, actor, group) {
   const { state } = loadGroup(where, group);
-  requireOpenMembership(group, state, actor);
+  requireSpeaker(group, state, actor);
   return writeRecord(where, { group, kind: "archive", from: actor });
 }
 
@@ -495,7 +515,7 @@ function listGroups(where, { includeArchived = false } = {}) {
     const state = groupState(readLog(where, name));
     if (!state.exists) continue;
     if (state.archived && !includeArchived) continue;
-    groups.push({ name, members: [...state.members].sort(), archived: state.archived, direct: isDirect(name) });
+    groups.push({ name, members: [...state.members].sort(), listeners: [...state.listeners].sort(), archived: state.archived, direct: isDirect(name) });
   }
   return groups;
 }
@@ -545,7 +565,7 @@ function post(where, options) {
   const text = String(options.text || "");
   if (!text.trim()) throw new ChatError("A post needs text: give it after the group, or on stdin.");
   const { records, state } = loadGroup(where, group);
-  requireOpenMembership(group, state, from);
+  requireSpeaker(group, state, from);
   const mentions = resolveMentions(where, group, state, text);
   // Loaded here rather than at the top: the guards read the store's own API.
   require("./guards").checkPost(module.exports, where, from, group, records);
