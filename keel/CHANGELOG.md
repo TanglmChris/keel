@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.105.0 - `push:<branch glob>`, enforced; `issue-close:<owner>/<repo>` and `cleanup:scratch`
+
+Issue #257 (rtl_ppa_prj, from TanglmChris/rtl_ppa_prj#218): the owner set three standing authorizations that `authorize:` could not hold — push limited to branches, closing its own issues, and cleaning its own scratchpad. Owner decision, 2026-10-11: add all three, and have the write guard enforce the push branch.
+
+- `push:<branch glob>` (one entry per glob; `*` within a segment, `**` across) limits `push` to matching branches. A bare `push` keeps its meaning; declaring both is refused.
+- While any `push:` glob is declared, the Claude write guard checks every `git push` a `Bash` call runs, with or without a task, and refuses a push to any other branch — or one whose target it cannot determine (`--all`, `--mirror`, `--tags`, a shell variable, no push destination, a push inside `bash -c`) — naming `git push origin <branch>`. A typo elsewhere in `authorize:` does not lift the check. Heredoc bodies are not read as commands. Codex keeps its `manual` guard capability.
+- `issue-close:<owner>/<repo>` and `cleanup:scratch` are carried to `keel --doctor` and the capsule like `issue:`, and refused in any other form.
+- `keel --doctor` reports `push scope: enforced` beside the globs.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.105.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.104.0 - `keel chat summary --since`: what changed, per group and sender
 
 Issue #255, part of #250 (rtl_ppa_prj, 2026-10-05): the coordinator wrote a status digest twice a day by hand from group views and searches.

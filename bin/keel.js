@@ -2254,13 +2254,25 @@ function printStandingAuthorizationSurface(repo) {
   // observes none that an agent runs, so the scope is a declaration carried to
   // the people who read it rather than a boundary anything holds. A reader who
   // took it for a sandbox would be relying on nothing.
-  if ([...scopes.values()].some((scope) => scope !== null)) {
+  if ([...scopes.entries()].some(([action, scope]) => scope !== null && action !== "push")) {
     printDoctorLine(
       "scope",
       "carried",
-      "Keel records a scope and does not enforce it — it invokes no tracker "
-        + "client and cannot observe one, so the boundary is kept by whoever "
-        + "acts, not by this check"
+      "Keel records a tracker, chat, or scratchpad scope and does not enforce "
+        + "it — it invokes no tracker client and cannot observe one, so the "
+        + "boundary is kept by whoever acts, not by this check"
+    );
+  }
+  // The one scope something holds (#257): the Claude write guard reads the
+  // `push:` globs and refuses a `git push` to any other branch, with or
+  // without a task. Codex has no such hook, so there it is a declaration too.
+  if (scopes.get("push")) {
+    printDoctorLine(
+      "push scope",
+      "enforced",
+      "the Claude write guard enforces these globs: it refuses a `git push` "
+        + "to any other branch, or one whose target it cannot determine, with "
+        + "or without a task; on Codex the scope is carried, not enforced"
     );
   }
   return true;

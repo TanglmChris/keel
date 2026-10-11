@@ -1,5 +1,5 @@
 {
-  "description": "Keel plugin hooks: non-blocking SessionStart projection and the manifest-gated PreToolUse write guard, both backed by the shared keel CLI contract.",
+  "description": "Keel plugin hooks: non-blocking SessionStart projection, the manifest-gated PreToolUse write guard, and its push-branch check on Bash, all backed by the shared keel CLI contract.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,9 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"
+            ],
             "timeout": 15
           }
         ]
@@ -20,7 +22,22 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-guard.js"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-guard.js"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-guard.js"
+            ],
             "timeout": 10
           }
         ]

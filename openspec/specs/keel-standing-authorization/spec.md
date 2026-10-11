@@ -9,10 +9,10 @@ Define how a repository declares standing authorization for named repository act
 Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` naming repository
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
-`issue`, `protocol-refresh`, `chat-reply` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`issue`, `protocol-refresh`, `chat-reply`, `issue-close`, `cleanup` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
-resource it may reach, and MUST be refused in its bare form. `issue` and `chat-reply` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
+resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, and `chat-reply` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
 credentials that open one are account-wide, while `commit`, `push`, `release`, and `archive` are
 bounded by the checkout the declaration sits in, and so is `protocol-refresh`. Accepting a bare `issue` would make the narrow
 form optional and the wide one the default, so the bare entry MUST be reported with the required
@@ -30,8 +30,8 @@ diagnostic call.
 #### Scenario: A declared action is authorized for the whole repository
 - **WHEN** `keel/config.yaml` declares `authorize:` listing `commit` and `push`
 - **THEN** Keel resolves `commit` and `push` as standing-authorized for that repository
-- **AND THEN** `release`, `archive`, `continuation`, `issue`, `protocol-refresh`, and `chat-reply`
-  remain unauthorized because they were not listed
+- **AND THEN** `release`, `archive`, `continuation`, `issue`, `protocol-refresh`, `chat-reply`,
+  `issue-close`, and `cleanup` remain unauthorized because they were not listed
 
 #### Scenario: No declaration preserves current behavior
 - **WHEN** `keel/config.yaml` is absent, or declares no `authorize:` block, or declares an empty one
@@ -158,9 +158,9 @@ action — `commit`, `push`, `release`, and `archive` each still require their o
 - **AND THEN** its own fingerprint is recorded before implementation, exactly as an attended start
   records one
 
-### Requirement: A scope is a declaration Keel carries and never enforces
+### Requirement: A scope is a declaration Keel carries, and only a push scope is enforced
 
-Keel MUST NOT represent a scoped authorization as a boundary it enforces. Keel invokes no tracker
+Keel MUST NOT represent a scoped authorization as a boundary it enforces, except a `push:<glob>` scope, which the Claude write guard enforces on `git push` as the write-guard capability requires. Keel invokes no tracker
 client, observes none that an agent runs, and cannot prevent a write to a repository the scope
 does not name. The scope MUST therefore be carried to the surfaces the agent and the owner read —
 the doctor line and the compiled capsule's inherited autonomy entry — and the shape of the scope
@@ -208,3 +208,27 @@ the network would trade the local, offline, deterministic evaluation the verdict
 #### Scenario: Other names stay unauthorized
 - **WHEN** only `chat-reply:lab` is declared
 - **THEN** `commit`, `push`, `release`, `archive`, `continuation`, `issue`, and `protocol-refresh` remain unauthorized
+
+### Requirement: A push authorization may name the branches it reaches
+
+`push` MUST accept an optional scope: a bare `push` MUST keep its meaning, and `push:<glob>` MUST limit the authorization to pushes whose target branch matches one of the declared globs, where `*` matches within one `/`-separated segment and `**` across segments. `push:<glob>` MAY be declared more than once. A glob MUST be drawn from branch-name characters and `*`, and any other scope MUST be refused as malformed. A declaration holding both a bare `push` and a `push:<glob>` MUST be refused, naming both, because the bare form would silently widen the scoped one. `keel --doctor` MUST report the globs beside `push` and state that the Claude write guard enforces them.
+
+#### Scenario: A push scope is reported with its enforcement
+- **WHEN** `authorize:` lists `push:claude/*` and `push:worktree-*`
+- **THEN** `keel --doctor` reports `push` as authorized, scoped to both globs, and states that the Claude write guard enforces them
+
+#### Scenario: A bare push beside a scoped one is refused
+- **WHEN** `authorize:` lists both `push` and `push:claude/*`
+- **THEN** Keel reports a configuration error naming both entries, and the declaration authorizes nothing
+
+### Requirement: Closing an issue and cleaning the scratchpad are named and carried
+
+`issue-close:<owner>/<repo>` MUST be an accepted `authorize:` name with the `issue:` form, covering closing an issue on that repository with a comment naming the work that resolved it, and a bare `issue-close` MUST be refused with the form it needs. `cleanup:scratch` MUST be an accepted name whose only scope is `scratch`, covering removal of temporary worktrees and run output under the session's own scratchpad after checking that they are merged and that no process uses them, and never a branch or another session's files; any other scope MUST be refused. Both MUST be carried to `keel --doctor` and the capsule's inherited autonomy entry, and neither is enforced.
+
+#### Scenario: The new names are carried with their scope
+- **WHEN** `authorize:` lists `issue-close:acme/widgets` and `cleanup:scratch`
+- **THEN** `keel --doctor` reports `issue-close` scoped to `acme/widgets` and `cleanup` scoped to `scratch`, and a task authoring no boundary inherits both entries
+
+#### Scenario: A wrong form is refused with the one it needs
+- **WHEN** `authorize:` lists a bare `issue-close`, or `cleanup:runs`
+- **THEN** Keel reports a configuration error naming the entry and the `issue-close:<owner>/<repo>` or `cleanup:scratch` form
