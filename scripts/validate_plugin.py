@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.102.0"
-PROTOCOL_VERSION = "5.102.0"
+PACKAGE_VERSION = "5.102.1"
+PROTOCOL_VERSION = "5.102.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -12049,6 +12049,93 @@ def validate_inline_code_is_concrete_scenario() -> int:
         report("inline-code-is-concrete: the scenario registry does not include it.")
         return 1
     report("inline-code-is-concrete scenario passed.")
+    return 0
+
+
+def validate_marker_words_in_capitals_scenario() -> int:
+    """Issue #271: a marker word reads as a slot only in capitals.
+
+    `task-complete` refused Evidence reading "post and todo" because the
+    unfilled-slot test matched its marker words in any case, so the name of a
+    `keel chat` record kind read as an unfilled slot. Lowercase prose is
+    concrete; `TODO`, `PLACEHOLDER` and `<value>` outside inline code are not.
+    """
+    def start(repo: Path, change: str, m1: str):
+        write_text(
+            repo / f"openspec/changes/{change}/tasks.md",
+            task_capsule_compact_fixture().replace(
+                "    - M1: node test.js\n", f"    - M1: {m1}\n"
+            ),
+        )
+        return run_keel(
+            repo, "gate", "task-start", "--change", change, "--task", "1.1", "--json"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-marker-words-") as raw_tmp:
+        repo = Path(raw_tmp)
+        prose = start(repo, "prose", "node test.js lists each todo and its placeholder text")
+        if prose.returncode != 0:
+            report(
+                "marker-words-in-capitals: a check naming a todo and a "
+                "placeholder in lowercase prose was judged unfilled."
+            )
+            report((prose.stdout or prose.stderr).strip())
+            return 1
+
+        # The reporter's shape: Evidence written after the task started.
+        write_text(
+            repo / "openspec/changes/evidence/tasks.md", task_capsule_compact_fixture()
+        )
+        if not record_contract_anchor(repo, "evidence"):
+            report("marker-words-in-capitals: the fixture could not record its anchor.")
+            return 1
+        path = repo / "openspec/changes/evidence/tasks.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    - M1: pending\n",
+                "    - M1: pass. With `--ack` on post and todo, the record is acknowledged.\n",
+            ),
+            encoding="utf-8",
+        )
+        completed = run_keel(
+            repo, "gate", "task-complete", "--change", "evidence", "--task", "1.1", "--json"
+        )
+        slots = [
+            problem.get("message", "")
+            for problem in json.loads(completed.stdout).get("problems", [])
+            if "unfilled" in problem.get("message", "")
+        ]
+        if slots:
+            report(
+                "marker-words-in-capitals: Evidence reading 'post and todo' was "
+                f"refused as an unfilled slot: {slots}"
+            )
+            return 1
+
+        for change, m1, token in (
+            ("todo", "node test.js TODO", "TODO"),
+            ("upper", "node test.js PLACEHOLDER", "PLACEHOLDER"),
+            ("angle", "node test.js <value>", "<value>"),
+        ):
+            result = start(repo, change, m1)
+            problems = json.loads(result.stdout).get("problems", [])
+            named = [
+                problem
+                for problem in problems
+                if problem.get("code") == "non-concrete-verify"
+                and f"`{token}`" in problem.get("message", "")
+            ]
+            if not named:
+                report(
+                    f"marker-words-in-capitals: a bare {token} was not reported "
+                    "as non-concrete-verify naming it."
+                )
+                report(result.stdout.strip())
+                return 1
+    if "marker-words-in-capitals" not in {name for name, _ in SCENARIOS}:
+        report("marker-words-in-capitals: the scenario registry does not include it.")
+        return 1
+    report("marker-words-in-capitals scenario passed.")
     return 0
 
 
@@ -37777,6 +37864,7 @@ SCENARIOS: tuple = (
         validate_non_concrete_verify_diagnostic_scenario,
     ),
     ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
+    ("marker-words-in-capitals", validate_marker_words_in_capitals_scenario),
     ("covers-separator-collision", validate_covers_separator_collision_scenario),
     (
         "unresolved-covers-names-what-failed",
