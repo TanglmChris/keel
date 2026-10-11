@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.103.0"
-PROTOCOL_VERSION = "5.103.0"
+PACKAGE_VERSION = "5.104.0"
+PROTOCOL_VERSION = "5.104.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2600,6 +2600,103 @@ def validate_chat_ack_scenario() -> int:
                 return 1
 
     report("chat-ack scenario passed.")
+    return 0
+
+
+def validate_chat_summary_scenario() -> int:
+    """Issue #255: `keel chat summary --since` digests what changed, per group and sender.
+
+    Built from the records alone: a superseded record folds into its
+    successor, todos carry open or done, waiting acknowledgements name who
+    has not given one, and no read cursor moves.
+    """
+    label = "chat-summary:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-summary-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        loose = chat_worktree(rtl, base / "loose")
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        # A record's `created` is stamped to the second, so the time is too.
+        before = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        rule = chat_json(chat(rtl, "post", "soc", "rule: rerun on every merge", "--json")).get("id", "")
+        newer = chat_json(chat(rtl, "post", "soc", "rule: rerun nightly", "--supersedes", rule, "--json")).get("id", "")
+        asked = chat_json(chat(rtl, "post", "soc", "@verify confirm R007", "--ack", "--json")).get("id", "")
+        closed = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "rerun R007", "--json")).get("id", "")
+        chat(verify, "done", closed)
+        chat(verify, "post", "soc", "R007 is green")
+        still = chat_json(chat(verify, "todo", "soc", "--assignee", "rtl", "review the clock fix", "--json")).get("id", "")
+        if not all((rule, newer, asked, closed, still)):
+            report(f"{label} the fixture could not post every record: {[rule, newer, asked, closed, still]!r}")
+            return 1
+
+        store = Path(chat_json(chat(rtl, "role", "--json")).get("store", ""))
+        cursors = {path: path.read_bytes() for path in (store / "cursors").rglob("*") if path.is_file()}
+        result = chat(rtl, "summary", "--since", before, "--json")
+        if result.returncode != 0:
+            report(f"{label} keel chat summary failed: {result.stdout} {result.stderr}")
+            return 1
+        payload = chat_json(result)
+        after = {path: path.read_bytes() for path in (store / "cursors").rglob("*") if path.is_file()}
+        if after != cursors:
+            report(f"{label} the summary moved a read cursor.")
+            return 1
+        groups = {group.get("group"): group for group in payload.get("groups", [])}
+        if list(groups) != ["soc"]:
+            report(f"{label} the summary lists groups {list(groups)!r}, not ['soc'].")
+            return 1
+        senders = {sender.get("role"): sender for sender in groups["soc"].get("senders", [])}
+        if list(senders) != ["rtl", "verify"]:
+            report(f"{label} the senders are {list(senders)!r}, not ['rtl', 'verify'] in role order.")
+            return 1
+        r, v = senders["rtl"], senders["verify"]
+        expected = [
+            ("rtl's message count, the superseded rule folded", r.get("messages"), 2),
+            ("rtl's todo, closed", [(t.get("id"), t.get("assignee"), t.get("state")) for t in r.get("todosOpened", [])], [(closed, "verify", "done")]),
+            ("rtl's superseding record", [(x.get("id"), x.get("supersedes")) for x in r.get("supersedes", [])], [(newer, rule)]),
+            ("verify's message count", v.get("messages"), 1),
+            ("verify's todo, open", [(t.get("id"), t.get("assignee"), t.get("state")) for t in v.get("todosOpened", [])], [(still, "rtl", "open")]),
+            ("verify's closed todo", [t.get("id") for t in v.get("todosClosed", [])], [closed]),
+            ("the waiting acknowledgement", [(a.get("id"), a.get("waiting")) for a in payload.get("waitingAcks", [])], [(asked, ["verify"])]),
+        ]
+        for what, got, want in expected:
+            if got != want:
+                report(f"{label} {what} is {got!r}, not {want!r}.")
+                return 1
+        if rule in json.dumps(payload).replace(f'"supersedes": "{rule}"', ""):
+            report(f"{label} the superseded rule {rule} is listed on its own.")
+            return 1
+        text = chat(rtl, "summary", "--since", before)
+        if text.returncode != 0:
+            report(f"{label} the text summary failed: {text.stderr!r}")
+            return 1
+        if f"{newer} superseded {rule}" not in text.stdout:
+            report(f"{label} the text summary does not name the superseding record: {text.stdout!r}")
+            return 1
+
+        quiet = chat(rtl, "summary", "--since", "2999-01-01")
+        if quiet.returncode != 0:
+            report(f"{label} a time after the last record exited {quiet.returncode}: {quiet.stderr!r}")
+            return 1
+        if "nothing changed" not in quiet.stdout:
+            report(f"{label} a time after the last record did not say nothing changed: {quiet.stdout!r}")
+            return 1
+        refusals = [
+            ("a summary without --since", chat(rtl, "summary"), "--since"),
+            ("an unreadable --since", chat(rtl, "summary", "--since", "yesterdayish"), "--since"),
+            ("a worktree with no role", chat(loose, "summary", "--since", "1d"), "keel chat role --set"),
+        ]
+        for what, refused, needle in refusals:
+            if refused.returncode == 0:
+                report(f"{label} {what} was accepted: {refused.stdout}")
+                return 1
+            if needle not in refused.stderr:
+                report(f"{label} {what} was refused without naming {needle!r}: {refused.stderr}")
+                return 1
+
+    report("chat-summary scenario passed.")
     return 0
 
 
@@ -38084,6 +38181,7 @@ SCENARIOS: tuple = (
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
+    ("chat-summary", validate_chat_summary_scenario),
     ("worktree-overview", validate_worktree_overview_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),

@@ -23,6 +23,7 @@ const USAGE = [
   "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--json]   (also: keel chat <group> <text...>)",
   "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
   "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
+  "keel chat summary --since <90s|15m|2h|3d|date> [--group <group>] [--json]   (what changed, per group and sender; reads without marking read)",
   "keel chat dm <role> <text...> [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
@@ -129,6 +130,26 @@ function ackLines(acks) {
     `read, not acknowledged: ${list(acks.readNotAcknowledged)}`,
     `not read: ${list(acks.unread)}`,
   ];
+}
+
+function summaryLines({ groups, waitingAcks }, sinceText) {
+  if (!groups.length && !waitingAcks.length) return [`keel chat: nothing changed since ${sinceText}.`];
+  const first = (text) => String(text || "").split("\n")[0];
+  const lines = [`Since ${sinceText}:`];
+  for (const { group, senders } of groups) {
+    lines.push(`${group}:`);
+    for (const sender of senders) {
+      lines.push(`  ${sender.role}: ${sender.messages} message${sender.messages === 1 ? "" : "s"}`);
+      for (const t of sender.todosOpened) lines.push(`    todo for ${t.assignee} (${t.state}) ${t.id}: ${first(t.text)}`);
+      for (const t of sender.todosClosed) lines.push(`    closed todo from ${t.from} ${t.id}: ${first(t.text)}`);
+      for (const x of sender.supersedes) lines.push(`    ${x.id} superseded ${x.supersedes}: ${first(x.text)}`);
+    }
+  }
+  if (waitingAcks.length) {
+    lines.push("Waiting on an acknowledgement:");
+    for (const a of waitingAcks) lines.push(`  ${a.group} ${a.id} from ${a.from}, waiting on ${a.waiting.join(", ")}: ${first(a.text)}`);
+  }
+  return lines;
 }
 
 function publicRecord(record) {
@@ -287,6 +308,18 @@ function dispatch(where, options) {
       if (options.json) out(JSON.stringify({ records: rows.map(({ record, acks }) => ({ ...publicRecord(record), acks })) }));
       else if (!rows.length) out("keel chat: no record is waiting on an acknowledgement.");
       else out(rows.map(({ record, acks }) => [`${record.group} ${formatLine(record)}`, ...ackLines(acks).map((line) => `  ${line}`)].join("\n")).join("\n"));
+      return 0;
+    }
+    case "summary": {
+      if (options.since === null) throw new ChatError("keel chat summary needs --since <90s|15m|2h|3d|date>.");
+      const threshold = parseSince(options.since);
+      if (threshold === null) throw new ChatError(`--since ${JSON.stringify(options.since)} is not a time; use 90s, 15m, 2h, 3d, or a date.`);
+      const role = store.requireRole(where);
+      if (options.group !== null) store.checkName(options.group, "Group");
+      const digest = store.summary(where, role, threshold, { group: options.group });
+      const sinceText = store.isoLocal(new Date(threshold));
+      if (options.json) out(JSON.stringify({ since: sinceText, ...digest }));
+      else out(summaryLines(digest, sinceText).join("\n"));
       return 0;
     }
     case "dm": {

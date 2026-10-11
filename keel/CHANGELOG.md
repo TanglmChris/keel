@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.104.0 - `keel chat summary --since`: what changed, per group and sender
+
+Issue #255, part of #250 (rtl_ppa_prj, 2026-10-05): the coordinator wrote a status digest twice a day by hand from group views and searches.
+
+- `keel chat summary --since <90s|15m|2h|3d|date> [--group <g>] [--json]` lists, for each group the caller can read, per sender: the message count, todos opened with their assignee and whether they are still open, todos closed, and records that superseded another, naming what they superseded. A superseded record is not listed on its own.
+- After the groups it lists records posted since then that still wait on an acknowledgement, with who has not given it.
+- Built from the records alone: no model, no network, and no read cursor moves. With nothing since the time it says so and exits 0; a missing or unreadable `--since`, or a worktree with no role, is refused naming the fix.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.104.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.103.0 - `keel chat --ack`: ask for an acknowledgement and see who has not given it
 
 Issue #253, part of #250, absorbing #247 (rtl_ppa_prj, 2026-10-05): about 20 messages in one day, several of them resends, because silence looked like work in progress. Read cursors showed who had read a record, but not who had read and agreed.
