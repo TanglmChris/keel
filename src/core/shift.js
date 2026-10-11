@@ -268,7 +268,14 @@ function request(where, role, text) {
 }
 
 function readNoteText(options) {
-  if (options.file) return fs.readFileSync(options.file, "utf8");
+  if (options.file) {
+    // `-` is stdin, as without --file (D1); any other failure is named (D2).
+    try {
+      return fs.readFileSync(options.file === "-" ? 0 : options.file, "utf8");
+    } catch (error) {
+      throw new ShiftError(`Cannot read the shift note from --file ${options.file}: ${error.code || error.message}.`);
+    }
+  }
   if (options.text) return options.text;
   if (!process.stdin.isTTY) {
     try {

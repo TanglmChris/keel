@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.1"
-PROTOCOL_VERSION = "5.99.1"
+PACKAGE_VERSION = "5.99.2"
+PROTOCOL_VERSION = "5.99.2"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4713,6 +4713,37 @@ def validate_shift_without_role_scenario() -> int:
             return 1
         if "keel shift resume" in run_keel(repo, "context", env=env).stdout:
             report(f"{label} keel context still points to a note already resumed.")
+            return 1
+
+        # Issue #261: `--file -` is stdin, and an unreadable file is a named refusal.
+        missing = base / "missing-note.md"
+        refused = run_keel(repo, "shift", "ready", "--file", str(missing), env=env)
+        if re.search(r"^\s+at ", refused.stderr, re.M):
+            report(f"{label} an unreadable --file escaped as an uncaught exception: {refused.stderr.strip()}")
+            return 1
+        if refused.returncode != 1:
+            report(f"{label} an unreadable --file exited {refused.returncode}, not 1: {refused.stderr.strip()}")
+            return 1
+        if not refused.stderr.startswith("keel shift:"):
+            report(f"{label} an unreadable --file was not refused as a keel shift error: {refused.stderr.strip()}")
+            return 1
+        if str(missing) not in refused.stderr:
+            report(f"{label} the refusal of an unreadable --file does not name the path: {refused.stderr.strip()}")
+            return 1
+        piped = subprocess.run(
+            ["node", str(ROOT / "bin" / "keel.js"), "shift", "ready", "--file", "-"],
+            cwd=repo, env=env, input="next: from stdin via --file -\n",
+            text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
+        )
+        if piped.returncode != 0:
+            report(f"{label} keel shift ready --file - failed: {piped.stderr.strip()}")
+            return 1
+        notes = list((common / "shift" / "worktree").glob("*.md"))
+        if len(notes) != 1:
+            report(f"{label} keel shift ready --file - kept {len(notes)} worktree notes, not one.")
+            return 1
+        if "from stdin via --file -" not in notes[0].read_text(encoding="utf-8"):
+            report(f"{label} the note stored by keel shift ready --file - lacks the text given on stdin.")
             return 1
 
     for relative, needle in (("docs/shift-change.md", "no chat role"), ("docs/shift-change.zh-CN.md", "不绑定聊天角色")):

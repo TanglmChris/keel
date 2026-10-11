@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.99.2 - `keel shift ready --file -` reads stdin
+
+Issue #261: on 2026-10-06 the Keel maintenance session ran `keel shift ready --file - <<EOF … EOF` and got an uncaught `ENOENT: … open '-'` with a Node stack trace.
+
+- `--file -` reads the note from stdin, as stdin without `--file` already did.
+- A `--file` that cannot be read is refused as `keel shift: Cannot read the shift note from --file <path>: <reason>.` and exits 1, with no stack trace.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.1 - Another session's temporary worktree no longer blocks a shift change
 
 rtl_ppa_flow ran `keel shift check` on 2026-10-06. It reported three temporary worktrees from other sessions' scratchpads and said not ready. As 5.99.0 counted them, one session's leftover would block every session of the repository.
