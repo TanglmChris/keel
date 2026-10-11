@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.99.5 - The dsh catalog entry describes its sandbox as measured
+
+Issue #259: `keel agents dsh` said dsh had no sandbox and "reads and writes wherever it is started". Measured in rtl_ppa_prj on 2026-10-05 with dsh 0.2.0-rc.2, `--profile headless` runs under its own workspace-write file policy: it refused writes to `/dev/stdout` and to `~/Library/Caches`, while `/tmp` stayed writable. A session that believed the catalog lost about an hour to it.
+
+- A catalog entry may carry `ownSandbox`, a sandbox its CLI applies by itself, printed on the `Sandbox:` line of `keel agents <name>`. dsh's says so, and that it still needs a separate worktree, because it writes freely inside its own directory.
+- dsh's pitfalls: the no-sandbox one is replaced, and two are added, for `/dev/stdout` and for `PYTHONPYCACHEPREFIX`.
+- A catalog template may use `{tmp}`: `keel agents brief` creates `tmp/` beside `--out`, names it in the brief, and fills `{tmp}` with it. dsh's template sets `TMPDIR` to it and `PYTHONPYCACHEPREFIX` to `pycache` under it.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.5; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.4 - `--record` adds Evidence slots in template order
 
 Issue #236, reported by rtl_ppa_flow on 2026-10-05: an Evidence block often already holds `Contract`, `Blocker`, and `Reauthorizations` when `keel gate task-start --record` runs, and the gate appended every missing slot after `Reauthorizations:`. A session that then rewrote the block in template order left the pending lines behind, and `task-complete` reported duplicate labels.

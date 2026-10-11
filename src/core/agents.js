@@ -20,7 +20,7 @@ const path = require("path");
 
 const { readExternalAgents } = require("./config");
 
-const FIELDS = ["executable", "command", "sandbox", "sendsTo", "pitfalls"];
+const FIELDS = ["executable", "command", "sandbox", "ownSandbox", "sendsTo", "pitfalls"];
 const MODES = ["helper", "implementation"];
 
 const RTL_TOOLCHAIN = "rtl_ppa_prj docs/toolchain.md (main 632ad85)";
@@ -71,8 +71,9 @@ const BUNDLED = {
   },
   dsh: {
     executable: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
-    command: "cd {dir} && {executable} --profile headless - < {prompt} > {out}",
+    command: "cd {dir} && TMPDIR={tmp} PYTHONPYCACHEPREFIX={tmp}/pycache {executable} --profile headless - < {prompt} > {out}",
     sandbox: { helper: null, implementation: null },
+    ownSandbox: "the headless profile applies its own workspace-write file policy: outside the directory it starts in, writes are refused (including /dev/stdout and ~/Library/Caches) while /tmp stays writable; inside it, it writes freely, so it still needs a separate worktree (dsh 0.2.0-rc.2, #259)",
     sendsTo: "DeepSeek, through the provider the profile configures (by default deepseek-official, model deepseek-flash)",
     pitfalls: [
       {
@@ -86,9 +87,19 @@ const BUNDLED = {
         text: "First use needs a DeepSeek API key, stored once through the app's Models page or exported as DEEPSEEK_API_KEY where it is launched; until then the headless profile fails with MISSING_CREDENTIAL. With the key stored it runs from any directory.",
       },
       {
-        date: "2026-10-04",
-        source: "dsh headless --help, 0.2.0-rc.2",
-        text: "It offers no sandbox flag and no working-directory flag. It reads and writes wherever it is started, so start it in a separate worktree.",
+        date: "2026-10-05",
+        source: "https://github.com/TanglmChris/keel/issues/259",
+        text: "It offers no sandbox flag and no working-directory flag, and its headless profile has no read-only mode: it writes freely inside the directory it starts in, so start it in a separate worktree.",
+      },
+      {
+        date: "2026-10-05",
+        source: "https://github.com/TanglmChris/keel/issues/259",
+        text: "Writing /dev/stdout is refused (`Operation not permitted`), so a tool that writes through it, such as yosys `tee -o /dev/stdout`, fails in its shell. One run spent about an hour working around it.",
+      },
+      {
+        date: "2026-10-05",
+        source: "https://github.com/TanglmChris/keel/issues/259",
+        text: "macOS Python's cache directory under ~/Library/Caches is not writable, so `python -m compileall` fails unless PYTHONPYCACHEPREFIX points inside a writable directory. The brief's command sets it, and TMPDIR, to `tmp/` beside the brief.",
       },
       {
         date: "2026-10-04",
@@ -230,6 +241,7 @@ function describeAgents(repo) {
       allowed: declaration.allow.includes(entry.name),
       command: entry.command,
       sandbox: entry.sandbox,
+      ownSandbox: entry.ownSandbox || null,
       sendsTo: entry.sendsTo || null,
       pitfalls: entry.pitfalls,
     }));
@@ -248,8 +260,9 @@ function describeAgents(repo) {
   };
 }
 
-function sandboxLine(sandbox) {
-  return MODES.map((mode) => `${mode} ${sandbox[mode] || "none (needs a separate worktree)"}`).join("; ");
+function sandboxLine(sandbox, ownSandbox) {
+  const modes = MODES.map((mode) => `${mode} ${sandbox[mode] || "none (needs a separate worktree)"}`).join("; ");
+  return ownSandbox ? `${modes}. Its own: ${ownSandbox}` : modes;
 }
 
 function pitfallLines(pitfalls) {
@@ -278,7 +291,7 @@ function renderAgent(payload, agent) {
     `${agent.name} [${agent.source}]`,
     `Executable: ${agent.executable} → ${agent.resolved || "not found"}`,
     `Command: ${agent.command}`,
-    `Sandbox: ${sandboxLine(agent.sandbox)}`,
+    `Sandbox: ${sandboxLine(agent.sandbox, agent.ownSandbox)}`,
     `Sends to: ${agent.sendsTo || "not recorded"}`,
     `Allowed here: ${agent.allowed ? "yes" : "no"}`,
     "",
@@ -372,7 +385,7 @@ function shellQuote(value) {
 }
 
 function fillCommand(template, values) {
-  return template.replace(/\{(executable|sandbox|dir|prompt|out)\}/g, (_, key) => shellQuote(values[key]));
+  return template.replace(/\{(executable|sandbox|dir|prompt|out|tmp)\}/g, (_, key) => shellQuote(values[key]));
 }
 
 const BRIEF_PROHIBITIONS = [
@@ -382,7 +395,7 @@ const BRIEF_PROHIBITIONS = [
   "Do not update a task's checkbox, Contract, Evidence, or Review.",
 ];
 
-function renderBrief({ agent, mode, dir, projection, source, result }) {
+function renderBrief({ agent, mode, dir, projection, source, result, tmp }) {
   const list = (items) => (items.length ? items.map((item) => `- ${item}`) : ["- none"]);
   const lines = [
     `# Brief for ${agent.name}: ${source.change}#${source.task}`,
@@ -390,6 +403,7 @@ function renderBrief({ agent, mode, dir, projection, source, result }) {
     `Mode: ${mode}${agent.sandbox[mode] ? ` (sandbox ${agent.sandbox[mode]})` : ""}`,
     `Working directory: ${dir}`,
     `Write your final report to: ${result}`,
+    ...(tmp ? [`Temporary files: ${tmp} (TMPDIR points there); put none anywhere else.`] : []),
     "",
     "## Task",
     "",
@@ -499,8 +513,12 @@ function compileBrief(repo, options) {
   const out = path.resolve(options.out);
   const result = out.replace(/(\.md)?$/, ".result.md");
   fs.mkdirSync(path.dirname(out), { recursive: true });
+  // A template's {tmp} is a directory beside the brief, inside whatever the
+  // agent's own sandbox lets it write when --out is in its worktree (#259).
+  const tmp = entry.command.includes("{tmp}") ? path.join(path.dirname(out), "tmp") : null;
+  if (tmp) fs.mkdirSync(tmp, { recursive: true });
   fs.writeFileSync(out, renderBrief({
-    agent: entry, mode: options.mode, dir, projection, source: projected.source, result,
+    agent: entry, mode: options.mode, dir, projection, source: projected.source, result, tmp,
   }));
   // A subshell, so a `cd` in a template does not move the caller, and the exit
   // status beside the result, because it is the one account of how the run
@@ -512,6 +530,7 @@ function compileBrief(repo, options) {
     dir,
     prompt: out,
     out: result,
+    tmp: tmp || "",
   });
   const run = `( ${filled} ); echo $? > ${shellQuote(exit)}`;
   return {
