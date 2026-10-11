@@ -24,6 +24,8 @@ const USAGE = [
   "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
   "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
   "keel chat summary --since <90s|15m|2h|3d|date> [--group <group>] [--json]   (what changed, per group and sender; reads without marking read)",
+  "keel chat wait <group> --commit <sha> [--remote <name>] [note...]   (or --issue <n> --closed: what this role waits for; keel patrol tells it when it holds)",
+  "keel chat waits [--json]                 waits not yet met",
   "keel chat dm <role> <text...> [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
@@ -62,6 +64,8 @@ const VALUED = {
   "--issue": "issue",
   "--group": "group",
   "--since": "since",
+  "--commit": "commit",
+  "--remote": "remote",
   "--worktree": "worktree",
   "--thread": "thread",
   "--host": "host",
@@ -69,10 +73,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -320,6 +324,22 @@ function dispatch(where, options) {
       const sinceText = store.isoLocal(new Date(threshold));
       if (options.json) out(JSON.stringify({ since: sinceText, ...digest }));
       else out(summaryLines(digest, sinceText).join("\n"));
+      return 0;
+    }
+    case "wait": {
+      const [group, ...words] = rest;
+      if (!group) throw new ChatError("keel chat wait needs a group.");
+      const record = store.wait(where, {
+        group, commit: options.commit, remote: options.remote, issue: options.issue,
+        closed: options.closed, text: words.join(" "),
+      });
+      out(options.json ? JSON.stringify({ id: record.id, condition: record.condition }) : `Waiting: ${record.condition} (${record.id}).`);
+      return 0;
+    }
+    case "waits": {
+      const waits = store.openWaits(where);
+      if (options.json) out(JSON.stringify({ waits: waits.map((w) => ({ id: w.id, group: w.group, from: w.from, condition: w.condition, text: w.text, created: w.created })) }));
+      else out(waits.length ? waits.map((w) => `${w.group} ${w.id} ${w.from} waits for ${w.condition}${w.text ? `: ${w.text}` : ""}`).join("\n") : "keel chat: nobody is waiting.");
       return 0;
     }
     case "dm": {

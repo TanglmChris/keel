@@ -2871,6 +2871,9 @@ function main() {
   if (process.argv[2] === "lock") {
     return require("../src/core/lock").runLock(process.argv.slice(3));
   }
+  if (process.argv[2] === "patrol") {
+    return require("../src/core/patrol").runPatrol(process.argv.slice(3));
+  }
   if (process.argv[2] === "worktrees") {
     return require("../src/core/worktrees").runWorktrees(process.argv.slice(3));
   }

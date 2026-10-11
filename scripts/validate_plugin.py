@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.108.0"
-PROTOCOL_VERSION = "5.108.0"
+PACKAGE_VERSION = "5.109.0"
+PROTOCOL_VERSION = "5.109.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2575,6 +2575,160 @@ def validate_chat_listen_only_scenario() -> int:
             report(f"{label} group list does not mark the listen-only member: {listed!r}")
             return 1
     report("chat-listen-only scenario passed.")
+    return 0
+
+
+def chat_logs_snapshot(repo: Path) -> dict:
+    groups = mailbox_common_dir(repo) / "keel-chat" / "groups"
+    return {str(p): p.read_bytes() for p in groups.rglob("*") if p.is_file()}
+
+
+def validate_coordinator_patrol_scenario() -> int:
+    """Issue #260: declared waits, and a patrol that notifies once.
+
+    `keel chat wait` records what a role waits for; `keel patrol` marks a held
+    condition met and direct-messages the waiter, writes nothing when nothing
+    holds, and exits 0 (quiet), 2 (wrote), or 1 (error).
+    """
+    label = "coordinator-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        origin = base / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+        for args in (["remote", "add", "origin", str(origin)], ["push", "-q", "origin", "main"],
+                     ["switch", "-q", "-c", "feature"], ["commit", "-q", "--allow-empty", "-m", "fix"]):
+            subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=rtl, check=True, capture_output=True, text=True).stdout.strip()
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        def patrol(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "patrol", *args, env=env)
+
+        waited = chat(verify, "wait", "soc", "--commit", sha, "rerun R007 when the fix lands")
+        if waited.returncode != 0:
+            report(f"{label} keel chat wait failed: {waited.stdout} {waited.stderr}")
+            return 1
+        waits = chat_json(chat(rtl, "waits", "--json")).get("waits", [])
+        if [(w.get("from"), w.get("condition")) for w in waits] != [("verify", f"commit {sha} on origin")]:
+            report(f"{label} waits lists {waits!r}.")
+            return 1
+        if chat_json(chat(rtl, "unread", "--json")).get("unread"):
+            report(f"{label} a wait left rtl something unread.")
+            return 1
+        for what, result in (
+            ("no condition", chat(verify, "wait", "soc")),
+            ("both conditions", chat(verify, "wait", "soc", "--commit", sha, "--issue", "42", "--closed")),
+        ):
+            if result.returncode == 0:
+                report(f"{label} a wait with {what} was accepted.")
+                return 1
+            if "--commit" not in result.stderr or "--issue" not in result.stderr:
+                report(f"{label} a wait with {what} was refused without naming both forms: {result.stderr}")
+                return 1
+
+        before = chat_logs_snapshot(rtl)
+        quiet = patrol()
+        if quiet.returncode != 0:
+            report(f"{label} patrol before the push exited {quiet.returncode}: {quiet.stdout} {quiet.stderr}")
+            return 1
+        if chat_logs_snapshot(rtl) != before:
+            report(f"{label} a quiet patrol wrote to the chat.")
+            return 1
+        if "verify" not in quiet.stdout:
+            report(f"{label} the digest does not list verify: {quiet.stdout!r}")
+            return 1
+
+        subprocess.run(["git", "push", "-q", "origin", "feature"], cwd=rtl, check=True, capture_output=True)
+        landed = patrol()
+        if landed.returncode != 2:
+            report(f"{label} patrol after the push exited {landed.returncode}, not 2: {landed.stdout} {landed.stderr}")
+            return 1
+        if chat_json(chat(rtl, "waits", "--json")).get("waits"):
+            report(f"{label} the met wait is still listed.")
+            return 1
+        texts = [r.get("text", "") for r in chat_json(chat(verify, "unread", "--json")).get("unread", [])]
+        if not any(sha[:7] in text for text in texts):
+            report(f"{label} verify has no unread message naming the commit: {texts!r}")
+            return 1
+        before = chat_logs_snapshot(rtl)
+        again = patrol()
+        if again.returncode != 0:
+            report(f"{label} a second patrol exited {again.returncode}, not 0.")
+            return 1
+        if chat_logs_snapshot(rtl) != before:
+            report(f"{label} a second patrol wrote again.")
+            return 1
+
+        chat(verify, "wait", "soc", "--issue", "42", "--closed")
+        unchecked = patrol()
+        if unchecked.returncode != 0:
+            report(f"{label} patrol without --issues exited {unchecked.returncode}, not 0.")
+            return 1
+        if "unchecked" not in unchecked.stdout:
+            report(f"{label} patrol without --issues does not report the issue wait unchecked: {unchecked.stdout!r}")
+            return 1
+        issues = base / "issues.json"
+        issues.write_text(json.dumps([{"number": 42, "title": "clock fix", "state": "CLOSED", "labels": [], "updatedAt": "2026-10-11T00:00:00Z"}]), encoding="utf-8")
+        closed = patrol("--issues", str(issues))
+        if closed.returncode != 2:
+            report(f"{label} patrol with issue 42 closed exited {closed.returncode}, not 2: {closed.stdout} {closed.stderr}")
+            return 1
+    report("coordinator-patrol scenario passed.")
+    return 0
+
+
+def validate_patrol_issue_routing_scenario() -> int:
+    """Issue #242: `issue_roles:` routes each labelled issue update once.
+
+    The label's role gets one direct message per `updatedAt`, deduped against
+    the chat; an unreadable line is reported and routes nothing.
+    """
+    label = "patrol-issue-routing:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-issues-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        write_authorize_config(rtl, "issue_roles:\n  role:verify: verify\n  this line has no role\n")
+        issues = base / "issues.json"
+
+        def patrol(updated: str) -> subprocess.CompletedProcess[str]:
+            issues.write_text(json.dumps([{
+                "number": 157, "title": "rerun on new commit", "state": "OPEN",
+                "labels": [{"name": "role:verify"}], "updatedAt": updated,
+            }]), encoding="utf-8")
+            return run_keel(rtl, "patrol", "--issues", str(issues), env=env)
+
+        def notices() -> list:
+            return [r.get("text", "") for r in chat_json(run_keel(verify, "chat", "unread", "--json", env=env)).get("unread", []) if "#157" in r.get("text", "")]
+
+        first = patrol("2026-10-11T01:00:00Z")
+        if first.returncode != 2:
+            report(f"{label} the first patrol exited {first.returncode}, not 2: {first.stdout} {first.stderr}")
+            return 1
+        if len(notices()) != 1:
+            report(f"{label} verify has {len(notices())} notices about #157, not 1.")
+            return 1
+        if "this line has no role" not in first.stdout:
+            report(f"{label} the unreadable issue_roles line is not reported: {first.stdout!r}")
+            return 1
+        before = chat_logs_snapshot(rtl)
+        same = patrol("2026-10-11T01:00:00Z")
+        if same.returncode != 0:
+            report(f"{label} the same update exited {same.returncode}, not 0.")
+            return 1
+        if chat_logs_snapshot(rtl) != before:
+            report(f"{label} the same update was sent again.")
+            return 1
+        later = patrol("2026-10-11T02:00:00Z")
+        if later.returncode != 2:
+            report(f"{label} a later update exited {later.returncode}, not 2.")
+            return 1
+        if len(notices()) != 2:
+            report(f"{label} a later update left {len(notices())} notices, not 2.")
+            return 1
+    report("patrol-issue-routing scenario passed.")
     return 0
 
 
@@ -38643,6 +38797,8 @@ SCENARIOS: tuple = (
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
+    ("coordinator-patrol", validate_coordinator_patrol_scenario),
+    ("patrol-issue-routing", validate_patrol_issue_routing_scenario),
     ("chat-listen-only", validate_chat_listen_only_scenario),
     ("chat-summary", validate_chat_summary_scenario),
     ("worktree-overview", validate_worktree_overview_scenario),

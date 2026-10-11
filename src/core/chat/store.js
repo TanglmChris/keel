@@ -41,7 +41,7 @@ const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
   "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack",
-  "assignee", "issue", "target", "access", "refs", "origin", "slack_channel", "slack_ts",
+  "assignee", "issue", "target", "access", "condition", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
 // A group may not take a name `keel chat <group>` would read as a subcommand.
@@ -807,6 +807,57 @@ function directPost(where, target, text, extra = {}) {
   return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [] });
 }
 
+// --- waits (#260) ---------------------------------------------------------------
+
+const WAIT_FORMS = "`--commit <sha> [--remote <name>]` or `--issue <n> --closed`";
+
+// What a role is waiting for, as a record every session can read. A wait is
+// not readable (D1): it wakes nobody and is unread for nobody.
+function wait(where, options) {
+  const from = requireRole(where);
+  const group = options.group;
+  checkName(group, "Group");
+  const byCommit = options.commit !== null && options.commit !== undefined;
+  const byIssue = options.issue !== null && options.issue !== undefined;
+  if (byCommit === byIssue) {
+    throw new ChatError(`keel chat wait needs exactly one condition: ${WAIT_FORMS}.`);
+  }
+  let condition;
+  if (byCommit) {
+    if (!/^[0-9a-f]{7,40}$/i.test(String(options.commit))) {
+      throw new ChatError(`--commit ${JSON.stringify(options.commit)} is not a commit id; use ${WAIT_FORMS}.`);
+    }
+    const remote = options.remote || "origin";
+    checkName(remote.toLowerCase(), "Remote");
+    condition = `commit ${String(options.commit).toLowerCase()} on ${remote}`;
+  } else {
+    if (!options.closed) throw new ChatError(`keel chat wait --issue needs --closed; use ${WAIT_FORMS}.`);
+    condition = `issue ${normalizeIssue(options.issue)} closed`;
+  }
+  const { state } = loadGroup(where, group);
+  requireOpenMembership(group, state, from);
+  return writeRecord(where, { group, kind: "wait", from, condition, text: String(options.text || "").replace(/\s+$/, "") });
+}
+
+// Waits no `met` record targets, in the open groups `role` can read (or all).
+function openWaits(where, role = null) {
+  const waits = [];
+  for (const group of listGroupNames(where)) {
+    const records = readLog(where, group);
+    const state = groupState(records);
+    if (!state.exists || state.archived || (role && !canAct(state, role))) continue;
+    const met = new Set(records.filter((r) => r.kind === "met").map((r) => r.target));
+    for (const record of records) {
+      if (record.kind === "wait" && !met.has(record.id)) waits.push(record);
+    }
+  }
+  return waits;
+}
+
+function markMet(where, waitRecord, by) {
+  return writeRecord(where, { group: waitRecord.group, kind: "met", from: by, target: waitRecord.id });
+}
+
 // --- cursors and receipts -----------------------------------------------------
 
 // What changed since a time, per group and sender (#255): built from the
@@ -931,6 +982,10 @@ function readGroups(where, role, group) {
 }
 
 module.exports = {
+  wait,
+  openWaits,
+  markMet,
+  canAct,
   ack,
   summary,
   ackStatus,
