@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.105.1"
-PROTOCOL_VERSION = "5.105.1"
+PACKAGE_VERSION = "5.106.0"
+PROTOCOL_VERSION = "5.106.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8568,8 +8568,11 @@ def validate_context_per_worktree_scenario() -> int:
             return 1
         elsewhere = {e.get("change"): e for e in here.get("elsewhere", [])}
         broken = elsewhere.get("broken", {})
-        if broken.get("status") != "blocked" or broken.get("worktree") != str(rtl.resolve()):
-            report(f"{label} review does not list broken as blocked in worktree rtl: {here.get('elsewhere')!r}")
+        if broken.get("status") != "blocked":
+            report(f"{label} review does not list broken as blocked: {here.get('elsewhere')!r}")
+            return 1
+        if broken.get("worktree") != str(rtl.resolve()):
+            report(f"{label} review does not place broken in worktree rtl: {here.get('elsewhere')!r}")
             return 1
         if elsewhere.get("owned", {}).get("owner") != "verify":
             report(f"{label} review does not list owned as belonging to verify: {here.get('elsewhere')!r}")
@@ -8584,8 +8587,11 @@ def validate_context_per_worktree_scenario() -> int:
             return 1
 
         owner = context(verify)
-        if owner.get("status") != "ready" or (owner.get("selection") or {}).get("change") != "owned":
+        if (owner.get("selection") or {}).get("change") != "owned":
             report(f"{label} verify does not select its owned change: {owner}")
+            return 1
+        if owner.get("status") != "ready":
+            report(f"{label} verify's owned change is {owner.get('status')!r}, not ready: {owner}")
             return 1
 
         explicit = context(review, "--change", "broken")
@@ -8621,8 +8627,11 @@ def validate_read_only_role_scenario() -> int:
             report(f"{label} a read-only role is {context.get('status')!r}, not idle: {context}")
             return 1
         reasons = context.get("reasons", [])
-        if len(reasons) != 1 or "review" not in reasons[0]:
-            report(f"{label} the read-only result is not one reason naming review: {reasons!r}")
+        if len(reasons) != 1:
+            report(f"{label} the read-only result has {len(reasons)} reasons, not one: {reasons!r}")
+            return 1
+        if "review" not in reasons[0]:
+            report(f"{label} the read-only reason does not name review: {reasons!r}")
             return 1
         if (context.get("readOnly") or {}).get("role") != "review":
             report(f"{label} the result carries no readOnly naming review: {context.get('readOnly')!r}")

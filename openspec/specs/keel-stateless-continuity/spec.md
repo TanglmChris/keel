@@ -16,7 +16,7 @@ Keel MUST compute continuity from current durable inputs and MUST NOT persist ac
 - **THEN** Keel does not require or treat those surfaces as the durable owner of the current change, task, evidence, or follow-up
 
 ### Requirement: Keel resolves continuity conservatively
-Keel MUST resolve continuity in the order explicit selection, valid HANDOFF override, unique actionable OpenSpec inference, then a non-ready status. Keel MUST classify authoring, executable task, and change-close owners as actionable, MUST NOT let storage-only zero-task backlogs compete with them, and MUST NOT use Git dirty state to choose a change or task.
+Keel MUST resolve continuity in the order explicit selection, valid HANDOFF override, a read-only role's `idle`, unique actionable OpenSpec inference among the changes that belong to this worktree, then a non-ready status. Keel MUST classify authoring, executable task, and change-close owners as actionable, MUST NOT let storage-only zero-task backlogs compete with them, and MUST NOT use Git dirty state to choose a change or task.
 
 #### Scenario: Explicit selection wins
 - **WHEN** `keel context` receives a valid explicit change or task selection
@@ -477,3 +477,33 @@ Lines outside every task field MUST keep the line-wide rules, and the commit-has
 #### Scenario: A line outside any task field keeps the line-wide rule
 - **WHEN** a task title line or a notes section carries a context word and a hash-shaped token apart, or the word `dirty`
 - **THEN** `keel --check` reports `keel state: failed` and names the line
+
+### Requirement: A change that belongs to another worktree does not set this session's status
+
+A change MAY declare its owner role as `owner: <role>` under the Keel-owned key of its OpenSpec change configuration. Inference MUST count a change as belonging to this worktree unless it belongs elsewhere: when it declares an owner role and this worktree is not bound to that role, or, when it declares none, when another worktree's branch has commits touching the change's directory beyond the default branch and this worktree's `HEAD` has none. Dirty state MUST NOT decide it. Inference MUST run over the changes that belong to this worktree as it would over all of them, and MUST report each change that belongs elsewhere with its status and its owner role or worktree and branch, without letting it make this session `blocked`, `ambiguous`, or `ready`. When every active change belongs elsewhere the status MUST be `idle`. Explicit selection MUST still reach a change that belongs elsewhere.
+
+#### Scenario: Another worktree's blocked change is context, not a block
+- **WHEN** worktree `review` has no change of its own and worktree `rtl` has committed a change on its branch that fails to compile
+- **THEN** `keel context` in `review` reports `idle` and lists that change as blocked in worktree `rtl`
+- **AND THEN** `keel context` in `rtl` still reports it `blocked`
+
+#### Scenario: A declared owner role decides
+- **WHEN** a change declares `owner: verify` and is present in two worktrees bound to `rtl` and `verify`
+- **THEN** inference selects it in the `verify` worktree and lists it as belonging to `verify` in the `rtl` worktree
+
+#### Scenario: Explicit selection reaches a change that belongs elsewhere
+- **WHEN** `keel context --change` names a change that belongs to another worktree
+- **THEN** Keel selects it
+
+### Requirement: A read-only role infers nothing
+
+`keel/config.yaml` MAY declare `read_only_roles:`, a list of chat role names whose sessions own no change. When this worktree's bound role is listed, `keel context` without explicit selection or a HANDOFF MUST report `idle` with one reason naming the role, MUST NOT list candidates, and MUST carry a `readOnly` field naming the role; the session-start and post-compaction note MUST report that no change is selected for a read-only session instead of asking to select an owner. An entry that is not a role name MUST be reported and ignored. Explicit selection and HANDOFF MUST keep their precedence.
+
+#### Scenario: A review session is quiet
+- **WHEN** `read_only_roles:` lists `review`, the worktree is bound to `review`, and two active changes exist
+- **THEN** `keel context` reports `idle` with the read-only reason and no candidates
+- **AND THEN** the session-start note says no change is selected for the read-only session and does not ask to select an owner
+
+#### Scenario: Explicit selection still works in a read-only session
+- **WHEN** a read-only session runs `keel context --change <c>`
+- **THEN** Keel selects `<c>`

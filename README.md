@@ -680,6 +680,19 @@ or, with no owner named, when another worktree's branch has commits touching it 
 branch and yours has none. Only committed history counts; uncommitted files never decide it. `keel
 context --change <name>` still selects any change by name.
 
+A session that never owns a change — review, verification, a coordinator — can be declared
+read-only by its chat role (#246):
+
+```yaml
+read_only_roles:
+  - review
+```
+
+In a worktree bound to a listed role, `keel context` reports one `idle` line naming the role and
+lists no candidates, and the SessionStart and post-compaction note say no change is selected
+instead of asking the session to pick one. `keel context --change` and `keel/HANDOFF.md` still work
+as usual.
+
 ## External model CLIs
 
 A session can hand work to an external model CLI — codex, DeepSeek Harness's `dsh`, or one you

@@ -43,7 +43,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 A role listed in `read_only_roles:` reports one idle line, and the session note stops asking for an owner
+- [x] 1.2 A role listed in `read_only_roles:` reports one idle line, and the session note stops asking for an owner
   - Covers:
     - keel-stateless-continuity / A read-only role infers nothing / A review session is quiet
     - keel-stateless-continuity / A read-only role infers nothing / Explicit selection still works in a read-only session
@@ -71,21 +71,21 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:97d992a7d3356186bd165cb6a06e38430556bbe1e4aa7aac5ab2df17dad994c7
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario read-only-role` reports `read-only-role scenario passed.`
+    - M1.red: fail. Before the change the scenario reported `read-only-role: a read-only role is 'ambiguous', not idle`, carrying the declared signature `read-only-role:`.
+    - M1.green: pass. With `read_only_roles:` read in `src/core/config.js`, the read-only result in `resolveContext`, and the session-start branch, `keel context --json` reports `idle` with one reason naming `review` and `readOnly.role` `review`, warns about `Not A Role`, the real hook's compaction note says `read-only session (role review)` without `select an owner`, and `--change first` selects `first`.
+    - M2: pass. `npm test` reports `validation --all passed: baseline plus 250 scenarios, 1 skipped: output-survives-the-pipe.`
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the scenario binds a real chat role, reads `keel context --json` field by field, and reads the shipped session-start hook's compaction output.
+      - Scope check: `git diff --stat origin/main` lists `src/core/context.js`, `src/core/config.js`, `plugins/keel/scripts/session-start.js`, `keel/config.yaml`, `README.md`, `scripts/validate_plugin.py`, and this change's directory.
+      - Findings: Resolved here: M2. The first `npm test` failed `assertion-shape-count` on combined guards in both new scenarios; each was split so every failure carries its own message, and `context-per-worktree` was re-run and still passes. Before that, the malformed-entry warning was missing because this branch predated #277's `configList` fix; merging `main` brought it in.
     - Blocker: none
     - Reauthorizations: none
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E3
   - Touch:
@@ -122,12 +122,25 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:2bac0266bb9250628faa49589aab7ae776b43f73c382123efafbae85c36202eb
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.106.0 on top of `main` at 5.105.1 (#277). With the 5.106.0 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The MODIFIED continuity-order requirement replaces its published copy and both ADDED requirements are appended to `openspec/specs/keel-stateless-continuity/spec.md`; `published-specs-validate-strictly` reports `33 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the published spec carries the new order and both requirements with their scenarios, and the changelog names both issues, both decisions, and what stays open.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the spec, both in Touch.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/278 — #241 item 3, listing the issues a branch's recent commits reference when idle, was not part of the owner's decision; split out so #241 can close.
+    - Blocker: none
+    - Reauthorizations: none
 
 ## Change Verify
 
 - Strategy: regression-first
 - C1: `npm test` passes the baseline and every registered scenario.
+
+## Change Evidence
+
+- C1: pass. `npm test` after the bump to 5.106.0 reports `validation --all passed: baseline plus 250 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 
