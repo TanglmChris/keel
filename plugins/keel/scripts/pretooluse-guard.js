@@ -16,6 +16,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 // A newer installed copy of this script runs in its place when the host has
 // installed one (forward.js, #204). A copy of this script without forward.js
@@ -157,6 +158,302 @@ function repoRelative(repo, target) {
   );
 }
 
+// --- push-branch check (#257) -------------------------------------------------
+//
+// While keel/config.yaml declares `push:<branch glob>`, every `git push` a Bash
+// call runs must target a matching branch, with or without a task manifest.
+// The globs are read here rather than through the declaration's validator, so
+// a typo elsewhere in `authorize:` — which voids the declaration — leaves the
+// check standing: a broken declaration fails toward more checking (D3).
+
+const EXPLICIT_FORM = "`git push origin <branch>`";
+
+function gitOut(cwd, args) {
+  const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 3000 });
+  return result.status === 0 ? String(result.stdout || "").trim() : null;
+}
+
+function readPushGlobs(top) {
+  let text = "";
+  try {
+    text = fs.readFileSync(path.join(top, "keel", "config.yaml"), "utf8");
+  } catch {
+    return [];
+  }
+  const globs = [];
+  let inBlock = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*#/.test(line) || line.trim() === "") continue;
+    if (/^authorize\s*:\s*$/.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    if (!/^\s/.test(line)) break;
+    const entry = line.match(/^\s+-\s*push:(\S+)\s*$/);
+    if (entry) globs.push(entry[1]);
+  }
+  return globs;
+}
+
+// Shell words and the separators between commands. Quotes are honoured, and a
+// word that the shell would expand (`$`, a backtick) is marked, because its
+// value is not knowable here.
+function shellSegments(command) {
+  const segments = [];
+  let words = [];
+  let word = null;
+  let expands = false;
+  const finishWord = () => {
+    if (word !== null) words.push({ text: word, expands });
+    word = null;
+    expands = false;
+  };
+  const finishSegment = () => {
+    finishWord();
+    if (words.length) segments.push(words);
+    words = [];
+  };
+  // Heredoc bodies are data, not commands: `<<'EOF'` … `EOF` is skipped from
+  // the end of its line to the terminator, so a body line reading like a push
+  // is not taken for one.
+  const pendingHeredocs = [];
+  for (let i = 0; i < command.length; i += 1) {
+    const c = command[i];
+    if (c === "<" && command[i + 1] === "<" && command[i + 2] !== "<") {
+      const marker = command.slice(i + 2).match(/^-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/);
+      if (marker) {
+        pendingHeredocs.push(marker[2]);
+        finishWord();
+        i += 1 + marker[0].length;
+        continue;
+      }
+    }
+    if (c === "\n" && pendingHeredocs.length) {
+      finishSegment();
+      let rest = i + 1;
+      while (pendingHeredocs.length) {
+        const terminator = pendingHeredocs.shift();
+        const lines = command.slice(rest).split("\n");
+        let consumed = 0;
+        for (const line of lines) {
+          consumed += line.length + 1;
+          if (line.replace(/^\t+/, "") === terminator) break;
+        }
+        rest += consumed;
+      }
+      i = rest - 1;
+      continue;
+    }
+    if (c === "'") {
+      const end = command.indexOf("'", i + 1);
+      word = (word || "") + command.slice(i + 1, end === -1 ? command.length : end);
+      i = end === -1 ? command.length : end;
+    } else if (c === '"') {
+      let j = i + 1;
+      let text = "";
+      while (j < command.length && command[j] !== '"') {
+        if (command[j] === "\\" && j + 1 < command.length) {
+          text += command[j + 1];
+          j += 2;
+          continue;
+        }
+        if (command[j] === "$" || command[j] === "`") expands = true;
+        text += command[j];
+        j += 1;
+      }
+      word = (word || "") + text;
+      i = j;
+    } else if (c === "\\" && i + 1 < command.length) {
+      word = (word || "") + command[i + 1];
+      i += 1;
+    } else if (c === "$" || c === "`") {
+      expands = true;
+      word = (word || "") + c;
+    } else if (c === ";" || c === "\n" || c === "&" || c === "|" || c === "(" || c === ")") {
+      finishSegment();
+    } else if (/\s/.test(c)) {
+      finishWord();
+    } else {
+      word = (word || "") + c;
+    }
+  }
+  finishSegment();
+  return segments;
+}
+
+const PREFIX_COMMANDS = new Set(["env", "command", "exec", "nohup", "time", "sudo"]);
+const SHELLS = new Set(["bash", "sh", "zsh", "eval"]);
+const PUSH_FLAGS = new Set([
+  "-u", "--set-upstream", "-f", "--force", "--force-if-includes", "--no-force-if-includes",
+  "-n", "--dry-run", "--no-verify", "--verify", "-q", "--quiet", "-v", "--verbose",
+  "--porcelain", "--progress", "--no-progress", "--atomic", "--no-atomic", "--no-signed",
+  "--thin", "--no-thin", "--follow-tags", "--no-follow-tags", "-4", "--ipv4", "-6", "--ipv6",
+  "--prune", "--no-recurse-submodules", "--force-with-lease", "--signed", "-d", "--delete",
+]);
+const PUSH_VALUED = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+const PUSH_UNDETERMINED = new Set(["--all", "--branches", "--mirror", "--tags"]);
+
+// The pushes a command runs, each as { dir, cdBefore, args } or { undetermined }.
+function findPushes(command, cwd) {
+  const pushes = [];
+  let cdBefore = false;
+  for (const words of shellSegments(command)) {
+    let i = 0;
+    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i].text)) i += 1;
+    while (i < words.length && PREFIX_COMMANDS.has(words[i].text)) i += 1;
+    const head = words[i] ? words[i].text : "";
+    if (head === "cd" || head === "pushd") {
+      cdBefore = true;
+      continue;
+    }
+    if (SHELLS.has(head)) {
+      if (/\bgit\b[\s\S]*\bpush\b/.test(words.slice(i + 1).map((w) => w.text).join(" "))) {
+        pushes.push({ undetermined: `it runs \`git push\` inside \`${head}\`` });
+      }
+      continue;
+    }
+    if (head !== "git") continue;
+    let dir = cwd;
+    i += 1;
+    let unknownGlobal = null;
+    while (i < words.length && words[i].text.startsWith("-")) {
+      const option = words[i].text;
+      if (option === "-C" && words[i + 1]) {
+        dir = path.resolve(dir, words[i + 1].text);
+        i += 2;
+      } else if (option === "-c" && words[i + 1]) {
+        i += 2;
+      } else if (option === "--no-pager" || option === "-P") {
+        i += 1;
+      } else {
+        unknownGlobal = option;
+        i += 1;
+      }
+    }
+    if (!words[i] || words[i].text !== "push") continue;
+    if (unknownGlobal) {
+      pushes.push({ undetermined: `the git option \`${unknownGlobal}\` is not one the guard reads` });
+      continue;
+    }
+    pushes.push({ dir, cdBefore, args: words.slice(i + 1) });
+  }
+  return pushes;
+}
+
+function currentBranch(dir) {
+  return gitOut(dir, ["symbolic-ref", "--short", "-q", "HEAD"]);
+}
+
+// The branch a push with no refspec goes to: its configured push destination.
+function pushDestination(dir) {
+  const ref = gitOut(dir, ["rev-parse", "--symbolic-full-name", "@{push}"]);
+  if (!ref || !ref.startsWith("refs/remotes/")) return null;
+  const rest = ref.slice("refs/remotes/".length);
+  const remotes = (gitOut(dir, ["remote"]) || "").split(/\s+/).filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  const remote = remotes.find((name) => rest.startsWith(`${name}/`));
+  return remote ? rest.slice(remote.length + 1) : null;
+}
+
+// Target branches of one push, or { undetermined: reason }.
+function pushTargets(push) {
+  if (push.undetermined) return push;
+  const positionals = [];
+  let deleting = false;
+  for (let i = 0; i < push.args.length; i += 1) {
+    const word = push.args[i];
+    if (word.expands) return { undetermined: `\`${word.text}\` is expanded by the shell` };
+    const text = word.text;
+    if (text === "--") {
+      positionals.push(...push.args.slice(i + 1).map((w) => w.text));
+      break;
+    }
+    if (!text.startsWith("-") || text === "-") {
+      positionals.push(text);
+      continue;
+    }
+    const name = text.includes("=") ? text.slice(0, text.indexOf("=")) : text;
+    if (PUSH_UNDETERMINED.has(name)) return { undetermined: `\`${name}\` pushes refs the guard cannot list` };
+    if (name === "-d" || name === "--delete") deleting = true;
+    if (PUSH_VALUED.has(name)) {
+      if (!text.includes("=")) i += 1;
+      continue;
+    }
+    if (PUSH_FLAGS.has(name) || name.startsWith("--force-with-lease") || name.startsWith("--signed")
+      || name.startsWith("--recurse-submodules")) {
+      continue;
+    }
+    if (/^-[a-zA-Z0-9]{2,}$/.test(text) && [...text.slice(1)].every((c) => PUSH_FLAGS.has(`-${c}`))) {
+      if (text.includes("d")) deleting = true;
+      continue;
+    }
+    return { undetermined: `the push option \`${text}\` is not one the guard reads` };
+  }
+  const refspecs = positionals.slice(1);
+  const needsCurrent = () => {
+    if (push.cdBefore) return { undetermined: "the directory changes before it, so its branch is unknown here" };
+    return null;
+  };
+  if (!refspecs.length) {
+    const unknown = needsCurrent();
+    if (unknown) return unknown;
+    const branch = pushDestination(push.dir);
+    return branch ? { targets: [branch] } : { undetermined: "the branch has no configured push destination" };
+  }
+  const targets = [];
+  for (const raw of refspecs) {
+    const spec = raw.replace(/^\+/, "");
+    let dst = spec;
+    if (!deleting && spec.includes(":")) dst = spec.slice(spec.indexOf(":") + 1);
+    else if (spec.startsWith(":")) dst = spec.slice(1);
+    if (!dst) return { undetermined: `\`${raw}\` names no destination` };
+    if (dst === "HEAD" || dst === "@") {
+      const unknown = needsCurrent();
+      if (unknown) return unknown;
+      dst = currentBranch(push.dir);
+      if (!dst) return { undetermined: "HEAD is detached" };
+    }
+    if (dst.startsWith("refs/heads/")) dst = dst.slice("refs/heads/".length);
+    else if (dst.startsWith("refs/")) return { undetermined: `\`${raw}\` is not a branch` };
+    targets.push(dst);
+  }
+  return { targets };
+}
+
+function checkPushes(event) {
+  const command = event.tool_input && typeof event.tool_input.command === "string"
+    ? event.tool_input.command : "";
+  if (!/\bgit\b/.test(command) || !/\bpush\b/.test(command)) return 0;
+  const cwd = typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
+  for (const push of findPushes(command, cwd)) {
+    const top = gitOut(push.dir || cwd, ["rev-parse", "--show-toplevel"]);
+    if (!top) continue;
+    const globs = readPushGlobs(top);
+    if (!globs.length) continue;
+    const declared = globs.map((glob) => `\`push:${glob}\``).join(", ");
+    const result = pushTargets(push);
+    if (result.undetermined) {
+      deny(
+        `Keel push guard: keel/config.yaml limits push to ${declared}, and the `
+          + `guard cannot tell which branch this push targets: ${result.undetermined}. `
+          + `Name the branch, as ${EXPLICIT_FORM}.`
+      );
+      return 0;
+    }
+    const outside = result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
+    if (outside.length) {
+      deny(
+        `Keel push guard: this command pushes to ${outside.map((b) => `\`${b}\``).join(", ")}, `
+          + `and keel/config.yaml limits push to ${declared}. Push a matching branch, `
+          + "or ask the owner; the declaration is theirs to widen."
+      );
+      return 0;
+    }
+  }
+  return 0;
+}
+
 function main() {
   const input = readStdin();
   let event = {};
@@ -175,6 +472,8 @@ function main() {
     const handed = handOff(__filename, input, 8000);
     if (handed !== null) return handed;
   }
+
+  if (event.tool_name === "Bash") return checkPushes(event);
 
   const pathField = FILE_EDIT_TOOLS.get(event.tool_name);
   if (!pathField) return 0;
