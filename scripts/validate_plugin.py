@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.101.0"
-PROTOCOL_VERSION = "5.101.0"
+PACKAGE_VERSION = "5.102.0"
+PROTOCOL_VERSION = "5.102.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4547,6 +4547,174 @@ def validate_collected_feedback_is_recorded_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("collected-feedback-is-recorded scenario passed.")
+    return 0
+
+
+def validate_worktree_overview_scenario() -> int:
+    """Read every worktree through the CLI without fetching or changing chat."""
+    label = "worktree-overview:"
+    with tempfile.TemporaryDirectory(prefix="keel-worktree-overview-") as raw:
+        base = Path(raw).resolve()
+        repo, remote = base / "repo", base / "remote.git"
+        repo.mkdir()
+        env = os.environ.copy()
+        env.pop("KEEL_CHAT_ROLE", None)
+        env.pop("KEEL_MAIL_ROLE", None)
+
+        def git(*args: str, cwd: Path = repo) -> str:
+            return subprocess.run(
+                ["git", *args], cwd=cwd, env=env, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "user.name", "Worktree test")
+        (repo / "seed").write_text("base\n", encoding="utf-8")
+        git("add", "seed")
+        git("commit", "-qm", "base #99")
+        git("init", "--bare", "-q", str(remote))
+        git("remote", "add", "origin", str(remote))
+        git("push", "-qu", "origin", "main")
+        git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        a, b, gone = base / "a", base / "b", base / "gone"
+        git("worktree", "add", "-qb", "feature", str(a), "main")
+        git("branch", "--set-upstream-to=origin/main", "feature")
+        (a / "feature").write_text("feature\n", encoding="utf-8")
+        git("add", "feature", cwd=a)
+        git("commit", "-qm", "feature #12", "-m", "References #12 again", cwd=a)
+        git("worktree", "add", "-q", "--detach", str(b), "main")
+        (b / "uncommitted").write_text("dirty\n", encoding="utf-8")
+        git("worktree", "add", "-q", "--detach", str(gone), "main")
+        git("worktree", "lock", "--reason", "test lock", str(a))
+        shutil.rmtree(gone)
+        bound = run_keel(a, "chat", "role", "--set", "pm", env=env)
+        if bound.returncode != 0:
+            report(f"{label} could not bind pm: {bound.stderr}")
+            return 1
+        chat = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "keel-chat"
+        stamp = datetime.now(timezone.utc).isoformat()
+        write_text(chat / "presence" / "pm.json", json.dumps({"state": "online", "last_active": stamp}))
+
+        def snapshot() -> dict[str, bytes]:
+            return {str(file.relative_to(chat)): file.read_bytes()
+                    for file in chat.rglob("*") if file.is_file()}
+
+        before = snapshot()
+        repository_before = {str(file.relative_to(repo)): file.read_bytes()
+                             for file in repo.rglob("*") if file.is_file()}
+
+        def overview(*args: str) -> subprocess.CompletedProcess[str]:
+            # An override for the invoking session must not bind every worktree.
+            return run_keel(b, "worktrees", "--repo", str(repo), *args,
+                            env={**env, "KEEL_CHAT_ROLE": "caller"})
+
+        result = overview("--json")
+        if result.returncode != 0:
+            report(f"{label} --json failed: {result.stderr}")
+            return 1
+        try:
+            payload = json.loads(result.stdout)
+            rows = {row["path"]: row for row in payload["worktrees"]}
+        except (ValueError, KeyError, TypeError):
+            report(f"{label} --json lacks worktree data: {result.stdout}")
+            return 1
+        if set(rows) != {str(repo), str(a), str(b), str(gone)}:
+            report(f"{label} did not list every worktree: {rows}")
+            return 1
+        for tree, expected in (
+            (a, {"branch": "feature", "ahead": 1, "behind": 0, "issues": [12],
+                 "role": "pm", "upstream": "origin/main", "dirty": 0,
+                 "locked": "test lock", "prunable": None}),
+            (b, {"branch": None, "dirty": 1, "role": None, "presence": None,
+                 "ahead": None, "behind": None, "upstream": None, "issues": []}),
+            (gone, {"missing": True}),
+        ):
+            for key, value in expected.items():
+                if rows[str(tree)].get(key) != value:
+                    report(f"{label} {tree.name}'s {key} differs: {rows[str(tree)]}")
+                    return 1
+        if rows[str(a)].get("presence") != {"state": "online", "last_active": stamp}:
+            report(f"{label} a's presence differs: {rows[str(a)]}")
+            return 1
+        for tree in (repo, a, b):
+            row = rows[str(tree)]
+            if row.get("head") != git("rev-parse", "--short", "HEAD", cwd=tree):
+                report(f"{label} {tree.name}'s short head differs: {row}")
+                return 1
+            expected_commit = {"subject": git("log", "-1", "--format=%s", cwd=tree),
+                               "time": git("log", "-1", "--format=%cI", cwd=tree)}
+            if row.get("lastCommit") != expected_commit:
+                report(f"{label} {tree.name}'s last commit differs: {row}")
+                return 1
+        if not rows[str(gone)].get("prunable"):
+            report(f"{label} missing worktree lacks Git's prunable marker: {rows[str(gone)]}")
+            return 1
+        text = overview()
+        if text.returncode != 0:
+            report(f"{label} text output failed: {text.stderr}")
+            return 1
+        for needle in ("main", "as of the last fetch", str(a), str(b), str(gone), "missing"):
+            if needle not in text.stdout:
+                report(f"{label} text output lacks {needle!r}: {text.stdout}")
+                return 1
+        issues = base / "issues.json"
+        updated = "2026-10-05T08:00:00Z"
+        write_text(issues, json.dumps([{"number": 12, "updatedAt": updated}]))
+        timed = overview("--issues", str(issues), "--json")
+        if timed.returncode != 0:
+            report(f"{label} passed issues file failed: {timed.stderr}")
+            return 1
+        timed_rows = {row["path"]: row for row in json.loads(timed.stdout)["worktrees"]}
+        if timed_rows[str(a)].get("issueUpdates") != [{"number": 12, "updatedAt": updated}]:
+            report(f"{label} issue 12 does not carry the passed updatedAt: {timed.stdout}")
+            return 1
+        timed_text = overview("--issues", str(issues))
+        if updated not in timed_text.stdout:
+            report(f"{label} text output lacks issue 12's passed time: {timed_text.stdout}")
+            return 1
+        write_text(issues, "[]")
+        absent = overview("--issues", str(issues), "--json")
+        if absent.returncode != 0:
+            report(f"{label} empty issue array failed: {absent.stderr}")
+            return 1
+        absent_rows = {row["path"]: row for row in json.loads(absent.stdout)["worktrees"]}
+        if absent_rows[str(a)].get("issueUpdates") != [{"number": 12, "updatedAt": None}]:
+            report(f"{label} absent issue time is not null: {absent.stdout}")
+            return 1
+        bad = base / "bad.json"
+        for content in ("not JSON", "{}", '[{"number": 12}]'):
+            write_text(bad, content)
+            refused = overview("--issues", str(bad))
+            if refused.returncode != 1:
+                report(f"{label} malformed --issues did not exit 1: {refused.returncode}")
+                return 1
+            if str(bad) not in refused.stderr:
+                report(f"{label} malformed --issues does not name the file: {refused.stderr}")
+                return 1
+            if refused.stdout:
+                report(f"{label} malformed --issues printed partial output: {refused.stdout}")
+                return 1
+        missing = base / "missing.json"
+        refused = overview("--issues", str(missing))
+        if refused.returncode != 1:
+            report(f"{label} missing --issues did not exit 1: {refused.returncode}")
+            return 1
+        if str(missing) not in refused.stderr:
+            report(f"{label} missing --issues does not name the file: {refused.stderr}")
+            return 1
+        if refused.stdout:
+            report(f"{label} missing --issues printed partial output: {refused.stdout}")
+            return 1
+        if snapshot() != before:
+            report(f"{label} the chat store's files changed")
+            return 1
+        repository_after = {str(file.relative_to(repo)): file.read_bytes()
+                            for file in repo.rglob("*") if file.is_file()}
+        if repository_after != repository_before:
+            report(f"{label} the repository's files changed (including Git indexes and refs)")
+            return 1
+    report(f"{label} scenario passed")
     return 0
 
 
@@ -37735,6 +37903,7 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
+    ("worktree-overview", validate_worktree_overview_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),
