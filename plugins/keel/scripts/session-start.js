@@ -203,6 +203,30 @@ function protocolVersion(cwd) {
   return null;
 }
 
+// Numeric X.Y.Z order; a string that is not one sorts as equal, so it never
+// decides which side lags.
+function olderVersion(a, b) {
+  const x = String(a).split(".").map(Number);
+  const y = String(b).split(".").map(Number);
+  if (x.length !== 3 || y.length !== 3 || [...x, ...y].some(Number.isNaN)) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (x[i] !== y[i]) return x[i] < y[i];
+  }
+  return false;
+}
+
+// The target `keel context` names in its protocol refresh (src/core/context.js
+// installedTarget), so both surfaces print the same command.
+function installedTarget(cwd) {
+  try {
+    if (/<!--\s*keel:start/.test(fs.readFileSync(path.join(cwd, "CLAUDE.md"), "utf8"))) return "claude";
+  } catch {
+    // No CLAUDE.md: not the Claude target.
+  }
+  if (fs.existsSync(path.join(cwd, ".opencode", "commands"))) return "opencode";
+  return "codex";
+}
+
 // Three versions are comparable in any repository: the plugin executing this
 // hook, the CLI it just invoked, and the protocol version the repository
 // stamped into its managed block. Keel reports the disagreement and stops
@@ -254,9 +278,21 @@ function versionReport(cwd, cli, pathCli = null) {
     : "";
   // An update the host already installed needs only the reload (#172), so
   // naming the update command there sends the reader to what already happened.
-  const remedy = pending
-    ? `The host has already installed plugin ${pending}, so nothing needs updating.`
-    : `Updating is ${plugin.remedy}, which Keel names and does not run.`;
+  // The remedy belongs to what lags (#240): a protocol block behind the
+  // runtime is fixed by the protocol refresh, and naming the plugin update
+  // there sends the reader to a command that changes nothing.
+  const newest = known.map(([, value]) => value).reduce((a, b) => (olderVersion(a, b) ? b : a));
+  const runtimeBehind = [plugin.version, cli].some((value) => value && olderVersion(value, newest));
+  const protocol = found.find(([name]) => name === "protocol")[1];
+  const protocolBehind = Boolean(protocol) && olderVersion(protocol, newest);
+  const parts = [];
+  if (pending) parts.push(`The host has already installed plugin ${pending}, so nothing needs updating.`);
+  else if (runtimeBehind || !protocolBehind) parts.push(`Updating is ${plugin.remedy}, which Keel names and does not run.`);
+  if (protocolBehind) {
+    parts.push(`The repository's protocol block is behind: refresh it with \`keel --install --target ${installedTarget(cwd)}\`, `
+      + "the command `keel context` names on its Protocol: line.");
+  }
+  const remedy = parts.join(" ");
   return `runtime versions disagree: ${named}${missing}. A session's hooks are `
     + "fixed when it loads the plugin, so an updated plugin applies after "
     + `\`/reload-plugins\` or at the next session start. ${remedy}${shadow}`;
