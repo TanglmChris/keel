@@ -39,7 +39,8 @@ function noticeText(where, role, now = Date.now()) {
     `keel chat: ${records.length} unread for role \`${role}\`, ${waking.length} addressed to you.`,
   ];
   for (const record of waking.slice(0, NOTICE_LIMIT)) {
-    lines.push(`- ${record.id} in ${record.group} from \`${record.from}\`, ${relativeAge(record.created, now)}: ${firstLine(record.text)}`);
+    const asks = record.ack === "requested" ? " (ack requested)" : "";
+    lines.push(`- ${record.id} in ${record.group} from \`${record.from}\`${asks}, ${relativeAge(record.created, now)}: ${firstLine(record.text)}`);
   }
   if (waking.length > NOTICE_LIMIT) lines.push(`- and ${waking.length - NOTICE_LIMIT} more addressed to you.`);
   if (others.size) {

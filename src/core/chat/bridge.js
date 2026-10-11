@@ -311,6 +311,8 @@ function pendingOutbound(project) {
   for (const [group, channel] of Object.entries(settings.channels)) {
     for (const record of store.readLog(where, group)) {
       if (!OUTBOUND_ORIGINS.has(record.origin || "local")) continue;
+      // An acknowledgement stays local (#253 D3): Slack shows the reply, if any.
+      if (record.kind === "ack") continue;
       if (readPosted(where, record.id)) continue;
       pending.push({ record, channel });
     }

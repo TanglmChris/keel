@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.103.0 - `keel chat --ack`: ask for an acknowledgement and see who has not given it
+
+Issue #253, part of #250, absorbing #247 (rtl_ppa_prj, 2026-10-05): about 20 messages in one day, several of them resends, because silence looked like work in progress. Read cursors showed who had read a record, but not who had read and agreed.
+
+- `keel chat post … --ack` and `keel chat todo … --ack` ask the roles a record addresses to acknowledge it: those it would wake, and every other member for `@all`. A record that addresses nobody is refused with `--ack`.
+- `keel chat ack <id>`, or a reply from an addressed role, acknowledges. An acknowledgement marks the record read for that role and wakes nobody. Acknowledging a record that does not ask, does not address the role, or was already acknowledged is refused by name.
+- `keel chat show <id>` lists who acknowledged, who read without acknowledging, and who has not read. `keel chat acks [--mine]` lists records still waiting on someone.
+- Group views and the wake notice mark such a record `(ack requested)`. The Slack bridge does not post acknowledgements.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.103.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.102.1 - Marker words read as unfilled only in capitals
 
 Issue #271 (2026-10-11): `task-complete` refused Evidence reading "post and todo" as carrying the unfilled slot `todo`. The word named a `keel chat` record kind; the test matched its marker words in any case.
