@@ -2,7 +2,7 @@
 
 ## 1. Acknowledgements
 
-- [ ] 1.1 `--ack`, `keel chat ack`, replies as acknowledgements, and who has acknowledged in `show` and `acks`
+- [x] 1.1 `--ack`, `keel chat ack`, replies as acknowledgements, and who has acknowledged in `show` and `acks`
   - Covers:
     - keel-cross-host-mailbox / A record can ask for an acknowledgement, and who has given it is listed / A sender sees who has not acknowledged
     - keel-cross-host-mailbox / A record can ask for an acknowledgement, and who has given it is listed / A reply acknowledges
@@ -40,9 +40,21 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:d3a24e7a185417df548573fb3fb68d257a331230709c03a16e3a4546f8c2149d
     - Blocker: none
     - Reauthorizations: none
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-ack` reports `chat-ack scenario passed.`
+    - M1.red: fail. Before the change the scenario reported `chat-ack: a post with --ack returned no id.`, carrying the declared signature `chat-ack:`.
+    - M1.green: pass. With `--ack` on `post` and `todo`, `keel chat ack`, replies counted, `show` and `acks` splitting the addressed roles, and `(ack requested)` in views and the notice, the scenario passes; `chat-supersedes`, `chat-records`, and `assertion-shape-count` still pass.
+    - M2: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-bridge-outbound` reports `chat-bridge-outbound scenario passed.`
+    - M2.red: fail. With the bridge's `ack` skip removed, the scenario reported `chat-bridge-outbound: the acknowledgement … reached Slack: [{'method': 'chat.postMessage', 'params': {'channel': 'CSOC', 'text': '', …`, carrying the declared signature `chat-bridge-outbound:`: an acknowledgement would have gone out as an empty Slack message.
+    - M2.green: pass. With the skip restored, the scenario passes.
+    - M3: deferred to C1
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario drives the real CLI with three roles in one group and reads `show --json`, `acks --json`, unread JSON, the group view, and the notice; each refusal's exit code and message are read; the bridge check runs the bridge against the fake Slack server and searches every call for the acknowledgement's id.
+      - Scope check: `git status --short` lists the five chat sources, `scripts/validate_plugin.py`, `README.md`, and this change's own directory.
+      - Findings: none
 
 ## 2. Release
 

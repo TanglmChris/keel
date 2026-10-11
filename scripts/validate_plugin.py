@@ -2521,6 +2521,88 @@ def validate_chat_supersedes_scenario() -> int:
     return 0
 
 
+def validate_chat_ack_scenario() -> int:
+    """Issue #253: a record asks for an acknowledgement and the sender sees who gave it.
+
+    An acknowledgement is `keel chat ack <id>` or a reply from an addressed
+    role; it marks the record read, wakes nobody, and is refused where it means
+    nothing; `show` and `acks` split the addressed roles three ways.
+    """
+    label = "chat-ack:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-ack-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        spec = chat_worktree(rtl, base / "spec")
+        run_keel(spec, "chat", "role", "--set", "spec", env=env)
+        run_keel(rtl, "chat", "group", "add", "soc", "spec", env=env)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        asked = chat_json(chat(rtl, "post", "soc", "@verify @spec rerun R007 on 1b64e8c", "--ack", "--json")).get("id", "")
+        if not asked:
+            report(f"{label} a post with --ack returned no id.")
+            return 1
+        acked = chat(verify, "ack", asked)
+        if acked.returncode != 0:
+            report(f"{label} verify could not acknowledge: {acked.stderr}")
+            return 1
+        view = chat(spec, "soc").stdout
+        if "(ack requested)" not in view:
+            report(f"{label} spec's group view does not mark the record (ack requested): {view!r}")
+            return 1
+        acks = chat_json(chat(rtl, "show", asked, "--json")).get("acks", {})
+        if acks.get("acknowledged") != ["verify"]:
+            report(f"{label} show lists acknowledged {acks.get('acknowledged')!r}, not ['verify'].")
+            return 1
+        if acks.get("readNotAcknowledged") != ["spec"]:
+            report(f"{label} show lists read-not-acknowledged {acks.get('readNotAcknowledged')!r}, not ['spec'].")
+            return 1
+        if acks.get("unread") != []:
+            report(f"{label} show lists unread {acks.get('unread')!r}, not [].")
+            return 1
+        waiting = chat_json(chat(rtl, "acks", "--mine", "--json")).get("records", [])
+        if [r.get("id") for r in waiting] != [asked]:
+            report(f"{label} acks --mine lists {[r.get('id') for r in waiting]!r}, not [{asked}].")
+            return 1
+        rtl_unread = chat_json(chat(rtl, "unread", "--json")).get("unread", [])
+        if rtl_unread:
+            report(f"{label} the acknowledgement left rtl something unread: {rtl_unread!r}")
+            return 1
+
+        chat(spec, "post", "soc", "on it", "--reply-to", asked)
+        acks = chat_json(chat(rtl, "show", asked, "--json")).get("acks", {})
+        if acks.get("acknowledged") != ["spec", "verify"]:
+            report(f"{label} a reply did not acknowledge: acknowledged {acks.get('acknowledged')!r}.")
+            return 1
+        if chat_json(chat(rtl, "acks", "--json")).get("records", []):
+            report(f"{label} a fully acknowledged record is still listed by acks.")
+            return 1
+
+        later = chat_json(chat(rtl, "post", "soc", "@spec check the clock", "--ack", "--json")).get("id", "")
+        notice = chat_json(chat(spec, "notice", "--json")).get("notice", "")
+        if "(ack requested)" not in notice:
+            report(f"{label} spec's wake notice does not mark {later} (ack requested): {notice!r}")
+            return 1
+        plain = chat_json(chat(rtl, "post", "soc", "@spec fyi", "--json")).get("id", "")
+        refusals = [
+            ("a record that does not ask", chat(spec, "ack", plain), "does not ask"),
+            ("a record that does not address the role", chat(verify, "ack", later), "does not address"),
+            ("a record already acknowledged", chat(verify, "ack", asked), "already acknowledged"),
+            ("--ack on a record addressing nobody", chat(rtl, "post", "soc", "note to self", "--ack"), "addresses no one"),
+        ]
+        for what, result, needle in refusals:
+            if result.returncode == 0:
+                report(f"{label} {what} was accepted: {result.stdout}")
+                return 1
+            if needle not in result.stderr:
+                report(f"{label} {what} was refused without saying {needle!r}: {result.stderr}")
+                return 1
+
+    report("chat-ack scenario passed.")
+    return 0
+
+
 def validate_chat_records_scenario() -> int:
     """Issue #187: todos, edits, retractions, search, and local-time display.
 
@@ -3191,6 +3273,8 @@ def validate_chat_bridge_outbound_scenario() -> int:
         chat(rtl, "edit", root_id, "Clock fix is in (v2)")
         gone_id = chat_json(chat(rtl, "post", "soc", "wrong group", "--json")).get("id", "")
         chat(rtl, "retract", gone_id)
+        asked_id = chat_json(chat(rtl, "post", "soc", "@verify confirm the clock", "--ack", "--json")).get("id", "")
+        ack_id = chat_json(chat(verify, "ack", asked_id, "--json")).get("id", "")
         old_rule_id = chat_json(chat(rtl, "post", "soc", "verify owns integration", "--json")).get("id", "")
         new_rule_id = chat_json(chat(rtl, "post", "soc", "design owns integration", "--supersedes", old_rule_id, "--json")).get("id", "")
         slack.rate_limit("chat.postMessage", 1)
@@ -3275,6 +3359,14 @@ def validate_chat_bridge_outbound_scenario() -> int:
         gone_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == gone_id)
         if not any(c["params"].get("ts") == gone_ts for c in slack.calls_to("chat.delete")):
             report(f"{label} the retraction did not call chat.delete.")
+            return 1
+        # Issue #253: an acknowledgement stays local.
+        if not ack_id:
+            report(f"{label} the acknowledgement returned no id.")
+            return 1
+        carried = [c for c in slack.calls if ack_id in json.dumps(c.get("params", {}))]
+        if carried:
+            report(f"{label} the acknowledgement {ack_id} reached Slack: {carried!r}")
             return 1
         # Issue #252: a superseded record's Slack copy says so.
         if not new_rule_id:
@@ -37735,6 +37827,7 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
+    ("chat-ack", validate_chat_ack_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

@@ -40,7 +40,7 @@ const DATA_NOTICE =
 const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
-  "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes",
+  "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack",
   "assignee", "issue", "target", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
@@ -560,6 +560,12 @@ function post(where, options) {
     parent = findRecord(where, options.replyTo);
   }
   if (options.supersedes) checkSupersedes(where, from, group, records, options.supersedes);
+  if (options.ack) {
+    const draft = { kind: options.kind || "message", from, group, mentions, assignee: options.assignee || null };
+    if (!addressedRoles(state, draft).length) {
+      throw new ChatError("--ack asks the roles a record addresses, and this one addresses no one: mention a role, assign a todo, or post in a direct group.");
+    }
+  }
   const record = writeRecord(where, {
     group,
     kind: options.kind || "message",
@@ -567,6 +573,7 @@ function post(where, options) {
     mentions,
     reply_to: options.replyTo || null,
     supersedes: options.supersedes || null,
+    ack: options.ack ? ACK_REQUESTED : null,
     assignee: options.assignee || null,
     issue: options.issue || null,
     refs: options.refs || [],
@@ -605,6 +612,66 @@ function checkSupersedes(where, from, group, records, id) {
   if (successor) {
     throw new ChatError(`Record ${id} is already superseded by ${successor.id}; supersede ${successor.id} instead.`);
   }
+}
+
+const ACK_REQUESTED = "requested";
+
+// The roles a record asks to acknowledge it (#253 D1): the group's other
+// members it would wake, and every other member for `@all`.
+function addressedRoles(state, record) {
+  const everyone = (record.mentions || []).includes(ALL);
+  return [...state.members]
+    .filter((role) => role !== record.from && (everyone || wakes(record, role)))
+    .sort();
+}
+
+// Who of the addressed roles acknowledged — by `keel chat ack` or by replying —
+// who only read the record, and who has not read it (#253 D4).
+function ackStatus(where, record) {
+  const { records, state } = loadGroup(where, record.group);
+  const addressed = addressedRoles(state, record);
+  const given = new Set(records
+    .filter((r) => (r.kind === "ack" && r.target === record.id) || (READABLE_KINDS.has(r.kind) && r.reply_to === record.id))
+    .map((r) => r.from));
+  const readers = new Set(readersOf(where, record));
+  return {
+    acknowledged: addressed.filter((role) => given.has(role)),
+    readNotAcknowledged: addressed.filter((role) => !given.has(role) && readers.has(role)),
+    unread: addressed.filter((role) => !given.has(role) && !readers.has(role)),
+  };
+}
+
+function ack(where, id) {
+  const from = requireRole(where);
+  const target = targetFor(where, id, from, ["message", "todo"]);
+  if (target.ack !== ACK_REQUESTED) throw new ChatError(`Record ${id} does not ask for an acknowledgement.`);
+  const { state } = loadGroup(where, target.group);
+  const addressed = addressedRoles(state, target);
+  if (!addressed.includes(from)) {
+    throw new ChatError(`Record ${id} does not address ${from}; it asks ${addressed.join(", ")}.`);
+  }
+  if (ackStatus(where, target).acknowledged.includes(from)) {
+    throw new ChatError(`${from} already acknowledged ${id}.`);
+  }
+  const record = writeRecord(where, { group: target.group, kind: "ack", from, target: id });
+  advanceCursor(where, from, target.group, id);
+  return record;
+}
+
+// Records in open groups that ask and still wait on an addressed role.
+function openAcks(where, { from = null } = {}) {
+  const result = [];
+  for (const group of listGroupNames(where)) {
+    const records = readLog(where, group);
+    const state = groupState(records);
+    if (!state.exists || state.archived) continue;
+    for (const record of records) {
+      if (record.ack !== ACK_REQUESTED || (from && record.from !== from)) continue;
+      const status = ackStatus(where, record);
+      if (status.readNotAcknowledged.length || status.unread.length) result.push({ record, acks: status });
+    }
+  }
+  return result;
 }
 
 // Ids a later record of the same author supersedes, in one group's log.
@@ -791,6 +858,9 @@ function readGroups(where, role, group) {
 }
 
 module.exports = {
+  ack,
+  ackStatus,
+  openAcks,
   checkName,
   worktreeSignalPath,
   ALL,
