@@ -26,7 +26,8 @@ function firstLine(text) {
 }
 
 function noticeText(where, role, now = Date.now()) {
-  const records = store.unread(where, role);
+  // Newest first (#252 D3).
+  const records = store.unread(where, role).reverse();
   if (!records.length) return "";
   const waking = records.filter((record) => store.wakes(record, role));
   const others = new Map();

@@ -256,6 +256,7 @@ async function postRecord(ctx, project, record, channel, direct = null) {
     const sent = await call("chat.postMessage", params, direct.token);
     writePosted(where, record.id, { channel, ts: sent.ts, thread_ts: params.thread_ts || null, as: direct.role, direct: true });
     rememberTs(project, channel, sent.ts, record.id);
+    await markSuperseded(ctx, project, record, call);
     return;
   }
   const app = roleApp(ctx, project, record.from);
@@ -281,12 +282,25 @@ async function postRecord(ctx, project, record, channel, direct = null) {
   if (as) posted.as = as;
   writePosted(where, record.id, posted);
   rememberTs(project, channel, response.ts, record.id);
+  await markSuperseded(ctx, project, record, call);
   // Another project on this machine that maps the same channel gets the
   // record now, without waiting for Slack to echo it back (D16).
   for (const other of ctx.projects) {
     if (other === project || !other.channelGroups.has(channel)) continue;
     importKeelRecord(ctx, other, channel, params.metadata.event_payload, { ts: response.ts, text: record.text, thread_ts: params.thread_ts });
   }
+}
+
+// A record that supersedes another (#252 D5) also marks the earlier Slack
+// message, with the token of the app that posted it, as an edit does.
+async function markSuperseded(ctx, project, record, call) {
+  if (!record.supersedes) return;
+  const target = readPosted(project.where, record.supersedes);
+  if (!target || !target.ts) return;
+  const original = store.findRecord(project.where, record.supersedes) || {};
+  const poster = target.as ? roleApp(ctx, project, target.as) : null;
+  const text = `(superseded by ${record.id}) ${slackText(project, original, bodyText(original))}`;
+  await call("chat.update", { channel: target.channel, ts: target.ts, text }, poster ? poster.token : ctx.token);
 }
 
 // Every record that originated on this machine, in a mapped group, and not yet
