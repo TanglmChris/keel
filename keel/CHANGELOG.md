@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.105.1 - No line of `authorize:` is dropped silently
+
+Issue #275, found while adding `push:<branch glob>` (#257): a list item with a space (`- push:main branch`) ended the `authorize:` block, dropping it and every later entry while `keel --doctor` reported `ok`; an item with a trailing comment was dropped the same way.
+
+- Every indented line of the block is now read as an entry, and only a line at column zero ends it. An entry Keel cannot read is refused by name and the declaration authorizes nothing, as any unrecognized entry already did.
+- A trailing ` # comment` is ignored, in Keel's reader and in the Claude write guard's `push:` reader.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.105.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.105.0 - `push:<branch glob>`, enforced; `issue-close:<owner>/<repo>` and `cleanup:scratch`
 
 Issue #257 (rtl_ppa_prj, from TanglmChris/rtl_ppa_prj#218): the owner set three standing authorizations that `authorize:` could not hold — push limited to branches, closing its own issues, and cleaning its own scratchpad. Owner decision, 2026-10-11: add all three, and have the write guard enforce the push branch.

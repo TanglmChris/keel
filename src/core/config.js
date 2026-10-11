@@ -145,11 +145,14 @@ function configList(repo, key) {
     }
     if (!inBlock) continue;
     if (line.trim() === "") continue;
-    const entry = line.match(/^\s+-\s*(\S+)\s*$/);
-    // Anything that is not a list item closes the block; the next top-level
-    // key belongs to the rest of the file.
-    if (!entry) break;
-    entries.push(entry[1]);
+    // Only a line at column zero closes the block: the next top-level key
+    // belongs to the rest of the file. Every indented line is an entry, read
+    // whole, so one Keel cannot use is refused by name rather than ending the
+    // block and dropping itself and everything after it unseen (#275).
+    if (!/^\s/.test(line)) break;
+    const text = line.replace(/\s+#.*$/, "").trim();
+    const entry = text.replace(/^-\s*/, "");
+    if (entry) entries.push(entry);
   }
   return entries;
 }

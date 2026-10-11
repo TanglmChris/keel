@@ -190,7 +190,7 @@ function readPushGlobs(top) {
     }
     if (!inBlock) continue;
     if (!/^\s/.test(line)) break;
-    const entry = line.match(/^\s+-\s*push:(\S+)\s*$/);
+    const entry = line.replace(/\s+#.*$/, "").match(/^\s+-\s*push:(\S+)\s*$/);
     if (entry) globs.push(entry[1]);
   }
   return globs;
