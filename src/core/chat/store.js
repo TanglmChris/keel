@@ -40,7 +40,7 @@ const DATA_NOTICE =
 const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
-  "id", "group", "kind", "from", "created", "mentions", "reply_to",
+  "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes",
   "assignee", "issue", "target", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
@@ -559,12 +559,14 @@ function post(where, options) {
   if (options.replyTo) {
     parent = findRecord(where, options.replyTo);
   }
+  if (options.supersedes) checkSupersedes(where, from, group, records, options.supersedes);
   const record = writeRecord(where, {
     group,
     kind: options.kind || "message",
     from,
     mentions,
     reply_to: options.replyTo || null,
+    supersedes: options.supersedes || null,
     assignee: options.assignee || null,
     issue: options.issue || null,
     refs: options.refs || [],
@@ -581,6 +583,40 @@ function post(where, options) {
 }
 
 const DONE_REPLY = /^\s*(done\b|✅)/i;
+
+// A record supersedes only its author's current version of a message or todo
+// in the same group (#252 D1), so the chain stays linear and readable.
+function checkSupersedes(where, from, group, records, id) {
+  const target = findRecord(where, id);
+  if (!target) throw new ChatError(`No record ${id} to supersede.`);
+  if (target.group !== group) {
+    throw new ChatError(`Record ${id} is in group ${target.group}, not ${group}; a record supersedes only one in its own group.`);
+  }
+  if (!["message", "todo"].includes(target.kind)) {
+    throw new ChatError(`Record ${id} is a ${target.kind}; only a message or todo can be superseded.`);
+  }
+  if (target.from !== from) {
+    throw new ChatError(`Record ${id} was written by ${target.from}; only its author may supersede it.`);
+  }
+  if (records.some((record) => record.kind === "retract" && record.target === id)) {
+    throw new ChatError(`Record ${id} was retracted; post a new record instead.`);
+  }
+  const successor = records.find((record) => record.supersedes === id);
+  if (successor) {
+    throw new ChatError(`Record ${id} is already superseded by ${successor.id}; supersede ${successor.id} instead.`);
+  }
+}
+
+// Ids a later record of the same author supersedes, in one group's log.
+function supersededIds(records) {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const ids = new Set();
+  for (const record of records) {
+    const target = record.supersedes && byId.get(record.supersedes);
+    if (target && target.from === record.from) ids.add(target.id);
+  }
+  return ids;
+}
 
 function isDone(where, todo) {
   return readLog(where, todo.group).some((record) => record.kind === "done" && record.target === todo.id);
@@ -727,8 +763,10 @@ function unread(where, role) {
     const state = groupState(records);
     if (!state.exists || state.archived || !canAct(state, role)) continue;
     const cursor = readCursor(where, role, group);
+    // A superseded record is no one's to act on (#252 D2), read or not.
+    const superseded = supersededIds(records);
     for (const record of records) {
-      if (record.id > cursor && readable(record) && record.from !== role) result.push(record);
+      if (record.id > cursor && readable(record) && record.from !== role && !superseded.has(record.id)) result.push(record);
     }
   }
   return result;
