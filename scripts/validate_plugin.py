@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.105.0"
-PROTOCOL_VERSION = "5.105.0"
+PACKAGE_VERSION = "5.105.1"
+PROTOCOL_VERSION = "5.105.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24084,6 +24084,52 @@ def write_authorize_config(repo: Path, body: str) -> None:
     (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
 
 
+def validate_authorize_block_reads_every_line_scenario() -> int:
+    """Issue #275: no line of `authorize:` is dropped silently.
+
+    An item with a space used to end the block, dropping it and every later
+    entry while doctor said ok; a trailing comment dropped its item too.
+    """
+    label = "authorize-block-reads-every-line:"
+    with tempfile.TemporaryDirectory(prefix="keel-authorize-275-") as raw_tmp:
+        root = Path(raw_tmp)
+        spaced = root / "spaced"
+        spaced.mkdir()
+        write_authorize_config(spaced, "authorize:\n  - commit\n  - push:main branch\n  - release\n")
+        doctor = run_keel(spaced, "--doctor")
+        if doctor.returncode == 0:
+            report(f"{label} an item with a space was not refused: {doctor.stdout}")
+            return 1
+        if "push:main branch" not in doctor.stdout + doctor.stderr:
+            report(f"{label} the refusal does not name `push:main branch`: {doctor.stdout}")
+            return 1
+        if "commit: authorized" in doctor.stdout:
+            report(f"{label} the entries beside the refused one stayed authorized.")
+            return 1
+
+        commented = root / "commented"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(commented)], check=True, capture_output=True)
+        write_authorize_config(
+            commented,
+            "authorize:\n  - commit  # owner, 2026-10-11\n  - push:claude/*  # sessions push their own branches\n",
+        )
+        out = run_keel(commented, "--doctor").stdout
+        if "commit: authorized" not in out:
+            report(f"{label} a trailing comment dropped `commit`: {out}")
+            return 1
+        push_line = next((l for l in out.splitlines() if l.strip().startswith("push:")), "")
+        if "claude/*" not in push_line or "#" in push_line:
+            report(f"{label} the push line does not read the glob without its comment: {push_line!r}")
+            return 1
+        event = {"tool_name": "Bash", "tool_input": {"command": "git push origin HEAD:main"}, "cwd": str(commented)}
+        decision = pretooluse_decision(run_pretooluse_guard_hook(commented, event))
+        if not decision or decision.get("permissionDecision") != "deny":
+            report(f"{label} the push guard did not read a commented glob: {decision!r}")
+            return 1
+    report("authorize-block-reads-every-line scenario passed.")
+    return 0
+
+
 def validate_authorize_push_close_cleanup_scenario() -> int:
     """Issue #257: `push:<glob>`, `issue-close:<owner>/<repo>`, `cleanup:scratch`.
 
@@ -38147,6 +38193,7 @@ SCENARIOS: tuple = (
         validate_standing_authorization_declaration_scenario,
     ),
     ("authorize-push-close-cleanup", validate_authorize_push_close_cleanup_scenario),
+    ("authorize-block-reads-every-line", validate_authorize_block_reads_every_line_scenario),
     (
         "standing-authorization-sync-confusion",
         validate_standing_authorization_sync_confusion_scenario,
