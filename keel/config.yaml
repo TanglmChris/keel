@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Nine independent declarations live here: fast_check, which names a command;
+# Ten independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
@@ -10,7 +10,17 @@
 # names how much stepwise guidance this project's skills should load;
 # merge, which names who merges into the default branch; and
 # external_agents, which names the external model CLIs this project allows and
-# the paths that must not be handed to one.
+# the paths that must not be handed to one; and read_only_roles, which names
+# the chat roles whose sessions own no change.
+#
+# read_only_roles (optional): chat roles whose sessions review, verify, or
+# coordinate and never own an OpenSpec change. In a worktree bound to one,
+# `keel context` reports one idle line naming the role, and the session note
+# stops asking it to select an owner; `keel context --change` still selects.
+#
+# Example:
+#   read_only_roles:
+#     - review
 #
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see

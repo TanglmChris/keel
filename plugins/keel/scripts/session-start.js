@@ -627,10 +627,17 @@ function main() {
     for (const reason of reasons) {
       lines.push(`- reason: ${String(reason).slice(0, MAX_REASON_LENGTH)}`);
     }
-    lines.push(
-      "- next: run `keel context` and select an owner explicitly; this hook "
-        + "does not guess among candidates."
-    );
+    if (context.readOnly && context.readOnly.role) {
+      lines.push(
+        `- next: none — read-only session (role ${context.readOnly.role}); `
+          + "no change is selected."
+      );
+    } else {
+      lines.push(
+        "- next: run `keel context` and select an owner explicitly; this hook "
+          + "does not guess among candidates."
+      );
+    }
   }
   const drift = versionReport(
     cwd,

@@ -663,6 +663,23 @@ This changes only what Keel *recommends*. No gate, the write guard, and completi
 exactly as they would without it, and `keel context --change <paused>` still selects it — you asked
 for it by name. Keel never pauses a change on its own.
 
+## Changes another worktree owns
+
+When several sessions share a repository, each in its own worktree, a change in progress elsewhere
+does not decide your session's status (#241). `keel context` infers only over the changes that
+belong to this worktree, and lists the rest as context: `Change X (blocked) belongs to worktree Y on
+branch B; it does not set this session's status.` A change belongs elsewhere when its
+`.openspec.yaml` names another chat role as its owner,
+
+```yaml
+keel:
+  owner: verify
+```
+
+or, with no owner named, when another worktree's branch has commits touching it beyond the default
+branch and yours has none. Only committed history counts; uncommitted files never decide it. `keel
+context --change <name>` still selects any change by name.
+
 ## External model CLIs
 
 A session can hand work to an external model CLI — codex, DeepSeek Harness's `dsh`, or one you

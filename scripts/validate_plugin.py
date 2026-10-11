@@ -8520,6 +8520,135 @@ def validate_cli_scenario() -> int:
     return 0
 
 
+def per_worktree_change(repo: Path, name: str, *, blocked: bool = False, owner: str | None = None) -> None:
+    """An actionable change; `blocked` drops its evidence-first Reason so it cannot compile."""
+    tasks = task_capsule_compact_fixture()
+    if blocked:
+        tasks = "".join(line for line in tasks.splitlines(keepends=True) if "- Reason:" not in line)
+    write_text(repo / f"openspec/changes/{name}/proposal.md", f"## Why\n\n{name}.\n\n## What Changes\n\n- {name}.\n")
+    write_text(repo / f"openspec/changes/{name}/tasks.md", tasks)
+    if owner:
+        write_text(repo / f"openspec/changes/{name}/.openspec.yaml", f"schema: spec-driven\nkeel:\n  owner: {owner}\n")
+
+
+def validate_context_per_worktree_scenario() -> int:
+    """Issue #241: a change that belongs to another worktree is context here.
+
+    Ownership is the change's `owner:` role first, then committed branch
+    history beyond the default branch; a change belonging elsewhere is listed
+    and does not set this session's status. Explicit selection still reaches it.
+    """
+    label = "context-per-worktree:"
+    with tempfile.TemporaryDirectory(prefix="keel-context-worktree-") as raw:
+        base = Path(raw)
+        main = mailbox_repository(base / "main")
+        per_worktree_change(main, "broken", blocked=True)
+        per_worktree_change(main, "owned", owner="verify")
+        subprocess.run(["git", "add", "-A"], cwd=main, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "changes"], cwd=main, check=True, capture_output=True)
+        rtl = chat_worktree(main, base / "rtl")
+        verify = chat_worktree(main, base / "verify")
+        review = chat_worktree(main, base / "review")
+        env = chat_environment()
+        for cwd, role in ((rtl, "rtl"), (verify, "verify"), (review, "review")):
+            run_keel(cwd, "chat", "role", "--set", role, env=env)
+        (rtl / "openspec/changes/broken/proposal.md").write_text("## Why\n\nbroken, edited on rtl.\n\n## What Changes\n\n- broken.\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-q", "-am", "edit broken"], cwd=rtl, check=True, capture_output=True)
+
+        def context(cwd: Path, *args: str) -> dict:
+            result = run_keel(cwd, "context", "--json", *args, env=env)
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {"error": (result.stdout or result.stderr).strip()}
+
+        here = context(review)
+        if here.get("status") != "idle":
+            report(f"{label} review is {here.get('status')!r}, not idle: {here}")
+            return 1
+        elsewhere = {e.get("change"): e for e in here.get("elsewhere", [])}
+        broken = elsewhere.get("broken", {})
+        if broken.get("status") != "blocked" or broken.get("worktree") != str(rtl.resolve()):
+            report(f"{label} review does not list broken as blocked in worktree rtl: {here.get('elsewhere')!r}")
+            return 1
+        if elsewhere.get("owned", {}).get("owner") != "verify":
+            report(f"{label} review does not list owned as belonging to verify: {here.get('elsewhere')!r}")
+            return 1
+
+        theirs = context(rtl)
+        if theirs.get("status") != "blocked":
+            report(f"{label} rtl is {theirs.get('status')!r}, not blocked by its own change: {theirs}")
+            return 1
+        if [e.get("change") for e in theirs.get("elsewhere", [])] != ["owned"]:
+            report(f"{label} rtl does not list only owned as elsewhere: {theirs.get('elsewhere')!r}")
+            return 1
+
+        owner = context(verify)
+        if owner.get("status") != "ready" or (owner.get("selection") or {}).get("change") != "owned":
+            report(f"{label} verify does not select its owned change: {owner}")
+            return 1
+
+        explicit = context(review, "--change", "broken")
+        if (explicit.get("selection") or {}).get("change") != "broken" and explicit.get("status") != "blocked":
+            report(f"{label} explicit selection in review did not reach broken: {explicit}")
+            return 1
+    report("context-per-worktree scenario passed.")
+    return 0
+
+
+def validate_read_only_role_scenario() -> int:
+    """Issue #246: a role listed in `read_only_roles:` infers nothing.
+
+    `keel context` reports one idle line naming the role, the session note
+    stops asking to select an owner, a malformed entry is reported, and
+    explicit selection still works.
+    """
+    label = "read-only-role:"
+    with tempfile.TemporaryDirectory(prefix="keel-read-only-") as raw:
+        repo = mailbox_repository(Path(raw) / "repo")
+        per_worktree_change(repo, "first")
+        per_worktree_change(repo, "second")
+        write_authorize_config(repo, "read_only_roles:\n  - review\n  - Not A Role\n")
+        env = chat_environment()
+        run_keel(repo, "chat", "role", "--set", "review", env=env)
+        result = run_keel(repo, "context", "--json", env=env)
+        try:
+            context = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report(f"{label} keel context printed no JSON: {result.stdout} {result.stderr}")
+            return 1
+        if context.get("status") != "idle":
+            report(f"{label} a read-only role is {context.get('status')!r}, not idle: {context}")
+            return 1
+        reasons = context.get("reasons", [])
+        if len(reasons) != 1 or "review" not in reasons[0]:
+            report(f"{label} the read-only result is not one reason naming review: {reasons!r}")
+            return 1
+        if (context.get("readOnly") or {}).get("role") != "review":
+            report(f"{label} the result carries no readOnly naming review: {context.get('readOnly')!r}")
+            return 1
+        if not any("Not A Role" in warning for warning in context.get("warnings", [])):
+            report(f"{label} the malformed entry is not reported: {context.get('warnings')!r}")
+            return 1
+        session = run_session_start_hook(
+            repo, {"hook_event_name": "SessionStart", "source": "compact", "cwd": str(repo)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        note = session_start_context(session) or ""
+        if "read-only session (role review)" not in note:
+            report(f"{label} the compaction note does not name the read-only session: {note!r}")
+            return 1
+        if "select an owner" in note:
+            report(f"{label} the compaction note still asks a read-only session to select an owner: {note!r}")
+            return 1
+        explicit = json.loads(run_keel(repo, "context", "--json", "--change", "first", env=env).stdout)
+        if (explicit.get("selection") or {}).get("change") != "first":
+            report(f"{label} explicit selection in a read-only session did not select first: {explicit}")
+            return 1
+    report("read-only-role scenario passed.")
+    return 0
+
+
 def validate_stateless_continuity_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-context-") as raw_tmp:
         root = Path(raw_tmp)
@@ -37950,6 +38079,8 @@ def validate_external_agent_exit_status_scenario() -> int:
 
 SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
+    ("context-per-worktree", validate_context_per_worktree_scenario),
+    ("read-only-role", validate_read_only_role_scenario),
     ("core-gates", validate_core_gates_scenario),
     ("scope-rename-attribution", validate_scope_rename_attribution_scenario),
     ("target-capability-adapters", validate_target_capability_adapters_scenario),
