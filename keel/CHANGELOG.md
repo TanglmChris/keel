@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.107.0 - The chat role is the session's identity
+
+Issue #245 (rtl_ppa_prj, 2026-10-05): one session had three names — host title, role table, worktree — and a message sent to the documented name did not reach it. Owner decision, 2026-10-11: the chat role is the identity; Keel cannot read the host's session title.
+
+- `keel context` carries `role`: the chat role bound to this worktree, or null.
+- A worktree with no role while other worktrees here have one is warned, naming `keel chat role --set <name>`. A repository that binds no roles hears nothing.
+- The SessionStart and compaction projection prints `chat role: <r>`, or the reminder.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.107.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.106.0 - `keel context` per worktree, and read-only roles
 
 Issues #241 and #246 (rtl_ppa_prj report and review sessions, 2026-10-05): one blocked change made every session in the repository report `blocked` or `ambiguous`, and a session that owns no change was told after every compaction to select an owner. Owner decisions, 2026-10-11: scope by worktree with an `owner:` declaration first and branch history second; declare read-only sessions by chat role in `keel/config.yaml`.

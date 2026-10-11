@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.106.0"
-PROTOCOL_VERSION = "5.106.0"
+PACKAGE_VERSION = "5.107.0"
+PROTOCOL_VERSION = "5.107.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8599,6 +8599,72 @@ def validate_context_per_worktree_scenario() -> int:
             report(f"{label} explicit selection in review did not reach broken: {explicit}")
             return 1
     report("context-per-worktree scenario passed.")
+    return 0
+
+
+def validate_session_role_identity_scenario() -> int:
+    """Issue #245: the chat role is the session's identity.
+
+    `keel context` carries the bound role and the SessionStart projection
+    names it; an unbound worktree among bound ones is reminded; a repository
+    with no roles is unchanged.
+    """
+    label = "session-role-identity:"
+    with tempfile.TemporaryDirectory(prefix="keel-role-identity-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        plain = mailbox_repository(base / "plain")
+        # The SessionStart hook projects only where OpenSpec is present.
+        for root in (repo, plain):
+            write_text(root / "openspec/specs/.keep", "")
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-q", "-m", "openspec"], cwd=root, check=True, capture_output=True)
+        rtl = chat_worktree(repo, base / "rtl")
+        loose = chat_worktree(repo, base / "loose")
+        env = chat_environment()
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+
+        def both(cwd: Path) -> tuple[dict, str]:
+            context = json.loads(run_keel(cwd, "context", "--json", env=env).stdout)
+            session = run_session_start_hook(
+                cwd, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(cwd)},
+                keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+            )
+            return context, session_start_context(session) or ""
+
+        context, note = both(rtl)
+        if context.get("role") != "rtl":
+            report(f"{label} rtl's context carries role {context.get('role')!r}, not 'rtl'.")
+            return 1
+        if "chat role: rtl" not in note:
+            report(f"{label} rtl's projection does not name its role: {note!r}")
+            return 1
+
+        context, note = both(loose)
+        if context.get("role") is not None:
+            report(f"{label} the unbound worktree carries role {context.get('role')!r}.")
+            return 1
+        if not any("keel chat role --set" in w for w in context.get("warnings", [])):
+            report(f"{label} the unbound worktree is not reminded: {context.get('warnings')!r}")
+            return 1
+        if "keel chat role --set" not in note:
+            report(f"{label} the unbound worktree's projection carries no reminder: {note!r}")
+            return 1
+
+        context, note = both(plain)
+        if "role" not in context:
+            report(f"{label} a role-less repository's context has no role field: {context}")
+            return 1
+        if context.get("role") is not None:
+            report(f"{label} a role-less repository carries role {context.get('role')!r}.")
+            return 1
+        if any("keel chat role --set" in w for w in context.get("warnings", [])):
+            report(f"{label} a role-less repository is warned: {context.get('warnings')!r}")
+            return 1
+        if "chat role:" in note:
+            report(f"{label} a role-less repository's projection has a role line: {note!r}")
+            return 1
+    report("session-role-identity scenario passed.")
     return 0
 
 
@@ -38136,6 +38202,7 @@ SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("context-per-worktree", validate_context_per_worktree_scenario),
     ("read-only-role", validate_read_only_role_scenario),
+    ("session-role-identity", validate_session_role_identity_scenario),
     ("core-gates", validate_core_gates_scenario),
     ("scope-rename-attribution", validate_scope_rename_attribution_scenario),
     ("target-capability-adapters", validate_target_capability_adapters_scenario),
