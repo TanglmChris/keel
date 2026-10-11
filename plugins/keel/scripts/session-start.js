@@ -653,6 +653,15 @@ function main() {
     lines.push(`- ${drift}`);
     human.splice(human.length - 1, 0, drift[0].toUpperCase() + drift.slice(1));
   }
+  // The role other sessions address this one by (#245).
+  if (context.role) {
+    lines.push(`- chat role: ${context.role} (other sessions address this one by it).`);
+  } else if (context.roleReminder) {
+    lines.push(
+      "- chat role: none bound here while other worktrees have one; bind one "
+        + "with `keel chat role --set <name>`."
+    );
+  }
   const pointer = precedentPointer(cwd);
   if (pointer) lines.push(`- ${pointer}`);
   // A note from the previous shift (shift-without-role D3), on every host.

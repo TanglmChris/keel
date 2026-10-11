@@ -808,6 +808,30 @@ function resolveContext(repo, options) {
       : readOnlyContext(repo, readOnly) || inferContext(repo);
   }
   if (readOnly.message) context.warnings.push(readOnly.message);
+  // The chat role is the session's identity (#245): other sessions address it
+  // by role, and Keel cannot see the host's session title. A worktree with no
+  // role while others here have one is reminded; a repository that uses no
+  // roles hears nothing.
+  context.role = null;
+  try {
+    const store = require("./chat/store");
+    const where = store.locate(repo);
+    context.role = store.currentRole(where);
+    if (!context.role) {
+      const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
+        .filter(([worktree, role]) => worktree !== where.worktree && role);
+      if (bound.length) {
+        context.warnings.push(
+          "This worktree has no chat role while other worktrees here have one; "
+            + "sessions address each other by role. Bind one with "
+            + "`keel chat role --set <name>`."
+        );
+        context.roleReminder = true;
+      }
+    }
+  } catch {
+    context.role = null;
+  }
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by
   // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
