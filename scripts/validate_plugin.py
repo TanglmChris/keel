@@ -2521,6 +2521,63 @@ def validate_chat_supersedes_scenario() -> int:
     return 0
 
 
+def validate_chat_listen_only_scenario() -> int:
+    """Issue #248: a listen-only member hears a group but does not post in it.
+
+    It has records unread and is woken like any member, may acknowledge and
+    close its assigned todos, and is refused posting, opening a todo, and
+    changing the group.
+    """
+    label = "chat-listen-only:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-listen-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        review = chat_worktree(rtl, base / "review")
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        chat(review, "role", "--set", "review")
+        added = chat(rtl, "group", "add", "soc", "review", "--listen")
+        if added.returncode != 0:
+            report(f"{label} group add --listen failed: {added.stderr}")
+            return 1
+        asked = chat_json(chat(rtl, "post", "soc", "@review is clause 4 waived?", "--ack", "--json")).get("id", "")
+        unread = [r.get("id") for r in chat_json(chat(review, "unread", "--json")).get("unread", [])]
+        if asked not in unread:
+            report(f"{label} the listen-only member does not have the mention unread: {unread!r}")
+            return 1
+        if chat(review, "notice", "--check").returncode != 0:
+            report(f"{label} the listen-only member is not woken by a mention.")
+            return 1
+        todo = chat_json(chat(rtl, "todo", "soc", "--assignee", "review", "check clause 4", "--json")).get("id", "")
+        for what, result in (
+            ("ack", chat(review, "ack", asked)),
+            ("done", chat(review, "done", todo)),
+        ):
+            if result.returncode != 0:
+                report(f"{label} the listen-only member could not {what}: {result.stderr}")
+                return 1
+        for what, result in (
+            ("post", chat(review, "post", "soc", "waived")),
+            ("todo", chat(review, "todo", "soc", "--assignee", "rtl", "waive it")),
+            ("group add", chat(review, "group", "add", "soc", "spec")),
+            ("group archive", chat(review, "group", "archive", "soc")),
+        ):
+            if result.returncode == 0:
+                report(f"{label} the listen-only member's {what} was accepted.")
+                return 1
+            if "listen-only" not in result.stderr:
+                report(f"{label} the listen-only member's {what} was refused without naming listen-only: {result.stderr}")
+                return 1
+        listed = chat(rtl, "group", "list").stdout
+        if "review (listen)" not in listed:
+            report(f"{label} group list does not mark the listen-only member: {listed!r}")
+            return 1
+    report("chat-listen-only scenario passed.")
+    return 0
+
+
 def validate_chat_ack_scenario() -> int:
     """Issue #253: a record asks for an acknowledgement and the sender sees who gave it.
 
@@ -38519,6 +38576,7 @@ SCENARIOS: tuple = (
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
+    ("chat-listen-only", validate_chat_listen_only_scenario),
     ("chat-summary", validate_chat_summary_scenario),
     ("worktree-overview", validate_worktree_overview_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),

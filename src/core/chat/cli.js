@@ -17,7 +17,7 @@ const { ChatError } = store;
 const USAGE = [
   "keel chat role [--set <name>] [--alias <alias>] [--json]",
   "keel chat group create <group> [--member <role>]...",
-  "keel chat group add|remove <group> <role>",
+  "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
   "keel chat group list [--all] [--json]   (also: keel chat list)",
   "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--json]   (also: keel chat <group> <text...>)",
@@ -69,10 +69,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -187,7 +187,7 @@ function runGroup(where, options) {
     const groups = store.listGroups(where, { includeArchived: options.all });
     if (options.json) out(JSON.stringify({ groups }));
     else if (!groups.length) out("No groups. Create one with `keel chat group create <group>`.");
-    else out(groups.map((g) => `${g.name}${g.archived ? " (archived)" : ""}: ${g.members.join(", ")}`).join("\n"));
+    else out(groups.map((g) => `${g.name}${g.archived ? " (archived)" : ""}: ${g.members.map((m) => (g.listeners.includes(m) ? `${m} (listen)` : m)).join(", ")}`).join("\n"));
     return 0;
   }
   const actor = store.requireRole(where);
@@ -201,8 +201,8 @@ function runGroup(where, options) {
     case "add":
     case "remove": {
       if (!member) throw new ChatError(`keel chat group ${action} needs a role.`);
-      store.changeMember(where, actor, group, member, action === "add" ? "join" : "leave");
-      out(`${action === "add" ? "Added" : "Removed"} ${member} ${action === "add" ? "to" : "from"} ${group}.`);
+      store.changeMember(where, actor, group, member, action === "add" ? "join" : "leave", { listen: options.listen });
+      out(`${action === "add" ? "Added" : "Removed"} ${member} ${action === "add" ? "to" : "from"} ${group}${action === "add" && options.listen ? " as listen-only" : ""}.`);
       return 0;
     }
     case "archive":
