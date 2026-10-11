@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.106.0 - `keel context` per worktree, and read-only roles
+
+Issues #241 and #246 (rtl_ppa_prj report and review sessions, 2026-10-05): one blocked change made every session in the repository report `blocked` or `ambiguous`, and a session that owns no change was told after every compaction to select an owner. Owner decisions, 2026-10-11: scope by worktree with an `owner:` declaration first and branch history second; declare read-only sessions by chat role in `keel/config.yaml`.
+
+- A change may declare `keel: owner: <role>` in its `.openspec.yaml`; with none, a change committed on another worktree's branch beyond the default branch, and not on this one's, belongs to that worktree. Dirty state never decides it.
+- `keel context` infers only over the changes that belong here. Each other one is listed — `Change X (blocked) belongs to worktree Y on branch B; it does not set this session's status.` — in reasons or warnings and in a new `elsewhere` field. With nothing of its own, the session is `idle`. `--change` still selects anything.
+- `read_only_roles:` in `keel/config.yaml` lists chat roles that own no change. In a worktree bound to one, `keel context` reports one `idle` line naming the role with a `readOnly` field, and the SessionStart and compaction note say `next: none — read-only session (role <r>)` instead of asking to select an owner. A malformed entry is reported and ignored.
+- Not included: #241's item 3, listing recently referenced issues when idle.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.106.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.105.1 - No line of `authorize:` is dropped silently
 
 Issue #275, found while adding `push:<branch glob>` (#257): a list item with a space (`- push:main branch`) ended the `authorize:` block, dropping it and every later entry while `keel --doctor` reported `ok`; an item with a trailing comment was dropped the same way.
