@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.101.0 - `keel chat post --supersedes`, and unread newest first
+
+Issue #252, part of #250 (rtl_ppa_prj, 2026-10-05): a changed division-of-work rule never reached the session it affected, and two sessions asked again a question already answered.
+
+- `keel chat post <group> <text> --supersedes <id>` replaces its author's earlier message or todo in the same group, which is kept. Superseding another author's record, a retracted one, one in another group, or one already superseded is refused by name; the last names the record to supersede instead.
+- A superseded record is no longer unread for anyone, so it is not listed by `keel chat unread` or the wake notice and wakes no session. A group view marks it `(superseded by <id>)` and its successor `(supersedes <id>)`.
+- `keel chat unread` and the wake notice list newest first.
+- The bridge updates a superseded record's Slack message to open with `(superseded by <id>)`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.101.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.100.0 - `keel lock`: leases on shared resources between sessions
 
 Issue #254, part of #250 (rtl_ppa_prj, 2026-10-05): three sessions contended for the main checkout with no way to claim it.

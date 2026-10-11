@@ -20,7 +20,7 @@ const USAGE = [
   "keel chat group add|remove <group> <role>",
   "keel chat group archive <group>",
   "keel chat group list [--all] [--json]   (also: keel chat list)",
-  "keel chat post <group> <text...> [--reply-to <id>] [--json]   (also: keel chat <group> <text...>)",
+  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--json]   (also: keel chat <group> <text...>)",
   "keel chat dm <role> <text...> [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
@@ -53,6 +53,7 @@ const VALUED = {
   "--set": "set",
   "--alias": "alias",
   "--reply-to": "replyTo",
+  "--supersedes": "supersedes",
   "--repo": "repo",
   "--assignee": "assignee",
   "--issue": "issue",
@@ -259,7 +260,7 @@ function dispatch(where, options) {
     case "post": {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat post needs a group.");
-      postResult(where, store.post(where, { group, text: textFrom(words), replyTo: options.replyTo }), options.json);
+      postResult(where, store.post(where, { group, text: textFrom(words), replyTo: options.replyTo, supersedes: options.supersedes }), options.json);
       return 0;
     }
     case "dm": {
@@ -270,7 +271,8 @@ function dispatch(where, options) {
     }
     case "unread": {
       const role = store.requireRole(where);
-      const records = store.unread(where, role);
+      // Newest first (#252 D3): the latest word is the one to read first.
+      const records = store.unread(where, role).reverse();
       if (options.json) out(JSON.stringify({ role, unread: records.map(publicRecord) }));
       else out(records.length ? records.map((r) => `${r.group} ${formatLine(r)}`).join("\n") : `keel chat: nothing unread for role \`${role}\`.`);
       return 0;
@@ -363,7 +365,7 @@ function dispatch(where, options) {
     default: {
       // `keel chat <group>` views; `keel chat <group> <text...>` posts.
       if (rest.length) {
-        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo }), options.json);
+        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo, supersedes: options.supersedes }), options.json);
         return 0;
       }
       return runView(where, command, options);

@@ -63,6 +63,10 @@ function displayRecords(records) {
       continue;
     }
     const copy = { ...record };
+    if (copy.supersedes) {
+      const old = byId.get(copy.supersedes);
+      if (old && old.from === copy.from) old.superseded_by = copy.id;
+    }
     if (copy.kind === "done") {
       const todo = byId.get(copy.target);
       if (todo) todo.done = true;
@@ -79,6 +83,8 @@ function markers(record) {
     parts.push(`[todo → ${record.assignee || "?"}${record.issue ? ` ${record.issue}` : ""}${record.done ? ", done" : ""}]`);
   }
   if (record.reply_to) parts.push(`↳ ${record.reply_to}`);
+  if (record.superseded_by) parts.push(`(superseded by ${record.superseded_by})`);
+  if (record.supersedes) parts.push(`(supersedes ${record.supersedes})`);
   // A mention the text already spells out is not repeated; one written as an
   // alias (`@cb`) still shows the role it resolved to (#196).
   const text = String(record.text || "").toLowerCase();
