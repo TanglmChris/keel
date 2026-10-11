@@ -107,6 +107,7 @@ Usage:
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
+  keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -2853,6 +2854,9 @@ function main() {
   // `keel shift` likewise: a coordinated shift change for a role's session.
   if (process.argv[2] === "shift") {
     return require("../src/core/shift").runShift(process.argv.slice(3));
+  }
+  if (process.argv[2] === "lock") {
+    return require("../src/core/lock").runLock(process.argv.slice(3));
   }
   // `keel agents` likewise: the external model CLI catalog (#219).
   if (process.argv[2] === "agents") {
