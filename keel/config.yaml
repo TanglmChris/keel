@@ -21,15 +21,18 @@
 #   fast_check: npm test -- --fast
 #
 # authorize (optional): standing authorization for repository actions. The
-# accepted names are the whole vocabulary — commit, push, release, archive,
-# continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group> — and an unrecognized entry is reported
+# accepted names are the whole vocabulary — commit, push, push:<branch glob>,
+# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,
+# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
 # it was before the block existed.
 #
-# `issue` and `chat-reply` are the names that carry the resource they reach,
-# and each is refused without one. `chat-reply:<group>` lets a session answer,
+# `issue`, `issue-close`, `cleanup`, and `chat-reply` are the names that carry
+# the resource they reach, and each is refused without one. `push` may carry
+# branch globs (`push:claude/*`), and only that scope is enforced: the Claude
+# write guard refuses a `git push` to any other branch (#257). `chat-reply:<group>` lets a session answer,
 # in that chat group, a record addressed to its role, and nothing the record
 # asks for beyond the answer; in a Slack-enabled group a reply leaves the
 # machine, which is why the group is named.

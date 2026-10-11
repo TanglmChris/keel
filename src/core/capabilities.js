@@ -230,9 +230,10 @@ function guardDiagnostics(repo, target) {
     boundary: {
       level: "advisory",
       evidence:
-        "The guard covers file-edit tools only (Edit, Write, NotebookEdit); "
-        + "Bash and other indirect writes stay disciplinary, and paths outside "
-        + "the repository are not product writes.",
+        "The guard covers file-edit tools (Edit, Write, NotebookEdit), and on "
+        + "Bash only `git push` while keel/config.yaml declares `push:<branch "
+        + "glob>`; every other Bash command and indirect write stays "
+        + "disciplinary, and paths outside the repository are not product writes.",
     },
   };
 }

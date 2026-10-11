@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.104.0"
-PROTOCOL_VERSION = "5.104.0"
+PACKAGE_VERSION = "5.105.0"
+PROTOCOL_VERSION = "5.105.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -24084,6 +24084,72 @@ def write_authorize_config(repo: Path, body: str) -> None:
     (repo / "keel" / "config.yaml").write_text(body, encoding="utf-8")
 
 
+def validate_authorize_push_close_cleanup_scenario() -> int:
+    """Issue #257: `push:<glob>`, `issue-close:<owner>/<repo>`, `cleanup:scratch`.
+
+    Each is reported with its scope, a task with no boundary inherits all of
+    them, and each wrong form is refused naming the form it needs.
+    """
+    label = "authorize-push-close-cleanup:"
+    with tempfile.TemporaryDirectory(prefix="keel-authorize-257-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        def fixture(name: str, entries: list[str]) -> Path:
+            repo = root / name
+            repo.mkdir()
+            write_authorize_config(repo, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+            return repo
+
+        good = fixture("good", ["push:claude/*", "push:worktree-*", "issue-close:acme/widgets", "cleanup:scratch"])
+        doctor = run_keel(good, "--doctor")
+        lines = doctor.stdout.splitlines()
+
+        def line_for(action: str) -> str:
+            return next((l for l in lines if l.strip().startswith(f"{action}:")), "")
+
+        for action, needles in (
+            ("push", ("authorized", "claude/*", "worktree-*")),
+            ("issue-close", ("authorized", "acme/widgets")),
+            ("cleanup", ("authorized", "scratch")),
+        ):
+            line = line_for(action)
+            missing = [n for n in needles if n not in line]
+            if missing:
+                report(f"{label} doctor's {action} line lacks {missing!r}: {line!r}")
+                report(doctor.stdout)
+                return 1
+        if "write guard enforces" not in doctor.stdout:
+            report(f"{label} doctor does not say the write guard enforces the push globs.")
+            report(doctor.stdout)
+            return 1
+
+        write_text(good / "openspec/changes/inherit/tasks.md", task_capsule_compact_fixture().replace(
+            "  - Autonomy boundary:\n    - Default: hard-stop\n    - Pre-authorized fallback: none\n", ""))
+        started = run_keel(good, "gate", "task-start", "--change", "inherit", "--task", "1.1", "--json")
+        text = started.stdout
+        inherited = "push:claude/*, push:worktree-*, issue-close:acme/widgets, cleanup:scratch"
+        if inherited not in text:
+            report(f"{label} the inherited autonomy entry does not name all four: {text[:1500]}")
+            return 1
+
+        for name, entries, needles in (
+            ("mixed", ["push", "push:claude/*"], ("push", "push:claude/*")),
+            ("bare-close", ["issue-close"], ("issue-close:<owner>/<repo>",)),
+            ("cleanup-runs", ["cleanup:runs"], ("cleanup:scratch",)),
+            ("bad-glob", ["push:main?"], ("push:main?", "push:<branch glob>")),
+        ):
+            refused = run_keel(fixture(name, entries), "--doctor")
+            if refused.returncode == 0:
+                report(f"{label} {entries!r} was accepted.")
+                return 1
+            missing = [n for n in needles if n not in refused.stdout + refused.stderr]
+            if missing:
+                report(f"{label} {entries!r} was refused without naming {missing!r}: {refused.stdout}")
+                return 1
+    report("authorize-push-close-cleanup scenario passed.")
+    return 0
+
+
 def validate_standing_authorization_declaration_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-authorize-") as raw_tmp:
         root = Path(raw_tmp)
@@ -27009,6 +27075,13 @@ def validate_continuation_authorization_scenario() -> int:
     return 0
 
 
+ACCEPTED_AUTHORIZE_NAMES = (
+    "commit, push, push:<branch glob>, release, archive, continuation, "
+    "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, "
+    "issue-close:<owner>/<repo>, cleanup:scratch"
+)
+
+
 def validate_continuation_docs_scenario() -> int:
     """Every text an agent reads at the between-task boundary names the word (#94).
 
@@ -27058,9 +27131,8 @@ def validate_continuation_docs_scenario() -> int:
     # The seventh name (#164). Each surface that spells the vocabulary out has
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
-        "accepted names: commit, push, release, archive, continuation, "
-        "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>",
-        "The eight names above are the whole vocabulary.",
+        f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
+        "The ten names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -27068,7 +27140,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, release, archive,\n# continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>" not in config_text:
+    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -29452,6 +29524,84 @@ def validate_touch_guard_record_layer_scenario() -> int:
         report(f"{label}: the scenario registry does not include it.")
         return 1
     report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_push_branch_guard_scenario() -> int:
+    """Issue #257: with `push:<glob>` declared, the hook refuses other pushes.
+
+    The real hook script receives `Bash` events with no task manifest. A push
+    to a declared branch passes, one to `main` is refused by name, a bare
+    `git push` resolves the branch's push destination, an undetermined target
+    is refused naming the explicit form, a typo elsewhere does not lift the
+    check, and a bare `push` declaration intercepts nothing.
+    """
+    label = "push-branch-guard:"
+    hooks = json.loads((ROOT / PLUGIN_ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))
+    matchers = [entry.get("matcher", "") for entry in hooks.get("hooks", {}).get("PreToolUse", [])]
+    if not any("Bash" in matcher.split("|") for matcher in matchers):
+        report(f"{label} hooks.json does not register the guard for Bash: {matchers!r}")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-push-guard-") as raw:
+        base = Path(raw)
+        remote = base / "remote.git"
+        repo = base / "repo"
+
+        def git(*args: str, cwd: Path = repo) -> None:
+            subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+        git("init", "-q", "--bare", str(remote), cwd=base)
+        git("init", "-q", "-b", "main", str(repo), cwd=base)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        git("remote", "add", "origin", str(remote))
+        git("push", "-q", "-u", "origin", "main")
+        git("switch", "-q", "-c", "claude/fix")
+        git("push", "-q", "-u", "origin", "claude/fix")
+
+        def decide(command: str) -> dict | None:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(repo)}
+            return pretooluse_decision(run_pretooluse_guard_hook(repo, event))
+
+        def denied(decision: dict | None) -> bool:
+            return bool(decision) and decision.get("permissionDecision") == "deny"
+
+        write_authorize_config(repo, "authorize:\n  - commit\n  - push:claude/*\n")
+        checks = [
+            ("a push to the declared branch", "git add -A && git push -u origin claude/fix", False, None),
+            ("a push to main", "git push origin HEAD:main", True, "main"),
+            ("a bare push on a branch pushing to claude/fix", "git push", False, None),
+            ("--all", "git push --all origin", True, "git push origin <branch>"),
+            ("a shell variable", 'git push origin "$BRANCH"', True, "git push origin <branch>"),
+        ]
+        for what, command, want_deny, needle in checks:
+            decision = decide(command)
+            if decision and "error" in decision:
+                report(f"{label} the hook failed on {what}: {decision['error']}")
+                return 1
+            if denied(decision) != want_deny:
+                report(f"{label} {what} ({command!r}) was {'allowed' if want_deny else 'denied'}: {decision!r}")
+                return 1
+            if needle and needle not in decision.get("permissionDecisionReason", ""):
+                report(f"{label} {what} was denied without naming {needle!r}: {decision!r}")
+                return 1
+        git("switch", "-q", "main")
+        decision = decide("git push")
+        if not denied(decision):
+            report(f"{label} a bare push on a branch pushing to origin/main was allowed: {decision!r}")
+            return 1
+        if "main" not in decision.get("permissionDecisionReason", ""):
+            report(f"{label} the bare push to main was denied without naming main: {decision!r}")
+            return 1
+
+        write_authorize_config(repo, "authorize:\n  - push:claude/*\n  - deploy\n")
+        if not denied(decide("git push origin HEAD:main")):
+            report(f"{label} a typo elsewhere in authorize: lifted the push check.")
+            return 1
+        write_authorize_config(repo, "authorize:\n  - push\n")
+        if decide("git push origin HEAD:main") is not None:
+            report(f"{label} a bare push declaration intercepted a push.")
+            return 1
+    report("push-branch-guard scenario passed.")
     return 0
 
 
@@ -37996,6 +38146,7 @@ SCENARIOS: tuple = (
         "standing-authorization-declaration",
         validate_standing_authorization_declaration_scenario,
     ),
+    ("authorize-push-close-cleanup", validate_authorize_push_close_cleanup_scenario),
     (
         "standing-authorization-sync-confusion",
         validate_standing_authorization_sync_confusion_scenario,
@@ -38199,6 +38350,7 @@ SCENARIOS: tuple = (
     ("native-helper-targets", validate_native_helper_targets_scenario),
     ("native-single-task-matrix", validate_native_single_task_matrix_scenario),
     ("touch-write-guard", validate_touch_write_guard_scenario),
+    ("push-branch-guard", validate_push_branch_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),

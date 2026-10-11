@@ -30,7 +30,8 @@ What Keel adds:
   check that the task contract and evidence are present; they do not judge whether the design
   is correct.
 - **A write guard (Claude).** After `task-start`, a `PreToolUse` hook rejects any edit
-  outside the files the task declared it would touch.
+  outside the files the task declared it would touch. Where `push:<branch glob>` is declared, it
+  also refuses a `git push` to any other branch, with or without a task.
 - **Expectation alignment.** Before specs and tasks are finalized, Keel surfaces hidden
   assumptions and asks about the ones that actually change behavior.
 
@@ -181,7 +182,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>
+authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch
   - commit
   - push
 ```
@@ -201,14 +202,30 @@ whose vocabulary predates the word, the entry is unrecognized and the whole decl
 nothing until corrected — fail-closed, never a silent grant.
 
 `issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
-one; `chat-reply:<group>`, the eighth, is the only other name that does. The other names act on the
-checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+one; `chat-reply:<group>`, the eighth, and `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
+and tenth, are the others that do. The other names act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
 capsule and **does not enforce it**: it invokes no tracker client and cannot observe one, exactly
-as it never commits on your behalf either. Closing an issue is not in scope and does not need to
-be — a pull request body carrying `Closes #<n>` does that when it lands.
+as it never commits on your behalf either. Closing an issue is a separate name,
+`issue-close:<owner>/<repo>` (#257): a merge made by an automation token does not fire
+`Closes #<n>`, so a session that finished the work closes the issue itself, with a comment naming
+the pull request that resolved it. Keel carries that scope the same way and does not enforce it.
+
+`push:<branch glob>` narrows `push` to the branches a session may push (#257) — for example
+`push:claude/*` and `push:worktree-*` in a repository where only the coordinator pushes `main`.
+Declare one entry per glob; `*` matches within one `/` segment and `**` across them. Unlike every
+other scope, this one is enforced: while any `push:` glob is declared, the Claude write guard checks
+every `git push` a `Bash` call runs, with or without a task, and refuses one to any other branch, or
+one whose target it cannot tell — `--all`, `--mirror`, `--tags`, a shell variable, no configured
+push destination — naming `git push origin <branch>` instead. A bare `push` keeps its old meaning,
+and declaring it beside a `push:` glob is refused, because it would silently widen the glob. Codex
+has no such hook, so there the scope is carried, not enforced.
+
+`cleanup:scratch` covers removing temporary worktrees and run output under the session's own
+scratchpad, after checking that they are merged and that no process is using them. It never covers
+a branch or another session's files, and like the tracker scopes it is carried, not enforced.
 
 `protocol-refresh`, the seventh name, covers the one piece of a release that a plugin update cannot
 carry: the managed protocol block in this repository's `AGENTS.md`, which moves only when
@@ -234,7 +251,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The eight names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The ten names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 

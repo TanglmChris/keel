@@ -21,6 +21,13 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // Answering, in the named chat group, a record addressed to the session's
   // role (#195). Scoped: in a Slack-enabled group a reply leaves the machine.
   "chat-reply",
+  // Closing an issue on the named repository with a comment naming the work
+  // that resolved it (#257). Scoped for the reason `issue` is.
+  "issue-close",
+  // Removing temporary worktrees and run output under the session's own
+  // scratchpad once merged and unused, never a branch or another session's
+  // files (#257). Its one scope, `scratch`, says which tree it reaches.
+  "cleanup",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -30,7 +37,12 @@ const STANDING_AUTHORIZATION_ACTIONS = [
 // actions are declared with the resource they may reach and refused bare —
 // accepting the bare form as a convenience would make the narrow form optional
 // and the wide one the default, which is the decision inverted.
-const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply"]);
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup"]);
+
+// Actions whose scope narrows them but is not required (#257). A bare `push`
+// keeps the meaning it always had; `push:<branch glob>` limits it to matching
+// branches, and the Claude write guard enforces that limit.
+const OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS = new Set(["push"]);
 
 // `<owner>/<repo>`: two non-empty segments and nothing else. The shape is
 // checked and the existence is not, for the reason `triage` never fetches an
@@ -43,14 +55,24 @@ const AUTHORIZATION_SCOPE_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const AUTHORIZATION_SCOPES = {
   issue: { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
   "chat-reply": { form: "<group>", pattern: /^[a-z0-9][a-z0-9-]{0,31}$/ },
+  "issue-close": { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
+  cleanup: { form: "scratch", pattern: /^scratch$/ },
+  // Branch-name characters and `*`; `*` matches within one `/` segment and
+  // `**` across them, as Touch globs do.
+  push: { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
 };
 
 // How the accepted names are spelled back to an author: the scoped ones carry
 // their form, so the list is copyable rather than a name the next message
 // refuses.
-const STANDING_AUTHORIZATION_ACCEPTED_FORMS = STANDING_AUTHORIZATION_ACTIONS.map(
-  (action) =>
-    SCOPED_AUTHORIZATION_ACTIONS.has(action) ? `${action}:${AUTHORIZATION_SCOPES[action].form}` : action
+const STANDING_AUTHORIZATION_ACCEPTED_FORMS = STANDING_AUTHORIZATION_ACTIONS.flatMap(
+  (action) => {
+    if (SCOPED_AUTHORIZATION_ACTIONS.has(action)) return [`${action}:${AUTHORIZATION_SCOPES[action].form}`];
+    if (OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS.has(action)) {
+      return [action, `${action}:${AUTHORIZATION_SCOPES[action].form}`];
+    }
+    return [action];
+  }
 );
 
 // One declared entry, split into the action and the resource it names. Returns
@@ -63,7 +85,10 @@ function classifyAuthorizationEntry(entry) {
   if (!STANDING_AUTHORIZATION_ACTIONS.includes(action)) {
     return { ok: false, entry, reason: "unknown-action" };
   }
-  if (!SCOPED_AUTHORIZATION_ACTIONS.has(action)) {
+  if (OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS.has(action) && scope === null) {
+    return { ok: true, entry, action, scope: null };
+  }
+  if (!SCOPED_AUTHORIZATION_ACTIONS.has(action) && !OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS.has(action)) {
     if (scope !== null) return { ok: false, entry, action, reason: "unexpected-scope" };
     return { ok: true, entry, action, scope: null };
   }
@@ -257,6 +282,28 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
   // names are ... issue" beside "unrecognized action: issue" would contradict
   // itself. Name what is missing instead, and why this one name carries it.
   for (const problem of problems) {
+    if (problem.reason === "mixed-push") {
+      notes.push(
+        `\`push\` and ${problem.scoped.map((entry) => `\`${entry}\``).join(", ")} are `
+          + "declared together; the bare form would silently widen the scoped "
+          + "one. Keep `push` alone, or only the `push:<branch glob>` entries."
+      );
+      continue;
+    }
+    if (problem.action === "push") {
+      notes.push(
+        `\`${problem.entry}\` does not name a branch glob as \`push:<branch glob>\` — `
+          + "letters, digits, `.`, `_`, `-`, `/`, and `*`."
+      );
+      continue;
+    }
+    if (problem.action === "cleanup") {
+      notes.push(
+        `\`${problem.entry}\` is not \`cleanup:scratch\`, the one form this name `
+          + "takes: it covers the session's own scratchpad and nothing else."
+      );
+      continue;
+    }
     if (problem.reason === "missing-scope" && problem.action === "chat-reply") {
       notes.push(
         "`chat-reply` names no chat group; write it as `chat-reply:<group>`, "
@@ -271,7 +318,7 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
     } else if (problem.reason === "missing-scope") {
       notes.push(
         `\`${problem.action}\` names no repository; write it as `
-          + `\`${problem.action}:<owner>/<repo>\`. The credentials that open an `
+          + `\`${problem.action}:<owner>/<repo>\`. The credentials that open or close an `
           + "issue are account-wide, so an unscoped grant would reach every "
           + "repository the account can touch — wider than commit or push, "
           + "which this checkout bounds."
@@ -318,17 +365,30 @@ function readStandingAuthorization(repo) {
   // Fail closed. A declaration Keel cannot fully read authorizes nothing,
   // because the alternative is granting the entries beside a typo while the
   // author believes they granted the typo too.
+  const pushGlobs = [];
+  for (const entry of declared) {
+    const classified = classifyAuthorizationEntry(entry);
+    if (classified.action === "push" && classified.scope !== null && !pushGlobs.includes(classified.scope)) {
+      pushGlobs.push(classified.scope);
+    }
+  }
+  if (pushGlobs.length && declared.includes("push")) {
+    unknown.push("push");
+    problems.push({ reason: "mixed-push", entry: "push", action: "push", scoped: pushGlobs.map((glob) => `push:${glob}`) });
+  }
   if (unknown.length > 0) {
     return {
       declared: [],
       scopes: new Map(),
       chatReplyGroups: [],
+      pushGlobs: [],
       unknown,
       message: standingAuthorizationUnknownMessage(unknown, problems),
     };
   }
   if (chatReplyGroups.length) scopes.set("chat-reply", chatReplyGroups.join(", "));
-  return { declared, scopes, chatReplyGroups, unknown, message: null };
+  if (pushGlobs.length) scopes.set("push", pushGlobs.join(", "));
+  return { declared, scopes, chatReplyGroups, pushGlobs, unknown, message: null };
 }
 
 // `full_mode_paths:` — the paths whose change always routes Full, whatever the
