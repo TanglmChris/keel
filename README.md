@@ -758,6 +758,33 @@ Without a known default branch, no issue range is inferred.
 
 Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. A record can supersede its author's earlier one (`--supersedes <id>`), and the earlier one then leaves everyone's unread; unread lists newest first. A record posted with `--ack` asks the roles it addresses to acknowledge it, by `keel chat ack <id>` or a reply, and `keel chat show <id>` and `keel chat acks` list who has acknowledged, who only read it, and who has not read it. `keel chat summary --since <time>` digests what changed in the groups you can read — per sender, the message count, todos opened with whether they are still open, todos closed, superseded records folded into their successors, and acknowledgements still waiting — without a model and without marking anything read. Each member has its own unread state, and history is kept. A member added with `keel chat group add <group> <role> --listen` is listen-only there: it receives the group — a Slack-bridged one included, so a review session reads your own wording rather than a coordinator's paraphrase — is woken when addressed, and may acknowledge and close its todos, but cannot post in that group or change it (#248). A session's chat role is its identity: address other sessions by role, never by the host's session title, which Keel cannot see; `keel context` and the session projection name the role bound to the worktree, and remind a worktree with none when others here have one (#245). Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Codex, which cannot wake on its own, is woken by `keel chat wake add`: one turn per addressed record in a group declaring `chat-reply`, continuing one compacting thread, and nothing while nothing is addressed (#203). Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention. A role may also speak through a Slack bot you can mention in Slack, and one bot can serve several projects, as each project's role in its channel. See [the Slack setup guide](docs/chat-slack-setup.md). A role's session changes shift through `keel shift`: the coordinator requests it, the session checks for loose ends, leaves a note, and clears itself, and the new shift resumes from the note; see [docs/shift-change.md](docs/shift-change.md). The 5.83 `keel mail` commands keep working on direct groups.
 
+## Coordinator patrol
+
+A coordinating session that goes quiet stalls everyone waiting on it (#260). A role records what it
+is waiting for, and a patrol the host runs on a schedule tells it when that holds:
+
+```bash
+keel chat wait soc --commit eb340a7 rerun R007 when the fix lands   # or: --issue 42 --closed
+git fetch && gh issue list --json number,title,state,labels,updatedAt > /tmp/issues.json
+keel patrol --issues /tmp/issues.json        # as the coordinator's role
+```
+
+`keel patrol` marks each wait whose condition now holds — a commit on the remote, an issue closed —
+as met and sends the waiting role one direct message, which wakes it. It lists every role's
+presence, last activity, and open todos, marking those idle beyond `--idle` (default `30m`). It
+fetches nothing, schedules nothing, calls no model, and writes nothing when nothing is new; it exits
+0 then, 2 when it sent something, and 1 on an error, so a cheap scheduler — cron, `/loop`, CI — can
+wake the model only on 2. `keel chat waits` lists what is still awaited.
+
+With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
+maps a label to a role, and each role gets one direct message per update of an issue carrying its
+label — so a handoff labelled `role:verify` reaches `verify` without a second message.
+
+```yaml
+issue_roles:
+  role:verify: verify
+```
+
 ## Commands
 
 ```bash
