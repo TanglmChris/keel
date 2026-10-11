@@ -225,4 +225,9 @@ merge: repository:full-gate
 # an agent can open in its directory. The delegation rules are unchanged: the
 # session stays the owner and re-runs every check before recording Evidence.
 #
-# This repository declares none.
+# Declared 2026-10-11 by the owner, who decided that issue #254's
+# implementation is handed to codex from a Claude session. No egress_deny:
+# this repository is public, so nothing in it is withheld from the provider.
+external_agents:
+  allow:
+    - codex

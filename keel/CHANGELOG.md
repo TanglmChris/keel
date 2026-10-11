@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.100.0 - `keel lock`: leases on shared resources between sessions
+
+Issue #254, part of #250 (rtl_ppa_prj, 2026-10-05): three sessions contended for the main checkout with no way to claim it.
+
+- `keel lock acquire <resource> --for <duration> --note <why>`, `release`, and `list` keep exclusive leases in the repository's chat store, which every worktree sees. A lease records the holder (the chat role, or the worktree), its worktree, expiry, note, and waiters. `--for` and `--note` are required.
+- Acquiring a resource another holder has is refused, naming holder, expiry, and note, and records the requester as a waiter. Only the holder releases. Keel schedules nothing, so the next `keel lock` command in any worktree frees an expired lease. Release and noticed expiry send a direct chat message to the holder and waiters with roles.
+- A lease enforces nothing on Git or the filesystem, and says so. See `docs/resource-lock.md`.
+- `keel shift check` lists live leases the worktree holds as loose ends.
+- `keel/config.yaml` allows codex as an external agent; this release's implementation was delegated to it from a Claude session, which reviewed the result and re-ran every check.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.100.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.6 - The version drift line names the remedy of what lags
 
 Issue #240, reported by verify_sub (rtl_ppa_prj, via rtl_ppa_flow) on 2026-10-05: the session-start line said the runtime versions disagreed and named only `claude plugin update`, while the plugin and CLI were current and the repository's protocol block was what lagged.

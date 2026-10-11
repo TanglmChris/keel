@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.6"
-PROTOCOL_VERSION = "5.99.6"
+PACKAGE_VERSION = "5.100.0"
+PROTOCOL_VERSION = "5.100.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -4457,6 +4457,261 @@ def validate_collected_feedback_is_recorded_scenario() -> int:
     return 0
 
 
+def validate_resource_lock_scenario() -> int:
+    """Bounded exclusive leases, shared by worktrees, through the real CLI."""
+    label = "resource-lock:"
+    with tempfile.TemporaryDirectory(prefix="keel-resource-lock-") as raw:
+        a, b, env = chat_scratch_group(Path(raw))
+        for tree, role in ((a, "integ"), (b, "sweep")):
+            bound = run_keel(tree, "chat", "role", "--set", role, env=env)
+            if bound.returncode != 0:
+                report(f"{label} could not bind {role}: {bound.stderr}")
+                return 1
+        locks = mailbox_common_dir(a) / "keel-chat" / "locks"
+        lease_file = locks / "main-checkout.json"
+
+        def lock(tree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(tree, "lock", *args, env=env)
+
+        def leases() -> list[dict]:
+            result = lock(b, "list", "--json")
+            if result.returncode != 0:
+                report(f"{label} list --json failed: {result.stderr}")
+                return [{}]
+            try:
+                return json.loads(result.stdout)["leases"]
+            except (ValueError, KeyError, TypeError):
+                report(f"{label} list --json lacks lease data: {result.stdout}")
+                return [{}]
+
+        malformed = [
+            (("acquire", "main-checkout", "--note", "x"), "--for"),
+            (("acquire", "main-checkout", "--for", "5x", "--note", "x"), "5x"),
+            (("acquire", "main-checkout", "--for", "1h"), "--note"),
+            (("acquire", "../x", "--for", "1h", "--note", "x"), "../x"),
+            (("acquire", "main-checkout", "--for", "0s", "--note", "x"), "0s"),
+            (("acquire", "main-checkout", "--for", "1h", "--note", " "), "--note"),
+            (("acquire", "x" * 65, "--for", "1h", "--note", "x"), "resource"),
+            (("acquire", "main-checkout", "--for", "9" * 30 + "d", "--note", "x"), "duration"),
+        ]
+        for args, needle in malformed:
+            refused = lock(a, *args)
+            if refused.returncode == 0:
+                report(f"{label} malformed acquire succeeded: {args}")
+                return 1
+            if needle not in refused.stdout + refused.stderr:
+                report(f"{label} malformed acquire does not name {needle!r}: {refused.stderr}")
+                return 1
+            if leases():
+                report(f"{label} malformed acquire recorded a lease: {args}")
+                return 1
+
+        acquired = lock(a, "acquire", "main-checkout", "--for", "2h", "--note", "integration run")
+        if acquired.returncode != 0:
+            report(f"{label} acquire failed: {acquired.stderr}")
+            return 1
+        if "enforces nothing" not in acquired.stdout:
+            report(f"{label} acquire does not say the lease enforces nothing: {acquired.stdout}")
+            return 1
+        rows = leases()
+        if len(rows) != 1:
+            report(f"{label} acquire did not record exactly one lease: {rows}")
+            return 1
+        first = rows[0]
+        for key, expected in (("resource", "main-checkout"), ("holder", "integ"), ("role", "integ"), ("worktree", str(a.resolve())), ("note", "integration run")):
+            if first.get(key) != expected:
+                report(f"{label} acquired {key} differs: {first}")
+                return 1
+        for key in ("acquired", "expires"):
+            if not first.get(key):
+                report(f"{label} lease lacks {key}: {first}")
+                return 1
+            datetime.fromisoformat(first[key])
+        listed = lock(b, "list")
+        if listed.returncode != 0:
+            report(f"{label} other-worktree list failed: {listed.stderr}")
+            return 1
+        for needle in ("main-checkout", "integ", first["expires"], "integration run", str(a.resolve())):
+            if needle not in listed.stdout:
+                report(f"{label} other-worktree list lacks {needle!r}: {listed.stdout}")
+                return 1
+        for attempt in range(2):
+            refused = lock(b, "acquire", "main-checkout", "--for", "1h", "--note", "formal sweep")
+            if refused.returncode != 1:
+                report(f"{label} held acquire attempt {attempt} exited {refused.returncode}")
+                return 1
+            for needle in ("integ", first["expires"], "integration run", str(a.resolve())):
+                if needle not in refused.stdout + refused.stderr:
+                    report(f"{label} held acquire omits {needle!r}: {refused.stderr}")
+                    return 1
+        waiting = leases()[0]
+        if [w.get("holder") for w in waiting.get("waiters", [])] != ["sweep"]:
+            report(f"{label} waiter is absent or duplicated: {waiting}")
+            return 1
+        renewed = lock(a, "acquire", "main-checkout", "--for", "3h", "--note", "integration, extended")
+        if renewed.returncode != 0:
+            report(f"{label} renewal failed: {renewed.stderr}")
+            return 1
+        extended = leases()[0]
+        if datetime.fromisoformat(extended["expires"]) <= datetime.fromisoformat(first["expires"]):
+            report(f"{label} renewal did not extend expiry: {extended}")
+            return 1
+        if extended.get("note") != "integration, extended":
+            report(f"{label} renewal did not update note: {extended}")
+            return 1
+        if extended.get("acquired") != first["acquired"]:
+            report(f"{label} renewal replaced acquisition time: {extended}")
+            return 1
+        if extended.get("waiters") != waiting["waiters"]:
+            report(f"{label} renewal lost waiters: {extended}")
+            return 1
+        refused = lock(b, "release", "main-checkout")
+        if refused.returncode != 1:
+            report(f"{label} waiter release exited {refused.returncode}")
+            return 1
+        if "integ" not in refused.stdout + refused.stderr:
+            report(f"{label} waiter release does not name integ: {refused.stderr}")
+            return 1
+        if not lease_file.exists():
+            report(f"{label} waiter release removed the lease")
+            return 1
+        released = lock(a, "release", "main-checkout")
+        if released.returncode != 0:
+            report(f"{label} holder release failed: {released.stderr}")
+            return 1
+        if leases():
+            report(f"{label} holder release left a lease listed")
+            return 1
+        messages = chat_records_with(a, "dm-integ--sweep", "lock main-checkout released by integ")
+        if len(messages) != 1:
+            report(f"{label} release did not post exactly one direct message: {messages}")
+            return 1
+        reacquired = lock(a, "acquire", "main-checkout", "--for", "2h", "--note", "integration run")
+        if reacquired.returncode != 0:
+            report(f"{label} expiry fixture acquire failed: {reacquired.stderr}")
+            return 1
+        queued = lock(b, "acquire", "main-checkout", "--for", "1h", "--note", "formal sweep")
+        if queued.returncode != 1:
+            report(f"{label} expiry fixture waiter was not refused: {queued.stdout} {queued.stderr}")
+            return 1
+        expired = json.loads(lease_file.read_text())
+        expired["expires"] = "2000-01-01T00:00:00+00:00"
+        lease_file.write_text(json.dumps(expired))
+        if leases():
+            report(f"{label} expiry left a lease listed")
+            return 1
+        if lease_file.exists():
+            report(f"{label} expiry left the lease file")
+            return 1
+        again = lock(b, "list")
+        if again.returncode != 0:
+            report(f"{label} second expiry list failed: {again.stderr}")
+            return 1
+        messages = chat_records_with(a, "dm-integ--sweep", "lock main-checkout expired at")
+        if len(messages) != 1:
+            report(f"{label} expiry did not post exactly once to integ: {messages}")
+            return 1
+        if "from: sweep" not in messages[0]:
+            report(f"{label} expiry message is not from sweep: {messages[0]}")
+            return 1
+        if chat_records_with(b, "dm-sweep--sweep", "lock main-checkout expired at"):
+            report(f"{label} expiry posted a direct message from sweep to itself")
+            return 1
+        reclaimed = lock(b, "acquire", "main-checkout", "--for", "1h", "--note", "formal sweep")
+        if reclaimed.returncode != 0:
+            report(f"{label} sweep could not acquire after expiry: {reclaimed.stderr}")
+            return 1
+        released = lock(b, "release", "main-checkout")
+        if released.returncode != 0:
+            report(f"{label} sweep release after expiry failed: {released.stderr}")
+            return 1
+
+        # Simultaneous public commands: a lease must have exactly one winner.
+        command = ["node", str(ROOT / "bin" / "keel.js"), "lock", "acquire", "race", "--for", "1h", "--note", "race"]
+        racers = [subprocess.Popen(command, cwd=tree, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for tree in (a, b)]
+        outputs = [p.communicate(timeout=30) for p in racers]
+        if sorted(p.returncode for p in racers) != [0, 1]:
+            report(f"{label} racing acquires lack exactly one winner: {outputs}")
+            return 1
+        rows = leases()
+        if len(rows) != 1:
+            report(f"{label} race recorded other than one lease: {rows}")
+            return 1
+        winner = a if racers[0].returncode == 0 else b
+        if rows[0].get("worktree") != str(winner.resolve()):
+            report(f"{label} race lease does not belong to the winner: {rows}")
+            return 1
+        if len(rows[0].get("waiters", [])) != 1:
+            report(f"{label} racing loser was not recorded as a waiter: {rows}")
+            return 1
+        released = lock(winner, "release", "race")
+        if released.returncode != 0:
+            report(f"{label} race winner could not release: {released.stderr}")
+            return 1
+
+        # A mutex left by a crashed command is stale after 30 seconds.
+        mutex = locks / ".mutation"
+        mutex.mkdir(parents=True, exist_ok=True)
+        os.utime(mutex, (time.time() - 120, time.time() - 120))
+        unstuck = lock(a, "list")
+        if unstuck.returncode != 0:
+            report(f"{label} a stale mutex blocked keel lock list: {unstuck.stderr}")
+            return 1
+        if mutex.exists():
+            report(f"{label} a stale mutex was left in place after keel lock list.")
+            return 1
+
+        # No role: worktree identity, --repo, read-only shift and printed expiry.
+        c = chat_worktree(a, Path(raw) / "unbound")
+        acquired = lock(a, "acquire", "cpu-1", "--for", "1h", "--note", "slot", "--repo", str(c))
+        if acquired.returncode != 0:
+            report(f"{label} unbound --repo acquire failed: {acquired.stderr}")
+            return 1
+        row = leases()[0]
+        if not row.get("holder", "").startswith("worktree:unbound-"):
+            report(f"{label} unbound lease lacks worktree identity: {row}")
+            return 1
+        if row.get("role") is not None:
+            report(f"{label} unbound lease has a chat role: {row}")
+            return 1
+        file = locks / "cpu-1.json"
+        row["expires"] = "2000-01-01T00:00:00+00:00"
+        file.write_text(json.dumps(row))
+        before = file.read_bytes()
+        checked = run_keel(c, "shift", "check", "--json", env=env)
+        if any(item["kind"] == "lock" for item in chat_json(checked).get("items", [])):
+            report(f"{label} shift check reports an expired lease")
+            return 1
+        if file.read_bytes() != before:
+            report(f"{label} shift check mutated the expired lease")
+            return 1
+        freed = lock(c, "list", "--json")
+        if freed.returncode != 0:
+            report(f"{label} unbound expiry command failed: {freed.stderr}")
+            return 1
+        if "cpu-1" not in freed.stderr:
+            report(f"{label} unbound expiry was not printed beside JSON: {freed.stderr}")
+            return 1
+        if chat_json(freed).get("leases") != []:
+            report(f"{label} unbound expiry list is not empty JSON: {freed.stdout}")
+            return 1
+    guide = ROOT / "docs" / "resource-lock.md"
+    if not guide.exists():
+        report(f"{label} docs/resource-lock.md is missing")
+        return 1
+    if "enforces nothing" not in guide.read_text():
+        report(f"{label} guide does not say the lease enforces nothing")
+        return 1
+    if "docs/resource-lock.md" not in (ROOT / "README.md").read_text():
+        report(f"{label} README does not link the guide")
+        return 1
+    if "resource-lock" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered")
+        return 1
+    report("resource-lock scenario passed.")
+    return 0
+
+
 def validate_shift_change_scenario() -> int:
     """Owner's decision of 2026-10-05: a role's session changes shift through Keel.
 
@@ -4516,6 +4771,16 @@ def validate_shift_change_scenario() -> int:
         subprocess.run(["git", "add", "pushed-not.txt"], cwd=verify, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "local only"], cwd=verify, check=True)
         write_text(verify / "keel" / "guard.json", "{}\n")
+        leased = run_keel(verify, "lock", "acquire", "main-checkout", "--for", "1h", "--note", "shift fixture", env=env)
+        if leased.returncode != 0:
+            report(f"{label} could not acquire the shift fixture lease: {leased.stderr}")
+            return 1
+        other_lease = run_keel(rtl, "lock", "acquire", "other-worktree", "--for", "1h", "--note", "other session", env=env)
+        if other_lease.returncode != 0:
+            report(f"{label} could not acquire the other worktree's lease: {other_lease.stderr}")
+            return 1
+        lease_file = common / "locks" / "main-checkout.json"
+        lease_before = lease_file.read_bytes()
         # A Claude scratchpad of a session started in verify, and one of a
         # session started elsewhere (shift-temp-owner D1).
         scratch = Path(tempfile.gettempdir()) / f"claude-{os.getuid()}"
@@ -4535,7 +4800,18 @@ def validate_shift_change_scenario() -> int:
                 report(f"{label} keel shift check exited {checked.returncode} with loose ends present.")
                 return 1
             text = checked.stdout
-            for needle in ("scratch.txt", "local only", "guard.json", str(sleeper.pid), temp_tree.name, "Rerun the regression"):
+            lock_items = [item for item in chat_json(checked).get("items", []) if item["kind"] == "lock"]
+            if len(lock_items) != 1:
+                report(f"{label} expected exactly one held-worktree lock item: {text}")
+                return 1
+            for needle in ("main-checkout", "verify", "shift fixture", json.loads(lease_before)["expires"]):
+                if needle not in lock_items[0]["detail"]:
+                    report(f"{label} lock item omits {needle!r}: {lock_items}")
+                    return 1
+            if lease_file.read_bytes() != lease_before:
+                report(f"{label} shift check changed the live lease")
+                return 1
+            for needle in ("scratch.txt", "local only", "guard.json", str(sleeper.pid), temp_tree.name, "Rerun the regression", "main-checkout"):
                 if needle not in text:
                     report(f"{label} keel shift check does not name {needle!r}: {text.strip()[:600]}")
                     return 1
@@ -4555,6 +4831,14 @@ def validate_shift_change_scenario() -> int:
 
         (verify / "scratch.txt").unlink()
         (verify / "keel" / "guard.json").unlink()
+        released = run_keel(verify, "lock", "release", "main-checkout", env=env)
+        if released.returncode != 0:
+            report(f"{label} could not release the shift fixture lease: {released.stderr}")
+            return 1
+        after_release = shift(verify, "check", "--json")
+        if any(item["kind"] == "lock" for item in chat_json(after_release).get("items", [])):
+            report(f"{label} shift check retained a lock item after release: {after_release.stdout}")
+            return 1
         subprocess.run(["git", "push", "-q"], cwd=verify, check=True, capture_output=True)
         subprocess.run(["git", "worktree", "remove", "--force", str(temp_tree)], cwd=verify, check=True)
         todo_id = next(r for r in chat_records_with(rtl, "soc", "Rerun the regression"))
@@ -37356,6 +37640,7 @@ SCENARIOS: tuple = (
     ("collected-feedback-is-recorded", validate_collected_feedback_is_recorded_scenario),
     ("shift-change", validate_shift_change_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
+    ("resource-lock", validate_resource_lock_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

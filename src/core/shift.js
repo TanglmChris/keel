@@ -16,6 +16,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const store = require("./chat/store");
+const locks = require("./lock");
 
 const REF = "keel-shift";
 const USAGE = [
@@ -194,6 +195,10 @@ function check(where, role) {
   const temporary = temporaryWorktrees(where);
   for (const tree of temporary.own) items.push({ kind: "temporary-worktree", detail: tree });
   for (const tree of temporary.other) notes.push(`temporary worktree of another session, or of unknown owner, not counted: ${tree}`);
+
+  for (const lease of locks.liveLeases(where)) {
+    if (lease.worktree === where.worktree) items.push({ kind: "lock", detail: locks.describe(lease) });
+  }
 
   if (role) {
     for (const todo of store.openTodos(where, { assignee: role })) {
@@ -466,7 +471,7 @@ function runShift(argv) {
         return 2;
     }
   } catch (error) {
-    if (error instanceof ShiftError || error instanceof store.ChatError) {
+    if (error instanceof ShiftError || error instanceof store.ChatError || error instanceof locks.LockError) {
       process.stderr.write(`keel shift: ${error.message}\n`);
       return 1;
     }
