@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.2"
-PROTOCOL_VERSION = "5.99.2"
+PACKAGE_VERSION = "5.99.3"
+PROTOCOL_VERSION = "5.99.3"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -36710,6 +36710,37 @@ def validate_external_agent_brief_scenario() -> int:
             if needle not in command:
                 report(f"{label} the implementation command does not name {needle!r}: {command}")
                 return 1
+        # Issue #262: a helper worktree beside the session's, under .claude/worktrees/.
+        session_tree = repo / ".claude" / "worktrees" / "review"
+        helper_tree = repo / ".claude" / "worktrees" / "dsh_review"
+        # A real project commits its external_agents: declaration, so worktrees carry it.
+        for command in (["add", "-A"], ["-c", "user.email=k@example.com", "-c", "user.name=k",
+                                        "commit", "-q", "-m", "declare external agents"]):
+            subprocess.run(["git", *command], cwd=repo, check=True, capture_output=True)
+        for tree in (session_tree, helper_tree):
+            subprocess.run(["git", "worktree", "add", "-q", "--detach", str(tree)],
+                           cwd=repo, check=True, capture_output=True)
+
+        def helper_brief(cwd: Path) -> tuple[dict, str]:
+            if prompt.exists():
+                prompt.unlink()
+            result = run_keel(cwd, "agents", "brief", "dsh", "--mode", "helper",
+                              "--dir", str(helper_tree), "--out", str(prompt),
+                              "--change", "demo", "--task", "1.1", "--json", env=env)
+            try:
+                return json.loads(result.stdout), result.stdout + result.stderr
+            except json.JSONDecodeError:
+                return {}, result.stdout + result.stderr
+
+        payload, out = helper_brief(session_tree)
+        if payload.get("status") != "ready":
+            report(f"{label} a helper worktree under .claude/worktrees/ was refused from a sibling worktree: "
+                   f"{out.strip()[:600]}")
+            return 1
+        payload, out = helper_brief(helper_tree)
+        if not refused(payload, out, str(helper_tree.resolve()), "current directory", "--repo",
+                       what="a helper brief run from inside its own --dir"):
+            return 1
         if calls.exists():
             report(f"{label} an agent was launched: {calls.read_text(encoding='utf-8').strip()}")
             return 1

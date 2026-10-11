@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.99.3 - The agents-brief refusal names the checkout it compared against
+
+Issue #262 reported that `keel agents brief` refused a helper worktree under `<repo>/.claude/worktrees/` as "this session's own checkout". Reproduced with the issue's layout, a worktree there is accepted. The brief is refused only when the command runs from inside `--dir` itself, because the check compares `--dir` with the checkout the command runs in. Keel cannot see the session's checkout, so the refusal's wording was the defect.
+
+- The refusal now names the checkout it compared against and whether it came from `--repo` or the current directory, and says to run from the session's own checkout or pass `--repo`.
+- A scenario keeps a helper worktree beside the session's, both under `.claude/worktrees/`, accepted.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.3; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.2 - `keel shift ready --file -` reads stdin
 
 Issue #261: on 2026-10-06 the Keel maintenance session ran `keel shift ready --file - <<EOF … EOF` and got an uncaught `ENOENT: … open '-'` with a Node stack trace.

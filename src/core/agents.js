@@ -341,7 +341,7 @@ function realpath(file) {
 // git common directory. The host's write guard is a hook on the host's own tool
 // calls, so a process the session launches writes past it; the checkout it runs
 // in is then the only write boundary there is.
-function worktreeRefusal(repo, dir) {
+function worktreeRefusal(repo, dir, repoGiven) {
   const top = git(dir, "rev-parse", "--show-toplevel");
   const common = git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir");
   const ownTop = git(repo, "rev-parse", "--show-toplevel");
@@ -353,10 +353,14 @@ function worktreeRefusal(repo, dir) {
   if (realpath(common) !== realpath(ownCommon)) {
     return `--dir ${dir} belongs to a different repository. ${how}`;
   }
+  // Keel cannot see the session's checkout, only the one it was pointed at
+  // (#262): name that one and how it was chosen, rather than claim the session's.
   if (realpath(top) === realpath(ownTop)) {
+    const from = repoGiven ? "named by --repo" : "the one containing the current directory";
     return (
-      `--dir ${dir} is this session's own checkout. The write guard does not reach an external `
-      + `process, so it needs a separate worktree of this repository. ${how}`
+      `--dir ${dir} is the checkout this command runs in, ${realpath(ownTop)} (${from}). `
+      + "The write guard does not reach an external process, so it needs a separate worktree "
+      + `of this repository. Run this from the session's own checkout, or pass --repo <it>. ${how}`
     );
   }
   return null;
@@ -485,7 +489,7 @@ function compileBrief(repo, options) {
   const dir = path.resolve(options.dir);
   const needsWorktree = options.mode === "implementation" || !entry.sandbox.helper;
   if (needsWorktree) {
-    const refusal = worktreeRefusal(repo, dir);
+    const refusal = worktreeRefusal(repo, dir, options.repoGiven);
     if (refusal) {
       const why = options.mode === "implementation" ? ""
         : `${entry.name} offers no read-only sandbox, so even a helper run needs a separate worktree. `;
@@ -538,8 +542,10 @@ function runBrief(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") json = true;
-    else if (arg === "--repo") repo = argv[++index] || "";
-    else if (flags[arg]) options[flags[arg]] = argv[++index] || "";
+    else if (arg === "--repo") {
+      repo = argv[++index] || "";
+      options.repoGiven = true;
+    } else if (flags[arg]) options[flags[arg]] = argv[++index] || "";
     else if (options.name === null && !arg.startsWith("-")) options.name = arg;
     else {
       process.stderr.write(`keel agents brief: unexpected argument ${arg}\n${BRIEF_USAGE}\n`);
