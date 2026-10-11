@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.4"
-PROTOCOL_VERSION = "5.99.4"
+PACKAGE_VERSION = "5.99.5"
+PROTOCOL_VERSION = "5.99.5"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -36443,7 +36443,7 @@ def validate_codex_receiving_scenario() -> int:
 
 EXTERNAL_AGENT_FACT_FIELDS = {
     "name", "source", "executable", "resolved", "allowed",
-    "command", "sandbox", "sendsTo", "pitfalls",
+    "command", "sandbox", "ownSandbox", "sendsTo", "pitfalls",
 }
 
 
@@ -36547,6 +36547,20 @@ def validate_external_agent_catalog_scenario() -> int:
             if needle not in text:
                 report(f"{label} `keel agents codex` does not print {needle!r}.")
                 return 1
+
+        # Issue #259: dsh's headless profile has a sandbox of its own, as measured.
+        dsh_text = run_keel(repo, "agents", "dsh", env=env).stdout
+        sandbox_line = next((line for line in dsh_text.splitlines() if line.startswith("Sandbox:")), "")
+        if "workspace-write" not in sandbox_line:
+            report(f"{label} `keel agents dsh` does not describe its own sandbox: {sandbox_line!r}")
+            return 1
+        for needle in ("/dev/stdout", "PYTHONPYCACHEPREFIX"):
+            if needle not in dsh_text:
+                report(f"{label} `keel agents dsh` has no pitfall naming {needle!r}.")
+                return 1
+        if "reads and writes wherever it is started" in dsh_text:
+            report(f"{label} `keel agents dsh` still says it reads and writes wherever it is started.")
+            return 1
 
         # A machine entry declaring one field overrides that field only.
         custom = base / "bin" / "dsh"
@@ -36778,6 +36792,19 @@ def validate_external_agent_brief_scenario() -> int:
             report(f"{label} a helper worktree under .claude/worktrees/ was refused from a sibling worktree: "
                    f"{out.strip()[:600]}")
             return 1
+        # Issue #259: a dsh brief keeps temporary files in tmp/ beside the brief.
+        tmp = prompt.parent / "tmp"
+        if not tmp.is_dir():
+            report(f"{label} the dsh brief did not create {tmp} beside --out.")
+            return 1
+        if str(tmp) not in prompt.read_text(encoding="utf-8"):
+            report(f"{label} the dsh brief does not name its temporary directory {tmp}.")
+            return 1
+        command = payload.get("run") or ""
+        for needle in (f"TMPDIR={tmp}", f"PYTHONPYCACHEPREFIX={tmp}/pycache"):
+            if needle not in command:
+                report(f"{label} the dsh command does not set {needle!r}: {command}")
+                return 1
         payload, out = helper_brief(helper_tree)
         if not refused(payload, out, str(helper_tree.resolve()), "current directory", "--repo",
                        what="a helper brief run from inside its own --dir"):

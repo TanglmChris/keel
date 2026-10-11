@@ -7,12 +7,17 @@ Declares how a session hands work to an external model CLI: the fact-only catalo
 ## Requirements
 ### Requirement: The external agent catalog records facts and is read on demand
 
-Keel MUST bundle a catalog entry for each external model CLI it knows and MUST merge entries from a machine-local `agents.json` under the Keel home directory, where each field a machine entry declares replaces that field of the bundled entry with the same name and a name the bundle lacks adds an entry. An entry MUST carry a command template, the sandbox it offers per mode or none, where it sends data, and pitfalls each stamped with a date and a source, and MUST NOT carry a statement of which work the agent suits. `keel agents` MUST list every entry with its source, whether its executable resolves, and whether the current project allows it. `keel context` and session-start output MUST NOT include the catalog.
+Keel MUST bundle a catalog entry for each external model CLI it knows and MUST merge entries from a machine-local `agents.json` under the Keel home directory, where each field a machine entry declares replaces that field of the bundled entry with the same name and a name the bundle lacks adds an entry. An entry MUST carry a command template, the sandbox it offers per mode or none, optionally a description of a sandbox its CLI applies by itself whatever the mode, which `keel agents <name>` MUST print on its Sandbox line, where it sends data, and pitfalls each stamped with a date and a source, and MUST NOT carry a statement of which work the agent suits. `keel agents` MUST list every entry with its source, whether its executable resolves, and whether the current project allows it. `keel context` and session-start output MUST NOT include the catalog.
 
 #### Scenario: Bundled entries list with their resolution
 - **WHEN** `keel agents` runs with no machine file
 - **THEN** it lists `codex` and `dsh` as bundled, each with its resolved executable path or `not found`
 - **AND THEN** `keel agents codex` prints its template, sandboxes, destination, and every dated pitfall
+
+#### Scenario: dsh's own sandbox is described
+- **WHEN** `keel agents dsh` runs
+- **THEN** its Sandbox line says the headless profile applies a workspace-write file policy of its own and still needs a separate worktree
+- **AND THEN** its pitfalls name the refused `/dev/stdout` and `PYTHONPYCACHEPREFIX`, and none says it reads and writes wherever it is started
 
 #### Scenario: A machine entry overrides a bundled one
 - **WHEN** the machine file declares `dsh` with a different executable path
@@ -46,7 +51,7 @@ Keel MUST read an optional `external_agents:` block in `keel/config.yaml` with a
 
 ### Requirement: The external agent brief is the delegation brief, checked for egress
 
-`keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` MUST compile the same projection `keel project --event subagent-start` compiles for that mode and MUST apply every refusal it applies, including the matching-guard precondition for implementation. It MUST refuse when any Read or Touch path matches an `egress_deny` pattern, naming the path, the pattern, and the reason. On success it MUST write the brief, with the task, Read, Touch, checks, and prohibitions against commit, push, branch switch, issue changes, OpenSpec and Keel state, and writes outside `--dir`, to `--out`, MUST print the command line filled from the catalog template, run in a subshell whose exit status is written to a file beside the result and named in the output, and MUST state that Keel cannot observe what the agent reads beyond the brief. Keel MUST NOT launch the agent.
+`keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` MUST compile the same projection `keel project --event subagent-start` compiles for that mode and MUST apply every refusal it applies, including the matching-guard precondition for implementation. It MUST refuse when any Read or Touch path matches an `egress_deny` pattern, naming the path, the pattern, and the reason. On success it MUST write the brief, with the task, Read, Touch, checks, and prohibitions against commit, push, branch switch, issue changes, OpenSpec and Keel state, and writes outside `--dir`, to `--out`, MUST print the command line filled from the catalog template, where a template's `{tmp}` is filled with a `tmp` directory beside `--out` that the brief creates and names as the place for temporary files, run in a subshell whose exit status is written to a file beside the result and named in the output, and MUST state that Keel cannot observe what the agent reads beyond the brief. Keel MUST NOT launch the agent.
 
 #### Scenario: A clean helper brief is written and its command printed
 - **WHEN** a helper brief for an allowed `codex` names no denied path
@@ -57,6 +62,10 @@ Keel MUST read an optional `external_agents:` block in `keel/config.yaml` with a
 - **WHEN** the printed command is run with a stub agent that exits with status 3
 - **THEN** the exit file beside the result holds `3`
 - **AND THEN** the calling shell's working directory is unchanged even when the template changes directory
+
+#### Scenario: A dsh brief points temporary files beside the brief
+- **WHEN** a helper brief for an allowed `dsh` names a separate worktree and an `--out` file
+- **THEN** a `tmp` directory exists beside `--out`, the brief names it, and the printed command sets `TMPDIR` to it and `PYTHONPYCACHEPREFIX` to `pycache` under it
 
 #### Scenario: A denied path refuses the brief
 - **WHEN** the task's Read names a path matching an `egress_deny` pattern
@@ -76,7 +85,7 @@ An implementation brief MUST require `--dir` to be a worktree of the same reposi
 - **THEN** it is refused, saying the write guard does not reach an external process and naming how to create a worktree
 
 #### Scenario: A helper with no sandbox needs a worktree
-- **WHEN** a helper brief for `dsh`, which offers no sandbox, names the current checkout
+- **WHEN** a helper brief for `dsh`, which offers no read-only sandbox, names the current checkout
 - **THEN** it is refused for the same reason
 
 #### Scenario: A separate worktree is accepted

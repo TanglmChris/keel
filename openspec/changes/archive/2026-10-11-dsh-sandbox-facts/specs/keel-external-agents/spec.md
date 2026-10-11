@@ -1,0 +1,79 @@
+## MODIFIED Requirements
+
+### Requirement: The external agent catalog records facts and is read on demand
+
+Keel MUST bundle a catalog entry for each external model CLI it knows and MUST merge entries from a machine-local `agents.json` under the Keel home directory, where each field a machine entry declares replaces that field of the bundled entry with the same name and a name the bundle lacks adds an entry. An entry MUST carry a command template, the sandbox it offers per mode or none, optionally a description of a sandbox its CLI applies by itself whatever the mode, which `keel agents <name>` MUST print on its Sandbox line, where it sends data, and pitfalls each stamped with a date and a source, and MUST NOT carry a statement of which work the agent suits. `keel agents` MUST list every entry with its source, whether its executable resolves, and whether the current project allows it. `keel context` and session-start output MUST NOT include the catalog.
+
+#### Scenario: Bundled entries list with their resolution
+- **WHEN** `keel agents` runs with no machine file
+- **THEN** it lists `codex` and `dsh` as bundled, each with its resolved executable path or `not found`
+- **AND THEN** `keel agents codex` prints its template, sandboxes, destination, and every dated pitfall
+
+#### Scenario: dsh's own sandbox is described
+- **WHEN** `keel agents dsh` runs
+- **THEN** its Sandbox line says the headless profile applies a workspace-write file policy of its own and still needs a separate worktree
+- **AND THEN** its pitfalls name the refused `/dev/stdout` and `PYTHONPYCACHEPREFIX`, and none says it reads and writes wherever it is started
+
+#### Scenario: A machine entry overrides a bundled one
+- **WHEN** the machine file declares `dsh` with a different executable path
+- **THEN** `keel agents` lists `dsh` with source `machine` and that path
+- **AND THEN** the fields the machine entry did not declare keep their bundled values
+
+#### Scenario: A malformed machine file is reported, not half-read
+- **WHEN** the machine file is not valid JSON
+- **THEN** `keel agents` names the file and the parse error and lists only the bundled entries
+
+#### Scenario: Session start carries no catalog
+- **WHEN** `keel context` runs in a project that allows external agents
+- **THEN** its output names no catalog entry and no pitfall
+
+### Requirement: The external agent brief is the delegation brief, checked for egress
+
+`keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` MUST compile the same projection `keel project --event subagent-start` compiles for that mode and MUST apply every refusal it applies, including the matching-guard precondition for implementation. It MUST refuse when any Read or Touch path matches an `egress_deny` pattern, naming the path, the pattern, and the reason. On success it MUST write the brief, with the task, Read, Touch, checks, and prohibitions against commit, push, branch switch, issue changes, OpenSpec and Keel state, and writes outside `--dir`, to `--out`, MUST print the command line filled from the catalog template, where a template's `{tmp}` is filled with a `tmp` directory beside `--out` that the brief creates and names as the place for temporary files, run in a subshell whose exit status is written to a file beside the result and named in the output, and MUST state that Keel cannot observe what the agent reads beyond the brief. Keel MUST NOT launch the agent.
+
+#### Scenario: A clean helper brief is written and its command printed
+- **WHEN** a helper brief for an allowed `codex` names no denied path
+- **THEN** the prompt file holds the task, Read, checks, and prohibitions
+- **AND THEN** the printed command uses the read-only sandbox, `--dir`, and the prompt file, and no codex process was started
+
+#### Scenario: The printed command records the exit status
+- **WHEN** the printed command is run with a stub agent that exits with status 3
+- **THEN** the exit file beside the result holds `3`
+- **AND THEN** the calling shell's working directory is unchanged even when the template changes directory
+
+#### Scenario: A dsh brief points temporary files beside the brief
+- **WHEN** a helper brief for an allowed `dsh` names a separate worktree and an `--out` file
+- **THEN** a `tmp` directory exists beside `--out`, the brief names it, and the printed command sets `TMPDIR` to it and `PYTHONPYCACHEPREFIX` to `pycache` under it
+
+#### Scenario: A denied path refuses the brief
+- **WHEN** the task's Read names a path matching an `egress_deny` pattern
+- **THEN** the brief is refused, naming that path, the pattern, and its reason
+- **AND THEN** no prompt file is written
+
+#### Scenario: Implementation still needs the matching guard
+- **WHEN** an implementation brief is asked for with no active guard for the task
+- **THEN** it is refused with the same reason `keel project --event subagent-start --subagent-mode implementation` gives
+
+### Requirement: The checkout is an external agent's write boundary
+
+An implementation brief MUST require `--dir` to be a worktree of the same repository other than the current checkout. A helper brief MUST require the same when the catalog entry offers no read-only sandbox. The current checkout is the one `--repo` names, or else the one containing the current directory. A directory is a separate worktree of the same repository when its top level differs from the current checkout's and its git common directory is the same, wherever it lies, including under the repository's `.claude/worktrees/`. A refusal because `--dir` is the current checkout MUST name that checkout and whether it came from `--repo` or the current directory, and MUST say to run from the session's own checkout or pass `--repo`.
+
+#### Scenario: Implementation in the session's own checkout is refused
+- **WHEN** an implementation brief names the current checkout as `--dir`
+- **THEN** it is refused, saying the write guard does not reach an external process and naming how to create a worktree
+
+#### Scenario: A helper with no sandbox needs a worktree
+- **WHEN** a helper brief for `dsh`, which offers no read-only sandbox, names the current checkout
+- **THEN** it is refused for the same reason
+
+#### Scenario: A separate worktree is accepted
+- **WHEN** an implementation brief names a separate worktree of the same repository and the guard matches
+- **THEN** the brief is written and the printed command runs the agent in that worktree
+
+#### Scenario: A helper worktree beside the session's worktree is accepted
+- **WHEN** a session in `<repo>/.claude/worktrees/review` asks for a `dsh` helper brief with `--dir <repo>/.claude/worktrees/dsh_review`
+- **THEN** the brief is written
+
+#### Scenario: The refusal names the checkout it compared against
+- **WHEN** the same brief is asked for from inside `<repo>/.claude/worktrees/dsh_review`
+- **THEN** it is refused, naming that worktree as the checkout the command runs in, saying it came from the current directory, and naming `--repo`
