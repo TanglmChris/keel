@@ -123,6 +123,7 @@ const CONFIG_DECLARATIONS = [
   "executor_tier",
   "merge",
   "external_agents",
+  "read_only_roles",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -803,7 +804,31 @@ function triageIssue(repo, labels, issue = null) {
   };
 }
 
+// `read_only_roles:` — the chat roles whose sessions own no change (#246): a
+// review, verification, or coordinating session. `keel context` reports one
+// idle line for them instead of candidates. An entry that is not a role name
+// is reported and ignored, so it never quietly makes some session read-only.
+const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+function readReadOnlyRoles(repo) {
+  const roles = [];
+  const unreadable = [];
+  for (const entry of configList(repo, "read_only_roles")) {
+    if (ROLE_NAME_PATTERN.test(entry)) {
+      if (!roles.includes(entry)) roles.push(entry);
+    } else {
+      unreadable.push(entry);
+    }
+  }
+  const message = unreadable.length
+    ? `keel/config.yaml read_only_roles lists ${unreadable.map((e) => `\`${e}\``).join(", ")}, `
+      + "which is not a chat role name (lowercase letters, digits, and hyphens); it is ignored."
+    : null;
+  return { roles, unreadable, message };
+}
+
 module.exports = {
+  readReadOnlyRoles,
   readExternalAgents,
   CONFIG_RELATIVE_PATH,
   DELEGATION_TIERS,

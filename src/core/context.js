@@ -17,6 +17,7 @@ const {
   fullModePathsUnreadableMessage,
   readExecutorTier,
   readMergeDeclaration,
+  readReadOnlyRoles,
 } = require("./config");
 const { isKeelSourceRepo } = require("./capabilities");
 
@@ -314,11 +315,14 @@ function activeChanges(repo) {
 // A declaration that cannot be read leaves the change available and is
 // reported. The alternative failure — a change silently dropped from inference
 // because its config had a typo — is this defect pointed the other way.
-function pauseDeclaration(repo, change) {
+// The entries of a change's top-level `keel:` block, an empty map when it has
+// none, or `{ unreadable }` when the file cannot be read.
+function keelBlock(repo, change) {
   const configPath = path.join(
     repo, "openspec", "changes", change, ".openspec.yaml"
   );
-  if (!fs.existsSync(configPath)) return null;
+  const entries = new Map();
+  if (!fs.existsSync(configPath)) return entries;
   let content;
   try {
     content = fs.readFileSync(configPath, "utf8");
@@ -329,12 +333,17 @@ function pauseDeclaration(repo, change) {
   // starts with whitespace. Simpler and safer than a lookahead for the next
   // top-level key, which has to spell "end of input" as well.
   const block = content.match(/^keel:[ \t]*\r?\n((?:[ \t]+\S[^\n]*\r?\n?)*)/m);
-  if (!block) return null;
-  const entries = new Map();
+  if (!block) return entries;
   for (const line of block[1].split(/\r?\n/)) {
     const match = line.match(/^\s+([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
     if (match) entries.set(match[1].toLowerCase(), parseScalar(match[2]));
   }
+  return entries;
+}
+
+function pauseDeclaration(repo, change) {
+  const entries = keelBlock(repo, change);
+  if (!(entries instanceof Map)) return entries;
   if (!entries.has("status")) return null;
   const status = String(entries.get("status") || "").toLowerCase();
   if (status !== "paused") {
@@ -356,8 +365,115 @@ function pauseNote(change, declaration) {
   );
 }
 
+// Whose a change is (#241). A change declaring `owner: <role>` belongs to the
+// worktree bound to that role (D1). With none, it belongs to another worktree
+// whose branch has commits touching it beyond the default branch while this
+// worktree's HEAD has none (D2) — committed history only, never dirty state.
+// Returns null when the change belongs here.
+function gitOutput(cwd, args) {
+  const result = spawnSync("git", args, {
+    cwd, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
+  return result.status === 0 ? String(result.stdout || "").trim() : null;
+}
+
+function ownershipFacts(repo) {
+  let role = null;
+  try {
+    const store = require("./chat/store");
+    role = store.currentRole(store.locate(repo));
+  } catch {
+    role = null;
+  }
+  const facts = { role, base: null, worktrees: [], here: null };
+  const top = gitOutput(repo, ["rev-parse", "--show-toplevel"]);
+  if (!top) return facts;
+  facts.here = fs.realpathSync(top);
+  const remote = gitOutput(repo, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
+  if (remote) facts.base = remote.replace(/^refs\/remotes\//, "");
+  else {
+    facts.base = ["main", "master"].find(
+      (branch) => gitOutput(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]) !== null
+    ) || null;
+  }
+  const listed = gitOutput(repo, ["worktree", "list", "--porcelain"]) || "";
+  let row = null;
+  for (const line of listed.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      row = { path: line.slice(9), branch: null };
+      facts.worktrees.push(row);
+    } else if (row && line.startsWith("branch ")) {
+      row.branch = line.slice(7).replace(/^refs\/heads\//, "");
+    }
+  }
+  return facts;
+}
+
+function commitsTouching(repo, base, ref, change) {
+  const count = gitOutput(repo, ["rev-list", "--count", `${base}..${ref}`, "--", `openspec/changes/${change}`]);
+  return count === null ? 0 : Number(count);
+}
+
+function belongsElsewhere(repo, change, facts) {
+  const entries = keelBlock(repo, change);
+  const owner = entries instanceof Map ? entries.get("owner") : null;
+  if (owner) return owner === facts.role ? null : { owner: String(owner) };
+  if (!facts.base || !facts.here) return null;
+  if (commitsTouching(repo, facts.base, "HEAD", change) > 0) return null;
+  for (const worktree of facts.worktrees) {
+    let real = worktree.path;
+    try {
+      real = fs.realpathSync(worktree.path);
+    } catch {
+      continue;
+    }
+    if (real === facts.here || !worktree.branch) continue;
+    if (commitsTouching(repo, facts.base, worktree.branch, change) > 0) {
+      return { worktree: real, branch: worktree.branch };
+    }
+  }
+  return null;
+}
+
+function elsewhereLine(entry) {
+  const where = entry.owner
+    ? `role ${entry.owner}`
+    : `worktree ${entry.worktree} on branch ${entry.branch}`;
+  return `Change ${entry.change} (${entry.status}) belongs to ${where}; it does not set this session's status.`;
+}
+
+// Inference over the changes that belong here, with the rest attached as
+// context (#241 D3).
 function inferContext(repo) {
   const changes = activeChanges(repo);
+  if (changes.length === 0) return inferOwnContext(repo, changes);
+  const facts = ownershipFacts(repo);
+  const own = [];
+  const elsewhere = [];
+  for (const change of changes) {
+    const placed = belongsElsewhere(repo, change, facts);
+    if (!placed) {
+      own.push(change);
+      continue;
+    }
+    const compiled = selectionForChange(repo, change, "inferred");
+    elsewhere.push({ change, status: compiled.storageOnly ? "storage-only" : compiled.status, ...placed });
+  }
+  if (!elsewhere.length) return inferOwnContext(repo, changes);
+  const lines = elsewhere.map(elsewhereLine);
+  let context;
+  if (own.length === 0) {
+    context = result("idle", null, "none", [], ["No active OpenSpec change belongs to this worktree.", ...lines]);
+  } else {
+    context = inferOwnContext(repo, own);
+    if (context.status === "idle") context.reasons.push(...lines);
+    else context.warnings.push(...lines);
+  }
+  context.elsewhere = elsewhere;
+  return context;
+}
+
+function inferOwnContext(repo, changes) {
   if (changes.length === 0) {
     return result(
       "idle",
@@ -661,14 +777,37 @@ function gitWarnings(repo) {
     : [];
 }
 
+// A session whose bound chat role is listed in `read_only_roles:` owns no
+// change, so it gets one idle line instead of candidates (#246 D4).
+function readOnlyContext(repo, readOnly) {
+  if (!readOnly.roles.length) return null;
+  let role = null;
+  try {
+    const store = require("./chat/store");
+    role = store.currentRole(store.locate(repo));
+  } catch {
+    role = null;
+  }
+  if (!role || !readOnly.roles.includes(role)) return null;
+  const context = result("idle", null, "none", [], [
+    `Read-only session: role ${role} is listed in keel/config.yaml read_only_roles, so no change is selected.`,
+  ]);
+  context.readOnly = { role };
+  return context;
+}
+
 function resolveContext(repo, options) {
   let context;
+  const readOnly = readReadOnlyRoles(repo);
   if (options.change) {
     context = resolveExplicit(repo, options.change, options.task);
   } else {
     const handoff = readHandoff(repo);
-    context = handoff ? resolveHandoff(repo, handoff) : inferContext(repo);
+    context = handoff
+      ? resolveHandoff(repo, handoff)
+      : readOnlyContext(repo, readOnly) || inferContext(repo);
   }
+  if (readOnly.message) context.warnings.push(readOnly.message);
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by
   // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
