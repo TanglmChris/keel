@@ -20,7 +20,9 @@ const USAGE = [
   "keel chat group add|remove <group> <role>",
   "keel chat group archive <group>",
   "keel chat group list [--all] [--json]   (also: keel chat list)",
-  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--json]   (also: keel chat <group> <text...>)",
+  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--json]   (also: keel chat <group> <text...>)",
+  "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
+  "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
   "keel chat dm <role> <text...> [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
@@ -66,10 +68,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -118,6 +120,15 @@ function readStdin() {
   } catch {
     return "";
   }
+}
+
+function ackLines(acks) {
+  const list = (roles) => roles.join(", ") || "none";
+  return [
+    `acknowledged: ${list(acks.acknowledged)}`,
+    `read, not acknowledged: ${list(acks.readNotAcknowledged)}`,
+    `not read: ${list(acks.unread)}`,
+  ];
 }
 
 function publicRecord(record) {
@@ -260,7 +271,22 @@ function dispatch(where, options) {
     case "post": {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat post needs a group.");
-      postResult(where, store.post(where, { group, text: textFrom(words), replyTo: options.replyTo, supersedes: options.supersedes }), options.json);
+      postResult(where, store.post(where, { group, text: textFrom(words), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack }), options.json);
+      return 0;
+    }
+    case "ack": {
+      const id = rest[0];
+      if (!id) throw new ChatError("keel chat ack needs a record id.");
+      const record = store.ack(where, id);
+      out(options.json ? JSON.stringify({ id: record.id, target: id }) : `Acknowledged ${id}.`);
+      return 0;
+    }
+    case "acks": {
+      const from = options.mine ? store.requireRole(where) : null;
+      const rows = store.openAcks(where, { from });
+      if (options.json) out(JSON.stringify({ records: rows.map(({ record, acks }) => ({ ...publicRecord(record), acks })) }));
+      else if (!rows.length) out("keel chat: no record is waiting on an acknowledgement.");
+      else out(rows.map(({ record, acks }) => [`${record.group} ${formatLine(record)}`, ...ackLines(acks).map((line) => `  ${line}`)].join("\n")).join("\n"));
       return 0;
     }
     case "dm": {
@@ -291,15 +317,16 @@ function dispatch(where, options) {
       const record = store.findRecord(where, id);
       if (!record) throw new ChatError(`No record ${id}.`);
       const readers = store.readersOf(where, record);
-      if (options.json) out(JSON.stringify({ record: publicRecord(record), readers }));
-      else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`].join("\n"));
+      const acks = record.ack === "requested" ? store.ackStatus(where, record) : null;
+      if (options.json) out(JSON.stringify({ record: publicRecord(record), readers, ...(acks ? { acks } : {}) }));
+      else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`, ...(acks ? ackLines(acks) : [])].join("\n"));
       return 0;
     }
     case "todo": {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat todo needs a group.");
       if (options.assignee === null) throw new ChatError("keel chat todo needs --assignee <role>.");
-      postResult(where, store.todo(where, { group, assignee: options.assignee, issue: options.issue, text: textFrom(words), replyTo: options.replyTo }), options.json);
+      postResult(where, store.todo(where, { group, assignee: options.assignee, issue: options.issue, text: textFrom(words), replyTo: options.replyTo, ack: options.ack }), options.json);
       return 0;
     }
     case "todos": {
@@ -365,7 +392,7 @@ function dispatch(where, options) {
     default: {
       // `keel chat <group>` views; `keel chat <group> <text...>` posts.
       if (rest.length) {
-        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo, supersedes: options.supersedes }), options.json);
+        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack }), options.json);
         return 0;
       }
       return runView(where, command, options);

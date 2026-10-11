@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.101.0"
-PROTOCOL_VERSION = "5.101.0"
+PACKAGE_VERSION = "5.103.0"
+PROTOCOL_VERSION = "5.103.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2521,6 +2521,88 @@ def validate_chat_supersedes_scenario() -> int:
     return 0
 
 
+def validate_chat_ack_scenario() -> int:
+    """Issue #253: a record asks for an acknowledgement and the sender sees who gave it.
+
+    An acknowledgement is `keel chat ack <id>` or a reply from an addressed
+    role; it marks the record read, wakes nobody, and is refused where it means
+    nothing; `show` and `acks` split the addressed roles three ways.
+    """
+    label = "chat-ack:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-ack-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        spec = chat_worktree(rtl, base / "spec")
+        run_keel(spec, "chat", "role", "--set", "spec", env=env)
+        run_keel(rtl, "chat", "group", "add", "soc", "spec", env=env)
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        asked = chat_json(chat(rtl, "post", "soc", "@verify @spec rerun R007 on 1b64e8c", "--ack", "--json")).get("id", "")
+        if not asked:
+            report(f"{label} a post with --ack returned no id.")
+            return 1
+        acked = chat(verify, "ack", asked)
+        if acked.returncode != 0:
+            report(f"{label} verify could not acknowledge: {acked.stderr}")
+            return 1
+        view = chat(spec, "soc").stdout
+        if "(ack requested)" not in view:
+            report(f"{label} spec's group view does not mark the record (ack requested): {view!r}")
+            return 1
+        acks = chat_json(chat(rtl, "show", asked, "--json")).get("acks", {})
+        if acks.get("acknowledged") != ["verify"]:
+            report(f"{label} show lists acknowledged {acks.get('acknowledged')!r}, not ['verify'].")
+            return 1
+        if acks.get("readNotAcknowledged") != ["spec"]:
+            report(f"{label} show lists read-not-acknowledged {acks.get('readNotAcknowledged')!r}, not ['spec'].")
+            return 1
+        if acks.get("unread") != []:
+            report(f"{label} show lists unread {acks.get('unread')!r}, not [].")
+            return 1
+        waiting = chat_json(chat(rtl, "acks", "--mine", "--json")).get("records", [])
+        if [r.get("id") for r in waiting] != [asked]:
+            report(f"{label} acks --mine lists {[r.get('id') for r in waiting]!r}, not [{asked}].")
+            return 1
+        rtl_unread = chat_json(chat(rtl, "unread", "--json")).get("unread", [])
+        if rtl_unread:
+            report(f"{label} the acknowledgement left rtl something unread: {rtl_unread!r}")
+            return 1
+
+        chat(spec, "post", "soc", "on it", "--reply-to", asked)
+        acks = chat_json(chat(rtl, "show", asked, "--json")).get("acks", {})
+        if acks.get("acknowledged") != ["spec", "verify"]:
+            report(f"{label} a reply did not acknowledge: acknowledged {acks.get('acknowledged')!r}.")
+            return 1
+        if chat_json(chat(rtl, "acks", "--json")).get("records", []):
+            report(f"{label} a fully acknowledged record is still listed by acks.")
+            return 1
+
+        later = chat_json(chat(rtl, "post", "soc", "@spec check the clock", "--ack", "--json")).get("id", "")
+        notice = chat_json(chat(spec, "notice", "--json")).get("notice", "")
+        if "(ack requested)" not in notice:
+            report(f"{label} spec's wake notice does not mark {later} (ack requested): {notice!r}")
+            return 1
+        plain = chat_json(chat(rtl, "post", "soc", "@spec fyi", "--json")).get("id", "")
+        refusals = [
+            ("a record that does not ask", chat(spec, "ack", plain), "does not ask"),
+            ("a record that does not address the role", chat(verify, "ack", later), "does not address"),
+            ("a record already acknowledged", chat(verify, "ack", asked), "already acknowledged"),
+            ("--ack on a record addressing nobody", chat(rtl, "post", "soc", "note to self", "--ack"), "addresses no one"),
+        ]
+        for what, result, needle in refusals:
+            if result.returncode == 0:
+                report(f"{label} {what} was accepted: {result.stdout}")
+                return 1
+            if needle not in result.stderr:
+                report(f"{label} {what} was refused without saying {needle!r}: {result.stderr}")
+                return 1
+
+    report("chat-ack scenario passed.")
+    return 0
+
+
 def validate_chat_records_scenario() -> int:
     """Issue #187: todos, edits, retractions, search, and local-time display.
 
@@ -3191,6 +3273,8 @@ def validate_chat_bridge_outbound_scenario() -> int:
         chat(rtl, "edit", root_id, "Clock fix is in (v2)")
         gone_id = chat_json(chat(rtl, "post", "soc", "wrong group", "--json")).get("id", "")
         chat(rtl, "retract", gone_id)
+        asked_id = chat_json(chat(rtl, "post", "soc", "@verify confirm the clock", "--ack", "--json")).get("id", "")
+        ack_id = chat_json(chat(verify, "ack", asked_id, "--json")).get("id", "")
         old_rule_id = chat_json(chat(rtl, "post", "soc", "verify owns integration", "--json")).get("id", "")
         new_rule_id = chat_json(chat(rtl, "post", "soc", "design owns integration", "--supersedes", old_rule_id, "--json")).get("id", "")
         slack.rate_limit("chat.postMessage", 1)
@@ -3275,6 +3359,14 @@ def validate_chat_bridge_outbound_scenario() -> int:
         gone_ts = next(m["ts"] for m in slack.messages["CSOC"] if (m.get("metadata") or {}).get("event_payload", {}).get("id") == gone_id)
         if not any(c["params"].get("ts") == gone_ts for c in slack.calls_to("chat.delete")):
             report(f"{label} the retraction did not call chat.delete.")
+            return 1
+        # Issue #253: an acknowledgement stays local.
+        if not ack_id:
+            report(f"{label} the acknowledgement returned no id.")
+            return 1
+        carried = [c for c in slack.calls if ack_id in json.dumps(c.get("params", {}))]
+        if carried:
+            report(f"{label} the acknowledgement {ack_id} reached Slack: {carried!r}")
             return 1
         # Issue #252: a superseded record's Slack copy says so.
         if not new_rule_id:
@@ -4547,6 +4639,174 @@ def validate_collected_feedback_is_recorded_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("collected-feedback-is-recorded scenario passed.")
+    return 0
+
+
+def validate_worktree_overview_scenario() -> int:
+    """Read every worktree through the CLI without fetching or changing chat."""
+    label = "worktree-overview:"
+    with tempfile.TemporaryDirectory(prefix="keel-worktree-overview-") as raw:
+        base = Path(raw).resolve()
+        repo, remote = base / "repo", base / "remote.git"
+        repo.mkdir()
+        env = os.environ.copy()
+        env.pop("KEEL_CHAT_ROLE", None)
+        env.pop("KEEL_MAIL_ROLE", None)
+
+        def git(*args: str, cwd: Path = repo) -> str:
+            return subprocess.run(
+                ["git", *args], cwd=cwd, env=env, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "user.name", "Worktree test")
+        (repo / "seed").write_text("base\n", encoding="utf-8")
+        git("add", "seed")
+        git("commit", "-qm", "base #99")
+        git("init", "--bare", "-q", str(remote))
+        git("remote", "add", "origin", str(remote))
+        git("push", "-qu", "origin", "main")
+        git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        a, b, gone = base / "a", base / "b", base / "gone"
+        git("worktree", "add", "-qb", "feature", str(a), "main")
+        git("branch", "--set-upstream-to=origin/main", "feature")
+        (a / "feature").write_text("feature\n", encoding="utf-8")
+        git("add", "feature", cwd=a)
+        git("commit", "-qm", "feature #12", "-m", "References #12 again", cwd=a)
+        git("worktree", "add", "-q", "--detach", str(b), "main")
+        (b / "uncommitted").write_text("dirty\n", encoding="utf-8")
+        git("worktree", "add", "-q", "--detach", str(gone), "main")
+        git("worktree", "lock", "--reason", "test lock", str(a))
+        shutil.rmtree(gone)
+        bound = run_keel(a, "chat", "role", "--set", "pm", env=env)
+        if bound.returncode != 0:
+            report(f"{label} could not bind pm: {bound.stderr}")
+            return 1
+        chat = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "keel-chat"
+        stamp = datetime.now(timezone.utc).isoformat()
+        write_text(chat / "presence" / "pm.json", json.dumps({"state": "online", "last_active": stamp}))
+
+        def snapshot() -> dict[str, bytes]:
+            return {str(file.relative_to(chat)): file.read_bytes()
+                    for file in chat.rglob("*") if file.is_file()}
+
+        before = snapshot()
+        repository_before = {str(file.relative_to(repo)): file.read_bytes()
+                             for file in repo.rglob("*") if file.is_file()}
+
+        def overview(*args: str) -> subprocess.CompletedProcess[str]:
+            # An override for the invoking session must not bind every worktree.
+            return run_keel(b, "worktrees", "--repo", str(repo), *args,
+                            env={**env, "KEEL_CHAT_ROLE": "caller"})
+
+        result = overview("--json")
+        if result.returncode != 0:
+            report(f"{label} --json failed: {result.stderr}")
+            return 1
+        try:
+            payload = json.loads(result.stdout)
+            rows = {row["path"]: row for row in payload["worktrees"]}
+        except (ValueError, KeyError, TypeError):
+            report(f"{label} --json lacks worktree data: {result.stdout}")
+            return 1
+        if set(rows) != {str(repo), str(a), str(b), str(gone)}:
+            report(f"{label} did not list every worktree: {rows}")
+            return 1
+        for tree, expected in (
+            (a, {"branch": "feature", "ahead": 1, "behind": 0, "issues": [12],
+                 "role": "pm", "upstream": "origin/main", "dirty": 0,
+                 "locked": "test lock", "prunable": None}),
+            (b, {"branch": None, "dirty": 1, "role": None, "presence": None,
+                 "ahead": None, "behind": None, "upstream": None, "issues": []}),
+            (gone, {"missing": True}),
+        ):
+            for key, value in expected.items():
+                if rows[str(tree)].get(key) != value:
+                    report(f"{label} {tree.name}'s {key} differs: {rows[str(tree)]}")
+                    return 1
+        if rows[str(a)].get("presence") != {"state": "online", "last_active": stamp}:
+            report(f"{label} a's presence differs: {rows[str(a)]}")
+            return 1
+        for tree in (repo, a, b):
+            row = rows[str(tree)]
+            if row.get("head") != git("rev-parse", "--short", "HEAD", cwd=tree):
+                report(f"{label} {tree.name}'s short head differs: {row}")
+                return 1
+            expected_commit = {"subject": git("log", "-1", "--format=%s", cwd=tree),
+                               "time": git("log", "-1", "--format=%cI", cwd=tree)}
+            if row.get("lastCommit") != expected_commit:
+                report(f"{label} {tree.name}'s last commit differs: {row}")
+                return 1
+        if not rows[str(gone)].get("prunable"):
+            report(f"{label} missing worktree lacks Git's prunable marker: {rows[str(gone)]}")
+            return 1
+        text = overview()
+        if text.returncode != 0:
+            report(f"{label} text output failed: {text.stderr}")
+            return 1
+        for needle in ("main", "as of the last fetch", str(a), str(b), str(gone), "missing"):
+            if needle not in text.stdout:
+                report(f"{label} text output lacks {needle!r}: {text.stdout}")
+                return 1
+        issues = base / "issues.json"
+        updated = "2026-10-05T08:00:00Z"
+        write_text(issues, json.dumps([{"number": 12, "updatedAt": updated}]))
+        timed = overview("--issues", str(issues), "--json")
+        if timed.returncode != 0:
+            report(f"{label} passed issues file failed: {timed.stderr}")
+            return 1
+        timed_rows = {row["path"]: row for row in json.loads(timed.stdout)["worktrees"]}
+        if timed_rows[str(a)].get("issueUpdates") != [{"number": 12, "updatedAt": updated}]:
+            report(f"{label} issue 12 does not carry the passed updatedAt: {timed.stdout}")
+            return 1
+        timed_text = overview("--issues", str(issues))
+        if updated not in timed_text.stdout:
+            report(f"{label} text output lacks issue 12's passed time: {timed_text.stdout}")
+            return 1
+        write_text(issues, "[]")
+        absent = overview("--issues", str(issues), "--json")
+        if absent.returncode != 0:
+            report(f"{label} empty issue array failed: {absent.stderr}")
+            return 1
+        absent_rows = {row["path"]: row for row in json.loads(absent.stdout)["worktrees"]}
+        if absent_rows[str(a)].get("issueUpdates") != [{"number": 12, "updatedAt": None}]:
+            report(f"{label} absent issue time is not null: {absent.stdout}")
+            return 1
+        bad = base / "bad.json"
+        for content in ("not JSON", "{}", '[{"number": 12}]'):
+            write_text(bad, content)
+            refused = overview("--issues", str(bad))
+            if refused.returncode != 1:
+                report(f"{label} malformed --issues did not exit 1: {refused.returncode}")
+                return 1
+            if str(bad) not in refused.stderr:
+                report(f"{label} malformed --issues does not name the file: {refused.stderr}")
+                return 1
+            if refused.stdout:
+                report(f"{label} malformed --issues printed partial output: {refused.stdout}")
+                return 1
+        missing = base / "missing.json"
+        refused = overview("--issues", str(missing))
+        if refused.returncode != 1:
+            report(f"{label} missing --issues did not exit 1: {refused.returncode}")
+            return 1
+        if str(missing) not in refused.stderr:
+            report(f"{label} missing --issues does not name the file: {refused.stderr}")
+            return 1
+        if refused.stdout:
+            report(f"{label} missing --issues printed partial output: {refused.stdout}")
+            return 1
+        if snapshot() != before:
+            report(f"{label} the chat store's files changed")
+            return 1
+        repository_after = {str(file.relative_to(repo)): file.read_bytes()
+                            for file in repo.rglob("*") if file.is_file()}
+        if repository_after != repository_before:
+            report(f"{label} the repository's files changed (including Git indexes and refs)")
+            return 1
+    report(f"{label} scenario passed")
     return 0
 
 
@@ -11881,6 +12141,93 @@ def validate_inline_code_is_concrete_scenario() -> int:
         report("inline-code-is-concrete: the scenario registry does not include it.")
         return 1
     report("inline-code-is-concrete scenario passed.")
+    return 0
+
+
+def validate_marker_words_in_capitals_scenario() -> int:
+    """Issue #271: a marker word reads as a slot only in capitals.
+
+    `task-complete` refused Evidence reading "post and todo" because the
+    unfilled-slot test matched its marker words in any case, so the name of a
+    `keel chat` record kind read as an unfilled slot. Lowercase prose is
+    concrete; `TODO`, `PLACEHOLDER` and `<value>` outside inline code are not.
+    """
+    def start(repo: Path, change: str, m1: str):
+        write_text(
+            repo / f"openspec/changes/{change}/tasks.md",
+            task_capsule_compact_fixture().replace(
+                "    - M1: node test.js\n", f"    - M1: {m1}\n"
+            ),
+        )
+        return run_keel(
+            repo, "gate", "task-start", "--change", change, "--task", "1.1", "--json"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-marker-words-") as raw_tmp:
+        repo = Path(raw_tmp)
+        prose = start(repo, "prose", "node test.js lists each todo and its placeholder text")
+        if prose.returncode != 0:
+            report(
+                "marker-words-in-capitals: a check naming a todo and a "
+                "placeholder in lowercase prose was judged unfilled."
+            )
+            report((prose.stdout or prose.stderr).strip())
+            return 1
+
+        # The reporter's shape: Evidence written after the task started.
+        write_text(
+            repo / "openspec/changes/evidence/tasks.md", task_capsule_compact_fixture()
+        )
+        if not record_contract_anchor(repo, "evidence"):
+            report("marker-words-in-capitals: the fixture could not record its anchor.")
+            return 1
+        path = repo / "openspec/changes/evidence/tasks.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    - M1: pending\n",
+                "    - M1: pass. With `--ack` on post and todo, the record is acknowledged.\n",
+            ),
+            encoding="utf-8",
+        )
+        completed = run_keel(
+            repo, "gate", "task-complete", "--change", "evidence", "--task", "1.1", "--json"
+        )
+        slots = [
+            problem.get("message", "")
+            for problem in json.loads(completed.stdout).get("problems", [])
+            if "unfilled" in problem.get("message", "")
+        ]
+        if slots:
+            report(
+                "marker-words-in-capitals: Evidence reading 'post and todo' was "
+                f"refused as an unfilled slot: {slots}"
+            )
+            return 1
+
+        for change, m1, token in (
+            ("todo", "node test.js TODO", "TODO"),
+            ("upper", "node test.js PLACEHOLDER", "PLACEHOLDER"),
+            ("angle", "node test.js <value>", "<value>"),
+        ):
+            result = start(repo, change, m1)
+            problems = json.loads(result.stdout).get("problems", [])
+            named = [
+                problem
+                for problem in problems
+                if problem.get("code") == "non-concrete-verify"
+                and f"`{token}`" in problem.get("message", "")
+            ]
+            if not named:
+                report(
+                    f"marker-words-in-capitals: a bare {token} was not reported "
+                    "as non-concrete-verify naming it."
+                )
+                report(result.stdout.strip())
+                return 1
+    if "marker-words-in-capitals" not in {name for name, _ in SCENARIOS}:
+        report("marker-words-in-capitals: the scenario registry does not include it.")
+        return 1
+    report("marker-words-in-capitals scenario passed.")
     return 0
 
 
@@ -37609,6 +37956,7 @@ SCENARIOS: tuple = (
         validate_non_concrete_verify_diagnostic_scenario,
     ),
     ("inline-code-is-concrete", validate_inline_code_is_concrete_scenario),
+    ("marker-words-in-capitals", validate_marker_words_in_capitals_scenario),
     ("covers-separator-collision", validate_covers_separator_collision_scenario),
     (
         "unresolved-covers-names-what-failed",
@@ -37735,6 +38083,8 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
+    ("chat-ack", validate_chat_ack_scenario),
+    ("worktree-overview", validate_worktree_overview_scenario),
     ("init-never-downgrades-openspec", validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", validate_native_plugin_install_matrix_scenario),

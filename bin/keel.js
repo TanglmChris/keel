@@ -108,6 +108,7 @@ Usage:
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
+  keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -2857,6 +2858,9 @@ function main() {
   }
   if (process.argv[2] === "lock") {
     return require("../src/core/lock").runLock(process.argv.slice(3));
+  }
+  if (process.argv[2] === "worktrees") {
+    return require("../src/core/worktrees").runWorktrees(process.argv.slice(3));
   }
   // `keel agents` likewise: the external model CLI catalog (#219).
   if (process.argv[2] === "agents") {

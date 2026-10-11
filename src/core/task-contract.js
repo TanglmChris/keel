@@ -26,7 +26,10 @@ const SUPPORTED_MODES = new Set([
 // rather than merely tolerated.
 const NO_WRITE_MODES = new Set(["diagnose-only", "repo-action"]);
 
-const UNFILLED_TOKEN = /(<[^>]+>|\bTODO\b|\bTBD\b|\bplaceholder\b)/i;
+// Marker words count only in capitals, the form people write to mark something
+// unfinished. In lowercase they are prose — "a todo", "the placeholder text" —
+// and matching them in any case refused concrete Evidence (issue #271).
+const UNFILLED_TOKEN = /(<[^>]+>|\bTODO\b|\bTBD\b|\bPLACEHOLDER\b)/;
 
 function normalizeFieldText(value) {
   return String(value || "")
@@ -726,8 +729,8 @@ function requiredFieldProblems(task) {
             `Verify contains the unfilled token \`${token}\`; compact v4 `
             + "detection requires a concrete Verify. Replace or remove that "
             + "token — the expanded v3 fields are not required. Angle "
-            + "brackets, TODO, TBD, and the word placeholder all read as "
-            + "unfilled, including inside prose.",
+            + "brackets, and TODO, TBD, or PLACEHOLDER written in capitals, "
+            + "read as unfilled, including inside prose.",
         },
       ];
     }
