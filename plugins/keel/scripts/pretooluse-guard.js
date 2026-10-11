@@ -55,6 +55,20 @@ function deny(reason) {
   );
 }
 
+// Hand the decision to the user for this one call (#280): the host asks, and
+// nothing is stored, so the next call is asked again.
+function ask(reason) {
+  process.stdout.write(
+    `${JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: reason,
+      },
+    })}\n`
+  );
+}
+
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
@@ -173,14 +187,16 @@ function gitOut(cwd, args) {
   return result.status === 0 ? String(result.stdout || "").trim() : null;
 }
 
+// `push:` globs and `push-protected:` entries ({ glob, role }) of `authorize:`.
 function readPushGlobs(top) {
   let text = "";
   try {
     text = fs.readFileSync(path.join(top, "keel", "config.yaml"), "utf8");
   } catch {
-    return [];
+    return { globs: [], protectedEntries: [] };
   }
   const globs = [];
+  const protectedEntries = [];
   let inBlock = false;
   for (const line of text.split(/\r?\n/)) {
     if (/^\s*#/.test(line) || line.trim() === "") continue;
@@ -190,11 +206,34 @@ function readPushGlobs(top) {
     }
     if (!inBlock) continue;
     if (!/^\s/.test(line)) break;
-    const entry = line.replace(/\s+#.*$/, "").match(/^\s+-\s*push:(\S+)\s*$/);
+    const bare = line.replace(/\s+#.*$/, "");
+    const entry = bare.match(/^\s+-\s*push:(\S+)\s*$/);
     if (entry) globs.push(entry[1]);
+    const guarded = bare.match(/^\s+-\s*push-protected:([^@\s]+)(?:@(\S+))?\s*$/);
+    if (guarded) protectedEntries.push({ glob: guarded[1], role: guarded[2] || null });
   }
-  return globs;
+  return { globs, protectedEntries };
 }
+
+// The chat role bound to the worktree at `top` (#245), for a role-limited
+// protected branch (#280 D3). Read directly: this hook never spawns the CLI.
+function sessionRole(top) {
+  for (const variable of ["KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE"]) {
+    const value = (process.env[variable] || "").trim();
+    if (value) return value;
+  }
+  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!common) return null;
+  try {
+    const roles = JSON.parse(fs.readFileSync(path.join(fs.realpathSync(common), "keel-chat", "roles.json"), "utf8"));
+    return roles[fs.realpathSync(top)] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Modes in which the host cannot be relied on to ask (#280 D3, F2).
+const MODES_THAT_CANNOT_ASK = new Set(["bypassPermissions", "dontAsk"]);
 
 // Shell words and the separators between commands. Quotes are honoured, and a
 // word that the shell would expand (`$`, a backtick) is marked, because its
@@ -426,12 +465,16 @@ function checkPushes(event) {
     ? event.tool_input.command : "";
   if (!/\bgit\b/.test(command) || !/\bpush\b/.test(command)) return 0;
   const cwd = typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
+  const asks = [];
   for (const push of findPushes(command, cwd)) {
     const top = gitOut(push.dir || cwd, ["rev-parse", "--show-toplevel"]);
     if (!top) continue;
-    const globs = readPushGlobs(top);
-    if (!globs.length) continue;
-    const declared = globs.map((glob) => `\`push:${glob}\``).join(", ");
+    const { globs, protectedEntries } = readPushGlobs(top);
+    if (!globs.length && !protectedEntries.length) continue;
+    const declared = [
+      ...globs.map((glob) => `\`push:${glob}\``),
+      ...protectedEntries.map((e) => `\`push-protected:${e.glob}${e.role ? `@${e.role}` : ""}\``),
+    ].join(", ");
     const result = pushTargets(push);
     if (result.undetermined) {
       deny(
@@ -441,7 +484,27 @@ function checkPushes(event) {
       );
       return 0;
     }
-    const outside = result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
+    const unlisted = result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
+    const outside = [];
+    for (const branch of unlisted) {
+      const entry = protectedEntries.find((e) => globPattern(e.glob).test(branch));
+      if (!entry) {
+        outside.push(branch);
+        continue;
+      }
+      if (entry.role) {
+        const role = sessionRole(top);
+        if (role !== entry.role) {
+          deny(
+            `Keel push guard: \`${branch}\` is protected for role ${entry.role}, and this `
+              + `session is ${role ? `role ${role}` : "bound to no chat role"}; only an ${entry.role} `
+              + "session may ask to push it."
+          );
+          return 0;
+        }
+      }
+      asks.push(branch);
+    }
     if (outside.length) {
       deny(
         `Keel push guard: this command pushes to ${outside.map((b) => `\`${b}\``).join(", ")}, `
@@ -450,6 +513,22 @@ function checkPushes(event) {
       );
       return 0;
     }
+  }
+  if (asks.length) {
+    const mode = typeof event.permission_mode === "string" ? event.permission_mode : "";
+    const branches = asks.map((b) => `\`${b}\``).join(", ");
+    if (MODES_THAT_CANNOT_ASK.has(mode)) {
+      deny(
+        `Keel push guard: ${branches} is protected, so each push needs the user's `
+          + `confirmation, and permission mode ${mode} cannot be relied on to ask. `
+          + "Switch to a mode that asks, or let the user push it."
+      );
+      return 0;
+    }
+    ask(
+      `Keel push guard: ${branches} is a protected branch (keel/config.yaml `
+        + "push-protected). Confirm only if the user approves this one push; the next push asks again."
+    );
   }
   return 0;
 }
