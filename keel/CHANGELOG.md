@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.99.6 - The version drift line names the remedy of what lags
+
+Issue #240, reported by verify_sub (rtl_ppa_prj, via rtl_ppa_flow) on 2026-10-05: the session-start line said the runtime versions disagreed and named only `claude plugin update`, while the plugin and CLI were current and the repository's protocol block was what lagged.
+
+- The line names the remedy of each item behind the newest version it read. A protocol block behind the plugin and CLI gets the protocol refresh, `keel --install --target <target>`, the same command `keel context` names on its `Protocol:` line, and not the plugin update. A plugin or CLI behind keeps the plugin update, and the PATH copy keeps its own remedy.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.99.6; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.99.5 - The dsh catalog entry describes its sandbox as measured
 
 Issue #259: `keel agents dsh` said dsh had no sandbox and "reads and writes wherever it is started". Measured in rtl_ppa_prj on 2026-10-05 with dsh 0.2.0-rc.2, `--profile headless` runs under its own workspace-write file policy: it refused writes to `/dev/stdout` and to `~/Library/Caches`, while `/tmp` stayed writable. A session that believed the catalog lost about an hour to it.

@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.99.5"
-PROTOCOL_VERSION = "5.99.5"
+PACKAGE_VERSION = "5.99.6"
+PROTOCOL_VERSION = "5.99.6"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -19492,6 +19492,38 @@ def validate_runtime_version_drift_scenario() -> int:
                     f"do: {text!r}"
                 )
                 return 1
+
+        # The remedy belongs to what lags (#240): plugin and CLI behind the
+        # protocol name the plugin update, and a protocol behind them names the
+        # protocol refresh, never the plugin update that would change nothing.
+        if "claude plugin update" not in channels["additionalContext"]:
+            report(
+                "runtime-version-drift a plugin behind the protocol does not name "
+                f"the plugin update: {channels['additionalContext']!r}"
+            )
+            return 1
+        lagging = tmp / "lagging-protocol"
+        write_text(lagging / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(
+            lagging / "CLAUDE.md",
+            "<!-- keel:start version=5.2.0 -->\n## Session Start\n<!-- keel:end -->\n",
+        )
+        behind = run_session_start_hook(
+            lagging, codex_event, keel_cli=stale_cli, plugin_root=stale_plugin
+        )
+        behind_text = session_start_context(behind) or ""
+        if "keel --install --target claude" not in behind_text:
+            report(
+                "runtime-version-drift a protocol behind the plugin and CLI does not "
+                f"name the protocol refresh: {behind_text!r}"
+            )
+            return 1
+        if "claude plugin update" in behind_text:
+            report(
+                "runtime-version-drift a protocol behind the plugin and CLI still "
+                f"names the plugin update, which changes nothing: {behind_text!r}"
+            )
+            return 1
 
         # Silence when aligned, and silence that costs nothing else. The drift
         # sentence is lifted off the mismatched payload and the remainder must

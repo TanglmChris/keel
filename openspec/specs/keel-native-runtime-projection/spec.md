@@ -294,7 +294,7 @@ payload alone rather than failing.
 
 ### Requirement: The session projection reports runtime version alignment
 
-Keel MUST compare three versions: the version of the plugin executing the SessionStart hook, the version of the `keel` CLI it invokes, and the protocol version stamped in the repository's managed block. It MUST report a disagreement on both the human channel and the model payload. When the hook invokes the CLI its own package ships, Keel MUST also compare the `keel` on PATH, because that is the copy the agent's commands resolve first. Comparison MUST be exact string equality, MUST be local and offline, and MUST NOT consult any remote source for a newer release.
+Keel MUST compare three versions: the version of the plugin executing the SessionStart hook, the version of the `keel` CLI it invokes, and the protocol version stamped in the repository's managed block. It MUST report a disagreement on both the human channel and the model payload. When the hook invokes the CLI its own package ships, Keel MUST also compare the `keel` on PATH, because that is the copy the agent's commands resolve first. The report MUST name the remedy of each version older than the newest one it read: the host's plugin update for the plugin or the CLI, and the protocol refresh `keel --install --target <target>`, with the target chosen as `keel context` chooses it, for the protocol; it MUST NOT name the plugin update when only the protocol is older. Comparison MUST be exact string equality, MUST be local and offline, and MUST NOT consult any remote source for a newer release.
 
 #### Scenario: A stale runtime is reported on both channels
 - **WHEN** the executing plugin, the CLI, and the repository's stamped protocol version are not all equal
@@ -319,6 +319,11 @@ Keel MUST compare three versions: the version of the plugin executing the Sessio
 #### Scenario: No CLI on PATH is not drift
 - **WHEN** the hook runs the CLI its package ships and no `keel` is on PATH
 - **THEN** the projection adds no version line on that account
+
+#### Scenario: A lagging protocol names the protocol refresh
+- **WHEN** the plugin and the CLI report the same version and the repository's stamped protocol version is older
+- **THEN** the drift report names `keel --install --target` with the repository's target
+- **AND THEN** it does not name the plugin update command
 
 ### Requirement: An undiscoverable version is not reported as drift
 
