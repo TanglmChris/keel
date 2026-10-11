@@ -414,10 +414,12 @@ function equivalenceEscapeProblems(repo, selection, task, compiled) {
 const EVIDENCE_FIELD = /^ {2}- Evidence:\s*$/;
 const TASK_FIELD = /^ {2}- [A-Za-z][A-Za-z /-]+:/;
 
+const EVIDENCE_SLOT = /^ {4}- ([A-Za-z][\w.]*(?: [a-z]+)*):/;
+
 function evidenceSlotKeys(lines) {
   return new Set(
     lines
-      .map((line) => line.match(/^ {4}- ([A-Za-z][\w.]*(?: [a-z]+)*):/))
+      .map((line) => line.match(EVIDENCE_SLOT))
       .filter(Boolean)
       .map((match) => match[1])
   );
@@ -445,17 +447,35 @@ function withEvidenceSlots(content, task, slots) {
   }
   const scanFrom = header >= 0 ? header + 1 : end;
   const present = evidenceSlotKeys(lines.slice(scanFrom, blockEnd));
-  const added = [];
-  for (const slot of slots) {
-    if (present.has(slot.key)) continue;
-    added.push(...slot.lines);
+  if (slots.every((slot) => present.has(slot.key))) return { content, added: [] };
+  if (header < 0) {
+    let insertAt = end;
+    while (insertAt > task.line + 1 && !lines[insertAt - 1].trim()) insertAt -= 1;
+    const insertion = ["  - Evidence:", ...slots.flatMap((slot) => slot.lines)];
+    lines.splice(insertAt, 0, ...insertion);
+    return { content: lines.join(eol), added: insertion };
   }
-  if (added.length === 0) return { content, added };
-  let insertAt = header >= 0 ? blockEnd : end;
-  while (insertAt > task.line + 1 && !lines[insertAt - 1].trim()) insertAt -= 1;
-  const insertion = header >= 0 ? added : ["  - Evidence:", ...added];
-  lines.splice(insertAt, 0, ...insertion);
-  return { content: lines.join(eol), added: insertion };
+  // Template order (#236): a missing slot goes directly after the last slot
+  // already placed, present or just added, or first in the block; present
+  // slots never move.
+  const added = [];
+  let cursor = scanFrom;
+  for (const slot of slots) {
+    const at = lines.slice(scanFrom, blockEnd).findIndex((line) => {
+      const match = line.match(EVIDENCE_SLOT);
+      return match && match[1] === slot.key;
+    });
+    if (at >= 0) {
+      cursor = scanFrom + at + 1;
+      while (cursor < blockEnd && !EVIDENCE_SLOT.test(lines[cursor]) && /^ {5,}\S/.test(lines[cursor])) cursor += 1;
+      continue;
+    }
+    lines.splice(cursor, 0, ...slot.lines);
+    added.push(...slot.lines);
+    cursor += slot.lines.length;
+    blockEnd += slot.lines.length;
+  }
+  return { content: lines.join(eol), added };
 }
 
 function basicSlots(task) {
