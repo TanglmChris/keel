@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.108.0 - `keel chat group add --listen`: listen-only members
+
+Issue #248 (rtl_ppa_prj review session, 2026-10-05): a review session got the user's decisions only through the coordinator's paraphrase, and the project traced three misreports to paraphrasing. Owner decision, 2026-10-11: a per-group listen-only flag.
+
+- `keel chat group add <group> <role> --listen` adds a listen-only member. It receives the group, Slack-bridged records included, has them unread, and is woken when addressed; it may `ack` and `done` its own todos.
+- Posting, opening a todo, adding or removing members, and archiving the group are refused for it, naming listen-only. `keel chat group list` shows `<role> (listen)`; `--json` adds `listeners`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.108.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.107.0 - The chat role is the session's identity
 
 Issue #245 (rtl_ppa_prj, 2026-10-05): one session had three names — host title, role table, worktree — and a message sent to the documented name did not reach it. Owner decision, 2026-10-11: the chat role is the identity; Keel cannot read the host's session title.
