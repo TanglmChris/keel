@@ -789,6 +789,59 @@ function directPost(where, target, text, extra = {}) {
 
 // --- cursors and receipts -----------------------------------------------------
 
+// What changed since a time, per group and sender (#255): built from the
+// records alone, and read without moving any cursor (D4). A superseded record
+// folds into its successor and is not listed on its own (D2).
+function summary(where, role, threshold, { group = null } = {}) {
+  const after = (record) => {
+    const time = Date.parse(record.created);
+    return !Number.isNaN(time) && time >= threshold;
+  };
+  const groups = [];
+  const waitingAcks = [];
+  for (const name of group ? [group] : listGroupNames(where)) {
+    const records = readLog(where, name);
+    const state = groupState(records);
+    if (!state.exists || state.archived || !canAct(state, role)) continue;
+    const superseded = supersededIds(records);
+    const closedBy = new Map(records.filter((r) => r.kind === "done").map((r) => [r.target, r]));
+    const byId = new Map(records.map((r) => [r.id, r]));
+    const senders = new Map();
+    const entry = (from) => {
+      if (!senders.has(from)) senders.set(from, { role: from, messages: 0, todosOpened: [], todosClosed: [], supersedes: [] });
+      return senders.get(from);
+    };
+    for (const record of records) {
+      if (!after(record) || superseded.has(record.id)) continue;
+      if (record.kind === "message") entry(record.from).messages += 1;
+      if (record.kind === "todo") {
+        entry(record.from).todosOpened.push({
+          id: record.id,
+          assignee: record.assignee,
+          state: closedBy.has(record.id) ? "done" : "open",
+          text: record.text,
+        });
+      }
+      if (record.kind === "done" && byId.get(record.target)?.kind === "todo") {
+        const todo = byId.get(record.target);
+        entry(record.from).todosClosed.push({ id: todo.id, from: todo.from, text: todo.text });
+      }
+      if (record.supersedes && READABLE_KINDS.has(record.kind)) {
+        entry(record.from).supersedes.push({ id: record.id, supersedes: record.supersedes, text: record.text });
+      }
+      if (record.ack === ACK_REQUESTED) {
+        const status = ackStatus(where, record);
+        const waiting = [...status.readNotAcknowledged, ...status.unread].sort();
+        if (waiting.length) waitingAcks.push({ id: record.id, group: name, from: record.from, text: record.text, waiting });
+      }
+    }
+    if (senders.size) {
+      groups.push({ group: name, senders: [...senders.values()].sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0)) });
+    }
+  }
+  return { groups, waitingAcks };
+}
+
 function cursorFile(where, role, group) {
   return path.join(where.root, "cursors", role, group);
 }
@@ -859,6 +912,7 @@ function readGroups(where, role, group) {
 
 module.exports = {
   ack,
+  summary,
   ackStatus,
   openAcks,
   checkName,

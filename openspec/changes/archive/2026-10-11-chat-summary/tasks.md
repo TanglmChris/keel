@@ -2,7 +2,7 @@
 
 ## 1. The digest
 
-- [ ] 1.1 `keel chat summary --since` lists per group and sender what changed, folds superseded records, and names waiting acknowledgements
+- [x] 1.1 `keel chat summary --since` lists per group and sender what changed, folds superseded records, and names waiting acknowledgements
   - Covers:
     - keel-cross-host-mailbox / A structural digest summarizes what changed since a time / A coordinator's digest
     - keel-cross-host-mailbox / A structural digest summarizes what changed since a time / Nothing since the time
@@ -33,13 +33,23 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:02ae3830652197a832e56cf73b9bacbe4ee65de11e928d7d59e277d1128b0ba8
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-summary` reports `chat-summary scenario passed.`, three runs in a row.
+    - M1.red: fail. Before the change the scenario reported `chat-summary: keel chat summary failed:  keel chat: No group summary.`, carrying the declared signature `chat-summary:`: the word was read as a group name to view.
+    - M1.green: pass. With `store.summary` and the `summary` command, the scenario passes: per-sender counts with the superseded rule folded, todos with `open`/`done`, the closed todo under its closer, the superseding record naming its target, the waiting acknowledgement naming `verify`, every cursor file byte-identical, `nothing changed` with exit 0, and the three refusals.
+    - M2: pass. `npm test` reports `validation --all passed: baseline plus 245 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario drives the real CLI with two roles, reads the `--json` digest field by field, compares every cursor file's bytes before and after, and reads the text form for the superseding line.
+      - Scope check: `git status --short` lists `src/core/chat/store.js`, `src/core/chat/cli.js`, `scripts/validate_plugin.py`, `README.md`, and this change's own directory.
+      - Findings: Resolved here: M1 and M2. The first full run failed `assertion-shape-count` on two combined guards in the new scenario, and a `--since` with sub-second precision could miss records stamped to the second; both were fixed and re-run.
+        Discard reason: a todo closed is listed under the role that closed it, which D2 leaves open; per-sender is the digest's unit, so the closer is the sender.
     - Blocker: none
     - Reauthorizations: none
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -76,7 +86,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:af8fd697749b0770068bc26f8b3b04b1340cf37d0a0c713fe729536d0c31fbd8
+    - M1: pass. After merging `main` (5.103.0, #273), `node scripts/bump_version.js minor` moved every marker to 5.104.0. With the 5.104.0 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirement is appended to `openspec/specs/keel-cross-host-mailbox/spec.md`; `published-specs-validate-strictly` reports `33 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the published spec carries the digest requirement with its three scenarios, and the changelog names the issue and the command.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the spec, both in Touch.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
@@ -87,7 +104,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass. `npm test` after the bump to 5.104.0 reports `validation --all passed: baseline plus 245 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 
