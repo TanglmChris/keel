@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.119.0"
-PROTOCOL_VERSION = "5.119.0"
+PACKAGE_VERSION = "5.120.0"
+PROTOCOL_VERSION = "5.120.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6149,6 +6149,72 @@ def validate_shift_history_scenario() -> int:
             report(f"{label} --grep does not search the earlier transcript D: {arbiter.stdout!r}")
             return 1
     report("shift-history scenario passed.")
+    return 0
+
+
+def validate_owner_language_scenario() -> int:
+    """Issue #305: a declared owner language is restated where replies are written."""
+    label = "owner-language:"
+    protocol = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    if "declares `owner_language:`" not in protocol:
+        report(f"{label} AGENTS.md does not make a declared owner_language binding.")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-owner-language-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        loose = chat_worktree(rtl, base / "loose")
+        for tree in (rtl, loose):
+            write_text(tree / "openspec/specs/.keep", "")
+            write_authorize_config(tree, "owner_language: zh\n")
+
+        def prompt(cwd: Path) -> str:
+            result = subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "user-prompt-submit"],
+                cwd=cwd, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(cwd), "hook_event_name": "UserPromptSubmit", "session_id": "p1", "prompt": "go on"}),
+            )
+            if not result.stdout.strip():
+                return ""
+            return json.loads(result.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        unbound = prompt(loose)
+        if "中文" not in unbound:
+            report(f"{label} the prompt hook in an unbound worktree does not restate the language: {unbound!r}")
+            return 1
+        if "structured-choice" not in unbound:
+            report(f"{label} the restated rule does not cover structured-choice options: {unbound!r}")
+            return 1
+        context = json.loads(run_keel(loose, "context", "--json", env=env).stdout)
+        if context.get("ownerLanguage") != "zh":
+            report(f"{label} keel context carries ownerLanguage {context.get('ownerLanguage')!r}.")
+            return 1
+        session = run_session_start_hook(
+            loose, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(loose)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        if "中文" not in (session_start_context(session) or ""):
+            report(f"{label} the session-start note does not state the language: {session_start_context(session)!r}")
+            return 1
+        run_keel(verify, "chat", "post", "soc", "@rtl please look", env=env)
+        bound = prompt(rtl)
+        if "中文" not in bound:
+            report(f"{label} a bound role's prompt hook lost the language line: {bound!r}")
+            return 1
+        if "please look" not in bound:
+            report(f"{label} a bound role's prompt hook lost the chat notice: {bound!r}")
+            return 1
+        write_authorize_config(loose, "owner_language: Chinese!\n")
+        broken = json.loads(run_keel(loose, "context", "--json", env=env).stdout)
+        if not any("owner_language" in w for w in broken.get("warnings", [])):
+            report(f"{label} a malformed owner_language is not reported: {broken.get('warnings')!r}")
+            return 1
+        if "ownerLanguage" in broken:
+            report(f"{label} a malformed owner_language is still carried: {broken.get('ownerLanguage')!r}")
+            return 1
+        if "Owner language" in prompt(loose):
+            report(f"{label} a malformed owner_language still adds a language line.")
+            return 1
+    report("owner-language scenario passed.")
     return 0
 
 
@@ -39831,6 +39897,7 @@ SCENARIOS: tuple = (
     ("shift-coordinator-last", validate_shift_coordinator_last_scenario),
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
+    ("owner-language", validate_owner_language_scenario),
     ("shift-history", validate_shift_history_scenario),
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),

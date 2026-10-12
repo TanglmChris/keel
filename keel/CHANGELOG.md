@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.120.0 - `owner_language:`: every message to the owner is in the owner's language
+
+Issue #305 (2026-10-12): the owner works in Chinese and says so in their global instructions, yet one Keel maintenance session answered them in English three times, each after long English tool output; the protocol only asked to match the user's language where practical. Owner decision, 2026-10-12: declare it per repository and restate it every turn.
+
+- `keel/config.yaml` accepts `owner_language: <tag>`; a value that is not a language tag is reported and ignored.
+- `keel context` carries `ownerLanguage` and the rule text; the session-start and compaction note states it; the chat hook restates it on every prompt, in every worktree, with or without a chat role (not in a host scheduled run).
+- `AGENTS.md`: where `owner_language:` is declared, every message to the owner — replies, summaries, reports, and the question and options of a structured-choice prompt — is in that language; identifiers, commands, paths, and quoted output stay as they are.
+- This repository declares `owner_language: zh`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.120.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.119.0 - A cleared shift's conversation stays findable: `keel shift history`
 
 Issue #304 (2026-10-12): a shift change clears the session, and the old conversation, though kept on disk as its own transcript, was found by nothing — the host's transcript search covers only the current one. The host also refuses to clear a session serving Remote Control. Owner decisions, 2026-10-12: keep clearing, record each shift's transcript, and make earlier history searchable too.

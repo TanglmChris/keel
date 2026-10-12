@@ -674,6 +674,10 @@ function main() {
         + "if this session has none, and wake the model only on exit 2."
     );
   }
+  // The language every message to the owner is in (#305 D3).
+  if (context.ownerLanguage && context.ownerLanguageRule) {
+    lines.push(`- ${context.ownerLanguageRule}`);
+  }
   // The role other sessions address this one by (#245).
   if (context.role) {
     lines.push(`- chat role: ${context.role} (other sessions address this one by it).`);

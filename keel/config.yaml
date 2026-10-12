@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Twelve independent declarations live here: fast_check, which names a command;
+# Thirteen independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
@@ -12,8 +12,15 @@
 # external_agents, which names the external model CLIs this project allows and
 # the paths that must not be handed to one; read_only_roles, which names the
 # chat roles whose sessions own no change; and issue_roles, which names the
-# chat role each issue label routes to; and patrol, which names the role that
-# runs `keel patrol` and how often.
+# chat role each issue label routes to; patrol, which names the role that
+# runs `keel patrol` and how often; and owner_language, which names the
+# language every message to the owner is written in.
+#
+# owner_language (optional): a language tag such as zh or en (#305). Every
+# message to the owner — replies, summaries, reports, and the question and
+# options of a structured-choice prompt — is in that language, whatever the
+# work and its sources are in; `keel context`, the session-start note, and the
+# chat hook on every prompt restate it. A value that is not a tag is ignored.
 #
 # patrol (optional): the role whose sessions run `keel patrol` on a host
 # schedule, and its interval (#260). Keel schedules nothing; it reminds that
@@ -272,3 +279,5 @@ merge: repository:full-gate
 external_agents:
   allow:
     - codex
+
+owner_language: zh
