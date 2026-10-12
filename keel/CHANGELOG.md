@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.111.0 - An idle session points at the issues its branch was working on
+
+Issue #278, split from #241 item 3 (rtl_ppa_prj, 2026-10-05): after compaction an idle session had nothing pointing at what it was last doing except its own memory.
+
+- When `keel context` reports `idle`, it carries `recent`: up to five issues this branch's commits beyond the default branch reference, newest first, with the range read. Git only; never a reason and never a selection; absent on the default branch.
+- The SessionStart and compaction note prints `recently referenced: #a, #b (commits in <range>; a pointer, not a selection).`
+- The reader is shared with `keel worktrees`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.111.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.110.0 - `push-protected:`: a protected branch is pushed only after the user confirms that push
 
 Issue #280 (rtl_ppa_prj, 2026-10-11): with `push:<glob>` enforced, `main` was either open to every session or closed to all of them, the coordinator included. Owner decision, 2026-10-12: the guard asks the host, optionally for one role.

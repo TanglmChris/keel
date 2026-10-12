@@ -653,6 +653,13 @@ function main() {
     lines.push(`- ${drift}`);
     human.splice(human.length - 1, 0, drift[0].toUpperCase() + drift.slice(1));
   }
+  // What the branch was last working on, when idle (#278).
+  if (context.recent && Array.isArray(context.recent.issues) && context.recent.issues.length) {
+    lines.push(
+      `- recently referenced: ${context.recent.issues.map((n) => `#${n}`).join(", ")} `
+        + `(commits in ${context.recent.range}; a pointer, not a selection).`
+    );
+  }
   // The role other sessions address this one by (#245).
   if (context.role) {
     lines.push(`- chat role: ${context.role} (other sessions address this one by it).`);
