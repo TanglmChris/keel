@@ -1,6 +1,6 @@
 {
   "name": "keel-openspec",
-  "version": "5.123.0",
+  "version": "5.124.0",
   "description": "Keel OpenSpec execution discipline: stateless continuity, task capsules, deterministic gates, and expectation alignment for Codex and Claude Code.",
   "author": {
     "name": "TanglmChris",
@@ -85,6 +85,21 @@
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
               "user-prompt-submit"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/plugins/keel/scripts/mail-hook.js",
+              "post-tool-use"
             ],
             "timeout": 10
           }
