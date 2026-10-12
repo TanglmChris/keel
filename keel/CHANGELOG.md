@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.113.0 - Shift change: the coordinator goes last, `ready --role`, and working status hints
+
+Issues #289, #290, #291 (rtl_ppa_prj whole-team shift change, 2026-10-12): the coordinator cleared before starting anyone and the team sat idle 6 h 42 min; roles that worked outside their bound worktree filed notes under the worktree, leaving their requests "not ready"; and `status` suggested a `start` command for worktree notes that could not parse. Owner decisions, 2026-10-12.
+
+- `keel shift check`, for a role that requested shift changes, reports each role whose note waits and that it has not started since (`unstarted`), so its `ready` is refused until it starts them or gives `--force-reason`. A new coordinator's `keel shift resume` lists the roles still waiting for `keel shift start`. The request and `ready` name session state a clear destroys (scheduled jobs, Remote Control) as note material.
+- `keel shift ready --role <role>` files the note under a role with an open request, from a worktree bound to no role. `ready` in an unbound worktree is refused while role requests are open, naming `--role`.
+- `keel shift status` tells a worktree note's session to run `keel shift resume` in its path, and names worktree notes written since a role's still-open request.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.113.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.112.1 - The push guard no longer reads a redirection as a push target
 
 Issue #286 (rtl_ppa_prj flow session, 2026-10-12): with `push:flow-*` declared, `git push --dry-run origin HEAD:refs/heads/flow-guard-probe 2>&1 | tail -1` was refused as pushing to `2>` — a false stop on the form sessions habitually use.

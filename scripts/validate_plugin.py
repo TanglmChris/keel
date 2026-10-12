@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.112.1"
-PROTOCOL_VERSION = "5.112.1"
+PACKAGE_VERSION = "5.113.0"
+PROTOCOL_VERSION = "5.113.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5436,6 +5436,138 @@ def validate_resource_lock_scenario() -> int:
         report(f"{label} scenario is not registered")
         return 1
     report("resource-lock scenario passed.")
+    return 0
+
+
+def shift_scratch(base: Path) -> tuple[Path, Path, dict, Path]:
+    """`rtl` and `verify` worktrees pushed to a bare remote, for shift scenarios."""
+    rtl, verify, env = chat_scratch_group(base)
+    remote = base / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, capture_output=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=rtl, check=True, capture_output=True)
+    for tree in (rtl, verify):
+        subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=tree, check=True, capture_output=True)
+    return rtl, verify, env, remote
+
+
+def validate_shift_role_elsewhere_scenario() -> int:
+    """Issues #290, #291: a note filed under the role from another worktree.
+
+    `ready --role` files it under the role; an unbound worktree refuses to
+    misfile while role requests are open; status names what works for a
+    worktree note.
+    """
+    label = "shift-role-elsewhere:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-elsewhere-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        loose = chat_worktree(rtl, base / "loose")
+        loose2 = chat_worktree(rtl, base / "loose2")
+        for tree in (loose, loose2):
+            subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=tree, check=True, capture_output=True)
+
+        def shift(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "shift", *args, env=env)
+
+        shift(rtl, "request", "verify")
+        common = mailbox_common_dir(rtl) / "keel-chat" / "shift"
+        misfiled = shift(loose, "ready", "worked on R008 here")
+        if misfiled.returncode == 0:
+            report(f"{label} ready in an unbound worktree with verify's request open was accepted.")
+            return 1
+        if "--role verify" not in misfiled.stderr:
+            report(f"{label} the refusal does not name --role verify: {misfiled.stderr}")
+            return 1
+        if list((common / "worktree").glob("*.md")) if (common / "worktree").exists() else []:
+            report(f"{label} a refused ready still wrote a worktree note.")
+            return 1
+        wrong = shift(loose, "ready", "--role", "rtl", "x")
+        if wrong.returncode == 0:
+            report(f"{label} ready --role rtl, which has no open request, was accepted.")
+            return 1
+        filed = shift(loose, "ready", "--role", "verify", "worked on R008 in loose")
+        if filed.returncode != 0:
+            report(f"{label} ready --role verify failed: {filed.stdout} {filed.stderr}")
+            return 1
+        if not (common / "verify.md").exists():
+            report(f"{label} ready --role verify did not file the note under verify.")
+            return 1
+        started = shift(rtl, "start", "verify")
+        if started.returncode != 0:
+            report(f"{label} keel shift start verify was refused: {started.stderr}")
+            return 1
+        lone = shift(loose2, "ready", "nothing requested here")
+        if lone.returncode != 0:
+            report(f"{label} ready in an unbound worktree with no open request failed: {lone.stderr}")
+            return 1
+        status = shift(rtl, "status").stdout
+        line = next((l for l in status.splitlines() if "loose2" in l), "")
+        if str(loose2.resolve()) not in line or "keel shift resume" not in line:
+            report(f"{label} the worktree note's status line does not name its path and keel shift resume: {line!r}")
+            return 1
+        if "keel shift start worktree" in status:
+            report(f"{label} status still suggests keel shift start for a worktree note: {status!r}")
+            return 1
+    report("shift-role-elsewhere scenario passed.")
+    return 0
+
+
+def validate_shift_coordinator_last_scenario() -> int:
+    """Issue #289: the coordinator starts the others before its own shift ends.
+
+    Its check reports a waiting, unstarted note and its ready is refused until
+    it starts that role; a successor's resume lists who still waits; the
+    request and ready name session state a clear destroys.
+    """
+    label = "shift-coordinator-last:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-coordinator-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+
+        def shift(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "shift", *args, env=env)
+
+        shift(rtl, "request", "verify")
+        request_text = "\n".join(chat_records_with(rtl, "dm-rtl--verify", "Shift change requested"))
+        if "scheduled jobs" not in request_text:
+            report(f"{label} the request does not name scheduled jobs: {request_text!r}")
+            return 1
+        readied = shift(verify, "ready", "verify note")
+        if readied.returncode != 0:
+            report(f"{label} verify's ready failed: {readied.stderr}")
+            return 1
+        if "scheduled jobs" not in readied.stdout:
+            report(f"{label} ready's output does not name scheduled jobs: {readied.stdout!r}")
+            return 1
+        checked = shift(rtl, "check", "--json")
+        items = json.loads(checked.stdout).get("items", [])
+        if checked.returncode != 1:
+            report(f"{label} rtl's check exited {checked.returncode} with verify unstarted, not 1.")
+            return 1
+        if not any(i.get("kind") == "unstarted" and "verify" in i.get("detail", "") for i in items):
+            report(f"{label} rtl's check has no unstarted item for verify: {items!r}")
+            return 1
+        if shift(rtl, "ready", "rtl note").returncode == 0:
+            report(f"{label} rtl's ready was accepted with verify unstarted.")
+            return 1
+        shift(rtl, "start", "verify")
+        after = json.loads(shift(rtl, "check", "--json").stdout).get("items", [])
+        if any(i.get("kind") == "unstarted" for i in after):
+            report(f"{label} rtl's check still reports unstarted after start: {after!r}")
+            return 1
+
+        shift(verify, "resume")
+        shift(rtl, "request", "verify")
+        shift(verify, "ready", "verify note, second round")
+        forced = shift(rtl, "ready", "--force-reason", "user is away", "rtl note")
+        if forced.returncode != 0:
+            report(f"{label} rtl's ready --force-reason failed: {forced.stderr}")
+            return 1
+        resumed = shift(rtl, "resume")
+        if "verify" not in resumed.stdout or "keel shift start" not in resumed.stdout:
+            report(f"{label} rtl's resume does not list verify as waiting for keel shift start: {resumed.stdout!r}")
+            return 1
+    report("shift-coordinator-last scenario passed.")
     return 0
 
 
@@ -39051,6 +39183,8 @@ SCENARIOS: tuple = (
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
     ("collected-feedback-is-recorded", validate_collected_feedback_is_recorded_scenario),
     ("shift-change", validate_shift_change_scenario),
+    ("shift-role-elsewhere", validate_shift_role_elsewhere_scenario),
+    ("shift-coordinator-last", validate_shift_coordinator_last_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
