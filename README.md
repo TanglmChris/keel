@@ -799,6 +799,14 @@ writes that snapshot on every run, and exits 2 only when something changed. Add 
 changes go to the coordinator as one direct message from `keel-patrol`, which wakes its session, so
 the scheduled run needs no model judgment and no session id.
 
+`keel patrol --nudge` goes further and nudges each idle role itself, with one direct message from
+`keel-patrol` that wakes its session (#307): when records addressed to it have waited longer than
+`--idle` (at most every two hours); when the host reports with `--context <role>=<percent>` that its
+context is at or above `--shift-at` (default 50) and nothing waits, telling it to change its own shift
+with `keel shift ready --wake` (at most every six hours); and when a note it filed with `ready --wake`
+was never resumed. A note filed without `--wake` — a coordinator parking a role — is left alone, and
+Keel's own messages never count as waiting.
+
 With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
 maps a label to a role, and each role gets one direct message per update of an issue carrying its
 label — so a handoff labelled `role:verify` reaches `verify` without a second message.

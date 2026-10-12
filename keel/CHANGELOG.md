@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.121.0 - `keel patrol --nudge`: the patrol nudges idle roles directly
+
+Issue #307, part 1 (rtl_ppa_prj, 2026-10-12): after a day of a host-run patrol, the owner moved routine coordination into it — it nudges each role's session itself, and a routine shift change skips the coordinator. Owner decision, 2026-10-12: nudges are `keel chat` direct messages from `keel-patrol`, Keel keeps the rate limits, and a self-initiated shift is one filed with `ready --wake`.
+
+- `keel patrol --nudge` sends an idle role (presence older than `--idle`) one direct message from `keel-patrol`: for addressed records waiting longer than `--idle` (at most every two hours); for a host-reported `--context <role>=<percent>` at or above `--shift-at` (default 50) with nothing waiting, naming `keel shift ready --wake` and Remote Control (at most every six hours); and for a note filed with `ready --wake` that no wake reached (once per note). It exits 2 when it nudged.
+- Records from `keel-patrol`, `keel-shift`, and `keel` never count as waiting, and `keel shift check` no longer counts them as loose ends — a role told to change its shift was refused over being told.
+- `keel shift ready --wake` marks its note as self-initiated; a note filed without it is never nudged to resume.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.121.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.120.0 - `owner_language:`: every message to the owner is in the owner's language
 
 Issue #305 (2026-10-12): the owner works in Chinese and says so in their global instructions, yet one Keel maintenance session answered them in English three times, each after long English tool output; the protocol only asked to match the user's language where practical. Owner decision, 2026-10-12: declare it per repository and restate it every turn.
