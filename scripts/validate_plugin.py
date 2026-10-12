@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.121.0"
-PROTOCOL_VERSION = "5.121.0"
+PACKAGE_VERSION = "5.122.0"
+PROTOCOL_VERSION = "5.122.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2809,15 +2809,9 @@ def validate_patrol_since_last_scenario() -> int:
         if not any("remote" in line for line in changed):
             report(f"{label} the remote tip change is not reported: {second.stdout!r}")
             return 1
-        if len(notices()) != 1:
-            report(f"{label} expected one keel-patrol notice after the change, found {len(notices())}.")
-            return 1
-        if "from: keel-patrol" not in notices()[0]:
-            report(f"{label} the notice is not from keel-patrol: {notices()[0]!r}")
-            return 1
-        woken = run_keel(rtl, "chat", "notice", "--check", env=env)
-        if woken.returncode != 0:
-            report(f"{label} the notice does not wake rtl (notice --check exit {woken.returncode}).")
+        # Shift-status and remote changes are not risks (#307 part 3): printed, not sent.
+        if notices():
+            report(f"{label} a run with no risk sent the coordinator a notice: {notices()!r}")
             return 1
         third = patrol("--since-last", "--notify")
         if third.returncode != 0:
@@ -2826,8 +2820,8 @@ def validate_patrol_since_last_scenario() -> int:
         if "changed:" in third.stdout:
             report(f"{label} an unchanged run reported a change: {third.stdout!r}")
             return 1
-        if len(notices()) != 1:
-            report(f"{label} an unchanged run sent another notice.")
+        if notices():
+            report(f"{label} an unchanged run sent a notice.")
             return 1
     report("patrol-since-last scenario passed.")
     return 0
@@ -2916,6 +2910,66 @@ def validate_patrol_nudge_scenario() -> int:
             report(f"{label} lint was nudged over the patrol's own message.")
             return 1
     report("patrol-nudge scenario passed.")
+    return 0
+
+
+def validate_patrol_escalate_scenario() -> int:
+    """Issue #307 part 3: only risks reach the coordinator; every run is logged."""
+    label = "patrol-escalate:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-escalate-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_PATROL_UNREAD_EVERY_MS": "1"}
+        runs = 0
+
+        def patrol(*args: str) -> subprocess.CompletedProcess[str]:
+            nonlocal runs
+            runs += 1
+            return run_keel(rtl, "patrol", "--since-last", "--notify", "--idle", "1s", *args, env=env)
+
+        def sent(needle: str) -> int:
+            return len(chat_records_with(rtl, "dm-keel-patrol--rtl", needle))
+
+        patrol()
+        write_text(rtl / "dirty.txt", "left behind\n")
+        dirty = patrol()
+        if sent("uncommitted") != 1:
+            report(f"{label} the dirty checkout was not sent once: {dirty.stdout!r} {dirty.stderr!r}")
+            return 1
+        if not any(line.startswith("risk:") for line in dirty.stdout.splitlines()):
+            report(f"{label} the risk is not printed: {dirty.stdout!r}")
+            return 1
+        patrol("--disk-free-gb", "12")
+        if sent("free disk is 12 GB") != 1:
+            report(f"{label} low disk was not sent once.")
+            return 1
+        patrol("--disk-free-gb", "12")
+        if sent("free disk") != 1:
+            report(f"{label} low disk was sent again without changing.")
+            return 1
+        if sent("uncommitted") != 1:
+            report(f"{label} the still-dirty checkout was sent again.")
+            return 1
+        run_keel(rtl, "chat", "post", "soc", "@verify rerun R007 please", env=env)
+        time.sleep(1.2)
+        patrol("--nudge")
+        time.sleep(0.2)
+        second = patrol("--nudge")
+        if sent("2 nudges") != 1:
+            report(f"{label} two unanswered nudges were not escalated once: {second.stdout!r}")
+            return 1
+        if "verify" not in "\n".join(chat_records_with(rtl, "dm-keel-patrol--rtl", "2 nudges")):
+            report(f"{label} the escalation does not name verify.")
+            return 1
+        log = mailbox_common_dir(rtl) / "keel-chat" / "patrol" / "log" / "rtl.log"
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        if len(lines) != runs:
+            report(f"{label} the run log holds {len(lines)} lines for {runs} runs.")
+            return 1
+        if not all("exit=" in line and "risks=" in line for line in lines):
+            report(f"{label} a run log line lacks exit= or risks=: {lines!r}")
+            return 1
+    report("patrol-escalate scenario passed.")
     return 0
 
 
@@ -39994,6 +40048,7 @@ SCENARIOS: tuple = (
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
+    ("patrol-escalate", validate_patrol_escalate_scenario),
     ("patrol-host-task", validate_patrol_host_task_scenario),
     ("patrol-rearm", validate_patrol_rearm_scenario),
     ("patrol-issue-routing", validate_patrol_issue_routing_scenario),
