@@ -11,7 +11,7 @@
 // exit 2 from FileChanged is the wake signal.
 //
 // Nothing here advances a read position, and a worktree with no chat role gets
-// no output. A failure to run the CLI exits 0 silently: a missing notice costs
+// no output except, on UserPromptSubmit, the declared owner language (#305). A failure to run the CLI exits 0 silently: a missing notice costs
 // a late read, while a spurious exit 2 would wake the session for nothing.
 
 const fs = require("fs");

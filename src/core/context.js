@@ -19,6 +19,8 @@ const {
   readMergeDeclaration,
   readReadOnlyRoles,
   readPatrolDeclaration,
+  readOwnerLanguage,
+  ownerLanguageRule,
 } = require("./config");
 const { isKeelSourceRepo } = require("./capabilities");
 
@@ -856,6 +858,13 @@ function resolveContext(repo, options) {
     }
   } catch {
     context.role = null;
+  }
+  // The language every message to the owner is in (#305 D3).
+  const language = readOwnerLanguage(repo);
+  if (language.message) context.warnings.push(language.message);
+  if (language.tag) {
+    context.ownerLanguage = language.tag;
+    context.ownerLanguageRule = ownerLanguageRule(language.tag);
   }
   // The patrolling role is reminded to re-arm its schedule (#260).
   const patrol = readPatrolDeclaration(repo);

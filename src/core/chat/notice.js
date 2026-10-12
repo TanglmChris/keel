@@ -256,11 +256,26 @@ function hook(event, input, { mail = false } = {}) {
   // A session's watch list is fixed at SessionStart, so a worktree with no role
   // yet still watches its own signal, which a role bound later will touch
   // (chat-wake-late-binding D1). Nothing else is said until there is a role.
+  // The owner's language is restated on every prompt, role or not (#305 D4).
+  let languageLine = null;
+  if (where && event === "user-prompt-submit") {
+    try {
+      const { readOwnerLanguage, ownerLanguageRule } = require("../config");
+      const language = readOwnerLanguage(where.worktree);
+      if (language.tag) languageLine = ownerLanguageRule(language.tag);
+    } catch {
+      languageLine = null;
+    }
+  }
+  const promptOutput = (text) => ({
+    code: 0,
+    stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: text } })}\n`,
+  });
   if (where && !role && event === "session-start") {
     const watched = ensureWorktreeSignal(where);
     return { code: 0, stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [watched] } })}\n` };
   }
-  if (!where || !role) return { code: 0 };
+  if (!where || !role) return languageLine ? promptOutput(languageLine) : { code: 0 };
   const file = sessionFile(where, payload);
   const session = file && fs.existsSync(file) ? store.readJsonFile(file) : null;
   if (event === "session-end" && file) fs.rmSync(file, { force: true });
@@ -287,11 +302,8 @@ function hook(event, input, { mail = false } = {}) {
     return { code: 0, stdout: `${JSON.stringify(output)}\n` };
   }
   if (event === "user-prompt-submit") {
-    if (!text) return { code: 0 };
-    return {
-      code: 0,
-      stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: text } })}\n`,
-    };
+    const context = [languageLine, text].filter(Boolean).join("\n");
+    return context ? promptOutput(context) : { code: 0 };
   }
   // file-changed
   const waking = store.unread(where, role).some((record) => store.wakes(record, role));
