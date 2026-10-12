@@ -808,10 +808,10 @@ nudge wakes a large session.
 
 `keel patrol --nudge` goes further and nudges each idle role itself, with one direct message from
 `keel-patrol` that wakes its session (#307): when records addressed to it have waited longer than
-`--idle` (at most every two hours); when the host reports with `--context <role>=<percent>` that its
-context is at or above `--shift-at` (default 50) and nothing waits, telling it to change its own shift
-with `keel shift ready --wake` (at most every six hours); and when a note it filed with `ready --wake`
-was never resumed. A note filed without `--wake` — a coordinator parking a role — is left alone, and
+`--idle` (at most every two hours); when a todo assigned to it is closed, telling it to change shift
+at that task boundary — with `keel shift ready --wake` if another todo is still open for it, or plain
+`ready` to wait for the coordinator — since a shift follows a finished task and the host compacts
+within one (#313); and when a note it filed with `ready --wake` was never resumed. A note filed without `--wake` — a coordinator parking a role — is left alone, and
 Keel's own messages never count as waiting.
 
 With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`

@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.125.0 - A shift follows a finished task, not context size
+
+Issue #313 (rtl_ppa_prj, 2026-10-13): 5.121.0's patrol told a role to change shift when the host reported its context at or above `--shift-at`. The owner's policy is to compact within a task and change shift when a complete task is finished; a context trigger interrupts long tasks and never shifts a run of short ones. Owner decision, 2026-10-13.
+
+- `keel patrol --nudge` nudges a role to change shift when a todo assigned to it has been closed since the patrol last looked: with `keel shift ready --wake` if another todo is still open for it, or plain `ready` to wait for the coordinator otherwise. Each closure nudges once; the first run records existing closures.
+- `--context` and `--shift-at` are retired and refused with the reason; compaction within a task stays the host's.
+- `docs/shift-change.md` states the policy: change shift at task boundaries, compact within a task.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.125.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.124.0 - The owner's language is restated after runs of tool calls
 
 Issue #311 (2026-10-13): 5.120.0 restates the declared owner language on every prompt, but a status update the agent writes mid-turn, after a long run of tools, follows no prompt; in the Keel maintenance session it drifted into English again. Owner decision, 2026-10-13.
