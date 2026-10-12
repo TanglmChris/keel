@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.124.0"
-PROTOCOL_VERSION = "5.124.0"
+PACKAGE_VERSION = "5.125.0"
+PROTOCOL_VERSION = "5.125.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2828,11 +2828,12 @@ def validate_patrol_since_last_scenario() -> int:
 
 
 def validate_patrol_nudge_scenario() -> int:
-    """Issue #307 part 1: the patrol nudges idle roles directly, rate-limited.
+    """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 
-    Unread addressed records, a host-reported context share, and a
-    self-initiated shift note each nudge once; a parked note and the
-    patrol's own messages never do.
+    Addressed unread records nudge once per window; a closed todo nudges a
+    shift change at that task boundary, naming `--wake` only while another
+    todo is open; a self-initiated note nudges a resume; a parked note and
+    the patrol's own messages never do; context is no longer an input.
     """
     label = "patrol-nudge:"
     with tempfile.TemporaryDirectory(prefix="keel-patrol-nudge-") as raw:
@@ -2842,6 +2843,12 @@ def validate_patrol_nudge_scenario() -> int:
         lint = chat_worktree(rtl, base / "lint")
         subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=lint, check=True, capture_output=True)
         run_keel(lint, "chat", "role", "--set", "lint", env=env)
+        run_keel(rtl, "chat", "group", "add", "soc", "lint", env=env)
+        todo_ids = []
+        for text in ("R009 timing fix", "R010 lint cleanup"):
+            made = run_keel(rtl, "chat", "todo", "soc", "--assignee", "lint", text, "--json", env=env)
+            todo_ids.append(json.loads(made.stdout)["id"])
+        run_keel(lint, "chat", "read", env=env)
         run_keel(rtl, "chat", "post", "soc", "@verify please rerun R007", env=env)
         time.sleep(1.2)
 
@@ -2851,44 +2858,59 @@ def validate_patrol_nudge_scenario() -> int:
         def nudged(result: subprocess.CompletedProcess[str]) -> list[str]:
             return [line for line in result.stdout.splitlines() if line.startswith("nudged ")]
 
+        def told_lint(needle: str) -> str:
+            return "\n".join(chat_records_with(rtl, "dm-keel-patrol--lint", needle))
+
         seen: list[str] = []
-        first = nudge("--context", "lint=40")
+        first = nudge()
         seen += nudged(first)
         if "nudged verify: unread" not in nudged(first):
             report(f"{label} verify was not nudged for unread: {first.stdout!r} {first.stderr!r}")
             return 1
         if any(line.startswith("nudged lint") for line in nudged(first)):
-            report(f"{label} lint was nudged below the shift threshold: {nudged(first)!r}")
+            report(f"{label} lint was nudged before any task closed: {nudged(first)!r}")
             return 1
         if first.returncode != 2:
             report(f"{label} a run that nudged exited {first.returncode}.")
             return 1
-        if not chat_records_with(rtl, "dm-keel-patrol--verify", "keel chat unread"):
-            report(f"{label} no keel-patrol record reached verify.")
-            return 1
         if run_keel(verify, "chat", "notice", "--check", env=env).returncode != 0:
             report(f"{label} the nudge does not wake verify.")
             return 1
-        second = nudge("--context", "lint=62")
+        run_keel(lint, "chat", "done", todo_ids[0], env=env)
+        time.sleep(1.2)
+        second = nudge()
         seen += nudged(second)
         if nudged(second) != ["nudged lint: shift"]:
-            report(f"{label} the second run should nudge only lint's shift: {second.stdout!r}")
+            report(f"{label} closing a todo should nudge only lint's shift: {second.stdout!r} {second.stderr!r}")
             return 1
-        shift_text = "\n".join(chat_records_with(rtl, "dm-keel-patrol--lint", "context is at 62%"))
-        if "keel shift ready --wake" not in shift_text:
-            report(f"{label} the shift nudge does not name keel shift ready --wake: {shift_text!r}")
+        if "keel shift ready --wake" not in told_lint("R009"):
+            report(f"{label} with a todo still open, the shift nudge does not name ready --wake: {told_lint('R009')!r}")
             return 1
-        if "Remote Control" not in shift_text:
-            report(f"{label} the shift nudge does not name Remote Control: {shift_text!r}")
+        if "Remote Control" not in told_lint("R009"):
+            report(f"{label} the shift nudge does not name Remote Control.")
             return 1
         time.sleep(1.2)
-        third = nudge("--context", "lint=62")
+        third = nudge()
         seen += nudged(third)
         if nudged(third):
-            report(f"{label} a run within the rate limits nudged: {nudged(third)!r}")
+            report(f"{label} a run with nothing new nudged: {nudged(third)!r}")
             return 1
         if third.returncode != 0:
             report(f"{label} a run that nudged nobody exited {third.returncode}.")
+            return 1
+        run_keel(lint, "chat", "done", todo_ids[1], env=env)
+        time.sleep(1.2)
+        fourth = nudge()
+        seen += nudged(fourth)
+        if "nudged lint: shift" not in nudged(fourth):
+            report(f"{label} closing the last todo did not nudge lint: {fourth.stdout!r}")
+            return 1
+        last = told_lint("R010")
+        if "wait for the coordinator" not in last:
+            report(f"{label} with no todo left, the shift nudge does not say to wait for the coordinator: {last!r}")
+            return 1
+        if "--wake" in last:
+            report(f"{label} with no todo left, the shift nudge still names --wake: {last!r}")
             return 1
         armed = run_keel(lint, "shift", "ready", "--wake", "lint note", env=env)
         if armed.returncode != 0:
@@ -2898,16 +2920,23 @@ def validate_patrol_nudge_scenario() -> int:
             report(f"{label} verify's ready failed.")
             return 1
         time.sleep(1.2)
-        fourth = nudge()
-        seen += nudged(fourth)
-        if "nudged lint: resume" not in nudged(fourth):
-            report(f"{label} lint's self-initiated note was not nudged to resume: {fourth.stdout!r}")
+        fifth = nudge()
+        seen += nudged(fifth)
+        if "nudged lint: resume" not in nudged(fifth):
+            report(f"{label} lint's self-initiated note was not nudged to resume: {fifth.stdout!r}")
             return 1
-        if "nudged verify: resume" in nudged(fourth):
+        if "nudged verify: resume" in nudged(fifth):
             report(f"{label} verify's parked note was nudged to resume.")
             return 1
         if "nudged lint: unread" in seen:
             report(f"{label} lint was nudged over the patrol's own message.")
+            return 1
+        retired = nudge("--context", "lint=62")
+        if retired.returncode != 1:
+            report(f"{label} --context exited {retired.returncode}.")
+            return 1
+        if "retired" not in retired.stderr:
+            report(f"{label} the --context refusal does not say it was retired: {retired.stderr!r}")
             return 1
     report("patrol-nudge scenario passed.")
     return 0

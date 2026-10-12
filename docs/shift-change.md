@@ -23,6 +23,12 @@ A clear keeps the session but starts a new transcript file, and the host's trans
 
 A session serving Remote Control cannot be cleared: turn Remote Control off, clear, then turn it back on.
 
+## When to change shift
+
+Change shift at a task boundary, and compact within a task (#313). While a role works on one continuous task, let the host compact its context when it fills: a shift in the middle throws away working state a compaction would keep, and the note has to carry half-finished reasoning. When a complete task is finished, change shift, even at low context: the next, unrelated task starts clean. At that point, use `keel shift ready --wake` if the role already holds its next task (an open todo assigned to it), or plain `keel shift ready` to wait for the coordinator to start it with new work.
+
+`keel patrol --nudge` follows the same rule: when a todo assigned to a role is closed, it nudges that role to change shift and names which of the two to use. Context size is not an input.
+
 ## Changing your own shift
 
 A role that no request named — the coordinator going last, or any session that decides to change its own shift — runs `ready` like any role, but nobody is set to start its new session, and `ready` says so. It cannot `keel shift start` itself, which is refused. `status` says its note is resumed by its own next session: type into it, or use `keel shift ready --wake` (below).
