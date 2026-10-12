@@ -677,6 +677,12 @@ function main() {
   // The role other sessions address this one by (#245).
   if (context.role) {
     lines.push(`- chat role: ${context.role} (other sessions address this one by it).`);
+  } else if (context.roleReminder && Array.isArray(context.unattendedRoles) && context.unattendedRoles.length) {
+    // Roles nobody is active for where they are bound (#301 D5).
+    lines.push(
+      "- chat role: none bound here while other worktrees have one; roles with nobody active where they are "
+        + `bound: ${context.unattendedRoles.join(", ")}. If this session is one of them, run \`keel chat role --set <role>\` here.`
+    );
   } else if (context.roleReminder) {
     lines.push(
       "- chat role: none bound here while other worktrees have one; bind one "

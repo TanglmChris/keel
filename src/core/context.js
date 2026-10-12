@@ -837,12 +837,21 @@ function resolveContext(repo, options) {
       const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
         .filter(([worktree, role]) => worktree !== where.worktree && role);
       if (bound.length) {
+        // Roles nobody is active for where they are bound (#301 D5).
+        let unattended = [];
+        try {
+          unattended = require("./chat/drift").roleDrift(where).unattended.map((entry) => entry.role);
+        } catch {
+          unattended = [];
+        }
         context.warnings.push(
           "This worktree has no chat role while other worktrees here have one; "
             + "sessions address each other by role. Bind one with "
             + "`keel chat role --set <name>`."
+            + (unattended.length ? ` Roles with nobody active where they are bound: ${unattended.join(", ")}.` : "")
         );
         context.roleReminder = true;
+        if (unattended.length) context.unattendedRoles = unattended;
       }
     }
   } catch {
