@@ -30228,6 +30228,34 @@ def validate_push_protected_guard_scenario() -> int:
     return 0
 
 
+def validate_push_guard_redirects_scenario() -> int:
+    """Issue #286: a shell redirection is never read as a push target."""
+    label = "push-guard-redirects:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-redirects-") as raw:
+        repo = mailbox_repository(Path(raw) / "repo")
+        write_authorize_config(repo, "authorize:\n  - push:flow-*\n")
+
+        def decide(command: str) -> dict:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(repo)}
+            return pretooluse_decision(run_pretooluse_guard_hook(repo, event)) or {"permissionDecision": "pass"}
+
+        base = "git push --dry-run origin HEAD:refs/heads/flow-probe"
+        for command in (f"{base} 2>&1 | tail -1", f"{base} 2>/dev/null", f"{base} &> out.log", f"{base} >&2"):
+            decision = decide(command)
+            if decision.get("permissionDecision") != "pass":
+                report(f"{label} {command!r} was {decision!r}, not allowed.")
+                return 1
+        refused = decide("git push origin HEAD:main 2>&1 | tail -1")
+        if refused.get("permissionDecision") != "deny":
+            report(f"{label} an out-of-scope push with a redirection was {refused!r}, not denied.")
+            return 1
+        if "`main`" not in refused.get("permissionDecisionReason", ""):
+            report(f"{label} the refusal does not name main: {refused!r}")
+            return 1
+    report("push-guard-redirects scenario passed.")
+    return 0
+
+
 def validate_touch_write_guard_scenario() -> int:
     with tempfile.TemporaryDirectory(
         prefix="keel-touch-guard-", ignore_cleanup_errors=True
@@ -38983,6 +39011,7 @@ SCENARIOS: tuple = (
     ("native-single-task-matrix", validate_native_single_task_matrix_scenario),
     ("touch-write-guard", validate_touch_write_guard_scenario),
     ("push-branch-guard", validate_push_branch_guard_scenario),
+    ("push-guard-redirects", validate_push_guard_redirects_scenario),
     ("push-protected-guard", validate_push_protected_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
