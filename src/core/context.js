@@ -18,6 +18,7 @@ const {
   readExecutorTier,
   readMergeDeclaration,
   readReadOnlyRoles,
+  readPatrolDeclaration,
 } = require("./config");
 const { isKeelSourceRepo } = require("./capabilities");
 
@@ -847,6 +848,10 @@ function resolveContext(repo, options) {
   } catch {
     context.role = null;
   }
+  // The patrolling role is reminded to re-arm its schedule (#260).
+  const patrol = readPatrolDeclaration(repo);
+  if (patrol.message) context.warnings.push(patrol.message);
+  if (patrol.role && context.role === patrol.role) context.patrol = { role: patrol.role, every: patrol.every };
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by
   // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
