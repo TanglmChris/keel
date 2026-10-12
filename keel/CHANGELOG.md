@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.111.1 - The push guard no longer reads a redirection as a push target
+
+Issue #286 (rtl_ppa_prj flow session, 2026-10-12): with `push:flow-*` declared, `git push --dry-run origin HEAD:refs/heads/flow-guard-probe 2>&1 | tail -1` was refused as pushing to `2>` — a false stop on the form sessions habitually use.
+
+- The guard's shell reader drops redirections — `>`, `>>`, `<`, `2>`, `2>&1`, `>&2`, `&>`, `2>/dev/null` — with their targets before reading `git push` arguments. An out-of-scope push is still refused by its real target.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.111.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.111.0 - An idle session points at the issues its branch was working on
 
 Issue #278, split from #241 item 3 (rtl_ppa_prj, 2026-10-05): after compaction an idle session had nothing pointing at what it was last doing except its own memory.

@@ -36,7 +36,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -73,12 +73,25 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:ffa63312e47b2674ddfd65aa8484e8100e0847839a676f704e184f51dbba6ea4
+    - M1: pass. `node scripts/bump_version.js patch` moved every marker to 5.111.1 on top of `main` at 5.111.0 (#285). With the 5.111.1 section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirement is appended to `openspec/specs/keel-touch-write-guard/spec.md`; `published-specs-validate-strictly` reports `34 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the markers agree, the published spec carries the requirement with both scenarios, and the changelog quotes the issue's command.
+      - Scope check: the bump touched the version-marker files in Touch, plus `keel/CHANGELOG.md` and the spec, both in Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
 
 ## Change Verify
 
 - Strategy: regression-first
 - C1: `npm test` passes the baseline and every registered scenario.
+
+## Change Evidence
+
+- C1: pass. `npm test` after the bump to 5.111.1 reports `validation --all passed: baseline plus 258 scenarios, 1 skipped: output-survives-the-pipe.`
 
 ## Invalidates
 
