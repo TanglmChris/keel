@@ -371,6 +371,14 @@ function ready(where, options) {
   if (options.wake && !role) {
     throw new ShiftError("--wake wakes a chat role, and this worktree has none: bind one with `keel chat role --set <name>`, or name it with --role.");
   }
+  // No request can name an unbound worktree, so its `ready` is a self-shift
+  // that nothing wakes after the clear (#317 D1).
+  if (!role && !options.forceReason) {
+    throw new ShiftError(
+      "This worktree has no chat role, so nothing will start the session that follows a clear: no request can name it, and --wake needs a role. "
+        + "Bind one with `keel chat role --set <name>` and run `keel shift ready --wake`, or give --force-reason \"<who starts the new session>\"."
+    );
+  }
   const since = Date.now();
   const result = check(where, role);
   if (!result.ready && !options.forceReason) {
@@ -385,7 +393,8 @@ function ready(where, options) {
     `Written ${stamp} in ${result.worktree}.`,
     // A shift the role started itself; the patrol may nudge it to resume (#307 D4).
     options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
-    options.forceReason ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
+    !role ? `Started by hand: ${options.forceReason}.` : "",
+    options.forceReason && result.items.length ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
     "",
   ].join("\n");
   const note = ownNotePath(where, role);
@@ -404,7 +413,7 @@ function ready(where, options) {
     }
   }
   const waiter = options.wake ? armWake(where, role, since) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter };
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason };
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------
@@ -723,7 +732,7 @@ const CLEAR_HINT = [
 // or — without a chat role — the person who opens it.
 function clearHint(result) {
   let last;
-  if (!result.role) last = "Without a chat role, tell the new session to run `keel shift resume`.";
+  if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
   else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
   } else if (result.closed.length) last = "The coordinator's `keel shift start` then wakes the new shift.";
