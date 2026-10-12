@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.111.1"
-PROTOCOL_VERSION = "5.111.1"
+PACKAGE_VERSION = "5.112.0"
+PROTOCOL_VERSION = "5.112.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2581,6 +2581,72 @@ def validate_chat_listen_only_scenario() -> int:
 def chat_logs_snapshot(repo: Path) -> dict:
     groups = mailbox_common_dir(repo) / "keel-chat" / "groups"
     return {str(p): p.read_bytes() for p in groups.rglob("*") if p.is_file()}
+
+
+def validate_patrol_rearm_scenario() -> int:
+    """Issue #260: the patrolling role is reminded to re-arm its schedule.
+
+    `patrol:` names the role and interval; that role's `keel context`, session
+    projection, and `keel shift resume` remind it; other roles and a broken
+    declaration are quiet. Keel schedules nothing.
+    """
+    label = "patrol-rearm:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-rearm-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        write_text(repo / "openspec/specs/.keep", "")
+        write_authorize_config(repo, "patrol:\n  role: iecc-pm\n  every: 30m\n")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "patrol"], cwd=repo, check=True, capture_output=True)
+        pm = chat_worktree(repo, base / "pm")
+        rtl = chat_worktree(repo, base / "rtl")
+        env = chat_environment()
+        run_keel(pm, "chat", "role", "--set", "iecc-pm", env=env)
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+
+        def look(cwd: Path) -> tuple[dict, str]:
+            context = json.loads(run_keel(cwd, "context", "--json", env=env).stdout)
+            session = run_session_start_hook(
+                cwd, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(cwd)},
+                keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+            )
+            return context, session_start_context(session) or ""
+
+        context, note = look(pm)
+        if context.get("patrol") != {"role": "iecc-pm", "every": "30m"}:
+            report(f"{label} the coordinator's context carries patrol {context.get('patrol')!r}.")
+            return 1
+        if "keel patrol" not in note or "30m" not in note:
+            report(f"{label} the coordinator's projection does not remind it: {note!r}")
+            return 1
+        ready = run_keel(pm, "shift", "ready", "next: keep patrolling", env=env)
+        if ready.returncode != 0:
+            report(f"{label} keel shift ready failed: {ready.stdout} {ready.stderr}")
+            return 1
+        resumed = run_keel(pm, "shift", "resume", env=env)
+        tail = resumed.stdout.strip().splitlines()[-1] if resumed.stdout.strip() else ""
+        if "keel patrol" not in tail or "30m" not in tail:
+            report(f"{label} keel shift resume does not end with the reminder: {resumed.stdout!r}")
+            return 1
+
+        context, note = look(rtl)
+        if "patrol" in context:
+            report(f"{label} another role carries patrol: {context.get('patrol')!r}")
+            return 1
+        if "keel patrol" in note:
+            report(f"{label} another role's projection reminds it: {note!r}")
+            return 1
+
+        write_authorize_config(pm, "patrol:\n  role: iecc-pm\n  every: soon\n")
+        broken = json.loads(run_keel(pm, "context", "--json", env=env).stdout)
+        if "patrol" in broken:
+            report(f"{label} a malformed declaration still reminds: {broken.get('patrol')!r}")
+            return 1
+        if not any("patrol" in w for w in broken.get("warnings", [])):
+            report(f"{label} the malformed declaration is not reported: {broken.get('warnings')!r}")
+            return 1
+    report("patrol-rearm scenario passed.")
+    return 0
 
 
 def validate_coordinator_patrol_scenario() -> int:
@@ -38990,6 +39056,7 @@ SCENARIOS: tuple = (
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
+    ("patrol-rearm", validate_patrol_rearm_scenario),
     ("patrol-issue-routing", validate_patrol_issue_routing_scenario),
     ("chat-listen-only", validate_chat_listen_only_scenario),
     ("chat-summary", validate_chat_summary_scenario),

@@ -797,6 +797,16 @@ issue_roles:
   role:verify: verify
 ```
 
+A host schedule made inside a session ends with that session, so a shift change or restart drops
+it. Declare which role patrols and how often, and that role's new sessions — and its `keel shift
+resume` — are reminded to re-create it (#260); Keel itself still schedules nothing:
+
+```yaml
+patrol:
+  role: iecc-pm
+  every: 30m
+```
+
 ## Commands
 
 ```bash
