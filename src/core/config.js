@@ -129,6 +129,7 @@ const CONFIG_DECLARATIONS = [
   "external_agents",
   "read_only_roles",
   "issue_roles",
+  "patrol",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -872,7 +873,32 @@ function readIssueRoles(repo) {
   return { routes, unreadable };
 }
 
+// `patrol:` — which role runs `keel patrol`, and how often (#260). Keel only
+// reminds that role to re-create its host schedule; it schedules nothing. A
+// declaration missing a value, or with a malformed one, reminds nobody.
+function readPatrolDeclaration(repo) {
+  const block = configMap(repo, "patrol");
+  if (!Object.keys(block).length) return { declared: false, role: null, every: null, message: null };
+  const problems = [];
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(block.role || "")) problems.push(`role \`${block.role || ""}\` is not a chat role name`);
+  if (!/^\d+[smhd]$/.test(block.every || "")) problems.push(`every \`${block.every || ""}\` is not a duration such as 30m`);
+  if (problems.length) {
+    return {
+      declared: true, role: null, every: null,
+      message: `keel/config.yaml patrol: ${problems.join("; ")}, so no session is reminded to run \`keel patrol\`.`,
+    };
+  }
+  return { declared: true, role: block.role, every: block.every, message: null };
+}
+
+function patrolReminder(patrol) {
+  return `Patrol: role ${patrol.role} runs \`keel patrol\` every ${patrol.every}; a session's schedule ends with `
+    + "the session, so re-create it with the host if this session has none, and wake the model only on exit 2.";
+}
+
 module.exports = {
+  readPatrolDeclaration,
+  patrolReminder,
   readIssueRoles,
   readReadOnlyRoles,
   readExternalAgents,

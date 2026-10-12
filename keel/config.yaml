@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Eleven independent declarations live here: fast_check, which names a command;
+# Twelve independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
@@ -12,7 +12,18 @@
 # external_agents, which names the external model CLIs this project allows and
 # the paths that must not be handed to one; read_only_roles, which names the
 # chat roles whose sessions own no change; and issue_roles, which names the
-# chat role each issue label routes to.
+# chat role each issue label routes to; and patrol, which names the role that
+# runs `keel patrol` and how often.
+#
+# patrol (optional): the role whose sessions run `keel patrol` on a host
+# schedule, and its interval (#260). Keel schedules nothing; it reminds that
+# role's new sessions and `keel shift resume` to re-create the schedule, since
+# a session's schedule ends with the session.
+#
+# Example:
+#   patrol:
+#     role: iecc-pm
+#     every: 30m
 #
 # issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
 # label names one direct message per update of an issue carrying it (#242).

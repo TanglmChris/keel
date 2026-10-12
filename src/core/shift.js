@@ -458,7 +458,12 @@ function runShift(argv) {
           out(result, `No shift note waits for ${result.role || "this worktree"}.`);
           return 0;
         }
-        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)`);
+        // A new shift of the patrolling role re-creates its schedule (#260).
+        const { readPatrolDeclaration, patrolReminder } = require("./config");
+        const patrol = readPatrolDeclaration(where.worktree);
+        const remind = patrol.role && result.role === patrol.role;
+        if (remind) result.patrol = { role: patrol.role, every: patrol.every };
+        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${remind ? `\n\n${patrolReminder(patrol)}` : ""}`);
         return 0;
       }
       case "status": {
