@@ -12,7 +12,7 @@ const store = require("./chat/store");
 const notice = require("./chat/notice");
 const { parseSince } = require("./chat/view");
 
-const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge [--context <role>=<pct>]... [--shift-at <pct>]] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
+const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
 const NOTIFY_SENDER = "keel-patrol";
 const EXIT_QUIET = 0;
 const EXIT_ERROR = 1;
@@ -204,18 +204,7 @@ function sinceLast(where, role, result, options) {
 
 const KEEL_SENDERS = new Set([NOTIFY_SENDER, "keel-shift", "keel"]);
 const UNREAD_EVERY_MS = Number(process.env.KEEL_PATROL_UNREAD_EVERY_MS) > 0 ? Number(process.env.KEEL_PATROL_UNREAD_EVERY_MS) : 2 * 60 * 60 * 1000;
-const SHIFT_EVERY_MS = 6 * 60 * 60 * 1000;
 const SELF_INITIATED = "Self-initiated: this shift armed `keel shift ready --wake`.";
-
-function parseContexts(values) {
-  const contexts = new Map();
-  for (const value of values) {
-    const match = String(value).match(/^([a-z0-9][a-z0-9-]{0,31})=(\d{1,3}(?:\.\d+)?)%?$/);
-    if (!match) throw new PatrolError(`--context ${value} is not <role>=<percent>.`);
-    contexts.set(match[1], Number(match[2]));
-  }
-  return contexts;
-}
 
 function sendNudge(where, role, kind, text) {
   const group = store.directName(NOTIFY_SENDER, role);
@@ -224,6 +213,24 @@ function sendNudge(where, role, kind, text) {
   }
   store.writeRecord(where, { group, kind: "message", from: NOTIFY_SENDER, refs: ["keel-patrol-nudge"], text });
   return { role, kind, text };
+}
+
+// Closed todos per assignee: each `done` record and the todo it closes.
+function closedTodos(where) {
+  const byRole = new Map();
+  for (const name of store.listGroupNames(where)) {
+    const records = store.readLog(where, name);
+    const todos = new Map(records.filter((r) => r.kind === "todo").map((r) => [r.id, r]));
+    for (const record of records) {
+      if (record.kind !== "done" || !todos.has(record.target)) continue;
+      const todo = todos.get(record.target);
+      if (!todo.assignee) continue;
+      if (!byRole.has(todo.assignee)) byRole.set(todo.assignee, []);
+      byRole.get(todo.assignee).push({ done: record.id, todo: todo.id, title: String(todo.text || "").split("\n")[0].slice(0, 80) });
+    }
+  }
+  for (const list of byRole.values()) list.sort((a, b) => (a.done < b.done ? -1 : 1));
+  return byRole;
 }
 
 function nudgeRoles(where, patroller, options) {
@@ -235,7 +242,12 @@ function nudgeRoles(where, patroller, options) {
   const escalations = [];
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))]
     .filter((role) => role !== patroller).sort();
+  const closures = closedTodos(where);
   for (const role of roles) {
+    // The first look only records the tasks already closed (#313 D1).
+    if (!state[role] || !Array.isArray(state[role].closedSeen)) {
+      state[role] = { ...(state[role] || {}), closedSeen: (closures.get(role) || []).map((entry) => entry.done) };
+    }
     const last = Date.parse(notice.presenceOf(where, role).last_active || "");
     if (!Number.isNaN(last) && last >= idleBefore) continue;
     const mine = state[role] || {};
@@ -260,15 +272,19 @@ function nudgeRoles(where, patroller, options) {
     } else {
       mine.unanswered = 0;
     }
-    if (!waiting.length && !noteText && options.contexts.has(role) && options.contexts.get(role) >= options.shiftAt) {
-      const recent = Date.parse(mine.shift || "");
-      if (Number.isNaN(recent) || now - recent >= SHIFT_EVERY_MS) {
-        sent.push(sendNudge(where, role, "shift",
-          `${role}: your context is at ${options.contexts.get(role)}%. Change your own shift: \`keel shift check\`, `
-          + "then `keel shift ready --wake \"<note>\"`, then clear this session. A session serving Remote Control "
-          + "cannot be cleared: turn it off, clear, then turn it back on."));
-        mine.shift = store.isoLocal(new Date(now));
-      }
+    // A finished task is the shift boundary (#313 D2); within a task the host compacts.
+    const fresh = (closures.get(role) || []).filter((entry) => !mine.closedSeen.includes(entry.done));
+    if (fresh.length && !noteText) {
+      const task = fresh[fresh.length - 1];
+      const open = store.openTodos(where, { assignee: role }).length;
+      const next = open
+        ? `\`keel shift ready --wake "<note>"\` — you still hold ${open} open todo(s)`
+        : "`keel shift ready \"<note>\"`, and wait for the coordinator to start you with new work";
+      sent.push(sendNudge(where, role, "shift",
+        `${role}: your task ${task.todo} ("${task.title}") was closed. Change shift at this task boundary: `
+        + `\`keel shift check\`, then ${next}, then clear this session (a session serving Remote Control cannot be `
+        + "cleared: turn it off, clear, then turn it back on)."));
+      mine.closedSeen = [...mine.closedSeen, ...fresh.map((entry) => entry.done)];
     }
     if (noteText && noteText.includes(SELF_INITIATED)) {
       const written = fs.statSync(note).mtime;
@@ -422,7 +438,7 @@ function runPatrol(argv) {
       throw error;
     }
   }
-  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50, diskFreeGb: null, diskMinGb: 20, quota: null, quotaAlerts: [90, 95, 99], quotaQuietAt: 90 };
+  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, diskFreeGb: null, diskMinGb: 20, quota: null, quotaAlerts: [90, 95, 99], quotaQuietAt: 90 };
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const arg = argv[index];
@@ -430,8 +446,9 @@ function runPatrol(argv) {
       else if (arg === "--since-last") options.sinceLast = true;
       else if (arg === "--notify") options.notify = true;
       else if (arg === "--nudge") options.nudge = true;
-      else if (arg === "--context") options.context.push(argv[++index] || "");
-      else if (arg === "--shift-at") options.shiftAt = Number(argv[++index]);
+      else if (arg === "--context" || arg === "--shift-at") {
+        throw new PatrolError(`${arg}: --context and --shift-at were retired in 5.125.0 (#313): a shift follows a task's close, and compaction within a task stays the host's.`);
+      }
       else if (arg === "--disk-free-gb") options.diskFreeGb = Number(argv[++index]);
       else if (arg === "--disk-min-gb") options.diskMinGb = Number(argv[++index]);
       else if (arg === "--quota") options.quota = Number(argv[++index]);
@@ -447,8 +464,6 @@ function runPatrol(argv) {
       } else throw new PatrolError(`Unknown argument ${arg}. ${USAGE}`);
     }
     if (options.notify && !options.sinceLast) throw new PatrolError("--notify sends the risks found since the last run, so it needs --since-last.");
-    if (!(options.shiftAt > 0 && options.shiftAt <= 100)) throw new PatrolError("--shift-at needs a percentage from 1 to 100.");
-    options.contexts = parseContexts(options.context);
     if (options.diskFreeGb !== null && !(options.diskFreeGb >= 0)) throw new PatrolError("--disk-free-gb needs a number of gigabytes.");
     if (!(options.diskMinGb > 0)) throw new PatrolError("--disk-min-gb needs a positive number of gigabytes.");
     const percent = (value) => Number.isFinite(value) && value >= 0 && value <= 100;
