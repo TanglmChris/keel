@@ -41,7 +41,7 @@ const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
   "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack",
-  "assignee", "issue", "target", "access", "condition", "refs", "origin", "slack_channel", "slack_ts",
+  "assignee", "issue", "target", "access", "condition", "not_a_loop", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
 // A group may not take a name `keel chat <group>` would read as a subcommand.
@@ -568,7 +568,7 @@ function post(where, options) {
   requireSpeaker(group, state, from);
   const mentions = resolveMentions(where, group, state, text);
   // Loaded here rather than at the top: the guards read the store's own API.
-  require("./guards").checkPost(module.exports, where, from, group, records);
+  const guard = require("./guards").checkPost(module.exports, where, from, group, records, options.notALoop || null);
   if (options.replyTo) {
     const parent = findRecord(where, options.replyTo);
     if (!parent || parent.group !== group) {
@@ -597,6 +597,7 @@ function post(where, options) {
     assignee: options.assignee || null,
     issue: options.issue || null,
     refs: options.refs || [],
+    not_a_loop: guard.overridden ? String(options.notALoop) : null,
     text: text.replace(/\s+$/, ""),
   });
   // A reply that opens with `done` or ✅ closes the todo it answers (D6).
@@ -804,7 +805,7 @@ function directPost(where, target, text, extra = {}) {
   if (!groupState(readLog(where, group)).exists) {
     createGroup(where, from, group, [target], { direct: true });
   }
-  return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [] });
+  return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [], notALoop: extra.notALoop || null });
 }
 
 // --- waits (#260) ---------------------------------------------------------------
@@ -1014,6 +1015,7 @@ module.exports = {
   directPost,
   findRecord,
   groupState,
+  isDirect,
   isoLocal,
   listGroups,
   listGroupNames,
