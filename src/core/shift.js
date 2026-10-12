@@ -225,6 +225,12 @@ function check(where, role) {
   return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes };
 }
 
+// The UTC millisecond a chat record id was written at (`20261012T093944609Z-…`).
+function idTime(id) {
+  const m = String(id || "").match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z/);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : 0;
+}
+
 // Roles whose note waits, whose latest shift request came from `coordinator`,
 // and that `coordinator` has not started since the note was written.
 function unstarted(where, coordinator) {
@@ -237,10 +243,12 @@ function unstarted(where, coordinator) {
     const latest = requests[requests.length - 1];
     if (!latest || latest.from !== coordinator) continue;
     const written = fs.statSync(path.join(shiftDir(where), file)).mtime;
-    const since = Math.floor(written.getTime() / 1000) * 1000;
+    // A record's id carries its UTC time to the millisecond; `created` only to
+    // the second, which lets a start from the previous round read as later
+    // than a note written in the same second.
     const started = store.readLog(where, store.directName(coordinator, role)).some(
       (record) => record.from === coordinator && record.kind === "message" && isShift(record)
-        && /your new shift starts now/.test(record.text || "") && Date.parse(record.created) >= since
+        && /your new shift starts now/.test(record.text || "") && idTime(record.id) > written.getTime()
     );
     if (!started) result.push({ role, since: store.isoLocal(written) });
   }

@@ -136,6 +136,8 @@
 
 - C1: pass. `npm test` after the bump to 5.113.0 reports `validation --all passed: baseline plus 261 scenarios, 1 skipped: output-survives-the-pipe.`
 
+- Note (2026-10-12): CI's full-gate on #292 failed `shift-coordinator-last` (`rtl's resume does not list verify as waiting for keel shift start`): `unstarted` compared a start record's second-precision `created` with the note's millisecond mtime, so on a fast runner the first round's start, in the same second as the second round's note, read as later. It now compares the record id's millisecond UTC stamp, strictly later than the note; five consecutive local runs and `npm test` pass.
+
 ## Invalidates
 
 - I1: "`keel shift start worktree <name>-<id>` wakes it to resume" — the worktree-note line of `keel shift status` in `src/core/shift.js`. Updated by: 1.1
