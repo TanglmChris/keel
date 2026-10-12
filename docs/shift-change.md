@@ -14,8 +14,14 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 | role, working in another worktree | `keel shift ready --role <role> "<note>"` | Files the note under the role and closes its request, from a worktree bound to no role (#290). Without `--role`, `ready` in an unbound worktree is refused while any role's request is open, so a note cannot land where no request will find it. |
 | role | clear the session | Desktop app: `clear_session("self")`, which you approve, or `/clear`. CLI: `/clear`. Codex: a new session. Keel runs none of these. |
 | coordinator | `keel shift start <role> [next step]` | With chat roles: refused until the role's note waits, then wakes the cleared role. Without them, tell the new session to run `keel shift resume`. |
-| role (new shift) | `keel context`, then `keel shift resume` | Prints the note and moves it to history. With a chat role, also tells the coordinator the role is on shift. |
+| role (new shift) | `keel context`, then `keel shift resume` | Prints the note and moves it to history. With a chat role, also tells the coordinator the role is on shift. A new session in a worktree bound to no role reads the role's note with `keel shift resume --role <role>`. |
 | anyone | `keel shift status` | Each role's state: requested, note waiting, or resumed. A worktree note says which worktree should run `keel shift resume`; a role still requested names any worktree note written since. |
+
+## Changing your own shift
+
+A role that no request named — the coordinator going last, or any session that decides to change its own shift — runs `ready` like any role, but nobody is set to start its new session, and `ready` says so. It cannot `keel shift start` itself, which is refused. `status` says its note is resumed by its own next session: type into it, or use `keel shift ready --wake` (below).
+
+`keel shift ready --wake` closes that gap. Besides storing the note, it leaves a detached one-shot waiter. When the role's next session starts — a SessionStart after a clear or a fresh start, later than the `ready` — the waiter writes one message from `keel-shift` to the role, telling it to run `keel context` and `keel shift resume`, and exits. On Claude that message wakes the new session like any other. The waiter writes nothing if the note was already resumed, and gives up after two hours. It is the one exception to "Keel schedules nothing": it never recurs. It needs a chat role, and it sees only a session that opens in a worktree bound to that role; a new session elsewhere still needs someone to type into it.
 
 ## The coordinator's own shift
 

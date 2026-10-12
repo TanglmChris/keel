@@ -80,12 +80,17 @@ function presenceFile(where, role) {
 }
 
 // Presence is written only by its own role, so it never conflicts (D1).
-function touchPresence(where, role, state = "online", host = null) {
+function touchPresence(where, role, state = "online", host = null, started = null) {
   const previous = store.readJsonFile(presenceFile(where, role));
   const record = {
     state,
     last_active: store.isoLocal(new Date()),
     host: host || previous.host || null,
+    // When and how the role's current session started, for the one-shot
+    // waiter `keel shift ready --wake` leaves (#293 D1); millisecond UTC so a
+    // start in the same second as the `ready` still orders after it.
+    session_started: started ? new Date().toISOString() : previous.session_started || null,
+    session_source: started ? started.source : previous.session_source || null,
   };
   try {
     store.writeJsonAtomic(where, presenceFile(where, role), record);
@@ -193,7 +198,8 @@ function hook(event, input, { mail = false } = {}) {
     touchPresence(where, role, "offline");
     return { code: 0 };
   }
-  touchPresence(where, role, "online", mail ? null : "claude-code");
+  const started = event === "session-start" ? { source: typeof payload.source === "string" ? payload.source : null } : null;
+  touchPresence(where, role, "online", mail ? null : "claude-code", started);
   const chatText = noticeText(where, role);
   const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
@@ -237,6 +243,7 @@ module.exports = {
   bridgeLine,
   hook,
   noticeText,
+  presenceFile,
   presenceOf,
   signalPath,
   touchPresence,

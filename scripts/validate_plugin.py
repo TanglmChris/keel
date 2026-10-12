@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.113.0"
-PROTOCOL_VERSION = "5.113.0"
+PACKAGE_VERSION = "5.114.0"
+PROTOCOL_VERSION = "5.114.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5509,6 +5509,141 @@ def validate_shift_role_elsewhere_scenario() -> int:
             report(f"{label} status still suggests keel shift start for a worktree note: {status!r}")
             return 1
     report("shift-role-elsewhere scenario passed.")
+    return 0
+
+
+def validate_shift_self_scenario() -> int:
+    """Issue #293: a role with no coordinator changes its own shift.
+
+    It cannot start itself, `ready` says nobody will start the new session,
+    status says its own next session resumes the note, and a new session in
+    an unbound worktree resumes it with `--role`.
+    """
+    label = "shift-self:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-self-") as raw:
+        base = Path(raw)
+        rtl, _verify, env, _ = shift_scratch(base)
+        pm = chat_worktree(rtl, base / "pm")
+        other = chat_worktree(rtl, base / "other")
+        for tree in (pm, other):
+            subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=tree, check=True, capture_output=True)
+        run_keel(pm, "chat", "role", "--set", "pm", env=env)
+
+        def shift(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "shift", *args, env=env)
+
+        readied = shift(pm, "ready", "pm note: next is R009")
+        if readied.returncode != 0:
+            report(f"{label} pm's ready failed: {readied.stderr}")
+            return 1
+        if "nobody" not in readied.stdout:
+            report(f"{label} ready does not say nobody is set to start the new session: {readied.stdout!r}")
+            return 1
+        if "--wake" not in readied.stdout:
+            report(f"{label} ready does not name --wake: {readied.stdout!r}")
+            return 1
+        if "The coordinator's `keel shift start` then wakes" in readied.stdout:
+            report(f"{label} ready still promises a coordinator's start to a role nobody asked: {readied.stdout!r}")
+            return 1
+        itself = shift(pm, "start", "pm")
+        if itself.returncode == 0:
+            report(f"{label} keel shift start pm by pm was accepted.")
+            return 1
+        if "ready --wake" not in itself.stderr:
+            report(f"{label} the refusal does not name ready --wake: {itself.stderr}")
+            return 1
+        if chat_log(rtl, "dm-pm--pm").exists():
+            report(f"{label} a refused self-start still created dm-pm--pm.")
+            return 1
+        status = shift(rtl, "status").stdout
+        line = next((l for l in status.splitlines() if l.startswith("pm:")), "")
+        if "own next session" not in line:
+            report(f"{label} status does not say pm's own next session resumes its note: {line!r}")
+            return 1
+        misbound = shift(rtl, "resume", "--role", "pm")
+        if misbound.returncode == 0:
+            report(f"{label} resume --role pm in rtl's worktree was accepted.")
+            return 1
+        resumed = shift(other, "resume", "--role", "pm")
+        if resumed.returncode != 0:
+            report(f"{label} resume --role pm in an unbound worktree failed: {resumed.stderr}")
+            return 1
+        if "next is R009" not in resumed.stdout:
+            report(f"{label} resume --role pm did not print pm's note: {resumed.stdout!r}")
+            return 1
+        if (mailbox_common_dir(rtl) / "keel-chat" / "shift" / "pm.md").exists():
+            report(f"{label} pm's note still waits after resume --role pm.")
+            return 1
+    report("shift-self scenario passed.")
+    return 0
+
+
+def validate_shift_self_wake_scenario() -> int:
+    """Issue #293: `ready --wake` wakes the role's next session, once.
+
+    A `compact` start does not trigger the waiter; a `clear` start does, and
+    the role then has exactly one waking record from `keel-shift`. Without a
+    chat role, `--wake` is refused.
+    """
+    label = "shift-self-wake:"
+    protocol = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    line = next((l for l in protocol.splitlines() if l.startswith("- Keel schedules nothing")), "")
+    if "keel shift ready --wake" not in line:
+        report(f"{label} the protocol's scheduling line does not name the keel shift ready --wake exception: {line!r}")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-shift-wake-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_POLL_MS": "100", "KEEL_SHIFT_WAKE_TIMEOUT_MS": "20000"}
+        loose = chat_worktree(rtl, base / "loose")
+        subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=loose, check=True, capture_output=True)
+
+        def shift(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "shift", *args, env=env)
+
+        def session_start(source: str) -> None:
+            subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"],
+                cwd=verify, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(verify), "source": source, "hook_event_name": "SessionStart"}),
+            )
+
+        def wakes() -> list[str]:
+            return chat_records_with(rtl, "dm-keel-shift--verify", "keel shift resume")
+
+        unbound = shift(loose, "ready", "--wake", "loose note")
+        if unbound.returncode == 0:
+            report(f"{label} ready --wake in an unbound worktree with no --role was accepted.")
+            return 1
+        armed = shift(verify, "ready", "--wake", "verify note: next is R010")
+        if armed.returncode != 0:
+            report(f"{label} ready --wake failed: {armed.stderr}")
+            return 1
+        session_start("compact")
+        time.sleep(1)
+        if wakes():
+            report(f"{label} a compact start triggered the wake.")
+            return 1
+        session_start("clear")
+        deadline = time.time() + 5
+        while time.time() < deadline and not wakes():
+            time.sleep(0.1)
+        found = wakes()
+        if len(found) != 1:
+            report(f"{label} expected exactly one wake record from keel-shift after the clear start, found {len(found)}.")
+            return 1
+        if "from: keel-shift" not in found[0]:
+            report(f"{label} the wake record is not from keel-shift: {found[0]!r}")
+            return 1
+        time.sleep(0.5)
+        if len(wakes()) != 1:
+            report(f"{label} the waiter wrote more than one wake record.")
+            return 1
+        checked = run_keel(verify, "chat", "notice", "--check", env=env)
+        if checked.returncode != 0:
+            report(f"{label} keel chat notice --check for verify does not see the wake (exit {checked.returncode}).")
+            return 1
+    report("shift-self-wake scenario passed.")
     return 0
 
 
@@ -39185,6 +39320,8 @@ SCENARIOS: tuple = (
     ("shift-change", validate_shift_change_scenario),
     ("shift-role-elsewhere", validate_shift_role_elsewhere_scenario),
     ("shift-coordinator-last", validate_shift_coordinator_last_scenario),
+    ("shift-self", validate_shift_self_scenario),
+    ("shift-self-wake", validate_shift_self_wake_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),

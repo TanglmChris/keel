@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.114.0 - A session changes its own shift: `ready --wake`, no self-start, `resume --role`
+
+Issue #293 (2026-10-12): a role with no coordinator above it — the PM going last after #289, or any session changing its own shift — had nobody to start its next session, so it stayed dark until a person typed. `ready` also promised it a coordinator's start, `keel shift start` let a role start itself and woke nothing, and a new shift in another worktree could not find the role's note. Owner decision, 2026-10-12: a one-shot delayed self-wake, named as the one exception to "Keel schedules nothing".
+
+- `keel shift ready --wake` leaves a detached one-shot waiter. Once the role's next session starts after a clear or a fresh start, it writes one message from `keel-shift` telling it to run `keel context` and `keel shift resume`, then exits. It writes nothing if the note was already resumed, and gives up after two hours. It needs a chat role. The chat SessionStart hook now records `session_started` and `session_source` in the role's presence for it.
+- `ready` says who starts the new session: the coordinator that asked; nobody, naming `--wake`, when no request named the role; or the person, without a chat role.
+- `keel shift start <role>` run by that role is refused, naming `ready --wake`.
+- `keel shift resume --role <role>` reads a role's note from a worktree bound to no other role.
+- `keel shift status` says a note no request asked for is resumed by the role's own next session.
+- `AGENTS.md`, the README, and `keel-unattended-triage` ("Keel ships no scheduler") name the shift wake as the one exception.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.114.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.113.0 - Shift change: the coordinator goes last, `ready --role`, and working status hints
 
 Issues #289, #290, #291 (rtl_ppa_prj whole-team shift change, 2026-10-12): the coordinator cleared before starting anyone and the team sat idle 6 h 42 min; roles that worked outside their bound worktree filed notes under the worktree, leaving their requests "not ready"; and `status` suggested a `start` command for worktree notes that could not parse. Owner decisions, 2026-10-12.

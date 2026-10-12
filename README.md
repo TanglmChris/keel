@@ -356,7 +356,9 @@ material choice, every gate still runs, and the write guard still binds. In part
   explicitly.
 
 **Keel schedules nothing.** `/loop`, cron, and CI triggers are your runtime's; Keel's part is making
-each step decidable with authority. And a run that stops at a real decision has ended the way it was
+each step decidable with authority. The one exception is `keel shift ready --wake`: a one-shot waiter
+that writes a single wake record once that role's next session has started, then exits — a session
+changing its own shift has nobody else to start it. And a run that stops at a real decision has ended the way it was
 designed to — resist widening the policy until it stops happening.
 
 ### Who merges
