@@ -876,22 +876,41 @@ function readIssueRoles(repo) {
 // `patrol:` — which role runs `keel patrol`, and how often (#260). Keel only
 // reminds that role to re-create its host schedule; it schedules nothing. A
 // declaration missing a value, or with a malformed one, reminds nobody.
+// `host_task:` names the host scheduled task that runs it and `model:` the
+// model that task declares (#295 D3); Keel passes a model through and never
+// chooses one, and a malformed one of these is ignored by name.
 function readPatrolDeclaration(repo) {
   const block = configMap(repo, "patrol");
-  if (!Object.keys(block).length) return { declared: false, role: null, every: null, message: null };
+  if (!Object.keys(block).length) return { declared: false, role: null, every: null, hostTask: null, model: null, message: null };
   const problems = [];
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(block.role || "")) problems.push(`role \`${block.role || ""}\` is not a chat role name`);
   if (!/^\d+[smhd]$/.test(block.every || "")) problems.push(`every \`${block.every || ""}\` is not a duration such as 30m`);
   if (problems.length) {
     return {
-      declared: true, role: null, every: null,
+      declared: true, role: null, every: null, hostTask: null, model: null,
       message: `keel/config.yaml patrol: ${problems.join("; ")}, so no session is reminded to run \`keel patrol\`.`,
     };
   }
-  return { declared: true, role: block.role, every: block.every, message: null };
+  const ignored = [];
+  let hostTask = null;
+  let model = null;
+  if (block.host_task !== undefined) {
+    if (/^[a-z0-9][a-z0-9-]{0,63}$/.test(block.host_task)) hostTask = block.host_task;
+    else ignored.push(`host_task \`${block.host_task}\` is not a task id such as soc-patrol`);
+  }
+  if (block.model !== undefined) {
+    if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(block.model)) model = block.model;
+    else ignored.push(`model \`${block.model}\` is not a model id`);
+  }
+  const message = ignored.length ? `keel/config.yaml patrol: ${ignored.join("; ")}, so it is ignored.` : null;
+  return { declared: true, role: block.role, every: block.every, hostTask, model, message };
 }
 
 function patrolReminder(patrol) {
+  if (patrol.hostTask) {
+    return `Patrol: role ${patrol.role} runs \`keel patrol\` every ${patrol.every} through host scheduled task `
+      + `${patrol.hostTask}, which outlives this session; confirm it is still enabled rather than creating a schedule in this session.`;
+  }
   return `Patrol: role ${patrol.role} runs \`keel patrol\` every ${patrol.every}; a session's schedule ends with `
     + "the session, so re-create it with the host if this session has none, and wake the model only on exit 2.";
 }

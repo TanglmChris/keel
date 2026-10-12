@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.114.0"
-PROTOCOL_VERSION = "5.114.0"
+PACKAGE_VERSION = "5.115.0"
+PROTOCOL_VERSION = "5.115.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2646,6 +2646,151 @@ def validate_patrol_rearm_scenario() -> int:
             report(f"{label} the malformed declaration is not reported: {broken.get('warnings')!r}")
             return 1
     report("patrol-rearm scenario passed.")
+    return 0
+
+
+def validate_patrol_host_task_scenario() -> int:
+    """Issue #295: `patrol:` names the host task; `keel patrol task` renders it.
+
+    The rendered task carries the id, a cron from `every:`, the declared model
+    or none, and a prompt running the change-based patrol by path; it writes
+    nothing. A declared host task changes the reminder.
+    """
+    label = "patrol-host-task:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-host-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        write_text(repo / "openspec/specs/.keep", "")
+        declaration = "patrol:\n  role: rtl\n  every: 30m\n  host_task: soc-patrol\n"
+        write_authorize_config(repo, declaration)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "patrol"], cwd=repo, check=True, capture_output=True)
+        rtl = chat_worktree(repo, base / "rtl")
+        env = chat_environment()
+
+        unbound = run_keel(rtl, "patrol", "task", env=env)
+        if unbound.returncode == 0:
+            report(f"{label} keel patrol task was accepted with no worktree bound to rtl.")
+            return 1
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+        before = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        task = run_keel(rtl, "patrol", "task", env=env)
+        if task.returncode != 0:
+            report(f"{label} keel patrol task failed: {task.stdout} {task.stderr}")
+            return 1
+        for needle in ("soc-patrol", "*/30 * * * *", "no model is declared",
+                       f"keel patrol --repo {rtl.resolve()} --since-last --notify"):
+            if needle not in task.stdout:
+                report(f"{label} the rendered task does not carry {needle!r}: {task.stdout!r}")
+                return 1
+        after = subprocess.run(["git", "status", "--porcelain"], cwd=rtl, capture_output=True, text=True).stdout
+        if before != after:
+            report(f"{label} keel patrol task changed the worktree: {after!r}")
+            return 1
+        write_authorize_config(rtl, declaration + "  model: small-model\n")
+        modelled = run_keel(rtl, "patrol", "task", env=env)
+        if "small-model" not in modelled.stdout:
+            report(f"{label} the declared model is not rendered: {modelled.stdout!r}")
+            return 1
+        if "no model is declared" in modelled.stdout:
+            report(f"{label} a declared model is still reported as undeclared: {modelled.stdout!r}")
+            return 1
+
+        context = json.loads(run_keel(rtl, "context", "--json", env=env).stdout)
+        if (context.get("patrol") or {}).get("hostTask") != "soc-patrol":
+            report(f"{label} keel context carries patrol {context.get('patrol')!r}.")
+            return 1
+        session = run_session_start_hook(
+            rtl, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(rtl)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        note = session_start_context(session) or ""
+        if "soc-patrol" not in note or "still enabled" not in note:
+            report(f"{label} the session-start note does not name the host task: {note!r}")
+            return 1
+        if "re-create it with the host" in note:
+            report(f"{label} the note still asks to re-create a session schedule: {note!r}")
+            return 1
+
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 30m\n  host_task: Bad_Id\n")
+        broken = json.loads(run_keel(rtl, "context", "--json", env=env).stdout)
+        if not any("host_task" in w and "Bad_Id" in w for w in broken.get("warnings", [])):
+            report(f"{label} a malformed host_task is not reported by name: {broken.get('warnings')!r}")
+            return 1
+    report("patrol-host-task scenario passed.")
+    return 0
+
+
+def validate_patrol_since_last_scenario() -> int:
+    """Issue #295: a scheduled patrol reports only what changed, once.
+
+    `--since-last` records a baseline, then reports changed entries and exits
+    2; `--notify` sends them to the coordinator as one message from
+    `keel-patrol`; an unchanged run is quiet. `--notify` alone is refused.
+    """
+    label = "patrol-since-last:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-since-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+
+        def patrol(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "patrol", *args, env=env)
+
+        def notices() -> list[str]:
+            return chat_records_with(rtl, "dm-keel-patrol--rtl", "changed")
+
+        alone = patrol("--notify")
+        if alone.returncode != 1:
+            report(f"{label} --notify without --since-last exited {alone.returncode}.")
+            return 1
+        first = patrol("--since-last", "--notify")
+        if first.returncode != 0:
+            report(f"{label} the first run exited {first.returncode}: {first.stdout!r} {first.stderr!r}")
+            return 1
+        if "baseline recorded" not in first.stdout:
+            report(f"{label} the first run did not record a baseline: {first.stdout!r}")
+            return 1
+        if notices():
+            report(f"{label} the baseline run sent a notice.")
+            return 1
+        readied = run_keel(verify, "shift", "ready", "verify note", env=env)
+        if readied.returncode != 0:
+            report(f"{label} verify's ready failed: {readied.stderr}")
+            return 1
+        for args in (["commit", "-q", "--allow-empty", "-m", "landed"], ["push", "-q", "origin", "HEAD"]):
+            subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+        second = patrol("--since-last", "--notify")
+        if second.returncode != 2:
+            report(f"{label} the run after a change exited {second.returncode}: {second.stdout!r} {second.stderr!r}")
+            return 1
+        changed = [line for line in second.stdout.splitlines() if line.startswith("changed:")]
+        if not any("shift" in line and "verify" in line for line in changed):
+            report(f"{label} the shift status change is not reported: {second.stdout!r}")
+            return 1
+        if not any("remote" in line for line in changed):
+            report(f"{label} the remote tip change is not reported: {second.stdout!r}")
+            return 1
+        if len(notices()) != 1:
+            report(f"{label} expected one keel-patrol notice after the change, found {len(notices())}.")
+            return 1
+        if "from: keel-patrol" not in notices()[0]:
+            report(f"{label} the notice is not from keel-patrol: {notices()[0]!r}")
+            return 1
+        woken = run_keel(rtl, "chat", "notice", "--check", env=env)
+        if woken.returncode != 0:
+            report(f"{label} the notice does not wake rtl (notice --check exit {woken.returncode}).")
+            return 1
+        third = patrol("--since-last", "--notify")
+        if third.returncode != 0:
+            report(f"{label} an unchanged run exited {third.returncode}: {third.stdout!r}")
+            return 1
+        if "changed:" in third.stdout:
+            report(f"{label} an unchanged run reported a change: {third.stdout!r}")
+            return 1
+        if len(notices()) != 1:
+            report(f"{label} an unchanged run sent another notice.")
+            return 1
+    report("patrol-since-last scenario passed.")
     return 0
 
 
@@ -39327,6 +39472,8 @@ SCENARIOS: tuple = (
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
+    ("patrol-since-last", validate_patrol_since_last_scenario),
+    ("patrol-host-task", validate_patrol_host_task_scenario),
     ("patrol-rearm", validate_patrol_rearm_scenario),
     ("patrol-issue-routing", validate_patrol_issue_routing_scenario),
     ("chat-listen-only", validate_chat_listen_only_scenario),

@@ -851,7 +851,10 @@ function resolveContext(repo, options) {
   // The patrolling role is reminded to re-arm its schedule (#260).
   const patrol = readPatrolDeclaration(repo);
   if (patrol.message) context.warnings.push(patrol.message);
-  if (patrol.role && context.role === patrol.role) context.patrol = { role: patrol.role, every: patrol.every };
+  if (patrol.role && context.role === patrol.role) {
+    context.patrol = { role: patrol.role, every: patrol.every };
+    if (patrol.hostTask) context.patrol.hostTask = patrol.hostTask;
+  }
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by
   // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a

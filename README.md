@@ -790,6 +790,15 @@ fetches nothing, schedules nothing, calls no model, and writes nothing when noth
 0 then, 2 when it sent something, and 1 on an error, so a cheap scheduler — cron, `/loop`, CI — can
 wake the model only on 2. `keel chat waits` lists what is still awaited.
 
+A patrol on an hourly schedule should report change, not state, or it wakes the coordinator every
+hour for a note deliberately left parked (#295). `keel patrol --since-last` keeps a snapshot per role
+— shift status, the remote default branch tip, the main checkout's uncommitted paths, each role's
+idleness and open todos, and the coordinator's addressed records unread beyond `--idle` — and prints
+only `changed:` lines for what differs from the previous run; the first run records a baseline. It
+writes that snapshot on every run, and exits 2 only when something changed. Add `--notify` and the
+changes go to the coordinator as one direct message from `keel-patrol`, which wakes its session, so
+the scheduled run needs no model judgment and no session id.
+
 With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
 maps a label to a role, and each role gets one direct message per update of an issue carrying its
 label — so a handoff labelled `role:verify` reaches `verify` without a second message.
@@ -808,6 +817,15 @@ patrol:
   role: iecc-pm
   every: 30m
 ```
+
+Better, run the patrol outside the coordinator's session altogether, as a host scheduled task on a
+small model, which survives the coordinator clearing itself (#295). Add `host_task: <id>` (and, if
+you like, `model: <id>`, which Keel passes through and never chooses) and run `keel patrol task`: it
+prints the task — id, a cron from `every:`, the model, and a self-contained prompt that runs
+`keel patrol --since-last --notify` against the coordinator's worktree by path. Keel creates
+nothing; the session's model installs it with the host's own scheduled-task tool, since a host keeps
+the schedule itself. With `host_task:` declared, the reminder asks only to confirm the task is still
+enabled.
 
 ## Commands
 
