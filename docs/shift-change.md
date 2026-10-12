@@ -17,6 +17,12 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 | role (new shift) | `keel context`, then `keel shift resume` | Prints the note and moves it to history. With a chat role, also tells the coordinator the role is on shift. A new session in a worktree bound to no role reads the role's note with `keel shift resume --role <role>`. |
 | anyone | `keel shift status` | Each role's state: requested, note waiting, or resumed. A worktree note says which worktree should run `keel shift resume`; a role still requested names any worktree note written since. |
 
+## Finding a previous shift's conversation
+
+A clear keeps the session but starts a new transcript file, and the host's transcript search covers only the current one (#304). So the chat hooks of a session bound to a role record each transcript it runs in, with when it started and when the next one replaced it; a host scheduled run in the same worktree is left out. `keel shift history <role>` lists those transcripts, newest first, with the role's past shift notes; `keel shift history <role> --grep "<text>"` prints matching lines from each and exits 1 when nothing matches.
+
+A session serving Remote Control cannot be cleared: turn Remote Control off, clear, then turn it back on.
+
 ## Changing your own shift
 
 A role that no request named — the coordinator going last, or any session that decides to change its own shift — runs `ready` like any role, but nobody is set to start its new session, and `ready` says so. It cannot `keel shift start` itself, which is refused. `status` says its note is resumed by its own next session: type into it, or use `keel shift ready --wake` (below).

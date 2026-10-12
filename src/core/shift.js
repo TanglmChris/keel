@@ -29,6 +29,7 @@ const USAGE = [
   "keel shift start <role> [text]        wake the cleared role to resume (once its note waits)",
   "keel shift resume [--role r] [--json] print and consume this role's note (--role: from an unbound worktree)",
   "keel shift status [--json]            each role's shift state",
+  "keel shift history [role] [--grep t]  a role's past transcripts and notes; --grep searches them (#304)",
   "Options: --repo <path>. See docs/shift-change.md.",
 ].join("\n");
 
@@ -566,6 +567,115 @@ function status(where) {
   return [...roles.values()].sort((a, b) => (a.role < b.role ? -1 : 1));
 }
 
+// --- history (#304 D3, D4) -------------------------------------------------------
+
+function transcriptText(record) {
+  const content = record && record.message ? record.message.content : null;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter((part) => part && part.type === "text").map((part) => part.text).join("\n");
+  return "";
+}
+
+function grepTranscript(file, needle, limit = 3) {
+  const hits = [];
+  const lower = needle.toLowerCase();
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record.type !== "user" && record.type !== "assistant") continue;
+    const text = transcriptText(record);
+    const at = text.toLowerCase().indexOf(lower);
+    if (at < 0) continue;
+    const from = Math.max(0, at - 60);
+    const snippet = text.slice(from, at + needle.length + 60).replace(/\s+/g, " ");
+    const hit = { timestamp: record.timestamp || null, speaker: record.type, snippet: `${from ? "…" : ""}${snippet}…` };
+    // A transcript can hold the same message twice; report it once.
+    if (hits.some((seen) => seen.timestamp === hit.timestamp && seen.snippet === hit.snippet)) continue;
+    hits.push(hit);
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+
+// Transcripts Claude already keeps for a worktree (#304 D6, F5): its project
+// directory is the cwd with every non-alphanumeric character turned into `-`.
+function claudeTranscripts(worktree) {
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  const found = [];
+  for (const cwd of new Set([worktree, realpath(worktree)])) {
+    const dir = path.join(config, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"));
+    for (const name of safeList(dir)) {
+      if (!name.endsWith(".jsonl")) continue;
+      const file = path.join(dir, name);
+      let first = null;
+      let last = null;
+      let opening = null;
+      for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        let record;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (record.timestamp) {
+          first = first || record.timestamp;
+          last = record.timestamp;
+        }
+        if (opening === null && record.type === "user") opening = transcriptText(record);
+      }
+      // A host scheduled run is not the role's conversation (#300).
+      if (opening && opening.trimStart().startsWith("<scheduled-task")) continue;
+      if (!first) continue;
+      found.push({ transcript: file, started: store.isoLocal(new Date(first)), ended: store.isoLocal(new Date(last)), found: true });
+    }
+  }
+  return found;
+}
+
+function history(where, named, grep) {
+  const role = named || store.currentRole(where);
+  if (!role) throw new ShiftError("keel shift history needs a role: name it, or run it in a worktree bound to one.");
+  store.checkName(role, "Role");
+  const file = path.join(shiftDir(where), "segments", `${role}.json`);
+  const stored = fs.existsSync(file) ? store.readJsonFile(file).segments : [];
+  const recorded = Array.isArray(stored) ? stored : [];
+  const known = new Set(recorded.map((segment) => segment.transcript));
+  const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
+    .filter(([, name]) => name === role).map(([worktree]) => worktree);
+  const earlier = bound.flatMap(claudeTranscripts).filter((segment) => !known.has(segment.transcript));
+  const seen = new Set();
+  // Newest first; the sort is stable, so segments recorded in the same second keep their order.
+  const segments = [...recorded.slice().reverse(), ...earlier]
+    .filter((segment) => !seen.has(segment.transcript) && seen.add(segment.transcript))
+    .sort((a, b) => Date.parse(b.started) - Date.parse(a.started))
+    .map((segment) => ({ ...segment, exists: fs.existsSync(segment.transcript) }));
+  const notes = safeList(path.join(shiftDir(where), "history"))
+    .filter((name) => name.startsWith(`${role}-`) && name.endsWith(".md"))
+    .sort().reverse().map((name) => path.join(shiftDir(where), "history", name));
+  if (grep) {
+    for (const segment of segments) segment.matches = segment.exists ? grepTranscript(segment.transcript, grep) : [];
+  }
+  return { role, segments, notes };
+}
+
+function renderHistory(result, grep) {
+  const lines = [];
+  for (const segment of result.segments) {
+    if (grep && !segment.matches.length) continue;
+    lines.push(`${segment.started} → ${segment.ended || "now"}  ${segment.transcript}${segment.found ? " (found)" : ""}${segment.exists ? "" : " (missing)"}`);
+    for (const hit of segment.matches || []) lines.push(`  ${hit.timestamp || "?"} ${hit.speaker}: ${hit.snippet}`);
+  }
+  if (!grep) for (const note of result.notes) lines.push(`note  ${note}`);
+  if (!lines.length) return grep ? `No transcript of ${result.role} mentions ${JSON.stringify(grep)}.` : `No shift history recorded for ${result.role}.`;
+  return lines.join("\n");
+}
+
 function safeList(dir) {
   try {
     return fs.readdirSync(dir);
@@ -597,6 +707,7 @@ function describe(row) {
 
 const CLEAR_HINT = [
   "Session state a clear destroys — scheduled jobs, Remote Control — is not in Keel; if the note does not say how to re-create it, add that first.",
+  "A session serving Remote Control cannot be cleared: turn Remote Control off, clear, then turn it back on.",
   "Now clear this session:",
   "- Claude desktop app: call `clear_session(\"self\")` (the owner approves it), or type /clear;",
   "- Claude Code CLI: /clear;",
@@ -615,7 +726,10 @@ function clearHint(result) {
     last = `No request named ${result.role}, so nobody is set to start the new session: type into it, `
       + "or run `keel shift ready --wake` again with this note, which wakes it once it starts.";
   }
-  return `${CLEAR_HINT}\n${last}`;
+  const history = result.role
+    ? `\nThis shift's conversation stays in its transcript; \`keel shift history ${result.role}\` finds it after the clear.`
+    : "";
+  return `${CLEAR_HINT}\n${last}${history}`;
 }
 
 function runShift(argv) {
@@ -629,6 +743,7 @@ function runShift(argv) {
     else if (arg === "--role") options.role = argv[++index] || "";
     else if (arg === "--since") options.since = Number(argv[++index]);
     else if (arg === "--wake") options.wake = true;
+    else if (arg === "--grep") options.grep = argv[++index] || "";
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(`${USAGE}\n`);
       return 0;
@@ -686,6 +801,11 @@ function runShift(argv) {
         const still = waiting.length ? `\n\nStill waiting for \`keel shift start\`: ${waiting.join(", ")}.` : "";
         out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}`);
         return 0;
+      }
+      case "history": {
+        const result = history(where, rest[0] || null, options.grep);
+        out(result, renderHistory(result, options.grep));
+        return options.grep && !result.segments.some((segment) => segment.matches.length) ? 1 : 0;
       }
       case "status": {
         const rows = status(where);

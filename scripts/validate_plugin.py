@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.118.0"
-PROTOCOL_VERSION = "5.118.0"
+PACKAGE_VERSION = "5.119.0"
+PROTOCOL_VERSION = "5.119.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6034,6 +6034,121 @@ def validate_host_run_session_scenario() -> int:
             report(f"{label} keel patrol task does not say to create the task from a folder bound to no role: {task.stdout!r} {task.stderr!r}")
             return 1
     report("host-run-session scenario passed.")
+    return 0
+
+
+def validate_shift_history_scenario() -> int:
+    """Issue #304: a cleared shift's conversation stays findable.
+
+    The hooks record each transcript a role's session runs in; a scheduled
+    run's is undone; `keel shift history` lists and greps them; `ready` and
+    the clear hint name the history and Remote Control.
+    """
+    label = "shift-history:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-history-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        transcripts = base / "transcripts"
+        transcripts.mkdir()
+
+        def transcript(name: str, said: str) -> Path:
+            path = transcripts / f"{name}.jsonl"
+            path.write_text("\n".join(json.dumps(record) for record in (
+                {"type": "user", "timestamp": "2026-10-12T01:00:00.000Z", "message": {"role": "user", "content": "carry on with R008"}},
+                {"type": "assistant", "timestamp": "2026-10-12T01:00:05.000Z",
+                 "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}},
+            )) + "\n", encoding="utf-8")
+            return path
+
+        a = transcript("a", "The timing fix for the clock gate lands in R008 after the review.")
+        b = transcript("b", "Resumed from the note.")
+        c = transcript("c", "patrol run")
+
+        def hook(event: str, payload: dict) -> None:
+            subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                cwd=verify, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(verify), **payload}),
+            )
+
+        def history(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(verify, "shift", "history", *args, env=env)
+
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "transcript_path": str(a)})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "go", "transcript_path": str(a)})
+        readied = run_keel(verify, "shift", "ready", "verify note", env=env)
+        if "keel shift history verify" not in readied.stdout:
+            report(f"{label} ready does not name keel shift history verify: {readied.stdout!r} {readied.stderr!r}")
+            return 1
+        if "Remote Control" not in readied.stdout:
+            report(f"{label} the clear hint does not name Remote Control: {readied.stdout!r}")
+            return 1
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "clear", "session_id": "s1", "transcript_path": str(b)})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "resume", "transcript_path": str(b)})
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "startup", "session_id": "run1", "transcript_path": str(c)})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "run1",
+                                    "prompt": '<scheduled-task name="patrol">run', "transcript_path": str(c)})
+
+        listed = history("verify")
+        if listed.returncode != 0:
+            report(f"{label} keel shift history failed: {listed.stderr}")
+            return 1
+        lines = [line for line in listed.stdout.splitlines() if ".jsonl" in line]
+        if len(lines) != 2:
+            report(f"{label} expected two transcript segments, got: {listed.stdout!r}")
+            return 1
+        if str(b) not in lines[0] or "now" not in lines[0]:
+            report(f"{label} the newest segment is not B, still current: {lines[0]!r}")
+            return 1
+        if str(a) not in lines[1] or "now" in lines[1]:
+            report(f"{label} the older segment is not A, ended: {lines[1]!r}")
+            return 1
+        if str(c) in listed.stdout:
+            report(f"{label} the scheduled run's transcript is listed: {listed.stdout!r}")
+            return 1
+        found = history("verify", "--grep", "clock gate")
+        if found.returncode != 0:
+            report(f"{label} --grep for a phrase in A exited {found.returncode}: {found.stdout!r} {found.stderr!r}")
+            return 1
+        if "clock gate" not in found.stdout or str(a) not in found.stdout:
+            report(f"{label} --grep does not print the phrase under A: {found.stdout!r}")
+            return 1
+        missing = history("verify", "--grep", "nothing like this")
+        if missing.returncode != 1:
+            report(f"{label} --grep for an absent phrase exited {missing.returncode}.")
+            return 1
+        as_json = json.loads(history("verify", "--json").stdout)
+        if [seg.get("transcript") for seg in as_json.get("segments", [])] != [str(b), str(a)]:
+            report(f"{label} --json segments are {as_json.get('segments')!r}.")
+            return 1
+
+        # Earlier history, kept by Claude before Keel recorded anything (D6).
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        bound = next(path for path, role in roles.items() if role == "verify")
+        project = base / "claude-config" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", bound)
+        project.mkdir(parents=True)
+        (project / "d.jsonl").write_text("\n".join(json.dumps(record) for record in (
+            {"type": "user", "timestamp": "2026-10-04T13:19:18.000Z", "cwd": bound, "message": {"role": "user", "content": "start the shift"}},
+            {"type": "assistant", "timestamp": "2026-10-04T13:27:58.000Z", "cwd": bound,
+             "message": {"role": "assistant", "content": [{"type": "text", "text": "The DMC arbiter plan was agreed on the first day."}]}},
+        )) + "\n", encoding="utf-8")
+        (project / "e.jsonl").write_text(json.dumps(
+            {"type": "user", "timestamp": "2026-10-12T11:57:15.000Z", "cwd": bound, "message": {"role": "user", "content": '<scheduled-task name="patrol">run'}}
+        ) + "\n", encoding="utf-8")
+        found_env = {**env, "CLAUDE_CONFIG_DIR": str(base / "claude-config")}
+        earlier = run_keel(verify, "shift", "history", "verify", env=found_env)
+        d_line = next((line for line in earlier.stdout.splitlines() if "d.jsonl" in line), "")
+        if "(found)" not in d_line:
+            report(f"{label} the earlier transcript D is not listed as found: {earlier.stdout!r} {earlier.stderr!r}")
+            return 1
+        if "e.jsonl" in earlier.stdout:
+            report(f"{label} the scheduled run E is listed: {earlier.stdout!r}")
+            return 1
+        arbiter = run_keel(verify, "shift", "history", "verify", "--grep", "arbiter plan", env=found_env)
+        if "arbiter plan" not in arbiter.stdout:
+            report(f"{label} --grep does not search the earlier transcript D: {arbiter.stdout!r}")
+            return 1
+    report("shift-history scenario passed.")
     return 0
 
 
@@ -39716,6 +39831,7 @@ SCENARIOS: tuple = (
     ("shift-coordinator-last", validate_shift_coordinator_last_scenario),
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
+    ("shift-history", validate_shift_history_scenario),
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),

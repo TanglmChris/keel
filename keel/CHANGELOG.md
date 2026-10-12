@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.119.0 - A cleared shift's conversation stays findable: `keel shift history`
+
+Issue #304 (2026-10-12): a shift change clears the session, and the old conversation, though kept on disk as its own transcript, was found by nothing — the host's transcript search covers only the current one. The host also refuses to clear a session serving Remote Control. Owner decisions, 2026-10-12: keep clearing, record each shift's transcript, and make earlier history searchable too.
+
+- The chat hooks of a session bound to a role record each transcript it runs in, with when it started and when the next replaced it; a host scheduled run's record is undone with the rest of its effects.
+- `keel shift history [<role>] [--grep <text>] [--json]` lists the role's transcripts and past shift notes, newest first, including the Claude transcripts already kept for its bound worktrees before this release (marked `(found)`, scheduled runs left out); `--grep` prints matching conversation lines and exits 1 when nothing matches.
+- `keel shift ready` says the conversation stays findable through `keel shift history`, and the clear hint says to turn Remote Control off before clearing.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.119.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.118.0 - Role bindings that drift from where sessions run are reported, and removed ones pruned
 
 Issue #301 (rtl_ppa_prj, 2026-10-12): `rtl-report` stayed bound to a worktree no session ran in while its session ran in an unbound one, and `iecc-design-sub` was bound to a removed worktree and an empty one while its session ran in the main checkout; messages to them woke nobody, and nothing said so. Owner decision, 2026-10-12: report it where it is read, and add an explicit cleanup.
