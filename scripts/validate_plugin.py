@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.122.0"
-PROTOCOL_VERSION = "5.122.0"
+PACKAGE_VERSION = "5.123.0"
+PROTOCOL_VERSION = "5.123.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2970,6 +2970,53 @@ def validate_patrol_escalate_scenario() -> int:
             report(f"{label} a run log line lacks exit= or risks=: {lines!r}")
             return 1
     report("patrol-escalate scenario passed.")
+    return 0
+
+
+def validate_patrol_quota_scenario() -> int:
+    """Issue #307 part 2: quota thresholds once per period; nudges pause near the limit."""
+    label = "patrol-quota:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-quota-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_PATROL_UNREAD_EVERY_MS": "1"}
+        run_keel(rtl, "chat", "post", "soc", "@verify rerun R007 please", env=env)
+        time.sleep(1.2)
+
+        def patrol(quota: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "patrol", "--since-last", "--notify", "--nudge", "--idle", "1s", "--quota", quota, env=env)
+
+        expected = {"50": None, "91": "past 90%", "93": None, "96": "past 95%", "10": None, "92": "past 90%"}
+        for quota, want in expected.items():
+            result = patrol(quota)
+            lines = [line for line in result.stdout.splitlines() if line.startswith("risk: weekly quota")]
+            if want is None and lines:
+                report(f"{label} quota {quota} reported {lines!r}.")
+                return 1
+            if want is not None and len(lines) != 1:
+                report(f"{label} quota {quota} should report one quota line: {result.stdout!r} {result.stderr!r}")
+                return 1
+            if want is not None and want not in lines[0]:
+                report(f"{label} quota {quota} should report {want!r}: {lines[0]!r}")
+                return 1
+            if quota == "50" and "nudged verify: unread" not in result.stdout:
+                report(f"{label} verify was not nudged at 50%: {result.stdout!r}")
+                return 1
+            if quota == "91" and "nudged verify" in result.stdout:
+                report(f"{label} verify was nudged at 91%: {result.stdout!r}")
+                return 1
+            if quota == "91" and "nudges paused: quota at 91%" not in result.stdout:
+                report(f"{label} the pause is not said at 91%: {result.stdout!r}")
+                return 1
+        sent = chat_records_with(rtl, "dm-keel-patrol--rtl", "weekly quota")
+        if len(sent) != 3:
+            report(f"{label} expected three quota messages to rtl, found {len(sent)}.")
+            return 1
+        refused = run_keel(rtl, "patrol", "--quota", "120", env=env)
+        if refused.returncode != 1:
+            report(f"{label} --quota 120 exited {refused.returncode}.")
+            return 1
+    report("patrol-quota scenario passed.")
     return 0
 
 
@@ -40049,6 +40096,7 @@ SCENARIOS: tuple = (
     ("patrol-since-last", validate_patrol_since_last_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),
+    ("patrol-quota", validate_patrol_quota_scenario),
     ("patrol-host-task", validate_patrol_host_task_scenario),
     ("patrol-rearm", validate_patrol_rearm_scenario),
     ("patrol-issue-routing", validate_patrol_issue_routing_scenario),

@@ -801,6 +801,10 @@ coordinator gets one direct message from `keel-patrol`, which wakes its session,
 `--disk-free-gb` dropping below `--disk-min-gb` (default 20), and a role that left two nudges in a row
 unanswered. Shift-status changes and new commits are printed, not sent. Every run appends one line to
 `patrol/log/<role>.log` in the chat store, so a silent run can still be audited.
+The host can also pass the weekly quota's percent used with `--quota <percent>`: each threshold in
+`--quota-alerts` (default `90,95,99`) becomes a risk once per quota period, a drop in the figure starts
+a new period, and at `--quota-quiet-at` (default 90) or above, `--nudge` sends nothing, since every
+nudge wakes a large session.
 
 `keel patrol --nudge` goes further and nudges each idle role itself, with one direct message from
 `keel-patrol` that wakes its session (#307): when records addressed to it have waited longer than

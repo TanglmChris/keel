@@ -84,3 +84,11 @@ Define how a role declares what it is waiting for in the chat, and how a host-sc
 #### Scenario: Roles are nudged once each, and parked notes are left alone
 - **WHEN** `verify` has an addressed message waiting, `lint` reports 62 % context, and the coordinator runs `keel patrol --nudge` twice, then `lint` files a note with `ready --wake` that no wake reaches and `verify` files one without it
 - **THEN** the first run nudges `verify` for unread and `lint` for its shift, the second nudges nobody, a later run nudges `lint` to resume and not `verify`, and no run nudges `lint` over the patrol's own message
+
+### Requirement: Quota thresholds are reported once each, and nudging pauses near the limit
+
+`keel patrol --quota <percent>` MUST treat each threshold in `--quota-alerts` (default 90, 95, 99) that the figure has reached as a risk once per quota period, reporting the highest newly reached threshold, and MUST start a new period when the figure drops below the previous run's. At or above `--quota-quiet-at` (default 90), `--nudge` MUST send nothing and say so.
+
+#### Scenario: Each threshold is reported once, and a new period starts over
+- **WHEN** the coordinator runs `keel patrol --since-last --notify --nudge` with `--quota` 50, 91, 93, 96, then 10, then 92, while `verify` has an addressed message waiting
+- **THEN** 50 reports nothing and nudges `verify`, 91 reports `past 90%` and nudges nobody, 93 reports nothing, 96 reports `past 95%`, 10 reports nothing, and 92 reports `past 90%` again
