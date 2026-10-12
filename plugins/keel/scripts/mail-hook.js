@@ -28,7 +28,7 @@ try {
   // Copied on its own: no hand-off.
 }
 
-const EVENTS = new Set(["session-start", "user-prompt-submit", "file-changed", "session-end"]);
+const EVENTS = new Set(["session-start", "user-prompt-submit", "post-tool-use", "file-changed", "session-end"]);
 const TIMEOUT_MS = Number(process.env.KEEL_HOOK_TIMEOUT_MS || 8000) || 8000;
 
 function readStdin() {

@@ -847,7 +847,7 @@ session, so it neither marks the role offline nor fires a `keel shift ready --wa
 
 ## The owner's language
 
-An agent reads mostly English — tool output, issues, specs, Keel's own output — and drifts into it when it answers you. Declare the language you want to be addressed in, and the rule is restated where replies are written: in `keel context`, the session-start note, and the chat hook on every prompt, in every worktree (#305). The agent may still work in any language; identifiers, commands, paths, and quoted output stay as they are.
+An agent reads mostly English — tool output, issues, specs, Keel's own output — and drifts into it when it answers you. Declare the language you want to be addressed in, and the rule is restated where replies are written: in `keel context`, the session-start note, and the chat hook on every prompt, in every worktree (#305) — and, on Claude, after every 15 tool calls or 10 minutes of them, since a status update written mid-turn follows no prompt (#311). The agent may still work in any language; identifiers, commands, paths, and quoted output stay as they are.
 
 ```yaml
 owner_language: zh
