@@ -130,6 +130,7 @@ const CONFIG_DECLARATIONS = [
   "read_only_roles",
   "issue_roles",
   "patrol",
+  "owner_language",
 ];
 
 const CONFIG_RELATIVE_PATH = path.join("keel", "config.yaml");
@@ -684,6 +685,35 @@ function readMergeDeclaration(repo) {
   };
 }
 
+// `owner_language:` — the language every message to the owner is written in
+// (#305 D1, D2). The agent may work in any language; what it says to the owner
+// is in this one, and the rule is restated where replies are written.
+const LANGUAGE_NAMES = [
+  ["zh", "Chinese (中文)", "对负责人说话一律用中文。"],
+  ["en", "English", ""],
+  ["ja", "Japanese (日本語)", ""],
+  ["ko", "Korean (한국어)", ""],
+];
+
+function readOwnerLanguage(repo) {
+  const declared = configScalar(repo, "owner_language");
+  if (!declared) return { tag: null, message: null };
+  if (/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(declared)) return { tag: declared, message: null };
+  return {
+    tag: null,
+    message: `keel/config.yaml owner_language \`${declared}\` is not a language tag such as zh or en; it is ignored.`,
+  };
+}
+
+function ownerLanguageRule(tag) {
+  const known = LANGUAGE_NAMES.find(([prefix]) => tag === prefix || tag.startsWith(`${prefix}-`));
+  const name = known ? known[1] : tag;
+  const native = known && known[2] ? ` ${known[2]}` : "";
+  return `Owner language: ${tag} — write every message to the owner in ${name}: replies, summaries, reports, `
+    + "and the question and options of a structured-choice prompt. Work in any language; identifiers, commands, "
+    + `paths, and quoted output stay as they are.${native}`;
+}
+
 function configScalar(repo, key) {
   const configPath = path.join(repo, "keel", "config.yaml");
   if (!fs.existsSync(configPath)) return null;
@@ -916,6 +946,8 @@ function patrolReminder(patrol) {
 }
 
 module.exports = {
+  readOwnerLanguage,
+  ownerLanguageRule,
   readPatrolDeclaration,
   patrolReminder,
   readIssueRoles,
