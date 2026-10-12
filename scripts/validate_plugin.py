@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.117.0"
-PROTOCOL_VERSION = "5.117.0"
+PACKAGE_VERSION = "5.118.0"
+PROTOCOL_VERSION = "5.118.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5895,6 +5895,74 @@ def validate_shift_self_wake_scenario() -> int:
             report(f"{label} keel chat notice --check for verify does not see the wake (exit {checked.returncode}).")
             return 1
     report("shift-self-wake scenario passed.")
+    return 0
+
+
+def validate_role_drift_scenario() -> int:
+    """Issue #301: bindings that drift from where sessions run are reported.
+
+    A binding to a removed worktree and a role with a waiting note and no
+    session are named by `keel patrol`, `keel --doctor`, and an unbound
+    session's projection; `keel chat role --prune` removes only the former.
+    """
+    label = "role-drift:"
+    with tempfile.TemporaryDirectory(prefix="keel-role-drift-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        ghost = chat_worktree(rtl, base / "ghost")
+        run_keel(ghost, "chat", "role", "--set", "ghost", env=env)
+        subprocess.run(["git", "worktree", "remove", "--force", str(ghost)], cwd=rtl, check=True, capture_output=True)
+        loose = chat_worktree(rtl, base / "loose")
+        write_text(loose / "openspec/specs/.keep", "")
+        readied = run_keel(verify, "shift", "ready", "verify note", env=env)
+        if readied.returncode != 0:
+            report(f"{label} verify's ready failed: {readied.stderr}")
+            return 1
+
+        patrolled = run_keel(rtl, "patrol", env=env)
+        drift = [line for line in patrolled.stdout.splitlines() if line.startswith("drift:")]
+        if not any("ghost" in line and "/ghost" in line for line in drift):
+            report(f"{label} keel patrol does not report ghost's removed worktree: {patrolled.stdout!r} {patrolled.stderr!r}")
+            return 1
+        if not any("verify" in line and "shift note" in line for line in drift):
+            report(f"{label} keel patrol does not report verify as unattended: {patrolled.stdout!r}")
+            return 1
+        doctor = run_keel(rtl, "--doctor", env=env).stdout
+        doctor_drift = [line for line in doctor.splitlines() if line.startswith("chat roles: drift")]
+        if not any("ghost" in line for line in doctor_drift):
+            report(f"{label} keel --doctor does not report ghost: {doctor_drift!r}")
+            return 1
+        if not any("verify" in line for line in doctor_drift):
+            report(f"{label} keel --doctor does not report verify: {doctor_drift!r}")
+            return 1
+        context = json.loads(run_keel(loose, "context", "--json", env=env).stdout)
+        if "verify" not in (context.get("unattendedRoles") or []):
+            report(f"{label} an unbound worktree's context does not name verify: {context.get('unattendedRoles')!r}")
+            return 1
+        session = run_session_start_hook(
+            loose, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(loose)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        note = session_start_context(session) or ""
+        if "verify" not in note:
+            report(f"{label} the unbound session's note does not name verify: {note!r}")
+            return 1
+        pruned = run_keel(rtl, "chat", "role", "--prune", env=env)
+        if "Pruned ghost" not in pruned.stdout:
+            report(f"{label} keel chat role --prune did not prune ghost: {pruned.stdout!r} {pruned.stderr!r}")
+            return 1
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        if "ghost" in roles.values():
+            report(f"{label} roles.json still binds ghost: {roles!r}")
+            return 1
+        if sorted(set(roles.values())) != ["rtl", "verify"]:
+            report(f"{label} prune changed other bindings: {roles!r}")
+            return 1
+        again = run_keel(rtl, "chat", "role", "--prune", env=env)
+        if "No binding" not in again.stdout:
+            report(f"{label} a second prune did not say there was nothing to prune: {again.stdout!r}")
+            return 1
+    report("role-drift scenario passed.")
     return 0
 
 
@@ -39648,6 +39716,7 @@ SCENARIOS: tuple = (
     ("shift-coordinator-last", validate_shift_coordinator_last_scenario),
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
+    ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),

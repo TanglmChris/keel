@@ -80,6 +80,8 @@ function patrol(where, role, options) {
   result.warnings.push(...routed.warnings);
   // D6: presence is reported, never acted on.
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
+  // Bindings that drifted from where sessions run (#301 D2): reported, never acted on.
+  result.drift = require("./chat/drift").driftLines(require("./chat/drift").roleDrift(where));
   const threshold = parseSince(options.idle);
   for (const name of roles) {
     const presence = notice.presenceOf(where, name);
@@ -149,6 +151,7 @@ function currentSnapshot(where, role, result, options) {
     const status = git(primary, ["status", "--porcelain"]);
     if (status !== null) entries[`checkout ${primary}`] = `${status ? status.split("\n").length : 0} uncommitted paths`;
   }
+  for (const line of result.drift) entries[line.key] = line.text;
   for (const row of result.roles) {
     entries[`role ${row.role}`] = `${row.idle ? "idle" : "active"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`;
   }
@@ -198,6 +201,7 @@ function render(result) {
   for (const sent of result.notices) lines.push(`notified ${sent.to}: ${sent.text}`);
   for (const wait of result.unchecked) lines.push(`unchecked: ${wait.from} waits for ${wait.condition}; pass --issues to check it`);
   for (const warning of result.warnings) lines.push(`warning: ${warning}`);
+  for (const line of result.sinceLast ? [] : result.drift) lines.push(`drift: ${line.text}`);
   // A scheduled run reports roles only through what changed (D1).
   for (const row of result.sinceLast ? [] : result.roles) {
     lines.push(`role ${row.role}: ${row.presence}${row.idle ? " (idle)" : ""}, last active ${row.lastActive || "unknown"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`);

@@ -2176,8 +2176,28 @@ function runDoctor(options) {
   printMergeSurface(repo);
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
+  printChatRoleDrift(repo);
 
   return authorizationOk ? checkStatus : 1;
+}
+
+// Chat role bindings that drifted from where sessions run (#301 D3). Nothing
+// is printed without a chat store that binds roles.
+function printChatRoleDrift(repo) {
+  let where = null;
+  try {
+    where = require("../src/core/chat/store").locate(repo);
+  } catch {
+    where = null;
+  }
+  if (!where || !fs.existsSync(path.join(where.root, "roles.json"))) return;
+  const drift = require("../src/core/chat/drift");
+  const lines = drift.driftLines(drift.roleDrift(where));
+  if (!lines.length) {
+    printDoctorLine("chat roles", "ok", "every binding points at a worktree, and no role with something waiting has gone unattended");
+    return;
+  }
+  for (const line of lines) printDoctorLine("chat roles", "drift", line.text);
 }
 
 // Only meaningful in Keel's own repository: a bare `keel` resolves to the
