@@ -247,7 +247,7 @@ function hostTask(where) {
   const prompt = [
     `You run the Keel patrol for chat role ${role} of the repository at ${worktree}. Do exactly the steps below and nothing else.`,
     "",
-    `Do not change into that directory: run every command with the paths given, so this session does not act as ${role} (Keel's session hooks follow the working directory). `
+    "Run every command with the paths given. "
       + "Do not edit files, commit, push, close or comment on issues, or message anyone yourself: `keel patrol` sends the coordinator what changed.",
     "",
     `1. Run \`git -C ${at} fetch -q origin\`. If it fails, keep its error and continue.`,
@@ -273,6 +273,8 @@ function renderTask(task) {
     `task id: ${task.taskId}`,
     `schedule: ${task.cronExpression ? `${task.cronExpression} (from every: ${task.every}; hosts may add jitter)` : task.cronNote}`,
     `model: ${task.model || "no model is declared: choose a small model; Keel names none"}`,
+    "Create it from a session whose folder is bound to no role: a host task starts its runs in the folder it was created from, "
+      + "and Keel recognizes such a run only once its prompt arrives (#300).",
     `description: ${task.description}`,
     "prompt:",
     task.prompt,

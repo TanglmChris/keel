@@ -427,12 +427,14 @@ function armWake(where, role, since) {
   return child.pid;
 }
 
-// The role's current session started after `since`, from a clear or a fresh start.
+// The role's current session start, when it is after `since` from a clear or a
+// fresh start; null otherwise.
 function startedSince(where, role, since) {
   const { presenceFile } = require("./chat/notice");
   const presence = store.readJsonFile(presenceFile(where, role));
   const started = Date.parse(presence.session_started || "");
-  return !Number.isNaN(started) && started >= since && WAKE_SOURCES.has(presence.session_source);
+  const qualifies = !Number.isNaN(started) && started >= since && WAKE_SOURCES.has(presence.session_source);
+  return qualifies ? presence.session_started : null;
 }
 
 function writeWake(where, role) {
@@ -448,11 +450,18 @@ function writeWake(where, role) {
 
 function waitForWake(where, role, since) {
   const poll = envMs("KEEL_SHIFT_WAKE_POLL_MS", 5000);
+  const settle = envMs("KEEL_SHIFT_WAKE_SETTLE_MS", 15000);
   const deadline = Date.now() + envMs("KEEL_SHIFT_WAKE_TIMEOUT_MS", 2 * 60 * 60 * 1000);
+  // A qualifying start must stay unchanged for `settle` (#300 D4): a host
+  // run's start is reverted once its first prompt shows what it is.
+  let pending = null;
   const tick = () => {
     // A note resumed by hand needs no wake; give up after the time limit.
     if (!fs.existsSync(notePath(where, role)) || Date.now() > deadline) return;
-    if (startedSince(where, role, since)) {
+    const started = startedSince(where, role, since);
+    if (!started) pending = null;
+    else if (!pending || pending.value !== started) pending = { value: started, at: Date.now() };
+    else if (Date.now() - pending.at >= settle) {
       writeWake(where, role);
       return;
     }

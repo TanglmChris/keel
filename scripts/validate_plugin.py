@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.116.0"
-PROTOCOL_VERSION = "5.116.0"
+PACKAGE_VERSION = "5.117.0"
+PROTOCOL_VERSION = "5.117.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5845,7 +5845,7 @@ def validate_shift_self_wake_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-shift-wake-") as raw:
         base = Path(raw)
         rtl, verify, env, _ = shift_scratch(base)
-        env = {**env, "KEEL_SHIFT_WAKE_POLL_MS": "100", "KEEL_SHIFT_WAKE_TIMEOUT_MS": "20000"}
+        env = {**env, "KEEL_SHIFT_WAKE_POLL_MS": "100", "KEEL_SHIFT_WAKE_SETTLE_MS": "500", "KEEL_SHIFT_WAKE_TIMEOUT_MS": "20000"}
         loose = chat_worktree(rtl, base / "loose")
         subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=loose, check=True, capture_output=True)
 
@@ -5963,6 +5963,74 @@ def validate_role_drift_scenario() -> int:
             report(f"{label} a second prune did not say there was nothing to prune: {again.stdout!r}")
             return 1
     report("role-drift scenario passed.")
+def validate_host_run_session_scenario() -> int:
+    """Issue #300: a scheduled run started in a role's worktree is not that role.
+
+    Its first prompt, starting `<scheduled-task`, restores the presence its
+    SessionStart replaced; its hooks then write and inject nothing, its end
+    changes nothing, and it never fires `ready --wake`. An ordinary clear
+    still wakes the role once, after the wake settles.
+    """
+    label = "host-run-session:"
+    with tempfile.TemporaryDirectory(prefix="keel-host-run-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_POLL_MS": "100", "KEEL_SHIFT_WAKE_SETTLE_MS": "1500", "KEEL_SHIFT_WAKE_TIMEOUT_MS": "30000"}
+        presence = mailbox_common_dir(rtl) / "keel-chat" / "presence" / "verify.json"
+
+        def hook(event: str, payload: dict) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                cwd=verify, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(verify), **payload}),
+            )
+
+        def wakes() -> list[str]:
+            return chat_records_with(rtl, "dm-keel-shift--verify", "keel shift resume")
+
+        def current() -> str:
+            return presence.read_text(encoding="utf-8") if presence.exists() else ""
+
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1"})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "hello"})
+        armed = run_keel(verify, "shift", "ready", "--wake", "verify note", env=env)
+        if armed.returncode != 0:
+            report(f"{label} ready --wake failed: {armed.stderr}")
+            return 1
+        run_keel(rtl, "chat", "post", "soc", "@verify something to read", env=env)
+        before = current()
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "startup", "session_id": "run1"})
+        prompted = hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "run1",
+                                               "prompt": '<scheduled-task name="patrol">\nrun the patrol'})
+        if current() != before:
+            report(f"{label} the host run's presence was not restored:\nbefore {before}\nafter {current()}")
+            return 1
+        if prompted.stdout.strip():
+            report(f"{label} the host run's prompt hook injected output: {prompted.stdout!r}")
+            return 1
+        time.sleep(3)
+        if wakes():
+            report(f"{label} the host run's start fired the wake.")
+            return 1
+        hook("session-end", {"hook_event_name": "SessionEnd", "session_id": "run1"})
+        if current() != before:
+            report(f"{label} the host run's end changed presence:\nbefore {before}\nafter {current()}")
+            return 1
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "clear", "session_id": "s2"})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "s2", "prompt": "carry on"})
+        deadline = time.time() + 6
+        while time.time() < deadline and not wakes():
+            time.sleep(0.1)
+        if len(wakes()) != 1:
+            report(f"{label} expected one wake after the clear start, found {len(wakes())}.")
+            return 1
+        task_config = "patrol:\n  role: verify\n  every: 30m\n"
+        write_text(verify / "keel" / "config.yaml", task_config)
+        task = run_keel(verify, "patrol", "task", env=env)
+        if "bound to no role" not in task.stdout:
+            report(f"{label} keel patrol task does not say to create the task from a folder bound to no role: {task.stdout!r} {task.stderr!r}")
+            return 1
+    report("host-run-session scenario passed.")
     return 0
 
 
@@ -39646,6 +39714,7 @@ SCENARIOS: tuple = (
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
     ("role-drift", validate_role_drift_scenario),
+    ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),

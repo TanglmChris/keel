@@ -825,7 +825,10 @@ prints the task — id, a cron from `every:`, the model, and a self-contained pr
 `keel patrol --since-last --notify` against the coordinator's worktree by path. Keel creates
 nothing; the session's model installs it with the host's own scheduled-task tool, since a host keeps
 the schedule itself. With `host_task:` declared, the reminder asks only to confirm the task is still
-enabled.
+enabled. Create the task from a session whose folder is bound to no role: a host task starts its runs
+in the folder it was created from. A run that starts in a role's worktree anyway is recognized by its
+first prompt (`<scheduled-task …`), and Keel then restores that role's presence and ignores the
+session, so it neither marks the role offline nor fires a `keel shift ready --wake` (#300).
 
 ## Commands
 

@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.117.0 - A host scheduled run no longer acts as the role whose worktree it starts in
+
+Issue #300 (rtl_ppa_prj, 2026-10-12): a desktop scheduled task starts its runs in the folder it was created from, so the coordinator's patrol task ran in the coordinator's worktree and Keel's chat hooks treated each run as `iecc-pm` — writing its `session_started`, which would fire a pending `keel shift ready --wake` early, and marking it offline at the end. A run's SessionStart fires before its prompt exists. Owner decision, 2026-10-12.
+
+- The chat SessionStart hook keeps, per host session id, the presence it replaces. A first prompt starting `<scheduled-task` (the observed Claude desktop format) marks the session a host run and restores that presence; the session's hooks then write nothing, inject no chat notice, wake nothing, and its SessionEnd changes nothing.
+- The `ready --wake` waiter fires only once a qualifying start has stayed the role's latest for 15 s (`KEEL_SHIFT_WAKE_SETTLE_MS`).
+- `keel patrol task` says to create the task from a folder bound to no role, and its prompt no longer claims that not changing directory keeps the run from acting as the role.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.117.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.116.0 - The loop guard tells a workday from a loop; `keel chat --stamp` and `--help`
 
 Issue #297 (rtl_ppa_prj, 2026-10-12): eight alternating messages over about 2.5 hours in a coordinator's direct group, each pair a different piece of work, tripped the ping-pong guard and paged the owner, and in a direct group no "other member" exists to clear it. Issue #298: sessions wrote estimated times into message text, and `keel chat --help` was an error. Owner decisions, 2026-10-12.

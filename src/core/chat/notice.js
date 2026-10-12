@@ -170,6 +170,47 @@ const HOST_EVENTS = {
 // wake signal and must mean only "something addressed to you arrived".
 const MAIL_POINTER = "Direct messages can also be read with the 5.83 `keel mail read`.";
 
+// --- host-run sessions (#300) ---------------------------------------------------------
+//
+// A host scheduled task starts its runs in the folder it was created from, so a
+// run can start in a role's worktree. Its SessionStart fires before its prompt
+// exists, so the hook keeps the presence it replaces per session id (D1), and
+// the first prompt decides: one starting `<scheduled-task` marks the session a
+// host run and restores that presence (D2); a host run then writes nothing (D3).
+
+const HOST_RUN_MARKER = "<scheduled-task";
+
+function sessionFile(where, payload) {
+  const id = typeof payload.session_id === "string" ? payload.session_id : "";
+  return /^[A-Za-z0-9._-]{1,128}$/.test(id) ? path.join(where.root, "sessions", `${id}.json`) : null;
+}
+
+function rememberSession(where, role, file) {
+  if (!file) return;
+  const previous = fs.existsSync(presenceFile(where, role)) ? store.readJsonFile(presenceFile(where, role)) : null;
+  try {
+    store.writeJsonAtomic(where, file, { role, previous, decided: false, host_run: false });
+  } catch {
+    // Like presence, a convenience: never fail the hook.
+  }
+}
+
+// Returns true when this prompt marked the session a host run.
+function decideSession(where, file, session, prompt) {
+  const hostRun = String(prompt || "").trimStart().startsWith(HOST_RUN_MARKER);
+  try {
+    store.writeJsonAtomic(where, file, { ...session, decided: true, host_run: hostRun });
+    if (hostRun) {
+      const target = presenceFile(where, session.role);
+      if (session.previous) store.writeJsonAtomic(where, target, session.previous);
+      else fs.rmSync(target, { force: true });
+    }
+  } catch {
+    // Presence stays as the SessionStart left it.
+  }
+  return hostRun;
+}
+
 function hook(event, input, { mail = false } = {}) {
   if (!(event in HOST_EVENTS)) return { code: 0 };
   let payload = {};
@@ -194,10 +235,18 @@ function hook(event, input, { mail = false } = {}) {
     return { code: 0, stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [watched] } })}\n` };
   }
   if (!where || !role) return { code: 0 };
+  const file = sessionFile(where, payload);
+  const session = file && fs.existsSync(file) ? store.readJsonFile(file) : null;
+  if (event === "session-end" && file) fs.rmSync(file, { force: true });
+  if (session && session.host_run) return { code: 0 };
+  if (event === "user-prompt-submit" && session && session.role === role && !session.decided) {
+    if (decideSession(where, file, session, payload.prompt)) return { code: 0 };
+  }
   if (event === "session-end") {
     touchPresence(where, role, "offline");
     return { code: 0 };
   }
+  if (event === "session-start") rememberSession(where, role, file);
   const started = event === "session-start" ? { source: typeof payload.source === "string" ? payload.source : null } : null;
   touchPresence(where, role, "online", mail ? null : "claude-code", started);
   const chatText = noticeText(where, role);
