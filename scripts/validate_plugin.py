@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.123.0"
-PROTOCOL_VERSION = "5.123.0"
+PACKAGE_VERSION = "5.124.0"
+PROTOCOL_VERSION = "5.124.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6402,6 +6402,62 @@ def validate_owner_language_scenario() -> int:
             report(f"{label} a malformed owner_language still adds a language line.")
             return 1
     report("owner-language scenario passed.")
+    return 0
+
+
+def validate_owner_language_after_tools_scenario() -> int:
+    """Issue #311: the owner's language is restated after runs of tool calls."""
+    label = "owner-language-after-tools:"
+    manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    post = json.dumps(manifest.get("hooks", {}).get("PostToolUse", []))
+    if "mail-hook.js" not in post or "post-tool-use" not in post:
+        report(f"{label} .claude-plugin/plugin.json does not register PostToolUse on mail-hook.js post-tool-use: {post}")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-language-tools-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        env = {**env, "KEEL_CLI": f'node "{ROOT / "bin" / "keel.js"}"'}
+        write_authorize_config(rtl, "owner_language: zh\n")
+
+        def hook(event: str, payload: dict) -> str:
+            result = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/mail-hook.js"), event],
+                cwd=rtl, env=env, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(rtl), **payload}),
+            )
+            if not result.stdout.strip():
+                return ""
+            return json.loads(result.stdout).get("hookSpecificOutput", {}).get("additionalContext", "")
+
+        def tool(session: str) -> str:
+            return hook("post-tool-use", {"hook_event_name": "PostToolUse", "session_id": session, "tool_name": "Bash"})
+
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "t1", "prompt": "go on"})
+        outputs = [tool("t1") for _ in range(16)]
+        early = [n + 1 for n, text in enumerate(outputs[:14]) if text]
+        if early:
+            report(f"{label} PostToolUse calls {early} restated the rule before the 15th.")
+            return 1
+        if "中文" not in outputs[14]:
+            report(f"{label} the 15th PostToolUse did not restate the rule: {outputs[14]!r}")
+            return 1
+        if outputs[15]:
+            report(f"{label} the 16th PostToolUse restated the rule again: {outputs[15]!r}")
+            return 1
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "t1", "prompt": "next"})
+        if tool("t1"):
+            report(f"{label} the first tool call after a prompt restated the rule.")
+            return 1
+        hook("session-start", {"hook_event_name": "SessionStart", "source": "startup", "session_id": "run1"})
+        hook("user-prompt-submit", {"hook_event_name": "UserPromptSubmit", "session_id": "run1", "prompt": '<scheduled-task name="patrol">run'})
+        if any(tool("run1") for _ in range(16)):
+            report(f"{label} a host-run session was reminded.")
+            return 1
+        write_authorize_config(rtl, "")
+        if any(tool("t2") for _ in range(16)):
+            report(f"{label} a repository without owner_language was reminded.")
+            return 1
+    report("owner-language-after-tools scenario passed.")
     return 0
 
 
@@ -21107,6 +21163,7 @@ def validate_native_plugin_manifests_scenario() -> int:
         {"hooks": [mail_hook("session-start")]},
     ]
     expected_hooks["UserPromptSubmit"] = [{"hooks": [mail_hook("user-prompt-submit")]}]
+    expected_hooks["PostToolUse"] = [{"hooks": [mail_hook("post-tool-use")]}]
     expected_hooks["FileChanged"] = [
         {"hooks": [mail_hook("file-changed", asyncRewake=True)]}
     ]
@@ -40085,6 +40142,7 @@ SCENARIOS: tuple = (
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
     ("owner-language", validate_owner_language_scenario),
+    ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),

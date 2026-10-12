@@ -161,6 +161,7 @@ const OWNER_RULE = "Slack notifies the owner only for messages that write `@owne
 const HOST_EVENTS = {
   "session-start": "SessionStart",
   "user-prompt-submit": "UserPromptSubmit",
+  "post-tool-use": "PostToolUse",
   "file-changed": "FileChanged",
   "session-end": "SessionEnd",
 };
@@ -237,6 +238,55 @@ function decideSession(where, file, session, prompt) {
   return hostRun;
 }
 
+// --- the owner's language after tool calls (#311) ---------------------------------------
+
+function languageFile(where, payload) {
+  const file = sessionFile(where, payload);
+  return file ? file.replace(/\.json$/, ".language.json") : null;
+}
+
+function resetLanguageCount(where, payload) {
+  const file = languageFile(where, payload);
+  if (!file) return;
+  try {
+    store.writeJsonAtomic(where, file, { count: 0, at: Date.now() });
+  } catch {
+    // A convenience: never fail the hook.
+  }
+}
+
+// Once 15 tool calls or 10 minutes have passed since the rule was last stated
+// in this session, it is stated again (D2); a host run gets nothing (D4).
+function languageAfterTools(where, payload) {
+  const file = languageFile(where, payload);
+  if (!file) return { code: 0 };
+  try {
+    const session = sessionFile(where, payload);
+    if (fs.existsSync(session) && store.readJsonFile(session).host_run) return { code: 0 };
+    const { readOwnerLanguage, ownerLanguageRule } = require("../config");
+    const language = readOwnerLanguage(where.worktree);
+    if (!language.tag) return { code: 0 };
+    const everyTools = Number(process.env.KEEL_LANGUAGE_EVERY_TOOLS) > 0 ? Number(process.env.KEEL_LANGUAGE_EVERY_TOOLS) : 15;
+    const everyMs = Number(process.env.KEEL_LANGUAGE_EVERY_MS) > 0 ? Number(process.env.KEEL_LANGUAGE_EVERY_MS) : 10 * 60 * 1000;
+    const now = Date.now();
+    const record = fs.existsSync(file) ? store.readJsonFile(file) : null;
+    if (!record || typeof record.count !== "number") {
+      store.writeJsonAtomic(where, file, { count: 1, at: now });
+      return { code: 0 };
+    }
+    const count = record.count + 1;
+    if (count >= everyTools || now - Number(record.at || 0) >= everyMs) {
+      store.writeJsonAtomic(where, file, { count: 0, at: now });
+      const output = { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: ownerLanguageRule(language.tag) } };
+      return { code: 0, stdout: `${JSON.stringify(output)}\n` };
+    }
+    store.writeJsonAtomic(where, file, { count, at: record.at });
+  } catch {
+    // Never fail a tool call over a reminder.
+  }
+  return { code: 0 };
+}
+
 function hook(event, input, { mail = false } = {}) {
   if (!(event in HOST_EVENTS)) return { code: 0 };
   let payload = {};
@@ -256,6 +306,8 @@ function hook(event, input, { mail = false } = {}) {
   // A session's watch list is fixed at SessionStart, so a worktree with no role
   // yet still watches its own signal, which a role bound later will touch
   // (chat-wake-late-binding D1). Nothing else is said until there is a role.
+  // After a run of tool calls the owner's language is restated too (#311).
+  if (event === "post-tool-use") return where ? languageAfterTools(where, payload) : { code: 0 };
   // The owner's language is restated on every prompt, role or not (#305 D4).
   let languageLine = null;
   if (where && event === "user-prompt-submit") {
@@ -266,6 +318,8 @@ function hook(event, input, { mail = false } = {}) {
     } catch {
       languageLine = null;
     }
+    // A prompt that states the rule starts the tool count over (#311 D3).
+    if (languageLine) resetLanguageCount(where, payload);
   }
   const promptOutput = (text) => ({
     code: 0,

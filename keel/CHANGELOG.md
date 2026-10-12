@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.124.0 - The owner's language is restated after runs of tool calls
+
+Issue #311 (2026-10-13): 5.120.0 restates the declared owner language on every prompt, but a status update the agent writes mid-turn, after a long run of tools, follows no prompt; in the Keel maintenance session it drifted into English again. Owner decision, 2026-10-13.
+
+- A Claude PostToolUse chat hook restates the `owner_language:` rule once 15 tool calls or 10 minutes have passed since it was last stated in the session (`KEEL_LANGUAGE_EVERY_TOOLS`, `KEEL_LANGUAGE_EVERY_MS`); a prompt's restatement starts the count over. A host-run session and a repository without the declaration get nothing.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.124.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.123.0 - Quota thresholds reach the coordinator once each, and nudging pauses near the limit
 
 Issue #307, part 2 (rtl_ppa_prj, 2026-10-12): the owner's rule is to say nothing about the weekly quota at 50 %, report it once each at 90, 95, and 99 % per period, and stop nudges, which wake large sessions, at 90 % or more. Keel cannot see the quota; the host-run task passes it in. Owner decision, 2026-10-12.
