@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.122.0 - The patrol tells the coordinator only about risks, and logs every run
+
+Issue #307, part 3 (rtl_ppa_prj, 2026-10-12): with the patrol nudging roles itself (5.121.0), what remains for the coordinator is risk; shift-status changes and new commits, which `--notify` sent since 5.115.0, are mostly the coordinator's own doing and woke it for nothing. Owner decision, 2026-10-12.
+
+- `keel patrol --since-last --notify` sends the coordinator one message from `keel-patrol` listing only risks: the shared checkout gaining uncommitted paths after a clean run, free disk the host reports with `--disk-free-gb` dropping below `--disk-min-gb` (default 20), and a role that left two unread nudges in a row unanswered. Other changes print as `changed:` lines and are not sent; risks print as `risk:` lines.
+- Every `keel patrol` run appends `<time> exit=… changes=… nudges=… risks=… notified=…` to `patrol/log/<role>.log` in the chat store.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.122.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.121.0 - `keel patrol --nudge`: the patrol nudges idle roles directly
 
 Issue #307, part 1 (rtl_ppa_prj, 2026-10-12): after a day of a host-run patrol, the owner moved routine coordination into it — it nudges each role's session itself, and a routine shift change skips the coordinator. Owner decision, 2026-10-12: nudges are `keel chat` direct messages from `keel-patrol`, Keel keeps the rate limits, and a self-initiated shift is one filed with `ready --wake`.
