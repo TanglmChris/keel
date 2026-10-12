@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.126.0 - A self-shift from a worktree with no role needs a wake or a stated reason
+
+Issue #317 (2026-10-13): the Keel maintenance session changed its own shift from a worktree bound to no chat role. `--wake` is refused there, plain `keel shift ready` accepted the note with a parting hint, the session cleared, and nothing woke it; the owner had to open a new session by hand. Owner decision, 2026-10-13: refuse it and point the way.
+
+- `keel shift ready` without `--role`, in a worktree bound to no chat role, is refused before the readiness check and stores nothing, naming `keel chat role --set <name>` followed by `keel shift ready --wake`, unless `--force-reason "<who starts the new session>"` is given.
+- A note filed that way records `Started by hand: <reason>.`, and the clear hint names it. A `--force-reason` note no longer lists an empty `Left as is` block when the check found nothing.
+- `docs/shift-change.md` and `docs/shift-change.zh-CN.md` say a session changing its own shift should bind a role and use `--wake`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.126.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.125.0 - A shift follows a finished task, not context size
 
 Issue #313 (rtl_ppa_prj, 2026-10-13): 5.121.0's patrol told a role to change shift when the host reported its context at or above `--shift-at`. The owner's policy is to compact within a task and change shift when a complete task is finished; a context trigger interrupts long tasks and never shifts a run of short ones. Owner decision, 2026-10-13.

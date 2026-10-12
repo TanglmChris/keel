@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.125.0"
-PROTOCOL_VERSION = "5.125.0"
+PACKAGE_VERSION = "5.126.0"
+PROTOCOL_VERSION = "5.126.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5963,7 +5963,7 @@ def validate_shift_role_elsewhere_scenario() -> int:
         if started.returncode != 0:
             report(f"{label} keel shift start verify was refused: {started.stderr}")
             return 1
-        lone = shift(loose2, "ready", "nothing requested here")
+        lone = shift(loose2, "ready", "--force-reason", "the coordinator opens it", "nothing requested here")
         if lone.returncode != 0:
             report(f"{label} ready in an unbound worktree with no open request failed: {lone.stderr}")
             return 1
@@ -6800,13 +6800,37 @@ def validate_shift_without_role_scenario() -> int:
             return chat_json(run_keel(repo, "context", "--json", env=env))
 
         before = context().get("status")
-        ready = run_keel(repo, "shift", "ready", "next: rerun R007", env=env)
+        # Issue #317: nothing wakes the session after a clear here, so plain
+        # `ready` is refused and points to a role and --wake.
+        plain = run_keel(repo, "shift", "ready", "next: rerun R007", env=env)
+        if plain.returncode != 1:
+            report(f"{label} plain ready in a worktree without a chat role exited {plain.returncode}, not 1: {plain.stdout.strip()}")
+            return 1
+        if "keel chat role --set" not in plain.stderr:
+            report(f"{label} the refusal does not name `keel chat role --set`: {plain.stderr.strip()}")
+            return 1
+        if "--wake" not in plain.stderr:
+            report(f"{label} the refusal does not name --wake: {plain.stderr.strip()}")
+            return 1
+        if list((common / "shift" / "worktree").glob("*.md")):
+            report(f"{label} the refused ready stored a worktree note.")
+            return 1
+        ready = run_keel(repo, "shift", "ready", "--force-reason", "the owner opens it", "next: rerun R007", env=env)
         if ready.returncode != 0:
-            report(f"{label} keel shift ready refused in a worktree without a chat role: {ready.stderr.strip()}")
+            report(f"{label} keel shift ready --force-reason refused in a worktree without a chat role: {ready.stderr.strip()}")
+            return 1
+        if "the owner opens it" not in ready.stdout:
+            report(f"{label} the clear hint does not name who starts the new session: {ready.stdout.strip()}")
             return 1
         notes = list((common / "shift" / "worktree").glob("*.md"))
         if len(notes) != 1:
             report(f"{label} ready kept {len(notes)} worktree notes under keel-chat/shift/worktree/, not one.")
+            return 1
+        if "Started by hand: the owner opens it" not in notes[0].read_text(encoding="utf-8"):
+            report(f"{label} the note does not record who starts the new session.")
+            return 1
+        if "Left as is" in notes[0].read_text(encoding="utf-8"):
+            report(f"{label} the note lists loose ends left as is when the check found none.")
             return 1
         text = run_keel(repo, "context", env=env).stdout
         if "keel shift resume" not in text:
@@ -6838,7 +6862,7 @@ def validate_shift_without_role_scenario() -> int:
 
         # Issue #261: `--file -` is stdin, and an unreadable file is a named refusal.
         missing = base / "missing-note.md"
-        refused = run_keel(repo, "shift", "ready", "--file", str(missing), env=env)
+        refused = run_keel(repo, "shift", "ready", "--force-reason", "the owner opens it", "--file", str(missing), env=env)
         if re.search(r"^\s+at ", refused.stderr, re.M):
             report(f"{label} an unreadable --file escaped as an uncaught exception: {refused.stderr.strip()}")
             return 1
@@ -6852,7 +6876,7 @@ def validate_shift_without_role_scenario() -> int:
             report(f"{label} the refusal of an unreadable --file does not name the path: {refused.stderr.strip()}")
             return 1
         piped = subprocess.run(
-            ["node", str(ROOT / "bin" / "keel.js"), "shift", "ready", "--file", "-"],
+            ["node", str(ROOT / "bin" / "keel.js"), "shift", "ready", "--force-reason", "the owner opens it", "--file", "-"],
             cwd=repo, env=env, input="next: from stdin via --file -\n",
             text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
         )
@@ -6868,8 +6892,16 @@ def validate_shift_without_role_scenario() -> int:
             return 1
 
     for relative, needle in (("docs/shift-change.md", "no chat role"), ("docs/shift-change.zh-CN.md", "不绑定聊天角色")):
-        if needle not in (ROOT / relative).read_text(encoding="utf-8"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        if needle not in text:
             report(f"{label} {relative} does not say a chat role is optional ({needle!r}).")
+            return 1
+        intro = text.split("## ", 1)[0]
+        if "--wake" not in intro:
+            report(f"{label} {relative} does not say an unbound self-shift needs --wake.")
+            return 1
+        if "--force-reason" not in intro:
+            report(f"{label} {relative} does not say --force-reason files an unbound self-shift by hand.")
             return 1
     if "shift-without-role" not in {name for name, _ in SCENARIOS}:
         report(f"{label} scenario is not registered.")

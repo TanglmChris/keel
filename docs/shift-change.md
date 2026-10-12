@@ -2,7 +2,7 @@
 
 A long-running role's session collects context until it is cleared. A shift change does that at a moment of your choosing, so nothing is lost. The outgoing session wraps up and leaves a note, then clears itself, and the new shift starts from the note.
 
-With `keel chat` roles bound, each step is also a record in the direct group between the coordinator, usually a PM role, and the role. Each record wakes the session it is for, and the history stays reviewable. With no chat role, a shift change still works. `check`, `ready`, and `resume` need nothing but the repository. The coordinator tells the session by whatever channel it has, and the new session runs `keel shift resume`. No bot or Slack is involved either way: chat roles are local names in the repository's git common directory.
+With `keel chat` roles bound, each step is also a record in the direct group between the coordinator, usually a PM role, and the role. Each record wakes the session it is for, and the history stays reviewable. With no chat role, a shift change still works: `check`, `ready`, and `resume` need nothing but the repository, the coordinator tells the session by whatever channel it has, and the new session runs `keel shift resume`. Nothing wakes that new session, though, so a session changing its own shift should bind a role with `keel chat role --set <name>` and use `keel shift ready --wake` (#317); in a worktree with no chat role, `ready` is refused unless `--force-reason` names who starts the new session, and the note records it. No bot or Slack is involved either way: chat roles are local names in the repository's git common directory.
 
 ## The steps
 
