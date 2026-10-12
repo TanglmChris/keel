@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.112.0 - The patrolling role is reminded to re-arm its schedule
+
+Issue #260, the step deferred in 5.109.0: the coordinator's host schedule for `keel patrol` ends with its session, so a shift change or restart dropped it silently. Owner decision, 2026-10-12: remind the new shift; Keel still schedules nothing.
+
+- `patrol:` in `keel/config.yaml` declares `role:` and `every:`.
+- In a worktree bound to that role, `keel context` carries `patrol`, the SessionStart and compaction note says the role runs `keel patrol` every `<every>` and that a session's schedule ends with the session, and `keel shift resume` ends with the same reminder.
+- A missing or malformed value is reported and reminds nobody.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.112.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.111.0 - An idle session points at the issues its branch was working on
 
 Issue #278, split from #241 item 3 (rtl_ppa_prj, 2026-10-05): after compaction an idle session had nothing pointing at what it was last doing except its own memory.

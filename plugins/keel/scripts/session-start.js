@@ -660,6 +660,14 @@ function main() {
         + `(commits in ${context.recent.range}; a pointer, not a selection).`
     );
   }
+  // The patrolling role re-arms its schedule after a shift change (#260).
+  if (context.patrol && context.patrol.role) {
+    lines.push(
+      `- patrol: role ${context.patrol.role} runs \`keel patrol\` every ${context.patrol.every}; `
+        + "a session's schedule ends with the session, so re-create it with the host "
+        + "if this session has none, and wake the model only on exit 2."
+    );
+  }
   // The role other sessions address this one by (#245).
   if (context.role) {
     lines.push(`- chat role: ${context.role} (other sessions address this one by it).`);
