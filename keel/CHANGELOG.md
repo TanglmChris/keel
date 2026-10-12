@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.116.0 - The loop guard tells a workday from a loop; `keel chat --stamp` and `--help`
+
+Issue #297 (rtl_ppa_prj, 2026-10-12): eight alternating messages over about 2.5 hours in a coordinator's direct group, each pair a different piece of work, tripped the ping-pong guard and paged the owner, and in a direct group no "other member" exists to clear it. Issue #298: sessions wrote estimated times into message text, and `keel chat --help` was an error. Owner decisions, 2026-10-12.
+
+- Ping-pong counts only when the last `pingpong` messages since the group's latest override fall within `limits.pingpong_minutes` (default 10) of the post.
+- A first trip refuses the poster without calling the owner and names `--not-a-loop "<why>"`; a post with it goes through and records the reason as `not_a_loop`. A repeat after an override calls the owner as before and takes no override; the owner's post clears it, or in a group of more than two any other member's.
+- `keel chat post` and `keel chat dm` take `--stamp`, which prefixes `[MM-DD HH:MM]` from Keel's clock.
+- `keel chat --help` and `-h` print the usage.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.116.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.115.0 - The patrol runs as a host scheduled task and reports only what changed
 
 Issue #295 (rtl_ppa_prj, 2026-10-12): the coordinator's patrol ran as a cron inside its own expensive session and was lost on every clear; moved by hand to a desktop scheduled task on a small model, it first woke the coordinator every hour for a deliberately parked note. Owner decision, 2026-10-12: Keel renders the host task and the model installs it; the change-based logic lives in `keel patrol`; `patrol:` names the host task; no generic scheduler.

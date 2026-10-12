@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.115.0"
-PROTOCOL_VERSION = "5.115.0"
+PACKAGE_VERSION = "5.116.0"
+PROTOCOL_VERSION = "5.116.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2583,6 +2583,45 @@ def chat_logs_snapshot(repo: Path) -> dict:
     return {str(p): p.read_bytes() for p in groups.rglob("*") if p.is_file()}
 
 
+def validate_chat_stamp_help_scenario() -> int:
+    """Issue #298: `--stamp` writes Keel's time; `keel chat --help` is not an error."""
+    label = "chat-stamp-help:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-stamp-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+
+        def stamped(group: str, *args: str) -> str | None:
+            posted = run_keel(rtl, "chat", *args, env=env)
+            if posted.returncode != 0:
+                return f"{' '.join(args)} failed: {posted.stderr.strip()}"
+            record = sorted(chat_log(rtl, group).glob("*.md"))[-1].read_text(encoding="utf-8")
+            created = re.search(r"^created: \d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})", record, re.M)
+            if not created:
+                return f"the record has no created time:\n{record}"
+            month, day, hour, minute = created.groups()
+            want = f"[{month}-{day} {hour}:{minute}] "
+            body = record.split("\n---\n", 1)[1].strip()
+            if not body.startswith(want):
+                return f"{' '.join(args)} stored {body!r}, not text starting with {want!r}"
+            return None
+
+        for group, args in (("soc", ("post", "soc", "--stamp", "R008 done")), ("dm-rtl--verify", ("dm", "verify", "--stamp", "x"))):
+            problem = stamped(group, *args)
+            if problem:
+                report(f"{label} {problem}")
+                return 1
+        for flag in ("--help", "-h"):
+            helped = run_keel(rtl, "chat", flag, env=env)
+            if helped.returncode != 0:
+                report(f"{label} keel chat {flag} exited {helped.returncode}: {helped.stderr.strip()}")
+                return 1
+            if "Usage:" not in helped.stdout:
+                report(f"{label} keel chat {flag} printed no usage: {helped.stdout!r}")
+                return 1
+    report("chat-stamp-help scenario passed.")
+    return 0
+
+
 def validate_patrol_rearm_scenario() -> int:
     """Issue #260: the patrolling role is reminded to re-arm its schedule.
 
@@ -3506,27 +3545,64 @@ def validate_chat_loop_guards_scenario() -> int:
             extra = {"KEEL_CHAT_ROLE": role} if role else {}
             return run_keel(cwd, "chat", *args, env={**env, **extra})
 
-        for index in range(8):
-            cwd = rtl if index % 2 == 0 else verify
-            turn = chat(cwd, "post", "soc", f"round {index}")
-            if turn.returncode != 0:
-                report(f"{label} alternating post {index} was refused before the threshold: {turn.stderr.strip()}")
-                return 1
+        # Enough rate for the ping-pong rounds below; the rate limit is checked with lint.
+        for tree in (rtl, verify):
+            write_text(tree / "keel" / "chat.json", json.dumps({"limits": {"rate": 100}}) + "\n")
+
+        def alternate(group: str, start: int, poster=None) -> str | None:
+            post = poster or (lambda cwd, text: chat(cwd, "post", group, text))
+            for index in range(start, start + 8):
+                cwd = rtl if index % 2 == 0 else verify
+                turn = post(cwd, f"round {index}")
+                if turn.returncode != 0:
+                    return f"alternating post {index} in {group} was refused before the threshold: {turn.stderr.strip()}"
+            return None
+
+        def systems(group: str) -> list[str]:
+            return [p.read_text(encoding="utf-8") for p in chat_log(rtl, group).glob("*.md") if "kind: system" in p.read_text(encoding="utf-8")]
+
+        problem = alternate("soc", 0)
+        if problem:
+            report(f"{label} {problem}")
+            return 1
         ninth = chat(rtl, "post", "soc", "round 8")
         if ninth.returncode == 0:
-            report(f"{label} a ninth alternating post was accepted.")
+            report(f"{label} a ninth quick alternating post was accepted.")
             return 1
         if "loop guard" not in ninth.stderr:
             report(f"{label} the ping-pong refusal does not name the loop guard: {ninth.stderr.strip()}")
             return 1
-        chat(verify, "post", "soc", "round 8 again")
-        records = [p.read_text(encoding="utf-8") for p in chat_log(rtl, "soc").glob("*.md")]
-        system = [r for r in records if "kind: system" in r]
-        if len(system) != 1:
-            report(f"{label} expected one system record after two refused posts, found {len(system)}.")
+        if "--not-a-loop" not in ninth.stderr:
+            report(f"{label} the first refusal does not name --not-a-loop: {ninth.stderr.strip()}")
             return 1
-        if "  - owner" not in system[0]:
-            report(f"{label} the system record does not mention owner:\n{system[0]}")
+        if systems("soc"):
+            report(f"{label} the first trip already called the owner.")
+            return 1
+        overridden = chat(rtl, "post", "soc", "--not-a-loop", "new assignment", "R009 next")
+        if overridden.returncode != 0:
+            report(f"{label} a --not-a-loop post was refused: {overridden.stderr.strip()}")
+            return 1
+        if not chat_records_with(rtl, "soc", "not_a_loop: new assignment"):
+            report(f"{label} the override's reason is not recorded on the post.")
+            return 1
+        problem = alternate("soc", 9)
+        if problem:
+            report(f"{label} after the override, {problem}")
+            return 1
+        again = chat(rtl, "post", "soc", "round 17")
+        if again.returncode == 0:
+            report(f"{label} a quick alternating post after the override run was accepted.")
+            return 1
+        chat(verify, "post", "soc", "round 17 again")
+        if len(systems("soc")) != 1:
+            report(f"{label} expected one system record after the repeat trip, found {len(systems('soc'))}.")
+            return 1
+        if "  - owner" not in systems("soc")[0]:
+            report(f"{label} the system record does not mention owner:\n{systems('soc')[0]}")
+            return 1
+        refused_override = chat(rtl, "post", "soc", "--not-a-loop", "really", "x")
+        if refused_override.returncode == 0:
+            report(f"{label} an override was accepted after the owner was called.")
             return 1
         owner = chat(rtl, "post", "soc", "Stop and summarize, please.", role="owner")
         if owner.returncode != 0:
@@ -3535,6 +3611,36 @@ def validate_chat_loop_guards_scenario() -> int:
         resumed = chat(rtl, "post", "soc", "Summary: the clock fix is in.")
         if resumed.returncode != 0:
             report(f"{label} rtl could not post after the owner did: {resumed.stderr.strip()}")
+            return 1
+
+        direct = lambda cwd, text: chat(cwd, "dm", "verify" if cwd == rtl else "rtl", text)
+        for step in (lambda: alternate("dm-rtl--verify", 0, direct),
+                     lambda: None if chat(rtl, "dm", "verify", "--not-a-loop", "work", "x").returncode == 0 else "the direct override was refused",
+                     lambda: alternate("dm-rtl--verify", 1, direct)):
+            problem = step()
+            if problem:
+                report(f"{label} in the direct group, {problem}")
+                return 1
+        escalated = chat(verify, "dm", "rtl", "one more")
+        if escalated.returncode == 0:
+            report(f"{label} the repeat trip in the direct group was accepted.")
+            return 1
+        if "another member" in escalated.stderr:
+            report(f"{label} the direct group's refusal names another member: {escalated.stderr.strip()}")
+            return 1
+
+        run_keel(rtl, "chat", "group", "create", "slow", "--member", "verify", env=env)
+        problem = alternate("slow", 0)
+        if problem:
+            report(f"{label} {problem}")
+            return 1
+        hours_ago = (datetime.now().astimezone() - timedelta(hours=3)).isoformat(timespec="seconds")
+        for record in chat_log(rtl, "slow").glob("*.md"):
+            text = record.read_text(encoding="utf-8")
+            record.write_text(re.sub(r"^created: .*$", f"created: {hours_ago}", text, count=1, flags=re.M), encoding="utf-8")
+        slow = chat(rtl, "post", "slow", "a new piece of work, hours later")
+        if slow.returncode != 0:
+            report(f"{label} a post after a slow exchange was refused: {slow.stderr.strip()}")
             return 1
 
         write_text(lint / "keel" / "chat.json", json.dumps({"limits": {"rate": 3, "window_minutes": 10}}) + "\n")
@@ -39140,6 +39246,10 @@ SCENARIOS: tuple = (
     (
         "chat-loop-guards",
         validate_chat_loop_guards_scenario,
+    ),
+    (
+        "chat-stamp-help",
+        validate_chat_stamp_help_scenario,
     ),
     (
         "chat-human-view",
