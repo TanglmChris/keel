@@ -671,7 +671,7 @@ function runShift(argv) {
         const { readPatrolDeclaration, patrolReminder } = require("./config");
         const patrol = readPatrolDeclaration(where.worktree);
         const remind = patrol.role && result.role === patrol.role;
-        if (remind) result.patrol = { role: patrol.role, every: patrol.every };
+        if (remind) result.patrol = { role: patrol.role, every: patrol.every, ...(patrol.hostTask ? { hostTask: patrol.hostTask } : {}) };
         // A new coordinator learns whom its previous shift left unstarted (#289 D2).
         const waiting = (result.waiting || []).map((w) => w.role);
         const still = waiting.length ? `\n\nStill waiting for \`keel shift start\`: ${waiting.join(", ")}.` : "";
@@ -706,4 +706,4 @@ function waitingFor(repo) {
   return { note, since: store.isoLocal(fs.statSync(note).mtime) };
 }
 
-module.exports = { check, runShift, waitingFor };
+module.exports = { check, describe, runShift, shiftStatus: status, waitingFor };

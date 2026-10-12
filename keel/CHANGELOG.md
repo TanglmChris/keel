@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.115.0 - The patrol runs as a host scheduled task and reports only what changed
+
+Issue #295 (rtl_ppa_prj, 2026-10-12): the coordinator's patrol ran as a cron inside its own expensive session and was lost on every clear; moved by hand to a desktop scheduled task on a small model, it first woke the coordinator every hour for a deliberately parked note. Owner decision, 2026-10-12: Keel renders the host task and the model installs it; the change-based logic lives in `keel patrol`; `patrol:` names the host task; no generic scheduler.
+
+- `keel patrol --since-last` keeps a snapshot per role — shift status, the remote default branch tip, the main checkout's uncommitted paths, each role's idleness and open todos, and the role's addressed records unread beyond `--idle` — prints only `changed:` lines for what differs, and exits 2 only when something did. The first run records a baseline.
+- `--notify` sends those changes to the patrolling role as one direct message from `keel-patrol`, which wakes its session; it is refused without `--since-last`.
+- `patrol:` accepts `host_task:` and `model:` (passed through; Keel never chooses a model). With `host_task:`, `keel context` carries `patrol.hostTask` and the reminder asks only to confirm the host task is still enabled. A malformed value is reported by name and ignored.
+- `keel patrol task [--json]` prints the host scheduled task to install — id, a cron suggested from `every:`, the model, and a self-contained prompt running `git fetch` and `keel patrol --since-last --notify` against the role's worktree by path. It creates nothing: a host keeps its schedule itself, set through its own tool.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.115.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.114.0 - A session changes its own shift: `ready --wake`, no self-start, `resume --role`
 
 Issue #293 (2026-10-12): a role with no coordinator above it — the PM going last after #289, or any session changing its own shift — had nobody to start its next session, so it stayed dark until a person typed. `ready` also promised it a coordinator's start, `keel shift start` let a role start itself and woke nothing, and a new shift in another worktree could not find the role's note. Owner decision, 2026-10-12: a one-shot delayed self-wake, named as the one exception to "Keel schedules nothing".

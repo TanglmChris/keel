@@ -18,12 +18,17 @@
 # patrol (optional): the role whose sessions run `keel patrol` on a host
 # schedule, and its interval (#260). Keel schedules nothing; it reminds that
 # role's new sessions and `keel shift resume` to re-create the schedule, since
-# a session's schedule ends with the session.
+# a session's schedule ends with the session. `host_task:` names a host
+# scheduled task that runs it instead, which outlives the session, and the
+# reminder then asks only to confirm it is enabled; `model:` is the model that
+# task declares, passed through and never chosen by Keel. `keel patrol task`
+# prints the task to install with the host's own tool (#295).
 #
 # Example:
 #   patrol:
 #     role: iecc-pm
 #     every: 30m
+#     host_task: rtl-ppa-pm-patrol
 #
 # issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
 # label names one direct message per update of an issue carrying it (#242).

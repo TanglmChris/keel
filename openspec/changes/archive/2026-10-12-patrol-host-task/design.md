@@ -1,0 +1,19 @@
+## Context
+
+Issue #295 and the owner's decision of 2026-10-12 recorded on it. Not chosen: Keel writing into a host scheduler (a second exception to "Keel schedules nothing"); a generic `keel schedule wake`.
+
+## Facts
+
+- F1 — A Claude desktop scheduled task is `~/.claude/scheduled-tasks/<id>/SKILL.md` with the prompt and `model:` in its frontmatter; its schedule (cron or one-shot `fireAt`), enabled state and next run live in the app and are set only through the app's `create_scheduled_task` / `update_scheduled_task` tools, which a session's model calls (read 2026-10-12 from the tool's description and the two rtl_ppa_prj tasks on this machine).
+- F2 — `model:` in that frontmatter is honored, each run is a fresh session, and runs carry load-balancing jitter (#295, measured by rtl_ppa_prj).
+- F3 — An hourly patrol that reports state rather than change reported intentionally parked shift notes every hour (#295).
+- F4 — The chat hooks key off the session's own working directory: a session started in a worktree bound to role `r` touches `r`'s presence, including `session_started`, which `keel shift ready --wake` reads (5.114.0, #293).
+- F5 — `keel patrol` runs as the role bound to `--repo`, posts with that role as sender, and exits 0 / 2 / 1 (5.109.0, #260).
+- F6 — The protocol carries a capability tier and never a model name; Keel neither selects a model nor observes which one ran (`AGENTS.md`).
+
+## Decisions
+
+- D1 — `--since-last` snapshot: `<git common dir>/keel-chat/patrol/<role>.json`, holding `shift` (the `keel shift status` lines), `remote` (`refs/remotes/<default>` tip, or none), `checkout` (the primary worktree's uncommitted path count), `roles` (per role `idle` and `openTodos`), and `unread` (ids of the patrolling role's waking unread records older than `--idle`). Each run compares, prints `changed: <item>: <before> -> <after>` per differing entry (a new unread id prints as `unread: <id> from <sender>`), writes the new snapshot, and omits the unchanged role rows. No previous snapshot: write it, print `keel patrol: baseline recorded.`, and report no change. Exit 2 when a change was reported or the patrol wrote anything else; 0 otherwise.
+- D2 — `--notify` requires `--since-last`. When changes were reported it writes one message from `keel-patrol` in `dm-keel-patrol--<role>` (created if absent) with ref `keel-patrol`: `Patrol <stamp>: what changed since the last run:` followed by the changed lines. It writes nothing when nothing changed.
+- D3 — `patrol:` reads optional `host_task:` (`[a-z0-9][a-z0-9-]{0,63}`) and `model:` (`[A-Za-z0-9][A-Za-z0-9._:-]{0,63}`); a malformed one is reported by name and the rest of the declaration still holds. `keel context` carries `patrol.hostTask`. With it, the reminder reads `Patrol: role <r> runs \`keel patrol\` every <every> through host scheduled task <id>, which outlives this session; confirm it is still enabled rather than creating a schedule in this session.`
+- D4 — `keel patrol task [--json]` needs a valid `patrol:` and a worktree bound to its role, refusing by name otherwise. It prints the task id (`host_task`, else `keel-patrol-<role>`), the suggested cron (`<n>m` dividing 60 → `*/<n> * * * *`, `60m` or `1h` → `0 * * * *`, `<n>h` dividing 24 → `0 */<n> * * *`, `1d` → `0 9 * * *`; otherwise none, saying why), the model (`model:` if declared, else `no model is declared: choose a small model; Keel names none`), and the prompt. The prompt runs every command by path from outside the worktree (F4): `git -C <worktree> fetch -q origin`, then `keel patrol --repo <worktree> --since-last --notify`; on exit 0 or 2 it ends silently, on exit 1 it reports the error output in one line. It forbids editing, committing, pushing, and messaging anyone itself. The command creates nothing: the session's model installs the task with the host's tool.
