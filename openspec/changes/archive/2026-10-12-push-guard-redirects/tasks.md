@@ -93,6 +93,8 @@
 
 - C1: pass. `npm test` after the bump to 5.111.1 reports `validation --all passed: baseline plus 258 scenarios, 1 skipped: output-survives-the-pipe.`
 
+- Note (2026-10-12): #287 (5.112.0) landed first, so after merging `main` this change was re-bumped with `node scripts/bump_version.js patch` to 5.112.1; the 5.111.1 above is the version this change was first released under on its branch, never published.
+
 ## Invalidates
 
 - None.
