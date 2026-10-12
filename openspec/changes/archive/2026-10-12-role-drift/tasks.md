@@ -50,7 +50,7 @@
     - Reauthorizations: 1. After the real-repository run showed parked roles told to "bind the session where it runs", D2's wording in design.md was changed to `if its session runs in another worktree, bind <role> there`; the contract was re-recorded with `task-start --record` before any Evidence was written, and `role-drift` passed again on the reworded text.
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -87,7 +87,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:4682ed2dc4dff11603e0d6dc4f1a5d48c1d1ef9db039ee500bf2ca036afcd89f
+    - M1: pass. After merging main (5.117.0, #302), `node scripts/bump_version.js minor` moved every marker to 5.118.0; with the 5.118.0 changelog section written, `version-alignment` reports `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirement is appended to `openspec/specs/keel-cross-host-mailbox/spec.md`; `published-specs-validate-strictly` reports `34 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the version markers, the changelog section, and the promoted spec are checked by the two scenarios, and the full suite passes on the merged, bumped tree (C1).
+      - Scope check: `git status --short` lists the version-marker files, `keel/CHANGELOG.md`, the published spec, and `scripts/validate_plugin.py`, where the merge with main kept both `role-drift` and `host-run-session` and the dropped `return 0` of `role-drift` was restored.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
 
 ## Change Verify
 
@@ -102,3 +111,7 @@
 
 - E1: A role nobody can wake, or a binding to a removed worktree, is visible to the coordinator and the doctor, can be cleaned up explicitly, and is named to the session that may be that role (D1–D5). Covered by: 1.1
 - E2: The release carries it. Covered by: 2.1
+
+## Change Evidence
+
+- C1: pass. `npm test` on the merged 5.118.0 tree reports `validation --all passed: baseline plus 268 scenarios, 1 skipped: output-survives-the-pipe.`

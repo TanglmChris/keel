@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.118.0 - Role bindings that drift from where sessions run are reported, and removed ones pruned
+
+Issue #301 (rtl_ppa_prj, 2026-10-12): `rtl-report` stayed bound to a worktree no session ran in while its session ran in an unbound one, and `iecc-design-sub` was bound to a removed worktree and an empty one while its session ran in the main checkout; messages to them woke nobody, and nothing said so. Owner decision, 2026-10-12: report it where it is read, and add an explicit cleanup.
+
+- `keel patrol` prints `drift:` lines for a binding to a removed worktree and for a role with addressed unread records or a waiting shift note and no session active for two hours; `--since-last` reports them when they appear or change.
+- `keel --doctor` prints `chat roles: ok`, or one `chat roles: drift` line per item.
+- `keel chat role --prune` removes the bindings to removed worktrees and names each.
+- A session starting in a worktree with no role, the main checkout included, is told which roles have nobody active where they are bound; `keel context` carries them as `unattendedRoles`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.118.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.117.0 - A host scheduled run no longer acts as the role whose worktree it starts in
 
 Issue #300 (rtl_ppa_prj, 2026-10-12): a desktop scheduled task starts its runs in the folder it was created from, so the coordinator's patrol task ran in the coordinator's worktree and Keel's chat hooks treated each run as `iecc-pm` — writing its `session_started`, which would fire a pending `keel shift ready --wake` early, and marking it offline at the end. A run's SessionStart fires before its prompt exists. Owner decision, 2026-10-12.

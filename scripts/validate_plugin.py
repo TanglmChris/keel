@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.117.0"
-PROTOCOL_VERSION = "5.117.0"
+PACKAGE_VERSION = "5.118.0"
+PROTOCOL_VERSION = "5.118.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -5963,6 +5963,9 @@ def validate_role_drift_scenario() -> int:
             report(f"{label} a second prune did not say there was nothing to prune: {again.stdout!r}")
             return 1
     report("role-drift scenario passed.")
+    return 0
+
+
 def validate_host_run_session_scenario() -> int:
     """Issue #300: a scheduled run started in a role's worktree is not that role.
 
