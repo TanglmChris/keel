@@ -243,13 +243,19 @@ function shellSegments(command) {
   let words = [];
   let word = null;
   let expands = false;
+  // A redirection's target is not an argument (#286): the next word is dropped.
+  let dropNext = false;
   const finishWord = () => {
-    if (word !== null) words.push({ text: word, expands });
+    if (word !== null) {
+      if (dropNext) dropNext = false;
+      else words.push({ text: word, expands });
+    }
     word = null;
     expands = false;
   };
   const finishSegment = () => {
     finishWord();
+    dropNext = false;
     if (words.length) segments.push(words);
     words = [];
   };
@@ -282,6 +288,29 @@ function shellSegments(command) {
         rest += consumed;
       }
       i = rest - 1;
+      continue;
+    }
+    // A redirection — `>`, `>>`, `<`, `2>`, `2>&1`, `>&2`, `&>` — and its target
+    // are dropped, never read as arguments (#286 D1). Heredocs are handled above.
+    if (c === ">" || c === "<" || (c === "&" && command[i + 1] === ">")) {
+      if (c === "&") i += 1;
+      if (word !== null && /^\d+$/.test(word) && !expands) {
+        word = null;
+        expands = false;
+      } else {
+        finishWord();
+      }
+      let j = i + 1;
+      if (command[j] === ">" || command[j] === "<") j += 1;
+      if (command[j] === "&") {
+        const fd = command.slice(j + 1).match(/^(\d+|-)/);
+        if (fd) {
+          i = j + fd[0].length;
+          continue;
+        }
+      }
+      dropNext = true;
+      i = j - 1;
       continue;
     }
     if (c === "'") {
