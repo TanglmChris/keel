@@ -14,7 +14,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const store = require("./chat/store");
 const locks = require("./lock");
 
@@ -25,8 +25,9 @@ const USAGE = [
   "keel shift ready [text | --file f]    store the shift note, close the request (refused while loose)",
   "                 [--role r]           ...under role r, from a worktree bound to no role (#290)",
   "                 [--force-reason r]   ...or state why the loose ends may stay",
+  "                 [--wake]             ...and wake the role's next session once it starts (#293)",
   "keel shift start <role> [text]        wake the cleared role to resume (once its note waits)",
-  "keel shift resume [--json]            print and consume this role's note",
+  "keel shift resume [--role r] [--json] print and consume this role's note (--role: from an unbound worktree)",
   "keel shift status [--json]            each role's shift state",
   "Options: --repo <path>. See docs/shift-change.md.",
 ].join("\n");
@@ -363,6 +364,10 @@ function readyRole(where, options) {
 
 function ready(where, options) {
   const role = readyRole(where, options);
+  if (options.wake && !role) {
+    throw new ShiftError("--wake wakes a chat role, and this worktree has none: bind one with `keel chat role --set <name>`, or name it with --role.");
+  }
+  const since = Date.now();
   const result = check(where, role);
   if (!result.ready && !options.forceReason) {
     throw new ShiftError(`${renderCheck(result)}\nResolve these, or give --force-reason "<why they may stay>".`);
@@ -392,12 +397,77 @@ function ready(where, options) {
       store.writeRecord(where, { group: todo.group, kind: "done", from: role, target: todo.id });
     }
   }
-  return { role: role || null, note, closed: open.map((todo) => todo.id) };
+  const waiter = options.wake ? armWake(where, role, since) : null;
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter };
+}
+
+// --- the one-shot wake (#293) -------------------------------------------------------
+//
+// The one exception to "Keel schedules nothing" (D7): `ready --wake` leaves a
+// detached waiter that writes a single wake record once the role's next
+// session has started, then exits. Its working directory is `/`, so `check`
+// never counts it as this worktree's process.
+
+const WAKE_SENDER = "keel-shift";
+const WAKE_SOURCES = new Set(["clear", "startup"]);
+
+function envMs(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function armWake(where, role, since) {
+  const keel = path.resolve(__dirname, "..", "..", "bin", "keel.js");
+  const child = spawn(
+    process.execPath,
+    [keel, "shift", "wake-wait", "--role", role, "--since", String(since), "--repo", where.worktree],
+    { detached: true, stdio: "ignore", cwd: path.parse(where.worktree).root },
+  );
+  child.unref();
+  return child.pid;
+}
+
+// The role's current session started after `since`, from a clear or a fresh start.
+function startedSince(where, role, since) {
+  const { presenceFile } = require("./chat/notice");
+  const presence = store.readJsonFile(presenceFile(where, role));
+  const started = Date.parse(presence.session_started || "");
+  return !Number.isNaN(started) && started >= since && WAKE_SOURCES.has(presence.session_source);
+}
+
+function writeWake(where, role) {
+  const group = directGroup(where, WAKE_SENDER, role);
+  return store.writeRecord(where, {
+    group,
+    kind: "message",
+    from: WAKE_SENDER,
+    refs: [REF],
+    text: `${role}: your new shift starts now (woken by the \`keel shift ready --wake\` you ran). First run \`keel context\`, then \`keel shift resume\`.`,
+  });
+}
+
+function waitForWake(where, role, since) {
+  const poll = envMs("KEEL_SHIFT_WAKE_POLL_MS", 5000);
+  const deadline = Date.now() + envMs("KEEL_SHIFT_WAKE_TIMEOUT_MS", 2 * 60 * 60 * 1000);
+  const tick = () => {
+    // A note resumed by hand needs no wake; give up after the time limit.
+    if (!fs.existsSync(notePath(where, role)) || Date.now() > deadline) return;
+    if (startedSince(where, role, since)) {
+      writeWake(where, role);
+      return;
+    }
+    setTimeout(tick, poll);
+  };
+  tick();
 }
 
 function start(where, role, text) {
   const from = requireRole(where);
   store.checkName(role, "Role");
+  // A role's own start would address itself and wake nothing (#293 D4).
+  if (role === from) {
+    throw new ShiftError("A role does not start its own new shift; use `keel shift ready --wake`, which wakes it once the new session starts.");
+  }
   if (!fs.existsSync(notePath(where, role))) {
     throw new ShiftError(`No shift note waits for ${role}: it has not run \`keel shift ready\`, or already resumed.`);
   }
@@ -409,8 +479,19 @@ function start(where, role, text) {
   return store.post(where, { group, text: body, refs: [REF] });
 }
 
-function resume(where) {
-  const role = store.currentRole(where);
+// `--role` reads a role's note from a worktree bound to no other role (#293 D5).
+function resumeRole(where, named) {
+  const bound = store.currentRole(where);
+  if (!named) return bound;
+  store.checkName(named, "Role");
+  if (bound && bound !== named) {
+    throw new ShiftError(`This worktree is bound to role ${bound}; --role ${named} names another role.`);
+  }
+  return named;
+}
+
+function resume(where, named = null) {
+  const role = resumeRole(where, named);
   const note = waitingNote(where, role);
   if (!note) return { role: role || null, note: null, text: null };
   const text = fs.readFileSync(note, "utf8");
@@ -427,7 +508,10 @@ function resume(where) {
   let told = null;
   if (latest && latest.from !== role) {
     const group = directGroup(where, role, latest.from);
-    told = store.post(where, { group, text: `${role} is on shift, resumed from its shift note.`, refs: [REF] }).id;
+    const text = `${role} is on shift, resumed from its shift note.`;
+    told = (store.currentRole(where) === role
+      ? store.post(where, { group, text, refs: [REF] })
+      : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
   return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [] };
 }
@@ -485,7 +569,11 @@ function describe(row) {
   if (row.note && row.role.startsWith("worktree ")) {
     return `${row.role}: note waiting since ${row.note}; no chat role there, so tell the session in ${row.path || "that worktree"} to run \`keel shift resume\``;
   }
-  if (row.note) return `${row.role}: note waiting since ${row.note}; \`keel shift start ${row.role}\` wakes it to resume`;
+  // A note no request asked for is its own role's to resume (#293 D6).
+  if (row.note && !row.request) {
+    return `${row.role}: note waiting since ${row.note}; its own next session resumes it — woken by \`keel shift ready --wake\`, or by typing into it`;
+  }
+  if (row.note) return `${row.role}: note waiting since ${row.note}; another role's \`keel shift start ${row.role}\` wakes it to resume`;
   if (row.request && row.request.open) {
     const elsewhere = row.worktreeNotesSince
       ? `; a worktree note was written since (${row.worktreeNotesSince.join(", ")}) — if it is ${row.role}'s, file it with \`keel shift ready --role ${row.role}\``
@@ -504,8 +592,22 @@ const CLEAR_HINT = [
   "- Claude desktop app: call `clear_session(\"self\")` (the owner approves it), or type /clear;",
   "- Claude Code CLI: /clear;",
   "- Codex: start a new session in this worktree.",
-  "The coordinator's `keel shift start` then wakes the new shift; without chat roles, tell the new session to run `keel shift resume`.",
 ].join("\n");
+
+// Who starts the new session (#293 D3): the coordinator that asked, nobody,
+// or — without a chat role — the person who opens it.
+function clearHint(result) {
+  let last;
+  if (!result.role) last = "Without a chat role, tell the new session to run `keel shift resume`.";
+  else if (result.waiter) {
+    last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
+  } else if (result.closed.length) last = "The coordinator's `keel shift start` then wakes the new shift.";
+  else {
+    last = `No request named ${result.role}, so nobody is set to start the new session: type into it, `
+      + "or run `keel shift ready --wake` again with this note, which wakes it once it starts.";
+  }
+  return `${CLEAR_HINT}\n${last}`;
+}
 
 function runShift(argv) {
   const options = { json: false, repo: process.cwd(), positionals: [], file: null, forceReason: null, role: null };
@@ -516,6 +618,8 @@ function runShift(argv) {
     else if (arg === "--file") options.file = argv[++index] || "";
     else if (arg === "--force-reason") options.forceReason = argv[++index] || "";
     else if (arg === "--role") options.role = argv[++index] || "";
+    else if (arg === "--since") options.since = Number(argv[++index]);
+    else if (arg === "--wake") options.wake = true;
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(`${USAGE}\n`);
       return 0;
@@ -540,7 +644,15 @@ function runShift(argv) {
       case "ready": {
         const result = ready(where, { ...options, text: rest.join(" ") });
         const whose = result.role || "this worktree (no chat role, so no request to close)";
-        out({ ...result, clear: CLEAR_HINT }, `Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${CLEAR_HINT}`);
+        const hint = clearHint(result);
+        out({ ...result, clear: hint }, `Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${hint}`);
+        return 0;
+      }
+      case "wake-wait": {
+        // Internal: the detached waiter `ready --wake` spawns.
+        if (!options.role || !Number.isFinite(options.since)) throw new ShiftError("keel shift wake-wait needs --role and --since.");
+        store.checkName(options.role, "Role");
+        waitForWake(where, options.role, options.since);
         return 0;
       }
       case "start": {
@@ -550,7 +662,7 @@ function runShift(argv) {
         return 0;
       }
       case "resume": {
-        const result = resume(where);
+        const result = resume(where, options.role);
         if (!result.note) {
           out(result, `No shift note waits for ${result.role || "this worktree"}.`);
           return 0;
