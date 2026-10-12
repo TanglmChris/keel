@@ -688,6 +688,10 @@ or, with no owner named, when another worktree's branch has commits touching it 
 branch and yours has none. Only committed history counts; uncommitted files never decide it. `keel
 context --change <name>` still selects any change by name.
 
+When nothing is selected, `keel context` and the session note also point at what the branch was
+last working on (#278): up to five issues its commits beyond the default branch reference, newest
+first — `recently referenced: #162, #182`. It is read from Git, and it selects nothing.
+
 A session that never owns a change — review, verification, a coordinator — can be declared
 read-only by its chat role (#246):
 
