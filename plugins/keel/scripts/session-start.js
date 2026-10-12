@@ -661,7 +661,13 @@ function main() {
     );
   }
   // The patrolling role re-arms its schedule after a shift change (#260).
-  if (context.patrol && context.patrol.role) {
+  if (context.patrol && context.patrol.role && context.patrol.hostTask) {
+    // A host scheduled task outlives the session (#295 D3).
+    lines.push(
+      `- patrol: role ${context.patrol.role} runs \`keel patrol\` every ${context.patrol.every} through host scheduled task `
+        + `${context.patrol.hostTask}, which outlives this session; confirm it is still enabled rather than creating a schedule in this session.`
+    );
+  } else if (context.patrol && context.patrol.role) {
     lines.push(
       `- patrol: role ${context.patrol.role} runs \`keel patrol\` every ${context.patrol.every}; `
         + "a session's schedule ends with the session, so re-create it with the host "
