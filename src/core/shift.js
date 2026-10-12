@@ -23,6 +23,7 @@ const USAGE = [
   "keel shift request <role> [text]      ask a role to change shift (wakes it)",
   "keel shift check [--json]             readiness check of this worktree; exit 1 if anything is loose",
   "keel shift ready [text | --file f]    store the shift note, close the request (refused while loose)",
+  "                 [--role r]           ...under role r, from a worktree bound to no role (#290)",
   "                 [--force-reason r]   ...or state why the loose ends may stay",
   "keel shift start <role> [text]        wake the cleared role to resume (once its note waits)",
   "keel shift resume [--json]            print and consume this role's note",
@@ -201,6 +202,14 @@ function check(where, role) {
   }
 
   if (role) {
+    // A coordinator does not leave notes waiting unstarted (#289 D1): once it
+    // clears, nobody is left to start them.
+    for (const waiting of unstarted(where, role)) {
+      items.push({
+        kind: "unstarted",
+        detail: `${waiting.role}: note waiting since ${waiting.since}; run \`keel shift start ${waiting.role}\` before your own shift ends`,
+      });
+    }
     for (const todo of store.openTodos(where, { assignee: role })) {
       if (isShift(todo)) continue;
       items.push({ kind: "open-todo", detail: `${todo.id} in ${todo.group}: ${firstLine(todo.text)}` });
@@ -214,6 +223,36 @@ function check(where, role) {
     notes.push("this worktree has no chat role, so its chat was not checked");
   }
   return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes };
+}
+
+// The UTC millisecond a chat record id was written at (`20261012T093944609Z-…`).
+function idTime(id) {
+  const m = String(id || "").match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z/);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : 0;
+}
+
+// Roles whose note waits, whose latest shift request came from `coordinator`,
+// and that `coordinator` has not started since the note was written.
+function unstarted(where, coordinator) {
+  const result = [];
+  for (const file of safeList(shiftDir(where))) {
+    if (!file.endsWith(".md")) continue;
+    const role = file.slice(0, -3);
+    if (role === coordinator || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(role)) continue;
+    const requests = shiftRequests(where, role);
+    const latest = requests[requests.length - 1];
+    if (!latest || latest.from !== coordinator) continue;
+    const written = fs.statSync(path.join(shiftDir(where), file)).mtime;
+    // A record's id carries its UTC time to the millisecond; `created` only to
+    // the second, which lets a start from the previous round read as later
+    // than a note written in the same second.
+    const started = store.readLog(where, store.directName(coordinator, role)).some(
+      (record) => record.from === coordinator && record.kind === "message" && isShift(record)
+        && /your new shift starts now/.test(record.text || "") && idTime(record.id) > written.getTime()
+    );
+    if (!started) result.push({ role, since: store.isoLocal(written) });
+  }
+  return result.sort((a, b) => (a.role < b.role ? -1 : 1));
 }
 
 function firstLine(text) {
@@ -265,8 +304,9 @@ function request(where, role, text) {
     `Shift change requested by ${from}. Wrap up, then hand over:`,
     "1. `keel shift check` until it reports ready (or decide what may stay).",
     "2. Put follow-ups where the project tracks them, and update long-lived memory you own.",
-    "3. `keel shift ready \"<what you were doing, next step, what you wait on, where>\"`.",
-    "4. Clear this session as `keel shift ready` says.",
+    "3. Note in the shift note any session state a clear destroys and Keel cannot see — scheduled jobs, Remote Control — so the next shift can re-create it.",
+    "4. `keel shift ready \"<what you were doing, next step, what you wait on, where>\"`.",
+    "5. Clear this session as `keel shift ready` says.",
     text ? `\n${text}` : "",
   ].join("\n").trim();
   return store.todo(where, { group, assignee: role, text: body, refs: [REF] });
@@ -292,8 +332,37 @@ function readNoteText(options) {
   return "";
 }
 
+// The role a note is filed under (#290 D4, D5): the worktree's, or `--role`
+// when this worktree has none and that role has an open request. An unbound
+// worktree refuses to file under itself while role requests are open, since
+// such a note would answer none of them.
+function readyRole(where, options) {
+  const bound = store.currentRole(where);
+  if (options.role) {
+    store.checkName(options.role, "Role");
+    if (bound && bound !== options.role) {
+      throw new ShiftError(`This worktree is bound to role ${bound}; --role ${options.role} names another role.`);
+    }
+    if (!shiftRequests(where, options.role).some((r) => r.open)) {
+      throw new ShiftError(`--role ${options.role}: no shift change is requested of ${options.role}, so there is no request for this note to answer.`);
+    }
+    return options.role;
+  }
+  if (!bound) {
+    const open = [...new Set(shiftRequests(where).filter((r) => r.open).map((r) => r.assignee))].sort();
+    if (open.length) {
+      throw new ShiftError(
+        `This worktree has no chat role, and shift changes are requested of ${open.join(", ")}. `
+          + `If this session is one of them, run ${open.map((r) => `\`keel shift ready --role ${r} …\``).join(" or ")}; `
+          + "a note filed under this worktree would answer none of the requests."
+      );
+    }
+  }
+  return bound;
+}
+
 function ready(where, options) {
-  const role = store.currentRole(where);
+  const role = readyRole(where, options);
   const result = check(where, role);
   if (!result.ready && !options.forceReason) {
     throw new ShiftError(`${renderCheck(result)}\nResolve these, or give --force-reason "<why they may stay>".`);
@@ -312,13 +381,16 @@ function ready(where, options) {
   writeFileAtomic(note, `${head}\n${text}\n`);
   // Requests are chat records; without a role there is none to close (D2).
   const open = role ? shiftRequests(where, role).filter((r) => r.open) : [];
+  const doneText = (todo) => `done — ${role} is ready for the shift change; the note waits for \`keel shift resume\`.${options.forceReason ? ` Left as is: ${options.forceReason}.` : ""}`;
   for (const todo of open) {
-    store.post(where, {
-      group: todo.group,
-      replyTo: todo.id,
-      refs: [REF],
-      text: `done — ${role} is ready for the shift change; the note waits for \`keel shift resume\`.${options.forceReason ? ` Left as is: ${options.forceReason}.` : ""}`,
-    });
+    if (store.currentRole(where) === role) {
+      store.post(where, { group: todo.group, replyTo: todo.id, refs: [REF], text: doneText(todo) });
+    } else {
+      // Filed with --role from a worktree bound to no role (#290 D4): the
+      // reply and the closing record are the role's own.
+      store.writeRecord(where, { group: todo.group, kind: "message", from: role, reply_to: todo.id, refs: [REF], text: doneText(todo) });
+      store.writeRecord(where, { group: todo.group, kind: "done", from: role, target: todo.id });
+    }
   }
   return { role: role || null, note, closed: open.map((todo) => todo.id) };
 }
@@ -357,7 +429,7 @@ function resume(where) {
     const group = directGroup(where, role, latest.from);
     told = store.post(where, { group, text: `${role} is on shift, resumed from its shift note.`, refs: [REF] }).id;
   }
-  return { role, note: history, text, told };
+  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [] };
 }
 
 function status(where) {
@@ -370,12 +442,27 @@ function status(where) {
     entry(todo.assignee).request = { id: todo.id, from: todo.from, created: todo.created, open: todo.open };
   }
   const dir = shiftDir(where);
+  const worktreeNotes = [];
   for (const [folder, prefix] of [[dir, ""], [path.join(dir, "worktree"), "worktree "]]) {
     for (const file of safeList(folder)) {
       if (!file.endsWith(".md")) continue;
       const stat = fs.statSync(path.join(folder, file));
-      entry(`${prefix}${file.slice(0, -3)}`).note = store.isoLocal(stat.mtime);
+      const row = entry(`${prefix}${file.slice(0, -3)}`);
+      row.note = store.isoLocal(stat.mtime);
+      if (prefix) {
+        // The note's header names the worktree it was written in (#291 D6).
+        const header = fs.readFileSync(path.join(folder, file), "utf8").match(/^Written \S+ in (.+)\.$/m);
+        row.path = header ? header[1] : null;
+        worktreeNotes.push({ name: file.slice(0, -3), written: stat.mtime.getTime() });
+      }
     }
+  }
+  // A role still requested may have handed over from another worktree (#290 D6).
+  for (const row of roles.values()) {
+    if (row.note || !row.request || !row.request.open) continue;
+    const since = Date.parse(row.request.created);
+    const later = worktreeNotes.filter((n) => !Number.isNaN(since) && n.written >= since).map((n) => n.name);
+    if (later.length) row.worktreeNotesSince = later;
   }
   for (const file of safeList(path.join(dir, "history"))) {
     const match = file.match(/^(.+)-(\d{4}-\d{2}-\d{2}T\d+)\.md$/);
@@ -395,8 +482,16 @@ function safeList(dir) {
 }
 
 function describe(row) {
+  if (row.note && row.role.startsWith("worktree ")) {
+    return `${row.role}: note waiting since ${row.note}; no chat role there, so tell the session in ${row.path || "that worktree"} to run \`keel shift resume\``;
+  }
   if (row.note) return `${row.role}: note waiting since ${row.note}; \`keel shift start ${row.role}\` wakes it to resume`;
-  if (row.request && row.request.open) return `${row.role}: change requested by ${row.request.from} at ${row.request.created}; not ready yet`;
+  if (row.request && row.request.open) {
+    const elsewhere = row.worktreeNotesSince
+      ? `; a worktree note was written since (${row.worktreeNotesSince.join(", ")}) — if it is ${row.role}'s, file it with \`keel shift ready --role ${row.role}\``
+      : "";
+    return `${row.role}: change requested by ${row.request.from} at ${row.request.created}; not ready yet${elsewhere}`;
+  }
   if (row.resumed) return `${row.role}: on shift, resumed ${row.resumed}`;
   return `${row.role}: ready was recorded without a note`;
 }
@@ -404,6 +499,7 @@ function describe(row) {
 // --- the command line --------------------------------------------------------------
 
 const CLEAR_HINT = [
+  "Session state a clear destroys — scheduled jobs, Remote Control — is not in Keel; if the note does not say how to re-create it, add that first.",
   "Now clear this session:",
   "- Claude desktop app: call `clear_session(\"self\")` (the owner approves it), or type /clear;",
   "- Claude Code CLI: /clear;",
@@ -412,13 +508,14 @@ const CLEAR_HINT = [
 ].join("\n");
 
 function runShift(argv) {
-  const options = { json: false, repo: process.cwd(), positionals: [], file: null, forceReason: null };
+  const options = { json: false, repo: process.cwd(), positionals: [], file: null, forceReason: null, role: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") options.json = true;
     else if (arg === "--repo") options.repo = argv[++index] || "";
     else if (arg === "--file") options.file = argv[++index] || "";
     else if (arg === "--force-reason") options.forceReason = argv[++index] || "";
+    else if (arg === "--role") options.role = argv[++index] || "";
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(`${USAGE}\n`);
       return 0;
@@ -463,7 +560,10 @@ function runShift(argv) {
         const patrol = readPatrolDeclaration(where.worktree);
         const remind = patrol.role && result.role === patrol.role;
         if (remind) result.patrol = { role: patrol.role, every: patrol.every };
-        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${remind ? `\n\n${patrolReminder(patrol)}` : ""}`);
+        // A new coordinator learns whom its previous shift left unstarted (#289 D2).
+        const waiting = (result.waiting || []).map((w) => w.role);
+        const still = waiting.length ? `\n\nStill waiting for \`keel shift start\`: ${waiting.join(", ")}.` : "";
+        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}`);
         return 0;
       }
       case "status": {

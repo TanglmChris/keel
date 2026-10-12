@@ -11,10 +11,17 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 | coordinator | `keel shift request <role> [text]` | With chat roles: posts a shift request to the role as a todo, which wakes it. Without them, tell the session any way you like. |
 | role | `keel shift check` | Read-only. Lists loose ends and exits 1 if there are any. |
 | role | `keel shift ready "<note>"` | Stores the note and closes the request, if there is one. Refused while `check` reports anything, unless `--force-reason "<why>"` is given. The note can also come from `--file` or stdin. |
+| role, working in another worktree | `keel shift ready --role <role> "<note>"` | Files the note under the role and closes its request, from a worktree bound to no role (#290). Without `--role`, `ready` in an unbound worktree is refused while any role's request is open, so a note cannot land where no request will find it. |
 | role | clear the session | Desktop app: `clear_session("self")`, which you approve, or `/clear`. CLI: `/clear`. Codex: a new session. Keel runs none of these. |
 | coordinator | `keel shift start <role> [next step]` | With chat roles: refused until the role's note waits, then wakes the cleared role. Without them, tell the new session to run `keel shift resume`. |
 | role (new shift) | `keel context`, then `keel shift resume` | Prints the note and moves it to history. With a chat role, also tells the coordinator the role is on shift. |
-| anyone | `keel shift status` | Each role's state: requested, note waiting, or resumed. |
+| anyone | `keel shift status` | Each role's state: requested, note waiting, or resumed. A worktree note says which worktree should run `keel shift resume`; a role still requested names any worktree note written since. |
+
+## The coordinator's own shift
+
+The coordinator goes last (#289). On Claude nothing wakes a cleared session, so a coordinator that clears before starting the others leaves the whole team waiting until someone types into its new session. Its `keel shift check` therefore lists every role whose note waits and that it has not started since, and its `ready` is refused until it runs `keel shift start` for them, or gives `--force-reason`. Then it runs `ready` with its own note like any role, which `status` and the new session's projection show. When its new shift runs `keel shift resume`, the output names any role still waiting for `start`.
+
+Session state a clear destroys and Keel cannot see — scheduled jobs such as a patrol, Remote Control — belongs in the note, so the next shift can re-create it; with `patrol:` declared, the new shift is reminded of the patrol anyway.
 
 ## What `check` looks at
 
@@ -24,6 +31,7 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 - Processes whose working directory is inside the worktree, other than the session running the check.
 - Temporary worktrees in a Claude scratchpad of a session started in this worktree. Other temporary worktrees, such as another session's, are listed as notes and do not block.
 - Open todos assigned to the role, and unread messages that would wake it.
+- For a role that requested shift changes: roles whose note waits and that it has not started since (`unstarted`).
 
 A project can run its own checks beside it, such as build products under a scratch directory, from a script that calls `keel shift check` first.
 
