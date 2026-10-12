@@ -287,6 +287,22 @@ function nudgeRoles(where, patroller, options) {
   return { sent, escalations };
 }
 
+// --- quota thresholds (#307 part 2) ---------------------------------------------------
+//
+// The host reports the weekly quota's percent used; each threshold is a risk
+// once per period, and a drop in the figure starts a new period (D2).
+function quotaRisk(where, options) {
+  if (options.quota === null) return null;
+  const file = path.join(where.root, "patrol", "quota.json");
+  const state = store.readJsonFile(file);
+  let reported = Array.isArray(state.reported) ? state.reported : [];
+  if (typeof state.last === "number" && options.quota < state.last) reported = [];
+  const reached = options.quotaAlerts.filter((threshold) => threshold <= options.quota && !reported.includes(threshold));
+  store.writeJsonAtomic(where, file, { last: options.quota, reported: [...reported, ...reached].sort((a, b) => a - b) });
+  if (!reached.length) return null;
+  return `weekly quota is at ${options.quota}%, past ${Math.max(...reached)}%`;
+}
+
 function notifyRisks(where, role, risks) {
   const group = store.directName(NOTIFY_SENDER, role);
   if (!store.groupState(store.readLog(where, group)).exists) {
@@ -304,6 +320,7 @@ function render(result) {
   for (const change of changes) lines.push(`changed: ${change}`);
   for (const sent of result.nudges || []) lines.push(`nudged ${sent.role}: ${sent.kind}`);
   for (const risk of result.risks || []) lines.push(`risk: ${risk}`);
+  if (result.paused) lines.push(result.paused);
   for (const held of result.held) lines.push(`met: ${held.from} waited for ${held.condition} (${held.id})`);
   for (const sent of result.notices) lines.push(`notified ${sent.to}: ${sent.text}`);
   for (const wait of result.unchecked) lines.push(`unchecked: ${wait.from} waits for ${wait.condition}; pass --issues to check it`);
@@ -405,7 +422,7 @@ function runPatrol(argv) {
       throw error;
     }
   }
-  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50, diskFreeGb: null, diskMinGb: 20 };
+  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50, diskFreeGb: null, diskMinGb: 20, quota: null, quotaAlerts: [90, 95, 99], quotaQuietAt: 90 };
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const arg = argv[index];
@@ -417,6 +434,9 @@ function runPatrol(argv) {
       else if (arg === "--shift-at") options.shiftAt = Number(argv[++index]);
       else if (arg === "--disk-free-gb") options.diskFreeGb = Number(argv[++index]);
       else if (arg === "--disk-min-gb") options.diskMinGb = Number(argv[++index]);
+      else if (arg === "--quota") options.quota = Number(argv[++index]);
+      else if (arg === "--quota-alerts") options.quotaAlerts = String(argv[++index] || "").split(",").map(Number);
+      else if (arg === "--quota-quiet-at") options.quotaQuietAt = Number(argv[++index]);
       else if (arg === "--help" || arg === "-h") {
         process.stdout.write(`${USAGE}\nExit 0: wrote nothing. 2: sent a notice or marked a wait met. 1: error.\n`);
         return EXIT_QUIET;
@@ -431,13 +451,22 @@ function runPatrol(argv) {
     options.contexts = parseContexts(options.context);
     if (options.diskFreeGb !== null && !(options.diskFreeGb >= 0)) throw new PatrolError("--disk-free-gb needs a number of gigabytes.");
     if (!(options.diskMinGb > 0)) throw new PatrolError("--disk-min-gb needs a positive number of gigabytes.");
+    const percent = (value) => Number.isFinite(value) && value >= 0 && value <= 100;
+    if (options.quota !== null && !percent(options.quota)) throw new PatrolError("--quota needs the percent used, from 0 to 100.");
+    if (!options.quotaAlerts.length || !options.quotaAlerts.every(percent)) throw new PatrolError("--quota-alerts needs percentages separated by commas, such as 90,95,99.");
+    if (!percent(options.quotaQuietAt)) throw new PatrolError("--quota-quiet-at needs a percentage from 0 to 100.");
     if (parseSince(options.idle) === null) throw new PatrolError(`--idle ${JSON.stringify(options.idle)} is not a duration; use 90s, 15m, 2h, or 3d.`);
     options.issues = readIssues(options.issues);
     const where = store.requireLocation(path.resolve(options.repo));
     const role = store.requireRole(where);
     const result = patrol(where, role, options);
     result.risks = [];
-    if (options.nudge) {
+    const quota = quotaRisk(where, options);
+    if (quota) result.risks.push(quota);
+    // Near the limit nudges stop, since each wakes a large session (D3).
+    const quiet = options.quota !== null && options.quota >= options.quotaQuietAt;
+    if (options.nudge && quiet) result.paused = `nudges paused: quota at ${options.quota}%`;
+    if (options.nudge && !quiet) {
       const nudged = nudgeRoles(where, role, options);
       result.nudges = nudged.sent;
       result.risks.push(...nudged.escalations);
