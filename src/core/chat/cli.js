@@ -15,7 +15,7 @@ const { relativeAge } = require("./view");
 const { ChatError } = store;
 
 const USAGE = [
-  "keel chat role [--set <name>] [--alias <alias>] [--json]",
+  "keel chat role [--set <name>] [--alias <alias>] [--prune] [--json]   (--prune: drop bindings to removed worktrees)",
   "keel chat group create <group> [--member <role>]...",
   "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
@@ -74,10 +74,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--help": "help", "-h": "help" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--help": "help", "-h": "help", "--prune": "prune" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, help: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, help: false, prune: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -286,6 +286,13 @@ function dispatch(where, options) {
   const [command, ...rest] = options.positionals;
   switch (command) {
     case "role": {
+      if (options.prune) {
+        // Bindings to removed worktrees (#301 D4).
+        const pruned = require("./drift").pruneBindings(where);
+        if (options.json) out(JSON.stringify({ pruned }));
+        else out(pruned.length ? pruned.map((entry) => `Pruned ${entry.role} from ${entry.worktree}.`).join("\n") : "No binding points at a removed worktree.");
+        return 0;
+      }
       let role = store.currentRole(where);
       if (options.set !== null) role = store.setRole(where, options.set);
       if (options.alias !== null) {
