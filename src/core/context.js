@@ -812,6 +812,21 @@ function resolveContext(repo, options) {
   // by role, and Keel cannot see the host's session title. A worktree with no
   // role while others here have one is reminded; a repository that uses no
   // roles hears nothing.
+  // An idle session gets a pointer at what its branch was working on (#278):
+  // Git alone, a separate field, never a reason or a selection.
+  if (context.status === "idle") {
+    try {
+      const { branchIssues, defaultBranch } = require("./worktrees");
+      const base = defaultBranch(repo);
+      const branch = gitOutput(repo, ["symbolic-ref", "--short", "-q", "HEAD"]);
+      // `origin/main` and `main` are the same default branch here.
+      const onDefault = base && branch && base.replace(/^[^/]+\//, "") === branch;
+      const issues = base && branch && branch !== base && !onDefault ? branchIssues(repo, base, 5) : [];
+      if (issues.length) context.recent = { issues, range: `${base}..${branch}` };
+    } catch {
+      // A pointer that cannot be read is simply absent.
+    }
+  }
   context.role = null;
   try {
     const store = require("./chat/store");

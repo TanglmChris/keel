@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.110.0"
-PROTOCOL_VERSION = "5.110.0"
+PACKAGE_VERSION = "5.111.0"
+PROTOCOL_VERSION = "5.111.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8876,6 +8876,55 @@ def validate_session_role_identity_scenario() -> int:
             report(f"{label} a role-less repository's projection has a role line: {note!r}")
             return 1
     report("session-role-identity scenario passed.")
+    return 0
+
+
+def validate_idle_recent_issues_scenario() -> int:
+    """Issue #278: an idle result points at the issues the branch referenced.
+
+    From Git alone, newest first and without repeats, in a separate field the
+    session projection prints; nothing on the default branch.
+    """
+    label = "idle-recent-issues:"
+    with tempfile.TemporaryDirectory(prefix="keel-idle-recent-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        write_text(repo / "openspec/specs/.keep", "")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "openspec"], cwd=repo, check=True, capture_output=True)
+        work = chat_worktree(repo, base / "work")
+        for message in ("fix the lock lease (#162)", "context per worktree, #182", "follow-up for #162"):
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", message], cwd=work, check=True, capture_output=True)
+
+        def look(cwd: Path) -> tuple[dict, str]:
+            context = json.loads(run_keel(cwd, "context", "--json").stdout)
+            session = run_session_start_hook(
+                cwd, {"hook_event_name": "SessionStart", "source": "compact", "cwd": str(cwd)},
+                keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+            )
+            return context, session_start_context(session) or ""
+
+        on_main, main_note = look(repo)
+        context, note = look(work)
+        if context.get("status") != "idle":
+            report(f"{label} the worktree is {context.get('status')!r}, not idle.")
+            return 1
+        if (context.get("recent") or {}).get("issues") != [162, 182]:
+            report(f"{label} recent is {context.get('recent')!r}, not issues [162, 182].")
+            return 1
+        if context.get("reasons") != on_main.get("reasons"):
+            report(f"{label} recent issues changed the reasons: {context.get('reasons')!r}")
+            return 1
+        if "recently referenced: #162, #182" not in note:
+            report(f"{label} the projection does not print the recent issues: {note!r}")
+            return 1
+        if "recent" in on_main:
+            report(f"{label} the default branch carries recent: {on_main.get('recent')!r}")
+            return 1
+        if "recently referenced" in main_note:
+            report(f"{label} the default branch's projection prints recent issues: {main_note!r}")
+            return 1
+    report("idle-recent-issues scenario passed.")
     return 0
 
 
@@ -38526,6 +38575,7 @@ SCENARIOS: tuple = (
     ("stateless-continuity", validate_stateless_continuity_scenario),
     ("context-per-worktree", validate_context_per_worktree_scenario),
     ("read-only-role", validate_read_only_role_scenario),
+    ("idle-recent-issues", validate_idle_recent_issues_scenario),
     ("session-role-identity", validate_session_role_identity_scenario),
     ("core-gates", validate_core_gates_scenario),
     ("scope-rename-attribution", validate_scope_rename_attribution_scenario),

@@ -53,6 +53,22 @@ function defaultBranch(repo) {
   return null;
 }
 
+// The issues a branch's commits beyond `base` reference as `#<n>`, newest
+// commit first and without repeats (#278 D1); `limit` caps the list.
+function branchIssues(cwd, base, limit = Infinity) {
+  if (!base) return [];
+  const log = git(cwd, ["log", "--format=%s%n%b%x00", `${base}..HEAD`, "--"], true);
+  if (!log) return [];
+  const seen = [];
+  for (const message of log.split("\0")) {
+    for (const match of message.matchAll(/#(\d+)/g)) {
+      const number = Number(match[1]);
+      if (Number.isSafeInteger(number) && number > 0 && !seen.includes(number)) seen.push(number);
+    }
+  }
+  return seen.slice(0, limit);
+}
+
 function readIssues(file) {
   if (file === null) return null;
   try {
@@ -94,9 +110,7 @@ function inspect(where, row, base, roles, times) {
   const dirty = git(row.path, ["status", "--porcelain"]).split("\n").filter(Boolean).length;
   const bound = roles[fs.realpathSync(row.path)];
   const role = typeof bound === "string" && new RegExp(store.NAME_PATTERN_TEXT).test(bound) ? bound : null;
-  const subjects = head && base ? git(row.path, ["log", "--format=%s%n%b", `${base}..HEAD`, "--"]) : "";
-  const issues = [...new Set([...subjects.matchAll(/#(\d+)/g)].map((match) => Number(match[1])))]
-    .filter((number) => Number.isSafeInteger(number) && number > 0).sort((a, b) => a - b);
+  const issues = head ? branchIssues(row.path, base).sort((a, b) => a - b) : [];
   const result = {
     ...row, head, missing: false, upstream, ahead, behind, lastCommit, dirty,
     role, presence: role ? notice.presenceOf(where, role) : null, issues,
@@ -163,4 +177,4 @@ function runWorktrees(argv) {
   }
 }
 
-module.exports = { WorktreesError, runWorktrees };
+module.exports = { WorktreesError, runWorktrees, branchIssues, defaultBranch };
