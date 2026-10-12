@@ -12,7 +12,7 @@ const store = require("./chat/store");
 const notice = require("./chat/notice");
 const { parseSince } = require("./chat/view");
 
-const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
+const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge [--context <role>=<pct>]... [--shift-at <pct>]] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
 const NOTIFY_SENDER = "keel-patrol";
 const EXIT_QUIET = 0;
 const EXIT_ERROR = 1;
@@ -182,6 +182,88 @@ function sinceLast(where, role, result, options) {
   return { baseline: false, changes };
 }
 
+// --- nudges (#307 part 1) -----------------------------------------------------------
+//
+// The patrol nudges an idle role itself, with one direct message from
+// `keel-patrol` that wakes its session (D1-D5). Keel's own records never count
+// as waiting, so a nudge cannot cause the next one.
+
+const KEEL_SENDERS = new Set([NOTIFY_SENDER, "keel-shift", "keel"]);
+const UNREAD_EVERY_MS = 2 * 60 * 60 * 1000;
+const SHIFT_EVERY_MS = 6 * 60 * 60 * 1000;
+const SELF_INITIATED = "Self-initiated: this shift armed `keel shift ready --wake`.";
+
+function parseContexts(values) {
+  const contexts = new Map();
+  for (const value of values) {
+    const match = String(value).match(/^([a-z0-9][a-z0-9-]{0,31})=(\d{1,3}(?:\.\d+)?)%?$/);
+    if (!match) throw new PatrolError(`--context ${value} is not <role>=<percent>.`);
+    contexts.set(match[1], Number(match[2]));
+  }
+  return contexts;
+}
+
+function sendNudge(where, role, kind, text) {
+  const group = store.directName(NOTIFY_SENDER, role);
+  if (!store.groupState(store.readLog(where, group)).exists) {
+    store.createGroup(where, NOTIFY_SENDER, group, [role], { direct: true });
+  }
+  store.writeRecord(where, { group, kind: "message", from: NOTIFY_SENDER, refs: ["keel-patrol-nudge"], text });
+  return { role, kind, text };
+}
+
+function nudgeRoles(where, patroller, options) {
+  const stateFile = path.join(where.root, "patrol", "nudges.json");
+  const state = store.readJsonFile(stateFile);
+  const now = Date.now();
+  const idleBefore = parseSince(options.idle);
+  const sent = [];
+  const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))]
+    .filter((role) => role !== patroller).sort();
+  for (const role of roles) {
+    const last = Date.parse(notice.presenceOf(where, role).last_active || "");
+    if (!Number.isNaN(last) && last >= idleBefore) continue;
+    const mine = state[role] || {};
+    const waiting = store.unread(where, role)
+      .filter((record) => store.wakes(record, role) && !KEEL_SENDERS.has(record.from))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const note = path.join(where.root, "shift", `${role}.md`);
+    const noteText = fs.existsSync(note) ? fs.readFileSync(note, "utf8") : null;
+    if (waiting.length) {
+      const oldest = Date.parse(waiting[0].created || "");
+      const recent = Date.parse(mine.unread || "");
+      if (!Number.isNaN(oldest) && oldest < idleBefore && (Number.isNaN(recent) || now - recent >= UNREAD_EVERY_MS)) {
+        sent.push(sendNudge(where, role, "unread",
+          `${role}: ${waiting.length} record(s) addressed to you have waited since ${waiting[0].created}; read them with \`keel chat unread\`.`));
+        mine.unread = store.isoLocal(new Date(now));
+      }
+    } else if (!noteText && options.contexts.has(role) && options.contexts.get(role) >= options.shiftAt) {
+      const recent = Date.parse(mine.shift || "");
+      if (Number.isNaN(recent) || now - recent >= SHIFT_EVERY_MS) {
+        sent.push(sendNudge(where, role, "shift",
+          `${role}: your context is at ${options.contexts.get(role)}%. Change your own shift: \`keel shift check\`, `
+          + "then `keel shift ready --wake \"<note>\"`, then clear this session. A session serving Remote Control "
+          + "cannot be cleared: turn it off, clear, then turn it back on."));
+        mine.shift = store.isoLocal(new Date(now));
+      }
+    }
+    if (noteText && noteText.includes(SELF_INITIATED)) {
+      const written = fs.statSync(note).mtime;
+      const woken = store.readLog(where, store.directName("keel-shift", role))
+        .some((record) => record.from === "keel-shift" && Date.parse(record.created || "") >= written.getTime() - 1000);
+      const stamp = store.isoLocal(written);
+      if (written.getTime() < idleBefore && !woken && mine.resume !== stamp) {
+        sent.push(sendNudge(where, role, "resume",
+          `${role}: your previous shift left a note at ${stamp}; run \`keel context\`, then \`keel shift resume\`.`));
+        mine.resume = stamp;
+      }
+    }
+    state[role] = mine;
+  }
+  if (sent.length) store.writeJsonAtomic(where, stateFile, state);
+  return sent;
+}
+
 function notifyChanges(where, role, changes) {
   const group = store.directName(NOTIFY_SENDER, role);
   if (!store.groupState(store.readLog(where, group)).exists) {
@@ -197,6 +279,7 @@ function render(result) {
   if (result.sinceLast && result.sinceLast.baseline) lines.push("keel patrol: baseline recorded.");
   else if (!result.notices.length && !result.held.length && !changes.length) lines.push("keel patrol: nothing new.");
   for (const change of changes) lines.push(`changed: ${change}`);
+  for (const sent of result.nudges || []) lines.push(`nudged ${sent.role}: ${sent.kind}`);
   for (const held of result.held) lines.push(`met: ${held.from} waited for ${held.condition} (${held.id})`);
   for (const sent of result.notices) lines.push(`notified ${sent.to}: ${sent.text}`);
   for (const wait of result.unchecked) lines.push(`unchecked: ${wait.from} waits for ${wait.condition}; pass --issues to check it`);
@@ -298,13 +381,16 @@ function runPatrol(argv) {
       throw error;
     }
   }
-  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false };
+  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50 };
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const arg = argv[index];
       if (arg === "--json") options.json = true;
       else if (arg === "--since-last") options.sinceLast = true;
       else if (arg === "--notify") options.notify = true;
+      else if (arg === "--nudge") options.nudge = true;
+      else if (arg === "--context") options.context.push(argv[++index] || "");
+      else if (arg === "--shift-at") options.shiftAt = Number(argv[++index]);
       else if (arg === "--help" || arg === "-h") {
         process.stdout.write(`${USAGE}\nExit 0: wrote nothing. 2: sent a notice or marked a wait met. 1: error.\n`);
         return EXIT_QUIET;
@@ -315,18 +401,21 @@ function runPatrol(argv) {
       } else throw new PatrolError(`Unknown argument ${arg}. ${USAGE}`);
     }
     if (options.notify && !options.sinceLast) throw new PatrolError("--notify sends what changed, so it needs --since-last.");
+    if (!(options.shiftAt > 0 && options.shiftAt <= 100)) throw new PatrolError("--shift-at needs a percentage from 1 to 100.");
+    options.contexts = parseContexts(options.context);
     if (parseSince(options.idle) === null) throw new PatrolError(`--idle ${JSON.stringify(options.idle)} is not a duration; use 90s, 15m, 2h, or 3d.`);
     options.issues = readIssues(options.issues);
     const where = store.requireLocation(path.resolve(options.repo));
     const role = store.requireRole(where);
     const result = patrol(where, role, options);
+    if (options.nudge) result.nudges = nudgeRoles(where, role, options);
     if (options.sinceLast) {
       result.sinceLast = sinceLast(where, role, result, options);
       if (options.notify && result.sinceLast.changes.length) result.notified = notifyChanges(where, role, result.sinceLast.changes).id;
     }
     process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : render(result)}\n`);
     const changed = result.sinceLast && result.sinceLast.changes.length;
-    return result.notices.length || result.held.length || changed ? EXIT_WROTE : EXIT_QUIET;
+    return result.notices.length || result.held.length || changed || (result.nudges || []).length ? EXIT_WROTE : EXIT_QUIET;
   } catch (error) {
     if (error instanceof PatrolError || error instanceof store.ChatError) {
       process.stderr.write(`keel patrol: ${error.message}\n`);

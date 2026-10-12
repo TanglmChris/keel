@@ -218,6 +218,9 @@ function check(where, role) {
     }
     for (const record of store.unread(where, role)) {
       if (isShift(record) || !store.wakes(record, role)) continue;
+      // Keel's own nudges and wakes are instructions, not work left over (#307):
+      // a role told to change its shift is not held back by being told.
+      if (record.from === "keel-patrol" || record.from === "keel-shift") continue;
       if (record.kind === "todo" && record.assignee === role) continue;
       items.push({ kind: "unread", detail: `${record.id} in ${record.group} from ${record.from}: ${firstLine(record.text)}` });
     }
@@ -380,6 +383,8 @@ function ready(where, options) {
     `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
     `Written ${stamp} in ${result.worktree}.`,
+    // A shift the role started itself; the patrol may nudge it to resume (#307 D4).
+    options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
     options.forceReason ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
     "",
   ].join("\n");
