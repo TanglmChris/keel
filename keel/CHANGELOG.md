@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.123.0 - Quota thresholds reach the coordinator once each, and nudging pauses near the limit
+
+Issue #307, part 2 (rtl_ppa_prj, 2026-10-12): the owner's rule is to say nothing about the weekly quota at 50 %, report it once each at 90, 95, and 99 % per period, and stop nudges, which wake large sessions, at 90 % or more. Keel cannot see the quota; the host-run task passes it in. Owner decision, 2026-10-12.
+
+- `keel patrol --quota <percent>`: each threshold in `--quota-alerts` (default `90,95,99`) becomes a risk once per quota period, sent by `--notify` and printed as `risk: weekly quota is at <p>%, past <t>%`; a drop in the figure starts a new period. The state lives in `patrol/quota.json`.
+- At `--quota-quiet-at` (default 90) or above, `--nudge` sends nothing and prints `nudges paused: quota at <p>%`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.123.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.122.0 - The patrol tells the coordinator only about risks, and logs every run
 
 Issue #307, part 3 (rtl_ppa_prj, 2026-10-12): with the patrol nudging roles itself (5.121.0), what remains for the coordinator is risk; shift-status changes and new commits, which `--notify` sent since 5.115.0, are mostly the coordinator's own doing and woke it for nothing. Owner decision, 2026-10-12.
