@@ -796,8 +796,11 @@ hour for a note deliberately left parked (#295). `keel patrol --since-last` keep
 idleness and open todos, and the coordinator's addressed records unread beyond `--idle` — and prints
 only `changed:` lines for what differs from the previous run; the first run records a baseline. It
 writes that snapshot on every run, and exits 2 only when something changed. Add `--notify` and the
-changes go to the coordinator as one direct message from `keel-patrol`, which wakes its session, so
-the scheduled run needs no model judgment and no session id.
+coordinator gets one direct message from `keel-patrol`, which wakes its session, carrying only risks
+(#307): the shared checkout gaining uncommitted paths after a clean run, free disk the host reports with
+`--disk-free-gb` dropping below `--disk-min-gb` (default 20), and a role that left two nudges in a row
+unanswered. Shift-status changes and new commits are printed, not sent. Every run appends one line to
+`patrol/log/<role>.log` in the chat store, so a silent run can still be audited.
 
 `keel patrol --nudge` goes further and nudges each idle role itself, with one direct message from
 `keel-patrol` that wakes its session (#307): when records addressed to it have waited longer than

@@ -152,6 +152,8 @@ function currentSnapshot(where, role, result, options) {
     if (status !== null) entries[`checkout ${primary}`] = `${status ? status.split("\n").length : 0} uncommitted paths`;
   }
   for (const line of result.drift) entries[line.key] = line.text;
+  // Free disk as the host measured it (#307 part 3 D1).
+  if (options.diskFreeGb !== null) entries.disk = options.diskFreeGb < options.diskMinGb ? "low" : "ok";
   for (const row of result.roles) {
     entries[`role ${row.role}`] = `${row.idle ? "idle" : "active"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`;
   }
@@ -167,7 +169,7 @@ function sinceLast(where, role, result, options) {
   const previous = fs.existsSync(file) ? store.readJsonFile(file) : null;
   const now = currentSnapshot(where, role, result, options);
   store.writeJsonAtomic(where, file, now);
-  if (!previous || !previous.entries) return { baseline: true, changes: [] };
+  if (!previous || !previous.entries) return { baseline: true, changes: [], risks: [] };
   const changes = [];
   const keys = [...new Set([...Object.keys(previous.entries), ...Object.keys(now.entries)])].sort();
   for (const key of keys) {
@@ -179,7 +181,19 @@ function sinceLast(where, role, result, options) {
   for (const record of now.unread) {
     if (!seen.has(record.id)) changes.push(`unread: ${record.id} from ${record.from}, unanswered since ${record.created}`);
   }
-  return { baseline: false, changes };
+  // What the coordinator must hear (#307 part 3 D1): a clean checkout turned
+  // dirty, and free disk turned low; the rest of the changes are only printed.
+  const risks = [];
+  for (const key of Object.keys(now.entries).filter((entry) => entry.startsWith("checkout "))) {
+    const count = Number.parseInt(now.entries[key], 10);
+    if (previous.entries[key] === "0 uncommitted paths" && count > 0) {
+      risks.push(`the shared checkout ${key.slice("checkout ".length)} has ${count} uncommitted paths`);
+    }
+  }
+  if (now.entries.disk === "low" && previous.entries.disk !== "low") {
+    risks.push(`free disk is ${options.diskFreeGb} GB, below ${options.diskMinGb} GB`);
+  }
+  return { baseline: false, changes, risks };
 }
 
 // --- nudges (#307 part 1) -----------------------------------------------------------
@@ -189,7 +203,7 @@ function sinceLast(where, role, result, options) {
 // as waiting, so a nudge cannot cause the next one.
 
 const KEEL_SENDERS = new Set([NOTIFY_SENDER, "keel-shift", "keel"]);
-const UNREAD_EVERY_MS = 2 * 60 * 60 * 1000;
+const UNREAD_EVERY_MS = Number(process.env.KEEL_PATROL_UNREAD_EVERY_MS) > 0 ? Number(process.env.KEEL_PATROL_UNREAD_EVERY_MS) : 2 * 60 * 60 * 1000;
 const SHIFT_EVERY_MS = 6 * 60 * 60 * 1000;
 const SELF_INITIATED = "Self-initiated: this shift armed `keel shift ready --wake`.";
 
@@ -218,6 +232,7 @@ function nudgeRoles(where, patroller, options) {
   const now = Date.now();
   const idleBefore = parseSince(options.idle);
   const sent = [];
+  const escalations = [];
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))]
     .filter((role) => role !== patroller).sort();
   for (const role of roles) {
@@ -235,9 +250,17 @@ function nudgeRoles(where, patroller, options) {
       if (!Number.isNaN(oldest) && oldest < idleBefore && (Number.isNaN(recent) || now - recent >= UNREAD_EVERY_MS)) {
         sent.push(sendNudge(where, role, "unread",
           `${role}: ${waiting.length} record(s) addressed to you have waited since ${waiting[0].created}; read them with \`keel chat unread\`.`));
-        mine.unread = store.isoLocal(new Date(now));
+        // A nudge over work older than the last one is a nudge left unanswered (D2).
+        mine.unanswered = !Number.isNaN(recent) && oldest < recent ? (mine.unanswered || 0) + 1 : 1;
+        if (mine.unanswered === 2) {
+          escalations.push(`${role} has not answered 2 nudges; ${waiting.length} record(s) addressed to it have waited since ${waiting[0].created}`);
+        }
+        mine.unread = new Date(now).toISOString();
       }
-    } else if (!noteText && options.contexts.has(role) && options.contexts.get(role) >= options.shiftAt) {
+    } else {
+      mine.unanswered = 0;
+    }
+    if (!waiting.length && !noteText && options.contexts.has(role) && options.contexts.get(role) >= options.shiftAt) {
       const recent = Date.parse(mine.shift || "");
       if (Number.isNaN(recent) || now - recent >= SHIFT_EVERY_MS) {
         sent.push(sendNudge(where, role, "shift",
@@ -260,16 +283,16 @@ function nudgeRoles(where, patroller, options) {
     }
     state[role] = mine;
   }
-  if (sent.length) store.writeJsonAtomic(where, stateFile, state);
-  return sent;
+  store.writeJsonAtomic(where, stateFile, state);
+  return { sent, escalations };
 }
 
-function notifyChanges(where, role, changes) {
+function notifyRisks(where, role, risks) {
   const group = store.directName(NOTIFY_SENDER, role);
   if (!store.groupState(store.readLog(where, group)).exists) {
     store.createGroup(where, NOTIFY_SENDER, group, [role], { direct: true });
   }
-  const text = [`Patrol ${store.isoLocal(new Date())}: what changed since the last run:`, ...changes.map((line) => `- changed: ${line}`)].join("\n");
+  const text = [`Patrol ${store.isoLocal(new Date())}: risks for the coordinator:`, ...risks.map((line) => `- risk: ${line}`)].join("\n");
   return store.writeRecord(where, { group, kind: "message", from: NOTIFY_SENDER, refs: [NOTIFY_SENDER], text });
 }
 
@@ -280,6 +303,7 @@ function render(result) {
   else if (!result.notices.length && !result.held.length && !changes.length) lines.push("keel patrol: nothing new.");
   for (const change of changes) lines.push(`changed: ${change}`);
   for (const sent of result.nudges || []) lines.push(`nudged ${sent.role}: ${sent.kind}`);
+  for (const risk of result.risks || []) lines.push(`risk: ${risk}`);
   for (const held of result.held) lines.push(`met: ${held.from} waited for ${held.condition} (${held.id})`);
   for (const sent of result.notices) lines.push(`notified ${sent.to}: ${sent.text}`);
   for (const wait of result.unchecked) lines.push(`unchecked: ${wait.from} waits for ${wait.condition}; pass --issues to check it`);
@@ -381,7 +405,7 @@ function runPatrol(argv) {
       throw error;
     }
   }
-  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50 };
+  const options = { repo: process.cwd(), issues: null, idle: "30m", json: false, sinceLast: false, notify: false, nudge: false, context: [], shiftAt: 50, diskFreeGb: null, diskMinGb: 20 };
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const arg = argv[index];
@@ -391,6 +415,8 @@ function runPatrol(argv) {
       else if (arg === "--nudge") options.nudge = true;
       else if (arg === "--context") options.context.push(argv[++index] || "");
       else if (arg === "--shift-at") options.shiftAt = Number(argv[++index]);
+      else if (arg === "--disk-free-gb") options.diskFreeGb = Number(argv[++index]);
+      else if (arg === "--disk-min-gb") options.diskMinGb = Number(argv[++index]);
       else if (arg === "--help" || arg === "-h") {
         process.stdout.write(`${USAGE}\nExit 0: wrote nothing. 2: sent a notice or marked a wait met. 1: error.\n`);
         return EXIT_QUIET;
@@ -400,28 +426,52 @@ function runPatrol(argv) {
         options[arg.slice(2)] = value;
       } else throw new PatrolError(`Unknown argument ${arg}. ${USAGE}`);
     }
-    if (options.notify && !options.sinceLast) throw new PatrolError("--notify sends what changed, so it needs --since-last.");
+    if (options.notify && !options.sinceLast) throw new PatrolError("--notify sends the risks found since the last run, so it needs --since-last.");
     if (!(options.shiftAt > 0 && options.shiftAt <= 100)) throw new PatrolError("--shift-at needs a percentage from 1 to 100.");
     options.contexts = parseContexts(options.context);
+    if (options.diskFreeGb !== null && !(options.diskFreeGb >= 0)) throw new PatrolError("--disk-free-gb needs a number of gigabytes.");
+    if (!(options.diskMinGb > 0)) throw new PatrolError("--disk-min-gb needs a positive number of gigabytes.");
     if (parseSince(options.idle) === null) throw new PatrolError(`--idle ${JSON.stringify(options.idle)} is not a duration; use 90s, 15m, 2h, or 3d.`);
     options.issues = readIssues(options.issues);
     const where = store.requireLocation(path.resolve(options.repo));
     const role = store.requireRole(where);
     const result = patrol(where, role, options);
-    if (options.nudge) result.nudges = nudgeRoles(where, role, options);
+    result.risks = [];
+    if (options.nudge) {
+      const nudged = nudgeRoles(where, role, options);
+      result.nudges = nudged.sent;
+      result.risks.push(...nudged.escalations);
+    }
     if (options.sinceLast) {
       result.sinceLast = sinceLast(where, role, result, options);
-      if (options.notify && result.sinceLast.changes.length) result.notified = notifyChanges(where, role, result.sinceLast.changes).id;
+      result.risks.unshift(...result.sinceLast.risks);
+      // Only risks reach the coordinator (#307 part 3 D3).
+      if (options.notify && result.risks.length) result.notified = notifyRisks(where, role, result.risks).id;
     }
     process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : render(result)}\n`);
     const changed = result.sinceLast && result.sinceLast.changes.length;
-    return result.notices.length || result.held.length || changed || (result.nudges || []).length ? EXIT_WROTE : EXIT_QUIET;
+    const code = result.notices.length || result.held.length || changed || (result.nudges || []).length || result.risks.length ? EXIT_WROTE : EXIT_QUIET;
+    appendRunLog(where, role, code, result);
+    return code;
   } catch (error) {
     if (error instanceof PatrolError || error instanceof store.ChatError) {
       process.stderr.write(`keel patrol: ${error.message}\n`);
       return EXIT_ERROR;
     }
     throw error;
+  }
+}
+
+// One line per run, so a silent run can be audited (#307 part 3 D4).
+function appendRunLog(where, role, code, result) {
+  try {
+    const file = path.join(where.root, "patrol", "log", `${role}.log`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const changes = result.sinceLast ? result.sinceLast.changes.length : 0;
+    fs.appendFileSync(file, `${store.isoLocal(new Date())} exit=${code} changes=${changes} nudges=${(result.nudges || []).length} `
+      + `risks=${result.risks.length} notified=${result.notified ? "yes" : "no"}\n`);
+  } catch {
+    // The log is for audit; failing to write it never fails the patrol.
   }
 }
 
