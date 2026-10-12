@@ -185,11 +185,34 @@ function sessionFile(where, payload) {
   return /^[A-Za-z0-9._-]{1,128}$/.test(id) ? path.join(where.root, "sessions", `${id}.json`) : null;
 }
 
+// Each transcript a role's session runs in, with when it started and when the
+// next replaced it (#304 D1): a clear keeps the session but starts a new file.
+function segmentsFile(where, role) {
+  return path.join(where.root, "shift", "segments", `${role}.json`);
+}
+
+function recordSegment(where, role, transcript) {
+  if (typeof transcript !== "string" || !path.isAbsolute(transcript)) return;
+  try {
+    const file = segmentsFile(where, role);
+    const segments = Array.isArray(store.readJsonFile(file).segments) ? store.readJsonFile(file).segments : [];
+    const last = segments[segments.length - 1];
+    if (last && last.transcript === transcript) return;
+    const now = store.isoLocal(new Date());
+    if (last && !last.ended) last.ended = now;
+    segments.push({ transcript, started: now, ended: null });
+    store.writeJsonAtomic(where, file, { segments });
+  } catch {
+    // A convenience, like presence: never fail the hook.
+  }
+}
+
 function rememberSession(where, role, file) {
   if (!file) return;
   const previous = fs.existsSync(presenceFile(where, role)) ? store.readJsonFile(presenceFile(where, role)) : null;
+  const segments = fs.existsSync(segmentsFile(where, role)) ? store.readJsonFile(segmentsFile(where, role)) : null;
   try {
-    store.writeJsonAtomic(where, file, { role, previous, decided: false, host_run: false });
+    store.writeJsonAtomic(where, file, { role, previous, segments, decided: false, host_run: false });
   } catch {
     // Like presence, a convenience: never fail the hook.
   }
@@ -204,6 +227,9 @@ function decideSession(where, file, session, prompt) {
       const target = presenceFile(where, session.role);
       if (session.previous) store.writeJsonAtomic(where, target, session.previous);
       else fs.rmSync(target, { force: true });
+      // The run's transcript is not the role's (#304 D2).
+      if (session.segments) store.writeJsonAtomic(where, segmentsFile(where, session.role), session.segments);
+      else fs.rmSync(segmentsFile(where, session.role), { force: true });
     }
   } catch {
     // Presence stays as the SessionStart left it.
@@ -249,6 +275,7 @@ function hook(event, input, { mail = false } = {}) {
   if (event === "session-start") rememberSession(where, role, file);
   const started = event === "session-start" ? { source: typeof payload.source === "string" ? payload.source : null } : null;
   touchPresence(where, role, "online", mail ? null : "claude-code", started);
+  if (event === "session-start" || event === "user-prompt-submit") recordSegment(where, role, payload.transcript_path);
   const chatText = noticeText(where, role);
   const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
