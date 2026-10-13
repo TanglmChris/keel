@@ -182,7 +182,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>]
+authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore
   - commit
   - push
 ```
@@ -230,6 +230,13 @@ Code asks you to confirm that one command, and the next push asks again — Keel
 refused. A permission mode that cannot be relied on to ask, `bypassPermissions` or `dontAsk`, is
 refused too. Declaring it turns the push check on by itself, and a bare `push` beside it is
 refused.
+
+`shift-restore` (#319) covers the two things a session started by a shift change on the Claude
+desktop app must do right after `keel shift resume`: turn its own Remote Control back on, and rename
+itself back to its working title. A clear there keeps neither. Without the declaration, the woken
+session reads that restore as another session's request and stops to ask you. It reaches only that
+session, so it takes no scope, and it covers no other session, no clear or archive, and no repository
+action.
 
 `cleanup:scratch` covers removing temporary worktrees and run output under the session's own
 scratchpad, after checking that they are merged and that no process is using them. It never covers

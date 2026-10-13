@@ -31,6 +31,10 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // A branch the Claude write guard asks the user about, one push at a time,
   // instead of refusing (#280); `@<role>` limits who may be asked.
   "push-protected",
+  // Restoring the session a desktop shift change started: turning its Remote
+  // Control back on and renaming it back, right after `keel shift resume`
+  // (#319). It reaches that one session, so it takes no scope.
+  "shift-restore",
 ];
 
 // The actions whose credential reaches further than the checkout the
