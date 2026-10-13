@@ -366,6 +366,13 @@ function readyRole(where, options) {
   return bound;
 }
 
+// The Claude desktop app's session id, or null elsewhere (#319 D1). There a
+// clear starts no session until a prompt arrives.
+function desktopSession() {
+  const id = process.env.CLAUDE_CODE_HOST_SESSION_ID;
+  return process.env.CLAUDE_CODE_ENTRYPOINT === "claude-desktop" && id ? id : null;
+}
+
 function ready(where, options) {
   const role = readyRole(where, options);
   if (options.wake && !role) {
@@ -387,10 +394,12 @@ function ready(where, options) {
   const text = readNoteText(options).replace(/\s+$/, "");
   if (!text.trim()) throw new ShiftError("keel shift ready needs the shift note: give it as text, with --file, or on stdin.");
   const stamp = store.isoLocal(new Date());
+  const desktop = desktopSession();
   const head = [
     `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
     `Written ${stamp} in ${result.worktree}.`,
+    desktop ? `Desktop session: ${desktop}.` : "",
     // A shift the role started itself; the patrol may nudge it to resume (#307 D4).
     options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
     !role ? `Started by hand: ${options.forceReason}.` : "",
@@ -413,7 +422,7 @@ function ready(where, options) {
     }
   }
   const waiter = options.wake ? armWake(where, role, since) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason };
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop };
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------
@@ -733,7 +742,14 @@ const CLEAR_HINT = [
 function clearHint(result) {
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
-  else if (result.waiter) {
+  else if (result.waiter && result.desktop) {
+    // Nothing starts a cleared desktop session but a prompt (#319 D3).
+    last = "On the Claude desktop app a clear starts no session until a prompt arrives, so the waiter alone wakes nothing (#319). "
+      + "Before you clear, create a one-shot scheduled task with the host's `create_scheduled_task`, firing a few minutes after the clear, "
+      + `whose prompt calls \`send_message\` to session \`${result.desktop}\` with: "${result.role}: your new shift starts now. `
+      + 'First turn Remote Control back on with set_remote_control("self", true), then run `keel context` and `keel shift resume`." '
+      + "Keel creates no task. Turning Remote Control back on unattended needs `mcp__ccd_session_mgmt__set_remote_control` in `permissions.allow`.";
+  } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
   } else if (result.closed.length) last = "The coordinator's `keel shift start` then wakes the new shift.";
   else {
@@ -813,7 +829,11 @@ function runShift(argv) {
         // A new coordinator learns whom its previous shift left unstarted (#289 D2).
         const waiting = (result.waiting || []).map((w) => w.role);
         const still = waiting.length ? `\n\nStill waiting for \`keel shift start\`: ${waiting.join(", ")}.` : "";
-        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}`);
+        // A clear on the desktop app does not keep Remote Control (#319 D4).
+        const remote = desktopSession()
+          ? "\n\nOn the Claude desktop app Remote Control does not survive a clear: turn it back on with `set_remote_control(\"self\", true)`."
+          : "";
+        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;
       }
       case "history": {

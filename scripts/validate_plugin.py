@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.126.0"
-PROTOCOL_VERSION = "5.126.0"
+PACKAGE_VERSION = "5.127.0"
+PROTOCOL_VERSION = "5.127.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2201,11 +2201,17 @@ def mailbox_common_dir(repo: Path) -> Path:
 
 
 CHAT_ROLE_VARIABLES = ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")
+# The desktop app's session markers (#319 D5): a run inside it must not change
+# what shift scenarios see.
+DESKTOP_HOST_VARIABLES = ("CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_HOST_SESSION_ID")
 
 
 def chat_environment(**extra: str) -> dict[str, str]:
-    """The test process's environment without any inherited chat role."""
-    env = {key: value for key, value in os.environ.items() if key not in CHAT_ROLE_VARIABLES}
+    """The test process's environment without any inherited chat role or desktop host."""
+    env = {
+        key: value for key, value in os.environ.items()
+        if key not in CHAT_ROLE_VARIABLES and key not in DESKTOP_HOST_VARIABLES
+    }
     env.update(extra)
     return env
 
@@ -6779,6 +6785,76 @@ def validate_shift_change_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-change scenario passed.")
+    return 0
+
+
+def validate_shift_desktop_wake_scenario() -> int:
+    """Issue #319: on the desktop app a clear starts no session until a prompt.
+
+    `ready --wake` there records the session id and prints the partner recipe
+    (a one-shot scheduled task that `send_message`s the session, which turns
+    Remote Control back on first) instead of promising the waiter wakes it;
+    `resume` there says to restore Remote Control. Elsewhere nothing changes.
+    """
+    label = "shift-desktop-wake:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-desktop-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319"}
+        note = mailbox_common_dir(verify) / "keel-chat" / "shift" / "verify.md"
+
+        armed = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R011", env=desktop)
+        if armed.returncode != 0:
+            report(f"{label} ready --wake on the desktop app failed: {armed.stderr.strip()}")
+            return 1
+        if "Desktop session: local_test-319" not in note.read_text(encoding="utf-8"):
+            report(f"{label} the note does not record the desktop session id.")
+            return 1
+        for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_remote_control", "mcp__ccd_session_mgmt__set_remote_control"):
+            if needle not in armed.stdout:
+                report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
+                return 1
+        if "The wake is armed" in armed.stdout:
+            report(f"{label} the desktop clear hint still says the waiter wakes the new session: {armed.stdout.strip()}")
+            return 1
+        resumed = run_keel(verify, "shift", "resume", env=desktop)
+        if "next is R011" not in resumed.stdout:
+            report(f"{label} resume on the desktop app did not print the note: {resumed.stdout.strip()} {resumed.stderr.strip()}")
+            return 1
+        if "set_remote_control" not in resumed.stdout:
+            report(f"{label} resume on the desktop app does not say to turn Remote Control back on: {resumed.stdout.strip()}")
+            return 1
+
+        plain = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R012", env=env)
+        if plain.returncode != 0:
+            report(f"{label} ready --wake outside the desktop app failed: {plain.stderr.strip()}")
+            return 1
+        if "The wake is armed" not in plain.stdout:
+            report(f"{label} outside the desktop app the clear hint no longer says the wake is armed: {plain.stdout.strip()}")
+            return 1
+        for needle in ("send_message", "create_scheduled_task"):
+            if needle in plain.stdout:
+                report(f"{label} outside the desktop app the clear hint names {needle}: {plain.stdout.strip()}")
+                return 1
+        if "Desktop session:" in note.read_text(encoding="utf-8"):
+            report(f"{label} a note written outside the desktop app records a desktop session.")
+            return 1
+        again = run_keel(verify, "shift", "resume", env=env)
+        if "set_remote_control" in again.stdout:
+            report(f"{label} resume outside the desktop app names set_remote_control: {again.stdout.strip()}")
+            return 1
+
+    for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for needle in ("send_message", "set_remote_control"):
+            if needle not in text:
+                report(f"{label} {relative} does not name {needle} for the desktop app.")
+                return 1
+    if "shift-desktop-wake" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-desktop-wake scenario passed.")
     return 0
 
 
@@ -40208,6 +40284,7 @@ SCENARIOS: tuple = (
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
+    ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),

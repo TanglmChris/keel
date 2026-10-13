@@ -16,6 +16,10 @@
 | 角色（新的一班） | 先 `keel context`，再 `keel shift resume` | 打印便条、移进历史；有聊天角色时还会告诉协调者已就位。 |
 | 任何人 | `keel shift status` | 各角色的状态：已请求、便条等待中、已接班。 |
 
+## 在 Claude 桌面应用上给自己换班
+
+在 Claude 命令行里，`ready --wake` 留下的等待器会在新会话启动后发一条消息把它叫醒。桌面应用不一样（#319）：清空会话后，要等有提示词进来才会启动新会话，所以等待器自己叫不醒任何东西。在桌面应用里运行 `ready --wake`，会把桌面会话 id 记进便条，并改为打印「伙伴唤醒」的做法：清空之前，用宿主的 `create_scheduled_task` 建一个一次性定时任务，定在清空后几分钟触发；它的提示词调用 `send_message`，把接班指令发给这个会话 id。Keel 不会替你建任务。清空还会让 Remote Control 断开，所以这条消息要让醒来的会话先调用 `set_remote_control("self", true)`，`keel shift resume` 也会提醒这一步。无人值守时要做到这一点，需要把 `mcp__ccd_session_mgmt__set_remote_control` 加进 `permissions.allow`，否则宿主的自动模式会拒绝这次调用。
+
 ## `check` 查什么
 
 - 未提交的改动。
