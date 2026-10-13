@@ -743,13 +743,22 @@ function clearHint(result) {
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
   else if (result.waiter && result.desktop) {
-    // Nothing starts a cleared desktop session but a prompt (#319 D3).
-    last = "On the Claude desktop app a clear starts no session until a prompt arrives, so the waiter alone wakes nothing (#319). "
-      + "Before you clear, create a one-shot scheduled task with the host's `create_scheduled_task`, firing a few minutes after the clear, "
-      + `whose prompt calls \`send_message\` to session \`${result.desktop}\` with: "${result.role}: your new shift starts now. `
-      + 'First turn Remote Control back on with set_remote_control("self", true), then run `keel context` and `keel shift resume`." '
-      + "Keel creates no task. Unattended, this needs two `permissions.allow` entries: `mcp__ccd_session_mgmt__set_remote_control` to turn Remote Control back on, "
-      + "and `mcp__ccd_session_mgmt__clear_session`, because a clear left waiting for approval lets the wake arrive first and the app then refuses it.";
+    // Nothing starts a cleared desktop session but a prompt (#319 D3). The task
+    // comes after Remote Control is off, which can block for hours while the
+    // session is followed remotely; a wake that fires first is queued, and the
+    // app then refuses the clear to keep it (#319 D1 of shift-desktop-wake-order).
+    last = [
+      "On the Claude desktop app a clear starts no session until a prompt arrives, so the waiter alone wakes nothing (#319). Do these in order:",
+      '1. Turn Remote Control off with set_remote_control("self", false), and wait for that call to return; it can take long while someone follows this session remotely.',
+      "2. Only then create a one-shot scheduled task with the host's `create_scheduled_task`, firing about three minutes later, "
+        + `whose prompt calls \`send_message\` to session \`${result.desktop}\` with: "${result.role}: your new shift starts now. `
+        + "Run `keel context` and `keel shift resume`, then restore Remote Control and this session's title as `keel shift resume` says.\" "
+        + "A task created earlier can fire first, and the app then refuses the clear to keep its message.",
+      `3. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so its archived copy can be told apart.`,
+      '4. Call clear_session("self").',
+      "Keel creates no task. Restoring unattended needs `mcp__ccd_session_mgmt__set_remote_control` in `permissions.allow`, "
+        + "and `shift-restore` under `authorize:` in keel/config.yaml so the woken session does not stop to ask.",
+    ].join("\n");
   } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
   } else if (result.closed.length) last = "The coordinator's `keel shift start` then wakes the new shift.";
@@ -830,9 +839,16 @@ function runShift(argv) {
         // A new coordinator learns whom its previous shift left unstarted (#289 D2).
         const waiting = (result.waiting || []).map((w) => w.role);
         const still = waiting.length ? `\n\nStill waiting for \`keel shift start\`: ${waiting.join(", ")}.` : "";
-        // A clear on the desktop app does not keep Remote Control (#319 D4).
-        const remote = desktopSession()
-          ? "\n\nOn the Claude desktop app Remote Control does not survive a clear: turn it back on with `set_remote_control(\"self\", true)`."
+        // A clear on the desktop app keeps neither Remote Control nor the title (#319).
+        const { readStandingAuthorization } = require("./config");
+        const restore = readStandingAuthorization(where.worktree).scopes.has("shift-restore");
+        const remote = desktopSession() && restore
+          ? "\n\nStanding-authorized by `shift-restore` in keel/config.yaml: turn Remote Control back on with "
+            + "`set_remote_control(\"self\", true)` and rename this session back to its working title with `set_session_title`, now, without asking."
+          : desktopSession()
+          ? "\n\nOn the Claude desktop app a clear keeps neither Remote Control nor this session's title: turn Remote Control back on with "
+            + "`set_remote_control(\"self\", true)` and rename the session back with `set_session_title`. "
+            + "Declaring `shift-restore` under authorize: in keel/config.yaml lets a woken session do this without asking."
           : "";
         out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;

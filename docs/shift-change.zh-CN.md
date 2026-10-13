@@ -18,7 +18,7 @@
 
 ## 在 Claude 桌面应用上给自己换班
 
-在 Claude 命令行里，`ready --wake` 留下的等待器会在新会话启动后发一条消息把它叫醒。桌面应用不一样（#319）：清空会话后，要等有提示词进来才会启动新会话，所以等待器自己叫不醒任何东西。在桌面应用里运行 `ready --wake`，会把桌面会话 id 记进便条，并改为打印「伙伴唤醒」的做法：清空之前，用宿主的 `create_scheduled_task` 建一个一次性定时任务，定在清空后几分钟触发；它的提示词调用 `send_message`，把接班指令发给这个会话 id。Keel 不会替你建任务。清空还会让 Remote Control 断开，所以这条消息要让醒来的会话先调用 `set_remote_control("self", true)`，`keel shift resume` 也会提醒这一步。无人值守时要做到这一点，需要把 `mcp__ccd_session_mgmt__set_remote_control` 加进 `permissions.allow`，否则宿主的自动模式会拒绝这次调用。清空本身也要把 `mcp__ccd_session_mgmt__clear_session` 加进去：否则清空会停在等批准，而 Remote Control 已关，人不在电脑前就批不了；唤醒消息会先到并排进队列，app 为了不抹掉它就会拒绝这次清空。
+在 Claude 命令行里，`ready --wake` 留下的等待器会在新会话启动后发一条消息把它叫醒。桌面应用不一样（#319）：清空会话后，要等有提示词进来才会启动新会话，所以等待器自己叫不醒任何东西。在桌面应用里运行 `ready --wake`，会把桌面会话 id 记进便条，并改为打印「伙伴唤醒」的步骤，要按顺序做：先关掉 Remote Control，并等这个调用返回（有人在远程看着这个会话时，它可能卡上几个小时）；返回之后，才用宿主的 `create_scheduled_task` 建一个一次性定时任务，定在几分钟后触发，它的提示词调用 `send_message` 把接班指令发给这个会话 id（任务建得更早的话，可能在等待期间就触发，唤醒消息排进队列后，app 会为了保住它而拒绝清空）；再用 `set_session_title` 给要换下去的会话改名，方便和归档的副本区分；最后清空。Keel 不会替你建任务。醒来的会话先跑 `keel context` 和 `keel shift resume`，再按 `resume` 的提示用 `set_remote_control("self", true)` 重开 Remote Control，并把名字改回来。无人值守时要做到这一点，需要把 `mcp__ccd_session_mgmt__set_remote_control` 加进 `permissions.allow`，并在 `keel/config.yaml` 的 `authorize:` 里声明 `shift-restore`；不声明的话，醒来的会话会把这一步当成别的会话的请求，停下来问你。
 
 ## `check` 查什么
 

@@ -1,5 +1,21 @@
 # Keel Changelog
 
+## 5.129.0 - A desktop self-shift runs in an order that works, and restores itself
+
+Issue #319, follow-up tests of 2026-10-13. In the maintenance session, turning Remote Control off blocked for hours while the owner followed the session remotely. The wake task, created before that call, fired during the wait, and the app then refused the clear to keep the queued wake. 5.128.0 printed the wrong reason for this, approval of `clear_session`. A fresh probe session that turned Remote Control off first, then created the task, then cleared, was woken as designed. Its woken model then stopped to ask the owner before restoring Remote Control. Owner decisions, 2026-10-13: fix the order, rename the outgoing session before the clear, and add a standing authorization for the restore.
+
+- On the desktop app, `keel shift ready --wake` prints four ordered steps:
+  1. Turn Remote Control off and wait for it to return.
+  2. Only then create the one-shot `create_scheduled_task` wake.
+  3. Rename this session with `set_session_title`.
+  4. Call `clear_session("self")`.
+
+  The wrong `clear_session` approval reason is gone.
+- The wake message asks the woken session to run `keel context` and `keel shift resume`, then restore Remote Control and its title as `resume` says.
+- New standing-authorization name `shift-restore`, with no scope. It covers turning the woken session's Remote Control back on and renaming it back, and nothing else. A desktop `keel shift resume` says the restore is standing-authorized when `shift-restore` is declared, and otherwise names it. This repository declares it.
+- `README.md`, the `keel/config.yaml` comment, and both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.129.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.128.0 - The desktop shift recipe names the clear's allow entry
 
 Issue #319, end-to-end test of 5.127.0 (2026-10-13): following the printed desktop recipe, `clear_session("self")` waited for the owner's approval, for 13 minutes and then for 1 h 40 min. Remote Control was already off, so the owner could not approve it remotely. The partner's wake fired meanwhile, the app queued its `send_message` as a user message, and the app then refused the clear to protect it. Owner decision, 2026-10-13: allow the clear and name it in the recipe.

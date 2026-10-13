@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.128.0"
-PROTOCOL_VERSION = "5.128.0"
+PACKAGE_VERSION = "5.129.0"
+PROTOCOL_VERSION = "5.129.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6788,6 +6788,65 @@ def validate_shift_change_scenario() -> int:
     return 0
 
 
+def validate_shift_restore_authorization_scenario() -> int:
+    """Issue #319: `shift-restore` lets a woken desktop shift restore itself.
+
+    The name is read and listed by `--doctor`, a scoped form is refused, and
+    a desktop `keel shift resume` says the restore is standing-authorized only
+    when the repository declares it.
+    """
+    label = "shift-restore-authorization:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-restore-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319"}
+        config = verify / "keel" / "config.yaml"
+
+        def declare(*entries: str) -> None:
+            write_text(config, "authorize:\n" + "".join(f"  - {entry}\n" for entry in entries))
+
+        declare("commit", "shift-restore")
+        doctor = run_keel(verify, "--doctor", env=env)
+        if "shift-restore" not in doctor.stdout:
+            report(f"{label} keel --doctor does not list shift-restore: {doctor.stdout.strip()} {doctor.stderr.strip()}")
+            return 1
+        if "unrecognized" in (doctor.stdout + doctor.stderr).lower():
+            report(f"{label} shift-restore was not read as a standing authorization: {doctor.stdout.strip()} {doctor.stderr.strip()}")
+            return 1
+        run_keel(verify, "shift", "ready", "--wake", "--force-reason", "the fixture config is uncommitted", "verify note: R013", env=desktop)
+        granted = run_keel(verify, "shift", "resume", env=desktop)
+        if "Standing-authorized by `shift-restore`" not in granted.stdout:
+            report(f"{label} a desktop resume with shift-restore declared does not say it is standing-authorized: {granted.stdout.strip()}")
+            return 1
+
+        declare("commit")
+        run_keel(verify, "shift", "ready", "--wake", "--force-reason", "the fixture config is uncommitted", "verify note: R014", env=desktop)
+        asked = run_keel(verify, "shift", "resume", env=desktop)
+        if "Standing-authorized" in asked.stdout:
+            report(f"{label} a desktop resume without shift-restore says the restore is standing-authorized: {asked.stdout.strip()}")
+            return 1
+        if "shift-restore" not in asked.stdout:
+            report(f"{label} a desktop resume without shift-restore does not name the declaration that would allow it: {asked.stdout.strip()}")
+            return 1
+
+        declare("commit", "shift-restore:anything")
+        scoped = run_keel(verify, "--doctor", env=env)
+        combined = scoped.stdout + scoped.stderr
+        if "shift-restore:anything" not in combined or "commit: authorized" in combined:
+            report(f"{label} a scoped shift-restore was not refused by name: {combined.strip()}")
+            return 1
+
+    if "shift-restore" not in (ROOT / "README.md").read_text(encoding="utf-8"):
+        report(f"{label} README.md does not document shift-restore.")
+        return 1
+    if "shift-restore-authorization" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-restore-authorization scenario passed.")
+    return 0
+
+
 def validate_shift_desktop_wake_scenario() -> int:
     """Issue #319: on the desktop app a clear starts no session until a prompt.
 
@@ -6811,13 +6870,20 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "Desktop session: local_test-319" not in note.read_text(encoding="utf-8"):
             report(f"{label} the note does not record the desktop session id.")
             return 1
-        # The clear must not wait for approval, or the wake lands first and the
-        # app refuses the clear (#319 comment 6138487679).
-        for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_remote_control",
-                       "mcp__ccd_session_mgmt__set_remote_control", "mcp__ccd_session_mgmt__clear_session", "refuses"):
+        # Remote Control off, then the task, so the wake cannot fire before the
+        # clear; then rename and clear (#319 comments 6143435530, 6144856601).
+        for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_session_title",
+                       "mcp__ccd_session_mgmt__set_remote_control", "shift-restore"):
             if needle not in armed.stdout:
                 report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
                 return 1
+        off = armed.stdout.find('set_remote_control("self", false)')
+        if off == -1 or off > armed.stdout.find("create_scheduled_task"):
+            report(f"{label} the desktop clear hint does not turn Remote Control off before create_scheduled_task: {armed.stdout.strip()}")
+            return 1
+        if "mcp__ccd_session_mgmt__clear_session" in armed.stdout:
+            report(f"{label} the desktop clear hint still blames approval of clear_session: {armed.stdout.strip()}")
+            return 1
         if "The wake is armed" in armed.stdout:
             report(f"{label} the desktop clear hint still says the waiter wakes the new session: {armed.stdout.strip()}")
             return 1
@@ -6828,6 +6894,9 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "set_remote_control" not in resumed.stdout:
             report(f"{label} resume on the desktop app does not say to turn Remote Control back on: {resumed.stdout.strip()}")
             return 1
+        if "set_session_title" not in resumed.stdout:
+            report(f"{label} resume on the desktop app does not say to rename the session back: {resumed.stdout.strip()}")
+            return 1
 
         plain = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R012", env=env)
         if plain.returncode != 0:
@@ -6836,7 +6905,7 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "The wake is armed" not in plain.stdout:
             report(f"{label} outside the desktop app the clear hint no longer says the wake is armed: {plain.stdout.strip()}")
             return 1
-        for needle in ("send_message", "create_scheduled_task", "mcp__ccd_session_mgmt__clear_session"):
+        for needle in ("send_message", "create_scheduled_task", "set_session_title", "shift-restore"):
             if needle in plain.stdout:
                 report(f"{label} outside the desktop app the clear hint names {needle}: {plain.stdout.strip()}")
                 return 1
@@ -6844,13 +6913,13 @@ def validate_shift_desktop_wake_scenario() -> int:
             report(f"{label} a note written outside the desktop app records a desktop session.")
             return 1
         again = run_keel(verify, "shift", "resume", env=env)
-        if "set_remote_control" in again.stdout:
-            report(f"{label} resume outside the desktop app names set_remote_control: {again.stdout.strip()}")
+        if "set_remote_control" in again.stdout or "set_session_title" in again.stdout:
+            report(f"{label} resume outside the desktop app names the desktop restore: {again.stdout.strip()}")
             return 1
 
     for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        for needle in ("send_message", "set_remote_control", "mcp__ccd_session_mgmt__clear_session"):
+        for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore"):
             if needle not in text:
                 report(f"{label} {relative} does not name {needle} for the desktop app.")
                 return 1
@@ -28912,7 +28981,7 @@ def validate_continuation_authorization_scenario() -> int:
 ACCEPTED_AUTHORIZE_NAMES = (
     "commit, push, push:<branch glob>, release, archive, continuation, "
     "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, "
-    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>]"
+    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore"
 )
 
 
@@ -28974,7 +29043,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>]" not in config_text:
+    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>], shift-restore" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -40288,6 +40357,7 @@ SCENARIOS: tuple = (
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
+    ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),
