@@ -66,7 +66,7 @@
 # accepted names are the whole vocabulary — commit, push, push:<branch glob>,
 # release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,
 # chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,
-# push-protected:<branch glob>[@<role>], shift-restore — and an unrecognized entry is reported
+# push-protected:<branch glob>[@<role>], shift-restore, self-shift — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
@@ -100,7 +100,9 @@
 #
 # `shift-restore` covers what a session started by a shift change on the Claude
 # desktop app does right after `keel shift resume`: turning its own Remote
-# Control back on and renaming itself back (#319). Nothing else.
+# Control back on and renaming itself back (#319). Nothing else. `self-shift`
+# covers the outgoing side: the four steps `keel shift ready --wake` prints
+# there once the note is stored. Neither decides that a shift happens.
 #
 # `continuation` is the between-task name: it covers exactly the boundary
 # between a durably complete task and the next unchecked task of the same
@@ -137,6 +139,9 @@ authorize:
   # Declared 2026-10-13 by the owner's decision on #319: a keel-maint shift on
   # the desktop app restores its Remote Control and title without asking.
   - shift-restore
+  # Declared 2026-10-13 by the owner's decision on #319: a keel-maint session
+  # takes its own four outgoing shift steps on the desktop app without asking.
+  - self-shift
   # Declared 2026-09-24 so the repository that ships the scoped form is the one
   # that demonstrates it, as the bare-list `triage:` below already records for
   # its own compatibility. It also closes the gap that motivated the form:

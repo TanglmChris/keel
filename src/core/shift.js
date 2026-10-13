@@ -422,7 +422,7 @@ function ready(where, options) {
     }
   }
   const waiter = options.wake ? armWake(where, role, since) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop };
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop, worktree: where.worktree };
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------
@@ -758,6 +758,10 @@ function clearHint(result) {
       '4. Call clear_session("self").',
       "Keel creates no task. Restoring unattended needs `mcp__ccd_session_mgmt__set_remote_control` in `permissions.allow`, "
         + "and `shift-restore` under `authorize:` in keel/config.yaml so the woken session does not stop to ask.",
+      // The outgoing side's confirmation is the repository's to waive (#319).
+      require("./config").readStandingAuthorization(result.worktree).scopes.has("self-shift")
+        ? "Standing-authorized by `self-shift` in keel/config.yaml: take these four steps now, without asking."
+        : "Declaring `self-shift` under authorize: in keel/config.yaml lets a session take these four steps without asking.",
     ].join("\n");
   } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
