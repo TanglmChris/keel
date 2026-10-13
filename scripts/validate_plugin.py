@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.127.0"
-PROTOCOL_VERSION = "5.127.0"
+PACKAGE_VERSION = "5.128.0"
+PROTOCOL_VERSION = "5.128.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6811,7 +6811,10 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "Desktop session: local_test-319" not in note.read_text(encoding="utf-8"):
             report(f"{label} the note does not record the desktop session id.")
             return 1
-        for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_remote_control", "mcp__ccd_session_mgmt__set_remote_control"):
+        # The clear must not wait for approval, or the wake lands first and the
+        # app refuses the clear (#319 comment 6138487679).
+        for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_remote_control",
+                       "mcp__ccd_session_mgmt__set_remote_control", "mcp__ccd_session_mgmt__clear_session", "refuses"):
             if needle not in armed.stdout:
                 report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
                 return 1
@@ -6833,7 +6836,7 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "The wake is armed" not in plain.stdout:
             report(f"{label} outside the desktop app the clear hint no longer says the wake is armed: {plain.stdout.strip()}")
             return 1
-        for needle in ("send_message", "create_scheduled_task"):
+        for needle in ("send_message", "create_scheduled_task", "mcp__ccd_session_mgmt__clear_session"):
             if needle in plain.stdout:
                 report(f"{label} outside the desktop app the clear hint names {needle}: {plain.stdout.strip()}")
                 return 1
@@ -6847,7 +6850,7 @@ def validate_shift_desktop_wake_scenario() -> int:
 
     for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        for needle in ("send_message", "set_remote_control"):
+        for needle in ("send_message", "set_remote_control", "mcp__ccd_session_mgmt__clear_session"):
             if needle not in text:
                 report(f"{label} {relative} does not name {needle} for the desktop app.")
                 return 1
