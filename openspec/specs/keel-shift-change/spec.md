@@ -68,11 +68,15 @@ A coordinated shift change for a role's session: requested by a coordinator, che
 
 ### Requirement: The new shift resumes from the note
 
-While a note waits for the worktree's role, or for the worktree when it has no role, `keel context` and the SessionStart projection MUST include one line naming `keel shift resume`, without changing the context's status, selection, or next action. `keel shift resume` MUST print the note, move it to `keel-chat/shift/history/`, and, when the worktree has a role, post that the role is on shift to the coordinator of the latest shift request; after that the line MUST no longer appear; with no note waiting it MUST say so and exit 0.
+While a note waits for the worktree's role, or for the worktree when it has no role, `keel context` and the SessionStart projection MUST include one line naming `keel shift resume`, without changing the context's status, selection, or next action. `keel shift resume` MUST print the note, move it to `keel-chat/shift/history/`, and, when the worktree has a role, post that the role is on shift to the coordinator of the latest shift request; after that the line MUST no longer appear; with no note waiting it MUST say so and exit 0. Run in the Claude desktop app, `resume` MUST, when it prints a note, also say to turn Remote Control back on with `set_remote_control`, because a clear there does not keep it; elsewhere it MUST NOT.
 
 #### Scenario: The notice points to the note and resume consumes it
 - **WHEN** a note waits for `verify`, the SessionStart projection runs in its worktree, and `verify` then runs `keel shift resume`
 - **THEN** the projection names `keel shift resume`, the command prints the note text, the note moves to history, `dm-rtl--verify` gains an on-shift message, and the next projection no longer names it
+
+#### Scenario: A resumed desktop shift is told to restore Remote Control
+- **WHEN** a role resumes its note with `CLAUDE_CODE_ENTRYPOINT=claude-desktop` and `CLAUDE_CODE_HOST_SESSION_ID` set, and another resumes without them
+- **THEN** the first output names `set_remote_control` and the second does not
 
 ### Requirement: Shift state is visible
 
@@ -117,7 +121,7 @@ For a note filed under a worktree, `keel shift status` MUST say to run `keel shi
 
 ### Requirement: A session changes its own shift and is woken once its next session starts
 
-`keel shift ready --wake`, for a role bound to the worktree or named with `--role`, MUST store the note and leave a detached one-shot waiter. The waiter MUST write exactly one wake record addressed to the role, from a sender other than the role, once the role's presence shows a session started with source `clear` or `startup` at or after the `ready` and that start has stayed unchanged for a settle time, and only while the role's note still waits; it MUST then exit, and MUST give up without writing after its time limit. A SessionStart with any other source MUST NOT trigger it. `ready --wake` with no chat role MUST be refused. The chat SessionStart hook MUST record the session's start time and source in the role's presence. This is the one exception to Keel scheduling nothing, and the protocol MUST state it.
+`keel shift ready --wake`, for a role bound to the worktree or named with `--role`, MUST store the note and leave a detached one-shot waiter. The waiter MUST write exactly one wake record addressed to the role, from a sender other than the role, once the role's presence shows a session started with source `clear` or `startup` at or after the `ready` and that start has stayed unchanged for a settle time, and only while the role's note still waits; it MUST then exit, and MUST give up without writing after its time limit. A SessionStart with any other source MUST NOT trigger it. `ready --wake` with no chat role MUST be refused. The chat SessionStart hook MUST record the session's start time and source in the role's presence. This is the one exception to Keel scheduling nothing, and the protocol MUST state it. In the Claude desktop app, which Keel recognises by `CLAUDE_CODE_ENTRYPOINT=claude-desktop` together with a non-empty `CLAUDE_CODE_HOST_SESSION_ID`, a clear starts no session until a prompt arrives. There, `ready` MUST record the desktop session id in the note, and `ready --wake` MUST NOT say the waiter wakes the new session. Its output MUST instead name a one-shot scheduled task created before the clear with `create_scheduled_task`, whose prompt calls `send_message` to that session id with the resume instruction and asks the woken session to turn Remote Control back on first. The output MUST also name the `permissions.allow` entry `mcp__ccd_session_mgmt__set_remote_control` that step needs. Keel MUST NOT create the task.
 
 #### Scenario: The cleared session is woken once
 - **WHEN** `dev` runs `keel shift ready --wake "…"`, a SessionStart with source `compact` follows, and then one with source `clear`
@@ -130,6 +134,10 @@ For a note filed under a worktree, `keel shift status` MUST say to run `keel shi
 #### Scenario: A host run's start does not wake the role
 - **WHEN** `dev` runs `keel shift ready --wake "…"`, a session starts in `dev`'s worktree with source `startup`, and its first prompt starts with `<scheduled-task`
 - **THEN** no wake record exists after the settle time, and a later `clear` start still wakes `dev` once
+
+#### Scenario: A desktop self-shift is told how its next session gets started
+- **WHEN** `dev` runs `keel shift ready --wake "…"` with `CLAUDE_CODE_ENTRYPOINT=claude-desktop` and `CLAUDE_CODE_HOST_SESSION_ID=local_test-319`, and runs it again without those variables after resuming
+- **THEN** the first note records `Desktop session: local_test-319`, and its output names `create_scheduled_task`, `send_message`, `local_test-319`, `set_remote_control` and `mcp__ccd_session_mgmt__set_remote_control`, and does not say `The wake is armed`; the second output says `The wake is armed` and names neither `send_message` nor `create_scheduled_task`
 
 ### Requirement: A role neither starts itself nor loses its note to another worktree
 

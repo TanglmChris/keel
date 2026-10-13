@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.127.0 - A self-shift on the Claude desktop app is told who wakes it
+
+Issue #319 (2026-10-13): on the Claude desktop app, `clear_session` starts no new session until a prompt arrives, so the `keel shift ready --wake` waiter never fired and the next shift waited for the owner. A live test the same day showed that a one-shot desktop scheduled task whose prompt calls `send_message` to the cleared session's id starts it, and that Remote Control does not survive the clear. Owner decision, 2026-10-13: partner wake, printed by Keel, with Keel launching nothing.
+
+- `keel shift ready` in the Claude desktop app (`CLAUDE_CODE_ENTRYPOINT=claude-desktop` with `CLAUDE_CODE_HOST_SESSION_ID`) records `Desktop session: <id>.` in the note.
+- `ready --wake` there no longer says the wake is armed. It prints the partner step: a one-shot scheduled task, created before the clear with `create_scheduled_task`, whose prompt calls `send_message` to that session id. The message asks the woken session to turn Remote Control back on with `set_remote_control("self", true)` first, then run `keel context` and `keel shift resume`. The step names the `permissions.allow` entry `mcp__ccd_session_mgmt__set_remote_control` that the Remote Control call needs.
+- `keel shift resume` there reminds the new shift to turn Remote Control back on. Outside the desktop app nothing changes.
+- `docs/shift-change.md` and `docs/shift-change.zh-CN.md` describe the desktop recipe. A coordinator's `keel shift start` for a role cleared on the desktop app is tracked as #320.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.127.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.126.0 - A self-shift from a worktree with no role needs a wake or a stated reason
 
 Issue #317 (2026-10-13): the Keel maintenance session changed its own shift from a worktree bound to no chat role. `--wake` is refused there, plain `keel shift ready` accepted the note with a parting hint, the session cleared, and nothing woke it; the owner had to open a new session by hand. Owner decision, 2026-10-13: refuse it and point the way.
