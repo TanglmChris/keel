@@ -182,7 +182,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore
+authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore, self-shift
   - commit
   - push
 ```
@@ -237,6 +237,11 @@ itself back to its working title. A clear there keeps neither. Without the decla
 session reads that restore as another session's request and stops to ask you. It reaches only that
 session, so it takes no scope, and it covers no other session, no clear or archive, and no repository
 action.
+
+`self-shift` (#319) is its outgoing counterpart: the four steps `keel shift ready --wake` prints on
+the desktop app once the note is stored — turn the session's own Remote Control off and wait, create
+the one-shot wake task, rename the session, clear it. It does not decide that a shift happens; that
+stays with the task-boundary rule and the coordinator. It takes no scope.
 
 `cleanup:scratch` covers removing temporary worktrees and run output under the session's own
 scratchpad, after checking that they are merged and that no process is using them. It never covers

@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.129.0"
-PROTOCOL_VERSION = "5.129.0"
+PACKAGE_VERSION = "5.130.0"
+PROTOCOL_VERSION = "5.130.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6785,6 +6785,64 @@ def validate_shift_change_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-change scenario passed.")
+    return 0
+
+
+def validate_self_shift_authorization_scenario() -> int:
+    """Issue #319: `self-shift` lets a desktop session take its own four steps.
+
+    The name is read and listed by `--doctor`, a scoped form is refused, and a
+    desktop `keel shift ready --wake` says the steps are standing-authorized
+    only when the repository declares it.
+    """
+    label = "self-shift-authorization:"
+    with tempfile.TemporaryDirectory(prefix="keel-self-shift-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319"}
+        config = verify / "keel" / "config.yaml"
+        reason = ("--force-reason", "the fixture config is uncommitted")
+
+        def declare(*entries: str) -> None:
+            write_text(config, "authorize:\n" + "".join(f"  - {entry}\n" for entry in entries))
+
+        declare("commit", "self-shift")
+        doctor = run_keel(verify, "--doctor", env=env)
+        if "self-shift" not in doctor.stdout or "unrecognized" in (doctor.stdout + doctor.stderr).lower():
+            report(f"{label} self-shift was not read and listed as a standing authorization: {doctor.stdout.strip()} {doctor.stderr.strip()}")
+            return 1
+        granted = run_keel(verify, "shift", "ready", "--wake", *reason, "verify note: R015", env=desktop)
+        if "Standing-authorized by `self-shift`" not in granted.stdout:
+            report(f"{label} a desktop ready --wake with self-shift declared does not say the steps are standing-authorized: {granted.stdout.strip()} {granted.stderr.strip()}")
+            return 1
+        run_keel(verify, "shift", "resume", env=desktop)
+
+        declare("commit")
+        asked = run_keel(verify, "shift", "ready", "--wake", *reason, "verify note: R016", env=desktop)
+        if "Standing-authorized by `self-shift`" in asked.stdout:
+            report(f"{label} a desktop ready --wake without self-shift says the steps are standing-authorized: {asked.stdout.strip()}")
+            return 1
+        if "self-shift" not in asked.stdout:
+            report(f"{label} a desktop ready --wake without self-shift does not name the declaration that would allow it: {asked.stdout.strip()}")
+            return 1
+        run_keel(verify, "shift", "resume", env=desktop)
+
+        declare("commit", "self-shift:anything")
+        scoped = run_keel(verify, "--doctor", env=env)
+        combined = scoped.stdout + scoped.stderr
+        if "self-shift:anything" not in combined or "commit: authorized" in combined:
+            report(f"{label} a scoped self-shift was not refused by name: {combined.strip()}")
+            return 1
+
+    for relative in ("README.md", "docs/shift-change.md", "docs/shift-change.zh-CN.md"):
+        if "self-shift" not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not name self-shift.")
+            return 1
+    if "self-shift-authorization" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("self-shift-authorization scenario passed.")
     return 0
 
 
@@ -28981,7 +29039,7 @@ def validate_continuation_authorization_scenario() -> int:
 ACCEPTED_AUTHORIZE_NAMES = (
     "commit, push, push:<branch glob>, release, archive, continuation, "
     "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, "
-    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore"
+    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore, self-shift"
 )
 
 
@@ -29043,7 +29101,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>], shift-restore" not in config_text:
+    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>], shift-restore, self-shift" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -40358,6 +40416,7 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
+    ("self-shift-authorization", validate_self_shift_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-ack", validate_chat_ack_scenario),

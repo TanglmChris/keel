@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.130.0 - A session's own desktop shift steps can be standing-authorized
+
+Issue #319, second probe round on 5.129.0 (2026-10-13): after the clear the chain ran unattended. Before it, the session asked the owner once, because its four outgoing steps were outside `shift-restore`. Owner decision, 2026-10-13: authorize them too.
+
+- New standing-authorization name `self-shift`, with no scope. It covers exactly the four steps `keel shift ready --wake` prints on the Claude desktop app once the note is stored: Remote Control off, the one-shot wake task, the rename, and the clear. It never covers the decision to change shift.
+- On the desktop app, `ready --wake` says the four steps are standing-authorized when `self-shift` is declared, and otherwise names it. This repository declares it.
+- `README.md`, the `keel/config.yaml` comment, and both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.130.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.129.0 - A desktop self-shift runs in an order that works, and restores itself
 
 Issue #319, follow-up tests of 2026-10-13. In the maintenance session, turning Remote Control off blocked for hours while the owner followed the session remotely. The wake task, created before that call, fired during the wait, and the app then refused the clear to keep the queued wake. 5.128.0 printed the wrong reason for this, approval of `clear_session`. A fresh probe session that turned Remote Control off first, then created the task, then cleared, was woken as designed. Its woken model then stopped to ask the owner before restoring Remote Control. Owner decisions, 2026-10-13: fix the order, rename the outgoing session before the clear, and add a standing authorization for the restore.
