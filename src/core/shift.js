@@ -748,7 +748,8 @@ function clearHint(result) {
       + "Before you clear, create a one-shot scheduled task with the host's `create_scheduled_task`, firing a few minutes after the clear, "
       + `whose prompt calls \`send_message\` to session \`${result.desktop}\` with: "${result.role}: your new shift starts now. `
       + 'First turn Remote Control back on with set_remote_control("self", true), then run `keel context` and `keel shift resume`." '
-      + "Keel creates no task. Turning Remote Control back on unattended needs `mcp__ccd_session_mgmt__set_remote_control` in `permissions.allow`.";
+      + "Keel creates no task. Unattended, this needs two `permissions.allow` entries: `mcp__ccd_session_mgmt__set_remote_control` to turn Remote Control back on, "
+      + "and `mcp__ccd_session_mgmt__clear_session`, because a clear left waiting for approval lets the wake arrive first and the app then refuses it.";
   } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
   } else if (result.closed.length) last = "The coordinator's `keel shift start` then wakes the new shift.";

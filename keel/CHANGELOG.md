@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.128.0 - The desktop shift recipe names the clear's allow entry
+
+Issue #319, end-to-end test of 5.127.0 (2026-10-13): following the printed desktop recipe, `clear_session("self")` waited for the owner's approval, for 13 minutes and then for 1 h 40 min. Remote Control was already off, so the owner could not approve it remotely. The partner's wake fired meanwhile, the app queued its `send_message` as a user message, and the app then refused the clear to protect it. Owner decision, 2026-10-13: allow the clear and name it in the recipe.
+
+- On the desktop app, the `ready --wake` partner step names two `permissions.allow` entries: `mcp__ccd_session_mgmt__set_remote_control` and `mcp__ccd_session_mgmt__clear_session`. It says why the second is needed: a clear left waiting for approval lets the wake arrive first, and the app then refuses the clear.
+- `docs/shift-change.md` and `docs/shift-change.zh-CN.md` say the same.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.128.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.127.0 - A self-shift on the Claude desktop app is told who wakes it
 
 Issue #319 (2026-10-13): on the Claude desktop app, `clear_session` starts no new session until a prompt arrives, so the `keel shift ready --wake` waiter never fired and the next shift waited for the owner. A live test the same day showed that a one-shot desktop scheduled task whose prompt calls `send_message` to the cleared session's id starts it, and that Remote Control does not survive the clear. Owner decision, 2026-10-13: partner wake, printed by Keel, with Keel launching nothing.
