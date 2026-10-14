@@ -750,18 +750,26 @@ function clearHint(result) {
     last = [
       "On the Claude desktop app a clear starts no session until a prompt arrives, so the waiter alone wakes nothing (#319). Do these in order:",
       '1. Turn Remote Control off with set_remote_control("self", false), and wait for that call to return; it can take long while someone follows this session remotely.',
-      "2. Only then create a one-shot scheduled task with the host's `create_scheduled_task`, firing about three minutes later, "
+      // The app's auto-archive takes an idle session whose bound PRs are all
+      // merged, and releases its worktree; a cleared session waiting for its
+      // wake is exactly that (#326 D1 of shift-desktop-unbind-merged-prs).
+      "2. Dismiss every PR bound to this session: call `get_status`, and while it reports a bound PR, dismiss it with `unbind_pr` and call `get_status` again. "
+        + "Otherwise the app's auto-archive archives the cleared, idle session before the wake and releases its worktree (#326). "
+        + "The new shift can bind an open one again with `bind_pr`.",
+      "3. Only then create a one-shot scheduled task with the host's `create_scheduled_task`, firing about three minutes later, "
         + `whose prompt calls \`send_message\` to session \`${result.desktop}\` with: "${result.role}: your new shift starts now. `
         + "Run `keel context` and `keel shift resume`, then restore Remote Control and this session's title as `keel shift resume` says.\" "
+        + "and, if the send is refused because the session is archived, calls `unarchive_session` on it, sends again, and says which path it took. "
         + "A task created earlier can fire first, and the app then refuses the clear to keep its message.",
-      `3. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so its archived copy can be told apart.`,
-      '4. Call clear_session("self").',
-      "Keel creates no task. Restoring unattended needs `mcp__ccd_session_mgmt__set_remote_control` in `permissions.allow`, "
+      `4. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so it reads as between shifts until the woken session renames it back.`,
+      '5. Call clear_session("self").',
+      "Keel creates no task. Running unattended needs `mcp__ccd_session_mgmt__set_remote_control`, `mcp__ccd_pr__unbind_pr` "
+        + "and `mcp__ccd_session_mgmt__unarchive_session` in `permissions.allow`, "
         + "and `shift-restore` under `authorize:` in keel/config.yaml so the woken session does not stop to ask.",
       // The outgoing side's confirmation is the repository's to waive (#319).
       require("./config").readStandingAuthorization(result.worktree).scopes.has("self-shift")
-        ? "Standing-authorized by `self-shift` in keel/config.yaml: take these four steps now, without asking."
-        : "Declaring `self-shift` under authorize: in keel/config.yaml lets a session take these four steps without asking.",
+        ? "Standing-authorized by `self-shift` in keel/config.yaml: take these five steps now, without asking."
+        : "Declaring `self-shift` under authorize: in keel/config.yaml lets a session take these five steps without asking.",
     ].join("\n");
   } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
