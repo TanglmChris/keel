@@ -135,6 +135,35 @@ function wakeStep(session, text) {
     + `then call \`send_message\` to \`${session}\` with ${JSON.stringify(text)}.`;
 }
 
+// --- parked roles (#316) ------------------------------------------------------------
+
+function parkFile(where, role) {
+  return path.join(where.root, "parked", `${role}.json`);
+}
+
+function park(where, role, by, reason) {
+  const record = { role, reason: reason || null, by: by || null, at: new Date().toISOString() };
+  store.writeJsonAtomic(where, parkFile(where, role), record);
+  return record;
+}
+
+function unpark(where, role) {
+  const file = parkFile(where, role);
+  const existed = fs.existsSync(file);
+  fs.rmSync(file, { force: true });
+  return existed;
+}
+
+// A park is in effect until a session runs as the role after it (D2).
+function parkOf(where, role) {
+  const record = store.readJsonFile(parkFile(where, role));
+  const at = Date.parse(record.at || "");
+  if (Number.isNaN(at)) return null;
+  const last = Date.parse(store.readJsonFile(presenceFile(where, role)).last_active || "");
+  if (!Number.isNaN(last) && last > at) return null;
+  return { role, at: store.isoLocal(new Date(at)), by: record.by || null, reason: record.reason || null };
+}
+
 const ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // `online`, `idle`, or `offline`, with the time of last activity (D10).
@@ -418,6 +447,9 @@ function check(cwd) {
 module.exports = {
   NOTICE_LIMIT,
   asleep,
+  park,
+  parkOf,
+  unpark,
   wakeStep,
   check,
   bridgeLine,
