@@ -236,16 +236,15 @@ refused too. Declaring it turns the push check on by itself, and a bare `push` b
 refused.
 
 `shift-restore` (#319) covers the two things a session started by a shift change on the Claude
-desktop app must do right after `keel shift resume`: turn its own Remote Control back on, and rename
-itself back to its working title. A clear there keeps neither. Without the declaration, the woken
+desktop app must do right after `keel shift resume`: turn its own Remote Control back on if it came
+back off, and rename itself back to its working title. A clear there keeps no title. Without the declaration, the woken
 session reads that restore as another session's request and stops to ask you. It reaches only that
 session, so it takes no scope, and it covers no other session, no clear or archive, and no repository
 action.
 
-`self-shift` (#319) is its outgoing counterpart: the four steps `keel shift ready --wake` prints on
-the desktop app once the note is stored — turn the session's own Remote Control off and wait, create
-the one-shot wake task (which unarchives the session first if needed, #326), rename the session,
-clear it. It does not
+`self-shift` (#319) is its outgoing counterpart: the three steps `keel shift ready --wake` prints on
+the desktop app once the note is stored — create the one-shot wake task (which unarchives the
+session first if needed, #326), rename the session, clear it. Remote Control stays on (#324). It does not
 decide that a shift happens; that stays with the task-boundary rule and the coordinator. It takes no
 scope.
 

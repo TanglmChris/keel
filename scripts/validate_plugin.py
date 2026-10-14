@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.133.0"
-PROTOCOL_VERSION = "5.133.0"
+PACKAGE_VERSION = "5.134.0"
+PROTOCOL_VERSION = "5.134.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6789,7 +6789,7 @@ def validate_shift_change_scenario() -> int:
 
 
 def validate_self_shift_authorization_scenario() -> int:
-    """Issue #319: `self-shift` lets a desktop session take its own four steps.
+    """Issue #319: `self-shift` lets a desktop session take its own three steps.
 
     The name is read and listed by `--doctor`, a scoped form is refused, and a
     desktop `keel shift ready --wake` says the steps are standing-authorized
@@ -6816,9 +6816,9 @@ def validate_self_shift_authorization_scenario() -> int:
         if "Standing-authorized by `self-shift`" not in granted.stdout:
             report(f"{label} a desktop ready --wake with self-shift declared does not say the steps are standing-authorized: {granted.stdout.strip()} {granted.stderr.strip()}")
             return 1
-        # Four again once the PR-dismiss step went (#326).
-        if "take these four steps now" not in granted.stdout:
-            report(f"{label} a desktop ready --wake with self-shift declared does not cover four steps: {granted.stdout.strip()}")
+        # Three once the Remote Control step went (#324).
+        if "take these three steps now" not in granted.stdout:
+            report(f"{label} a desktop ready --wake with self-shift declared does not cover three steps: {granted.stdout.strip()}")
             return 1
         run_keel(verify, "shift", "resume", env=desktop)
 
@@ -6932,16 +6932,25 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "Desktop session: local_test-319" not in note.read_text(encoding="utf-8"):
             report(f"{label} the note does not record the desktop session id.")
             return 1
-        # Remote Control off, then the task, so the wake cannot fire before the
-        # clear; then rename and clear (#319 comments 6143435530, 6144856601).
+        # Remote Control stays on: a clear is accepted with it on, and turning it
+        # off waits for a person's approval (#324 comments 6164793777, 6165454422).
+        for needle in ('set_remote_control("self", false)', "cannot be cleared"):
+            if needle in armed.stdout:
+                report(f"{label} the desktop clear hint still says {needle}: {armed.stdout.strip()}")
+                return 1
+        # The task, then rename and clear at once, so the wake cannot fire
+        # before the clear (#319 comments 6143435530, 6144856601).
         for needle in ("create_scheduled_task", "send_message", "local_test-319", "set_session_title",
                        "mcp__ccd_session_mgmt__set_remote_control", "shift-restore"):
             if needle not in armed.stdout:
                 report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
                 return 1
-        off = armed.stdout.find('set_remote_control("self", false)')
-        if off == -1 or off > armed.stdout.find("create_scheduled_task"):
-            report(f"{label} the desktop clear hint does not turn Remote Control off before create_scheduled_task: {armed.stdout.strip()}")
+        task = armed.stdout.find("create_scheduled_task")
+        if not task < armed.stdout.find("set_session_title", task) < armed.stdout.find("clear_session", task):
+            report(f"{label} the desktop clear hint does not order create_scheduled_task, set_session_title, clear_session: {armed.stdout.strip()}")
+            return 1
+        if "new address" not in armed.stdout:
+            report(f"{label} the desktop clear hint does not say Remote Control reconnects under a new address: {armed.stdout.strip()}")
             return 1
         # Dismissing bound PRs did not keep the app's auto-archive off the
         # cleared session: the engine archives on every PR the session ever
@@ -6973,8 +6982,8 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "next is R011" not in resumed.stdout:
             report(f"{label} resume on the desktop app did not print the note: {resumed.stdout.strip()} {resumed.stderr.strip()}")
             return 1
-        if "set_remote_control" not in resumed.stdout:
-            report(f"{label} resume on the desktop app does not say to turn Remote Control back on: {resumed.stdout.strip()}")
+        if "set_remote_control" not in resumed.stdout or "get_session" not in resumed.stdout:
+            report(f"{label} resume on the desktop app does not say to check Remote Control and turn it back on if off: {resumed.stdout.strip()}")
             return 1
         if "set_session_title" not in resumed.stdout:
             report(f"{label} resume on the desktop app does not say to rename the session back: {resumed.stdout.strip()}")
@@ -7002,9 +7011,10 @@ def validate_shift_desktop_wake_scenario() -> int:
 
     for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        if "unbind_pr" in text:
-            report(f"{label} {relative} still names unbind_pr for the desktop app.")
-            return 1
+        for stale in ("unbind_pr", "cannot be cleared"):
+            if stale in text:
+                report(f"{label} {relative} still says {stale}.")
+                return 1
         for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore",
                        "get_session", "unarchive_session"):
             if needle not in text:
