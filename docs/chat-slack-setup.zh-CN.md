@@ -238,6 +238,7 @@ keel chat bridge status
 | `keel chat todos --mine` | 看分给自己的待办 |
 | `keel chat search <文本>` | 搜索所有群 |
 | `keel chat todo soc --assignee codex-maint --issue 42 "…"` | 派一个待办，并关联 issue 42 |
+| `keel chat role --park iecc-design --reason "等下个版本"` | 有意停放一个角色：patrol 不再 nudge 它、也不再报风险，给它发消息的人会被告知它已停放。`--unpark` 解除并汇总停放期间积压的消息；该角色的会话重新运行也会自动解除（[#316](https://github.com/TanglmChris/keel/issues/316)） |
 
 每个群还有一份 Markdown 聊天记录，每条消息后自动更新，位置是 `<git common dir>/keel-chat/transcripts/<群>.md`。
 

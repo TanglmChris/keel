@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.137.0"
-PROTOCOL_VERSION = "5.137.0"
+PACKAGE_VERSION = "5.138.0"
+PROTOCOL_VERSION = "5.138.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6962,6 +6962,96 @@ def validate_shift_await_clear_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-await-clear scenario passed.")
+    return 0
+
+
+def validate_chat_park_role_scenario() -> int:
+    """A role parked on purpose is left alone, and posters are told (#316).
+
+    `keel chat role --park` records the park; posts naming the role say it is
+    parked; the patrol neither nudges it nor reports it; `--unpark` summarizes
+    what waited; a session running as the role ends the park (chat-park-role
+    D1-D5).
+    """
+    label = "chat-park-role:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-park-role-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        run_keel(rtl, "chat", "group", "create", "soc", "verify", env=env)
+        ghost = run_keel(rtl, "chat", "role", "--park", "ghost", env=env)
+        if ghost.returncode == 0:
+            report(f"{label} parking an unbound role was accepted: {ghost.stdout.strip()}")
+            return 1
+        run_keel(rtl, "chat", "post", "soc", "@verify please rerun R007", env=env)
+        time.sleep(1.2)
+        parked = run_keel(rtl, "chat", "role", "--park", "verify", "--reason", "until R040", env=env)
+        made = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R041 rerun", env=env)
+        if made.returncode != 0:
+            report(f"{label} a todo for a parked role failed: {made.stderr.strip()}")
+            return 1
+        if "verify is parked" not in made.stdout:
+            report(f"{label} a todo for a parked role does not say verify is parked: {made.stdout.strip()} (--park: {parked.stderr.strip() or parked.stdout.strip()})")
+            return 1
+        if "until R040" not in made.stdout:
+            report(f"{label} a todo for a parked role does not give the reason: {made.stdout.strip()}")
+            return 1
+        as_json = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R042 rerun", "--json", env=env)
+        entries = json.loads(as_json.stdout).get("parked") if as_json.returncode == 0 else None
+        if not entries or entries[0].get("role") != "verify" or entries[0].get("reason") != "until R040":
+            report(f"{label} --json does not carry parked: {as_json.stdout.strip()}")
+            return 1
+
+        def patrol() -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "patrol", "--nudge", "--idle", "1s", env=env)
+
+        for attempt in (1, 2):
+            time.sleep(1.2)
+            run = patrol()
+            lines = run.stdout.splitlines()
+            if any(line.startswith("nudged verify") for line in lines):
+                report(f"{label} patrol run {attempt} nudged the parked role: {run.stdout.strip()}")
+                return 1
+            if any(line.startswith(("risk:", "drift:")) and "verify" in line for line in lines):
+                report(f"{label} patrol run {attempt} reported the parked role: {run.stdout.strip()}")
+                return 1
+            if not any(line.startswith("role verify:") and "parked" in line for line in lines):
+                report(f"{label} patrol run {attempt} does not show verify as parked: {run.stdout.strip()}")
+                return 1
+        unparked = run_keel(rtl, "chat", "role", "--unpark", "verify", env=env)
+        if unparked.returncode != 0:
+            report(f"{label} --unpark failed: {unparked.stderr.strip()}")
+            return 1
+        if "waited" not in unparked.stdout:
+            report(f"{label} --unpark does not report what waited: {unparked.stdout.strip()}")
+            return 1
+        time.sleep(1.2)
+        after = patrol()
+        if "nudged verify: unread" not in after.stdout:
+            report(f"{label} after --unpark the patrol did not nudge verify: {after.stdout.strip()}")
+            return 1
+        plain = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R043 rerun", env=env)
+        if "parked" in plain.stdout:
+            report(f"{label} a todo after --unpark still says parked: {plain.stdout.strip()}")
+            return 1
+        run_keel(rtl, "chat", "role", "--park", "verify", env=env)
+        time.sleep(1.2)
+        subprocess.run(
+            ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"],
+            cwd=verify, env=env, text=True, capture_output=True, check=False,
+            input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "source": "startup"}),
+        )
+        resumed = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R044 rerun", env=env)
+        if "parked" in resumed.stdout:
+            report(f"{label} a session running as verify did not end the park: {resumed.stdout.strip()}")
+            return 1
+    for relative in ("docs/chat-slack-setup.md", "docs/chat-slack-setup.zh-CN.md"):
+        if "--park" not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not mention --park.")
+            return 1
+    if "chat-park-role" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-park-role scenario passed.")
     return 0
 
 
@@ -40822,6 +40912,7 @@ SCENARIOS: tuple = (
     ("shift-desktop-wake-overdue", validate_shift_desktop_wake_overdue_scenario),
     ("shift-start-desktop", validate_shift_start_desktop_scenario),
     ("chat-wake-idle-desktop", validate_chat_wake_idle_desktop_scenario),
+    ("chat-park-role", validate_chat_park_role_scenario),
     ("shift-await-clear", validate_shift_await_clear_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),

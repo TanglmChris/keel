@@ -234,6 +234,7 @@ The shared app can take direct messages for one role too: map the shared app's o
 | `keel chat todos --mine` | List the open todos assigned to you. |
 | `keel chat search <text>` | Search every group. |
 | `keel chat todo soc --assignee codex-maint --issue 42 "…"` | Assign a todo, linked to issue 42. |
+| `keel chat role --park iecc-design --reason "until the next release"` | Park a role on purpose: the patrol stops nudging and reporting it, and posters are told it is parked. `--unpark` ends it and summarizes what waited; a session running as the role ends it too ([#316](https://github.com/TanglmChris/keel/issues/316)). |
 
 There is also a Markdown transcript per group, regenerated after each message, at `<git common dir>/keel-chat/transcripts/<group>.md`.
 
