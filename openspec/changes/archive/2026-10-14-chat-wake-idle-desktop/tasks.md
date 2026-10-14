@@ -47,7 +47,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -85,7 +85,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:d33d80b94d91eca59676ccde67ac37f7f137393db280d8d13d90fd2976110803
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.136.1 → 5.137.0; with the "Chat names the wake step for an idle desktop session" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: both MODIFIED requirements replaced their published counterparts, each adding its desktop scenario; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and both published specs carry the change; both validator scenarios pass.
+      - Scope check: changed files are the version markers, `keel/CHANGELOG.md` and the two published specs, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
@@ -96,5 +103,5 @@
 
 ## Expectation Coverage
 
-- E1: On the desktop app, a todo, post, or patrol nudge to a role whose session has no running process says it wakes nothing there and names the step that does, and the patrol tells the coordinator on the first nudge (#331). Covered by: 1.1
+- E1: On the desktop app, a todo, post, or patrol nudge to a role whose session has no running process says it wakes nothing there and names the step that does, and the patrol tells the coordinator on the first nudge (#331, D3, D4). Covered by: 1.1
 - E2: The release carries it. Covered by: 2.1

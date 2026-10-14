@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.137.0 - Chat names the wake step for an idle desktop session
+
+Issue #331 (rtl_ppa_prj, 2026-10-13/14). On the Claude desktop app an idle session has no running Claude process, so a chat record addressed to it is read by nothing: todos to three idle roles waited about four hours, and an hourly `patrol --nudge` nudged one role seven times while it never woke. A `send_message` to the session id woke each at once, as #320 had measured (9 s).
+
+- Presence records, when a role's session runs on the desktop app, its session id and Claude process id; outside the desktop app it clears them, and the SessionEnd write keeps them.
+- `keel chat post`, `dm` and `todo` name, for each role the record wakes whose recorded process has exited, the step that wakes it: `get_session`, `unarchive_session` when archived, then `send_message` to its session id. `--json` carries `asleep`.
+- `keel patrol --nudge` reports such a role to the coordinator as a risk on the first nudge, rather than after two unanswered ones.
+- Keel still launches nothing and calls no host tool. Both chat docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.137.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.136.1 - `keel shift start` no longer claims a desktop wake it cannot make
 
 Issue #320. Measured 2026-10-14: on the Claude desktop app a session with no running process sees no chat record. `keel shift start start-probe` printed `Woke start-probe …` and the paused target showed no log line for three minutes; a `send_message` to its session id resumed it in 9 s. The shift feature is frozen to bug fixes (owner, 2026-10-14); this reuses the self-shift wake's partner step and adds no mechanism.
