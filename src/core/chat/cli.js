@@ -16,6 +16,7 @@ const { ChatError } = store;
 
 const USAGE = [
   "keel chat role [--set <name>] [--alias <alias>] [--prune] [--json]   (--prune: drop bindings to removed worktrees)",
+  "keel chat role --park <role> [--reason <text>] | --unpark <role>   (a role parked on purpose is not nudged or reported by the patrol)",
   "keel chat group create <group> [--member <role>]...",
   "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
@@ -57,6 +58,9 @@ const USAGE = [
 const VALUED = {
   "--set": "set",
   "--alias": "alias",
+  "--park": "park",
+  "--unpark": "unpark",
+  "--reason": "reason",
   "--reply-to": "replyTo",
   "--supersedes": "supersedes",
   "--not-a-loop": "notALoop",
@@ -180,19 +184,60 @@ function offlineMentions(where, record) {
 // A woken role whose desktop session has no running process reads nothing
 // until something resumes it (#331 D3), so the poster is given the step.
 function asleepTargets(where, record) {
+  return wokenRoles(where, record).map((role) => notice.asleep(where, role)).filter(Boolean);
+}
+
+function wokenRoles(where, record) {
   const bound = Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean);
   const candidates = [...new Set([...bound, ...(record.mentions || []), ...(record.assignee ? [record.assignee] : [])])];
-  return candidates.filter((role) => store.wakes(record, role)).sort().map((role) => notice.asleep(where, role)).filter(Boolean);
+  return candidates.filter((role) => store.wakes(record, role)).sort();
+}
+
+function boundRoles(where) {
+  return new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean));
+}
+
+// `keel chat role --park/--unpark` (#316 D1, D3).
+function runPark(where, options) {
+  if (options.park !== null && options.unpark !== null) throw new ChatError("Give --park or --unpark, not both.");
+  const role = options.park !== null ? options.park : options.unpark;
+  if (options.park !== null) {
+    if (!boundRoles(where).has(role)) {
+      throw new ChatError(`No worktree is bound to ${role}, so there is nothing to park; \`keel chat role\` in its worktree shows its name.`);
+    }
+    const record = notice.park(where, role, store.currentRole(where), options.reason);
+    if (options.json) out(JSON.stringify(record));
+    else out(`Parked ${role}${options.reason ? `: ${options.reason}` : ""}. The patrol leaves it alone and posters are told, until \`keel chat role --unpark ${role}\` or its session runs again.`);
+    return 0;
+  }
+  const removed = notice.unpark(where, role);
+  const waiting = store.unread(where, role).filter((record) => store.wakes(record, role)).sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (options.json) {
+    out(JSON.stringify({ role, unparked: removed, waiting: waiting.length, since: waiting.length ? waiting[0].created : null }));
+    return 0;
+  }
+  const head = removed ? `Unparked ${role}.` : `${role} was not parked.`;
+  out(waiting.length
+    ? `${head} ${waiting.length} addressed record(s) waited since ${waiting[0].created}; ${role} reads them with \`keel chat unread\`.`
+    : `${head} Nothing addressed to it waited.`);
+  return 0;
 }
 
 function postResult(where, record, json) {
-  const asleep = asleepTargets(where, record);
-  const offline = offlineMentions(where, record).filter((role) => !asleep.some((entry) => entry.role === role));
+  const parked = wokenRoles(where, record).map((role) => notice.parkOf(where, role)).filter(Boolean);
+  const isParked = (role) => parked.some((entry) => entry.role === role);
+  const asleep = asleepTargets(where, record).filter((entry) => !isParked(entry.role));
+  const offline = offlineMentions(where, record).filter((role) => !isParked(role) && !asleep.some((entry) => entry.role === role));
   if (json) {
-    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions, offline, asleep }));
+    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions, offline, asleep, parked }));
     return;
   }
   const lines = [`Posted ${record.id} to ${record.group}.`];
+  // A parked role is told nothing new by the post; the poster is (#316 D5).
+  for (const entry of parked) {
+    lines.push(`${entry.role} is parked since ${entry.at}${entry.by ? ` by ${entry.by}` : ""}${entry.reason ? `: ${entry.reason}` : ""}; `
+      + "this waits until it is unparked or its session runs again — route anything urgent through the coordinator.");
+  }
   for (const role of offline) lines.push(`Queued for ${role}: offline; it will see this when its session next starts.`);
   for (const entry of asleep) {
     lines.push(`${entry.role}'s desktop session ${entry.session} has no running process, so this record alone wakes nothing (#331). `
@@ -299,6 +344,7 @@ function dispatch(where, options) {
   const [command, ...rest] = options.positionals;
   switch (command) {
     case "role": {
+      if (options.park !== null || options.unpark !== null) return runPark(where, options);
       if (options.prune) {
         // Bindings to removed worktrees (#301 D4).
         const pruned = require("./drift").pruneBindings(where);

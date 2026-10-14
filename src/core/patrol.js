@@ -91,6 +91,7 @@ function patrol(where, role, options) {
       presence: presence.state,
       lastActive: presence.last_active,
       idle: Number.isNaN(last) || last < threshold,
+      parked: Boolean(notice.parkOf(where, name)),
       openTodos: store.openTodos(where, { assignee: name }).length,
     });
   }
@@ -155,7 +156,7 @@ function currentSnapshot(where, role, result, options) {
   // Free disk as the host measured it (#307 part 3 D1).
   if (options.diskFreeGb !== null) entries.disk = options.diskFreeGb < options.diskMinGb ? "low" : "ok";
   for (const row of result.roles) {
-    entries[`role ${row.role}`] = `${row.idle ? "idle" : "active"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`;
+    entries[`role ${row.role}`] = `${row.parked ? "parked" : row.idle ? "idle" : "active"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`;
   }
   const threshold = parseSince(options.idle);
   const unread = store.unread(where, role)
@@ -244,6 +245,8 @@ function nudgeRoles(where, patroller, options) {
     .filter((role) => role !== patroller).sort();
   const closures = closedTodos(where);
   for (const role of roles) {
+    // A role parked on purpose is left alone, its state kept (#316 D4).
+    if (notice.parkOf(where, role)) continue;
     // The first look only records the tasks already closed (#313 D1).
     if (!state[role] || !Array.isArray(state[role].closedSeen)) {
       state[role] = { ...(state[role] || {}), closedSeen: (closures.get(role) || []).map((entry) => entry.done) };
@@ -351,7 +354,7 @@ function render(result) {
   for (const line of result.sinceLast ? [] : result.drift) lines.push(`drift: ${line.text}`);
   // A scheduled run reports roles only through what changed (D1).
   for (const row of result.sinceLast ? [] : result.roles) {
-    lines.push(`role ${row.role}: ${row.presence}${row.idle ? " (idle)" : ""}, last active ${row.lastActive || "unknown"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`);
+    lines.push(`role ${row.role}: ${row.presence}${row.idle ? " (idle)" : ""}${row.parked ? ", parked" : ""}, last active ${row.lastActive || "unknown"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`);
   }
   return lines.join("\n");
 }

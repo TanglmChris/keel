@@ -37,10 +37,12 @@ function removedBindings(where) {
 }
 
 function roleDrift(where, now = Date.now()) {
-  const { presenceFile } = require("./notice");
+  const { presenceFile, parkOf } = require("./notice");
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
   const unattended = [];
   for (const role of roles) {
+    // A role parked on purpose is not unattended (#316 D4).
+    if (parkOf(where, role)) continue;
     const waiting = [];
     let unread = [];
     try {
