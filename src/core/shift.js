@@ -435,6 +435,12 @@ function ready(where, options) {
 const WAKE_SENDER = "keel-shift";
 const WAKE_SOURCES = new Set(["clear", "startup"]);
 
+// Zero is a valid overdue time: it flags every desktop note at once.
+function overdueMs() {
+  const value = Number(process.env.KEEL_SHIFT_WAKE_OVERDUE_MS);
+  return process.env.KEEL_SHIFT_WAKE_OVERDUE_MS && Number.isFinite(value) && value >= 0 ? value : 15 * 60 * 1000;
+}
+
 function envMs(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -566,6 +572,12 @@ function status(where) {
       const stat = fs.statSync(path.join(folder, file));
       const row = entry(`${prefix}${file.slice(0, -3)}`);
       row.note = store.isoLocal(stat.mtime);
+      // A desktop wake that never ran leaves no trace but the waiting note
+      // (D2 of shift-desktop-wake-confirm).
+      const desktop = fs.readFileSync(path.join(folder, file), "utf8").match(/^Desktop session: (\S+)\.$/m);
+      if (desktop && Date.now() - stat.mtime.getTime() >= overdueMs()) {
+        row.overdueDesktop = desktop[1];
+      }
       if (prefix) {
         // The note's header names the worktree it was written in (#291 D6).
         const header = fs.readFileSync(path.join(folder, file), "utf8").match(/^Written \S+ in (.+)\.$/m);
@@ -708,6 +720,13 @@ function safeList(dir) {
 }
 
 function describe(row) {
+  const line = describeState(row);
+  if (!row.note || !row.overdueDesktop) return line;
+  return `${line}\n  desktop wake overdue: nothing has resumed it; check the wake task's run with \`list_task_runs\`, `
+    + `and if it did not deliver, \`send_message\` session ${row.overdueDesktop} to run \`keel context\` and \`keel shift resume\``;
+}
+
+function describeState(row) {
   if (row.note && row.role.startsWith("worktree ")) {
     return `${row.role}: note waiting since ${row.note}; no chat role there, so tell the session in ${row.path || "that worktree"} to run \`keel shift resume\``;
   }
@@ -758,6 +777,11 @@ function clearHint(result) {
         + `then calls \`send_message\` to it with: "${result.role}: your new shift starts now. `
         + "Run `keel context` and `keel shift resume`, then restore Remote Control and this session's title as `keel shift resume` says.\" "
         + "If that send is still refused because the session is archived, it unarchives it and sends once more, and it says which path it took. "
+        // The run's summary is the only trace a wake leaves, so a send that did
+        // not deliver must say so there and reach the owner (D1 of
+        // shift-desktop-wake-confirm).
+        + "A send result of `delivered` or `queued` is a delivered wake; any other result after that retry is a failed wake: "
+        + "the task then calls `PushNotification` naming the session and the result, and starts its reply with `WAKE FAILED`. "
         + "The app's auto-archive can archive the cleared session before the wake (#326); unarchiving brings back its worktree. "
         + "A task that fires before the clear gets the clear refused, so take the next two steps at once.",
       `2. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so it reads as between shifts until the woken session renames it back.`,
