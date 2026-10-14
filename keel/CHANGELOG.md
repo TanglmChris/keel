@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.136.0 - A desktop self-shift completes within a minute
+
+Issues #324, #326. Owner requirement, 2026-10-14: a desktop self-shift completes within one minute, which is also the answer to the Mac idle-sleeping in the gap; long gaps are out of scope. The 5.135.0 wake was a one-shot scheduled task a few minutes out, because a wake arriving before the clear got the clear refused, and the app dispatches due tasks only once a minute. Measured on 2026-10-14 with this release's recipe: cleared 19:06:04, the woken session's first turn 19:06:23 — 19 s, with no permission request in between and Remote Control reconnected by the app.
+
+- `keel shift ready` on the desktop app records the session's Claude process id in the note.
+- New `keel shift await-clear --pid <pid>` blocks until that process has exited, which is what the app's clear does to it, and exits 0; it exits 1 after `--timeout-ms` (default 120 s).
+- On the desktop app, `keel shift ready --wake` prints four steps: create or update an ad-hoc wake task, with no schedule, whose prompt runs `keel shift await-clear` first and only then unarchives if needed and sends; start it at once with `run_scheduled_task`; rename; clear. The wake can start before the clear because it waits for it, and nothing waits for the minute tick.
+- A wake whose `await-clear` times out sends nothing, calls `PushNotification`, and starts its reply with `WAKE FAILED`.
+- `keel shift status` flags an overdue desktop wake after 3 minutes instead of 15.
+- `self-shift` covers the four steps. `README.md`, the `keel/config.yaml` comments, and both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.136.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.135.0 - A desktop self-shift's wake that does not arrive is seen
 
 Issues #324, #326. On 2026-10-14 the 5.134.0 desktop self-shift ran end to end with no person: cleared 18:01:09, auto-archived 18:02:35, unarchived by the wake 18:07:38, delivered 18:07:52 with Remote Control reconnected by itself. One run is one sample, and two failures stayed silent: a wake whose send does not deliver, and a wake that never runs. Either leaves the role cleared with its note waiting and nobody told. Owner decision, 2026-10-14: close the Claude-side gaps now and park Codex (#334).

@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.135.0"
-PROTOCOL_VERSION = "5.135.0"
+PACKAGE_VERSION = "5.136.0"
+PROTOCOL_VERSION = "5.136.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6817,8 +6817,8 @@ def validate_self_shift_authorization_scenario() -> int:
             report(f"{label} a desktop ready --wake with self-shift declared does not say the steps are standing-authorized: {granted.stdout.strip()} {granted.stderr.strip()}")
             return 1
         # Three once the Remote Control step went (#324).
-        if "take these three steps now" not in granted.stdout:
-            report(f"{label} a desktop ready --wake with self-shift declared does not cover three steps: {granted.stdout.strip()}")
+        if "take these four steps now" not in granted.stdout:
+            report(f"{label} a desktop ready --wake with self-shift declared does not cover four steps: {granted.stdout.strip()}")
             return 1
         run_keel(verify, "shift", "resume", env=desktop)
 
@@ -6909,6 +6909,62 @@ def validate_shift_restore_authorization_scenario() -> int:
     return 0
 
 
+def validate_shift_await_clear_scenario() -> int:
+    """`keel shift await-clear` returns once the outgoing process is gone.
+
+    The desktop wake starts at once and waits on it, so it can never land
+    before the clear (D1, D2 of shift-desktop-wake-in-a-minute).
+    """
+    label = "shift-await-clear:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-await-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        # Reaped as soon as it exits, as the app reaps its session's process;
+        # an unreaped zombie still answers kill(pid, 0).
+        brief = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
+        reaper = threading.Thread(target=brief.wait)
+        reaper.start()
+        started = time.monotonic()
+        gone = run_keel(verify, "shift", "await-clear", "--pid", str(brief.pid), "--timeout-ms", "15000", env=env)
+        reaper.join()
+        if gone.returncode != 0:
+            report(f"{label} await-clear did not exit 0 once the process exited: {gone.returncode} {gone.stdout.strip()} {gone.stderr.strip()}")
+            return 1
+        if "cleared" not in gone.stdout:
+            report(f"{label} await-clear did not say `cleared` once the process exited: {gone.stdout.strip()}")
+            return 1
+        if time.monotonic() - started > 10:
+            report(f"{label} await-clear took more than 10 s to notice the process exited.")
+            return 1
+        live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            held = run_keel(verify, "shift", "await-clear", "--pid", str(live.pid), "--timeout-ms", "500", env=env)
+        finally:
+            live.kill()
+            live.wait()
+        if held.returncode != 1:
+            report(f"{label} await-clear on a live process did not exit 1: {held.returncode} {held.stdout.strip()} {held.stderr.strip()}")
+            return 1
+        if "not cleared" not in held.stdout:
+            report(f"{label} await-clear on a live process did not say `not cleared`: {held.stdout.strip()}")
+            return 1
+        desktop = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000", "CLAUDE_CODE_ENTRYPOINT": "claude-desktop",
+                   "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319", "KEEL_SHIFT_DESKTOP_PID": "4242"}
+        armed = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R031", env=desktop)
+        note = mailbox_common_dir(verify) / "keel-chat" / "shift" / "verify.md"
+        if armed.returncode != 0:
+            report(f"{label} a desktop ready --wake failed: {armed.stderr.strip()}")
+            return 1
+        if "Desktop process: 4242." not in note.read_text(encoding="utf-8"):
+            report(f"{label} a desktop ready --wake does not record the desktop process.")
+            return 1
+    if "shift-await-clear" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-await-clear scenario passed.")
+    return 0
+
+
 def validate_shift_desktop_wake_overdue_scenario() -> int:
     """`keel shift status` flags a desktop note whose wake is overdue.
 
@@ -6934,6 +6990,16 @@ def validate_shift_desktop_wake_overdue_scenario() -> int:
         for needle in ("overdue", "local_test-319", "list_task_runs", "send_message"):
             if needle not in late.stdout:
                 report(f"{label} status past the overdue time does not name {needle}: {late.stdout.strip()}")
+                return 1
+        # Without the override the overdue time is three minutes (D4 of
+        # shift-desktop-wake-in-a-minute).
+        note = mailbox_common_dir(verify) / "keel-chat" / "shift" / "verify.md"
+        for minutes, flagged in ((2, False), (4, True)):
+            then = time.time() - minutes * 60
+            os.utime(note, (then, then))
+            row = run_keel(verify, "shift", "status", env=env)
+            if ("overdue" in row.stdout) != flagged:
+                report(f"{label} a desktop note written {minutes} minutes ago is {'not ' if flagged else ''}flagged overdue by default: {row.stdout.strip()}")
                 return 1
         run_keel(verify, "shift", "resume", env=env)
         plain = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R022", env=env)
@@ -7015,6 +7081,26 @@ def validate_shift_desktop_wake_scenario() -> int:
         if not look < armed.stdout.find("unarchive_session") < armed.stdout.find("send_message", look):
             report(f"{label} the wake does not check get_session, then unarchive_session, then send_message: {armed.stdout.strip()}")
             return 1
+        # The wake starts at once and waits for the clear itself, so no minute
+        # tick sits in the shift (D3 of shift-desktop-wake-in-a-minute).
+        for needle in ("await-clear", "run_scheduled_task", "keel-shift-wake-verify",
+                       "mcp__scheduled-tasks__run_scheduled_task"):
+            if needle not in armed.stdout:
+                report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
+                return 1
+        for needle in ("fireAt", "three minutes"):
+            if needle in armed.stdout:
+                report(f"{label} the desktop clear hint still schedules the wake ({needle}): {armed.stdout.strip()}")
+                return 1
+        made = armed.stdout.find("create_scheduled_task")
+        run = armed.stdout.find("run_scheduled_task", made + 1)
+        if not made < run < armed.stdout.find("set_session_title", run) < armed.stdout.find("clear_session", run):
+            report(f"{label} the desktop clear hint does not order create, run_scheduled_task, rename, clear: {armed.stdout.strip()}")
+            return 1
+        waits = armed.stdout.find("await-clear")
+        if not waits < armed.stdout.find("get_session", waits) < armed.stdout.find("send_message", waits):
+            report(f"{label} the wake does not await the clear before get_session and send_message: {armed.stdout.strip()}")
+            return 1
         # The wake confirms delivery: anything but delivered or queued after the
         # archived retry is a failed wake the owner hears about (D1 of
         # shift-desktop-wake-confirm).
@@ -7069,7 +7155,8 @@ def validate_shift_desktop_wake_scenario() -> int:
                 report(f"{label} {relative} still says {stale}.")
                 return 1
         for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore",
-                       "get_session", "unarchive_session", "PushNotification", "WAKE FAILED"):
+                       "get_session", "unarchive_session", "PushNotification", "WAKE FAILED",
+                       "await-clear", "run_scheduled_task"):
             if needle not in text:
                 report(f"{label} {relative} does not name {needle} for the desktop app.")
                 return 1
@@ -40609,6 +40696,7 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
     ("shift-desktop-wake-overdue", validate_shift_desktop_wake_overdue_scenario),
+    ("shift-await-clear", validate_shift_await_clear_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),

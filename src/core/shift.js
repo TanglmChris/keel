@@ -29,6 +29,7 @@ const USAGE = [
   "keel shift start <role> [text]        wake the cleared role to resume (once its note waits)",
   "keel shift resume [--role r] [--json] print and consume this role's note (--role: from an unbound worktree)",
   "keel shift status [--json]            each role's shift state",
+  "keel shift await-clear --pid <pid>    wait until a desktop session's process has exited (its clear); exit 1 after --timeout-ms",
   "keel shift history [role] [--grep t]  a role's past transcripts and notes; --grep searches them (#304)",
   "Options: --repo <path>. See docs/shift-change.md.",
 ].join("\n");
@@ -373,6 +374,45 @@ function desktopSession() {
   return process.env.CLAUDE_CODE_ENTRYPOINT === "claude-desktop" && id ? id : null;
 }
 
+// The desktop session's Claude process: the nearest ancestor whose command's
+// basename is `claude`. The app's clear stops it, which is what the wake
+// waits for (D1 of shift-desktop-wake-in-a-minute).
+function desktopProcess() {
+  const forced = Number(process.env.KEEL_SHIFT_DESKTOP_PID);
+  if (process.env.KEEL_SHIFT_DESKTOP_PID && Number.isInteger(forced) && forced > 0) return forced;
+  const table = processTable();
+  let pid = process.ppid;
+  for (let hops = 0; pid > 1 && hops < 32; hops += 1) {
+    const row = table.get(pid);
+    if (!row) return null;
+    // The app's path holds a space ("Application Support"), so match the
+    // executable's basename rather than split the command line.
+    if (/(?:^|\/)claude(?:\s|$)/.test(row.command)) return pid;
+    pid = row.ppid;
+  }
+  return null;
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+// Blocks until the process is gone or the limit passes (D2).
+function awaitClear(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (alive(pid)) {
+    if (Date.now() >= deadline) return false;
+    Atomics.wait(pause, 0, 0, 250);
+  }
+  return true;
+}
+
 function ready(where, options) {
   const role = readyRole(where, options);
   if (options.wake && !role) {
@@ -395,11 +435,13 @@ function ready(where, options) {
   if (!text.trim()) throw new ShiftError("keel shift ready needs the shift note: give it as text, with --file, or on stdin.");
   const stamp = store.isoLocal(new Date());
   const desktop = desktopSession();
+  const pid = desktop ? desktopProcess() : null;
   const head = [
     `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
     `Written ${stamp} in ${result.worktree}.`,
     desktop ? `Desktop session: ${desktop}.` : "",
+    desktop && pid ? `Desktop process: ${pid}.` : "",
     // A shift the role started itself; the patrol may nudge it to resume (#307 D4).
     options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
     !role ? `Started by hand: ${options.forceReason}.` : "",
@@ -422,7 +464,7 @@ function ready(where, options) {
     }
   }
   const waiter = options.wake ? armWake(where, role, since) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop, worktree: where.worktree };
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop, pid, worktree: where.worktree };
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------
@@ -438,7 +480,7 @@ const WAKE_SOURCES = new Set(["clear", "startup"]);
 // Zero is a valid overdue time: it flags every desktop note at once.
 function overdueMs() {
   const value = Number(process.env.KEEL_SHIFT_WAKE_OVERDUE_MS);
-  return process.env.KEEL_SHIFT_WAKE_OVERDUE_MS && Number.isFinite(value) && value >= 0 ? value : 15 * 60 * 1000;
+  return process.env.KEEL_SHIFT_WAKE_OVERDUE_MS && Number.isFinite(value) && value >= 0 ? value : 3 * 60 * 1000;
 }
 
 function envMs(name, fallback) {
@@ -761,38 +803,39 @@ function clearHint(result) {
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
   else if (result.waiter && result.desktop) {
-    // Nothing starts a cleared desktop session but a prompt (#319 D3). A wake
-    // that fires before the clear is queued, and the app then refuses the clear
-    // to keep it, so rename and clear follow the task at once. Remote Control
-    // stays on: the clear is accepted with it on, and turning it off waits for
-    // a person's approval (#324 D1, D2 of shift-desktop-keep-remote-control).
+    // Nothing starts a cleared desktop session but a prompt (#319 D3). The app
+    // dispatches scheduled tasks once a minute, and a wake that lands before
+    // the clear gets it refused, so the wake starts at once and waits for the
+    // session's process to exit — the clear — before it sends (D3 of
+    // shift-desktop-wake-in-a-minute). Remote Control stays on (#324); the app's
+    // auto-archive can still take the cleared session, so the wake unarchives
+    // first (#326), and a send that does not deliver reaches the owner.
+    const task = `keel-shift-wake-${result.role}`;
+    const resumeText = `${result.role}: your new shift starts now. `
+      + "Run `keel context` and `keel shift resume`, then restore Remote Control and this session's title as `keel shift resume` says.";
     last = [
       "On the Claude desktop app a clear starts no session until a prompt arrives, so the waiter alone wakes nothing (#319). "
-        + "Leave Remote Control on: the clear is accepted with it on, and the app reconnects it after the clear under a new address, which a remote viewer has to open (#324). Do these in order:",
-      // The app's auto-archive can take the cleared, idle session before the
-      // wake, on every PR it ever had; dismissing bound PRs did not stop it, so
-      // the wake unarchives first (#326 D1, D2 of shift-desktop-unarchive-wake).
-      "1. Create a one-shot scheduled task with the host's `create_scheduled_task`, firing about three minutes later, "
-        + `whose prompt first calls \`get_session\` on session \`${result.desktop}\` and, when it reports the session archived, calls \`unarchive_session\` on it; `
-        + `then calls \`send_message\` to it with: "${result.role}: your new shift starts now. `
-        + "Run `keel context` and `keel shift resume`, then restore Remote Control and this session's title as `keel shift resume` says.\" "
-        + "If that send is still refused because the session is archived, it unarchives it and sends once more, and it says which path it took. "
-        // The run's summary is the only trace a wake leaves, so a send that did
-        // not deliver must say so there and reach the owner (D1 of
-        // shift-desktop-wake-confirm).
-        + "A send result of `delivered` or `queued` is a delivered wake; any other result after that retry is a failed wake: "
-        + "the task then calls `PushNotification` naming the session and the result, and starts its reply with `WAKE FAILED`. "
-        + "The app's auto-archive can archive the cleared session before the wake (#326); unarchiving brings back its worktree. "
-        + "A task that fires before the clear gets the clear refused, so take the next two steps at once.",
-      `2. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so it reads as between shifts until the woken session renames it back.`,
-      '3. Call clear_session("self").',
-      "Keel creates no task. Running unattended needs `mcp__ccd_session_mgmt__set_remote_control`, `mcp__ccd_session_mgmt__get_session` "
-        + "and `mcp__ccd_session_mgmt__unarchive_session` in `permissions.allow`, "
+        + "Leave Remote Control on: the clear is accepted with it on, and the app reconnects it after the clear under a new address, which a remote viewer has to open (#324). "
+        + "The whole shift takes well under a minute. Do these in order, without pausing between them:",
+      result.pid
+        ? `1. Create the ad-hoc task \`${task}\` with the host's \`create_scheduled_task\` (or \`update_scheduled_task\` when it exists), with no \`cronExpression\` and no fire time, and \`notifyOnCompletion: false\`. Its prompt: `
+          + `"Run \`keel shift await-clear --pid ${result.pid}\` with Bash. If it exits 1, the session was not cleared: send nothing, call \`PushNotification\` naming session ${result.desktop}, and start your reply with \`WAKE FAILED\`. `
+          + `If it exits 0, call \`get_session\` on session \`${result.desktop}\` and, when it reports the session archived, call \`unarchive_session\` on it; `
+          + `then call \`send_message\` to it with: '${resumeText}' `
+          + "If that send is refused because the session is archived, unarchive it and send once more, and say which path you took. "
+          + "A send result of `delivered` or `queued` is a delivered wake; any other result after that retry is a failed wake: call `PushNotification` naming the session and the result, and start your reply with `WAKE FAILED`.\" "
+          + "The app's auto-archive can archive the cleared session before the wake (#326); unarchiving brings back its worktree."
+        : "1. Keel found no `claude` process above this one, so nothing can wait for the clear: after the clear, type into the new session.",
+      `2. Start it at once with \`run_scheduled_task\` on \`${task}\`. The run waits for this session's clear itself, so starting it first is safe.`,
+      `3. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so it reads as between shifts until the woken session renames it back.`,
+      '4. Call clear_session("self").',
+      "Keel creates no task. Running unattended needs `mcp__ccd_session_mgmt__set_remote_control`, `mcp__ccd_session_mgmt__get_session`, "
+        + "`mcp__ccd_session_mgmt__unarchive_session` and `mcp__scheduled-tasks__run_scheduled_task` in `permissions.allow`, "
         + "and `shift-restore` under `authorize:` in keel/config.yaml so the woken session does not stop to ask.",
       // The outgoing side's confirmation is the repository's to waive (#319).
       require("./config").readStandingAuthorization(result.worktree).scopes.has("self-shift")
-        ? "Standing-authorized by `self-shift` in keel/config.yaml: take these three steps now, without asking."
-        : "Declaring `self-shift` under authorize: in keel/config.yaml lets a session take these three steps without asking.",
+        ? "Standing-authorized by `self-shift` in keel/config.yaml: take these four steps now, without asking."
+        : "Declaring `self-shift` under authorize: in keel/config.yaml lets a session take these four steps without asking.",
     ].join("\n");
   } else if (result.waiter) {
     last = `The wake is armed: once ${result.role}'s next session starts (after a clear or a fresh start), it gets one message to run \`keel shift resume\`. The waiter gives up after two hours.`;
@@ -818,6 +861,8 @@ function runShift(argv) {
     else if (arg === "--role") options.role = argv[++index] || "";
     else if (arg === "--since") options.since = Number(argv[++index]);
     else if (arg === "--wake") options.wake = true;
+    else if (arg === "--pid") options.pid = Number(argv[++index]);
+    else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++index]);
     else if (arg === "--grep") options.grep = argv[++index] || "";
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(`${USAGE}\n`);
@@ -894,6 +939,15 @@ function runShift(argv) {
         out(result, renderHistory(result, options.grep));
         return options.grep && !result.segments.some((segment) => segment.matches.length) ? 1 : 0;
       }
+      case "await-clear": {
+        if (!Number.isInteger(options.pid) || options.pid <= 1) throw new ShiftError("keel shift await-clear needs --pid <the desktop session's process id>.");
+        const limit = Number.isFinite(options.timeoutMs) && options.timeoutMs >= 0 ? options.timeoutMs : 120000;
+        const cleared = awaitClear(options.pid, limit);
+        out({ pid: options.pid, cleared }, cleared
+          ? `cleared: process ${options.pid} has exited.`
+          : `not cleared: process ${options.pid} still runs after ${limit} ms.`);
+        return cleared ? 0 : 1;
+      }
       case "status": {
         const rows = status(where);
         out({ roles: rows }, rows.length ? rows.map(describe).join("\n") : "No shift change recorded.");
@@ -922,4 +976,5 @@ function waitingFor(repo) {
   return { note, since: store.isoLocal(fs.statSync(note).mtime) };
 }
 
-module.exports = { check, describe, runShift, shiftStatus: status, waitingFor };
+module.exports = {
+  desktopProcess, check, describe, runShift, shiftStatus: status, waitingFor };
