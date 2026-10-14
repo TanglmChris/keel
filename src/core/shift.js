@@ -557,7 +557,10 @@ function start(where, role, text) {
     `${role}: your new shift starts now. First run \`keel context\`, then \`keel shift resume\` to read the note your previous shift left, then continue from it.`,
     text ? `Next: ${text}` : "",
   ].filter(Boolean).join("\n");
-  return store.post(where, { group, text: body, refs: [REF] });
+  // A note written on the Claude desktop app names its session: there a
+  // session with no running process sees no chat record (#320 D1).
+  const desktop = (fs.readFileSync(notePath(where, role), "utf8").match(/^Desktop session: (\S+?)\.$/m) || [])[1] || null;
+  return { record: store.post(where, { group, text: body, refs: [REF] }), body, desktop };
 }
 
 // `--role` reads a role's note from a worktree bound to no other role (#293 D5).
@@ -903,8 +906,17 @@ function runShift(argv) {
       }
       case "start": {
         if (!rest[0]) throw new ShiftError("keel shift start needs the role.");
-        const record = start(where, rest[0], rest.slice(1).join(" "));
-        out({ id: record.id, group: record.group, role: rest[0] }, `Woke ${rest[0]} to start its new shift (${record.id} in ${record.group}).`);
+        const { record, body, desktop } = start(where, rest[0], rest.slice(1).join(" "));
+        const posted = `(${record.id} in ${record.group})`;
+        out(
+          { id: record.id, group: record.group, role: rest[0], desktop },
+          desktop
+            ? [
+              `Posted the start for ${rest[0]} ${posted}. Its note was written on the Claude desktop app, where a session with no running process sees no chat record (#320), so this alone wakes nothing.`,
+              `Wake it: call \`get_session\` on \`${desktop}\`; when it reports the session archived, call \`unarchive_session\` on it; then call \`send_message\` to \`${desktop}\` with: '${body.replace(/\n/g, " ")}'`,
+            ].join("\n")
+            : `Woke ${rest[0]} to start its new shift ${posted}.`,
+        );
         return 0;
       }
       case "resume": {

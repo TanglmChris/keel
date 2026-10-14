@@ -12,7 +12,7 @@
 | 角色 | `keel shift check` | 只读。列出没收尾的事，有任何一项就退出 1。 |
 | 角色 | `keel shift ready "<便条>"` | 存便条，有请求的话顺便关掉。`check` 还报东西时拒绝，除非给出 `--force-reason "<为什么可以留着>"`。便条也可以用 `--file` 或标准输入给。 |
 | 角色 | 清空会话 | 桌面应用：`clear_session("self")`（由你批准）或 `/clear`；命令行：`/clear`；Codex：开新会话。这些 Keel 都不替你执行。 |
-| 协调者 | `keel shift start <角色> [下一步]` | 有聊天角色时：便条还没留下就拒绝，留下后唤醒清空后的会话。没有时：告诉新会话运行 `keel shift resume`。 |
+| 协调者 | `keel shift start <角色> [下一步]` | 有聊天角色时：便条还没留下就拒绝，留下后发出开工消息，唤醒清空后的会话。在 Claude 桌面应用上，没有运行中进程的会话看不到聊天记录（#320），所以对在那里写下的便条，它改为打印唤醒它的 `send_message` 步骤。没有时：告诉新会话运行 `keel shift resume`。 |
 | 角色（新的一班） | 先 `keel context`，再 `keel shift resume` | 打印便条、移进历史；有聊天角色时还会告诉协调者已就位。 |
 | 任何人 | `keel shift status` | 各角色的状态：已请求、便条等待中、已接班。桌面端 `ready --wake` 留下的便条过了 3 分钟还没人接班，会标成桌面唤醒超时，并给出会话 id：用 `list_task_runs` 查唤醒任务那次运行，没送达就用 `send_message` 叫醒它。 |
 
