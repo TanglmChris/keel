@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.134.0 - A desktop self-shift leaves Remote Control on
+
+Issue #324. Turning Remote Control off was the step an unattended desktop self-shift could not pass: every `set_remote_control(…, false)` since 2026-10-06 raised an app permission request that `permissions.allow` does not skip, and returned only when someone answered it (13 min to 3 h 36 min). The recipe took that step because the `clear_session` description says a session serving Remote Control cannot be cleared. On 2026-10-14 the owner measured it: with Remote Control on, the clear was accepted twice, with and without a viewer on the phone, and the app reconnected Remote Control by itself after the clear, under a new address. Owner decision, 2026-10-14: drop the step.
+
+- On the desktop app, `keel shift ready --wake` prints three steps: the wake task, the rename, the clear, the last two at once. It says Remote Control stays on and that a remote viewer has to open its new address after the clear.
+- The general clear hint no longer says a session serving Remote Control cannot be cleared.
+- `keel shift resume` on the desktop app says to turn Remote Control back on only if `get_session` reports it off, and to rename the session back.
+- `self-shift` covers the three steps.
+- `README.md`, the `keel/config.yaml` comments, and both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.134.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.133.0 - A desktop self-shift's wake unarchives the session first
 
 Issue #326. The long-gap test of the 5.131.0 recipe on 2026-10-14 showed its PR-dismiss step does not keep the app's auto-archive off the cleared session. After one `unbind_pr`, `get_status` read `bound: false`, and 3 min after the clear the app archived the session anyway ("PR merged"), listing all 20 PRs the session ever had; the archive followed the session being focused and its PR checks refreshed, not a sweep tick. The wake's unarchive fallback then restored the session, the app rebound the same worktree, and the send was delivered. Owner decision, 2026-10-14: fix the recipe first.
