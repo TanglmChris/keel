@@ -64,8 +64,11 @@ Anthropic 的插件目录里，Keel 以 `keel-openspec` 列出。每次发版都
 ```bash
 npm install -g @christang/keel
 keel --version
-codex plugin add keel@<marketplace>        # Codex
+codex plugin marketplace add TanglmChris/keel --ref main --sparse .agents/plugins --sparse plugins/keel
+codex plugin add keel@keel-marketplace     # Codex
 ```
+
+`--sparse` 让 Codex 只拉插件本身，而不是整个仓库；网络慢时，整仓克隆可能超过 Codex 的 30 秒上限。
 
 全局装的 `keel` 在 PATH 里排在插件那份前面，所以在 Claude Code 里 agent 会用它。要么让它和插件同版本，
 要么卸掉（`npm rm -g @christang/keel`）；两者版本不一致时，会话启动那一行会指出来。

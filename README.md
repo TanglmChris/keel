@@ -79,8 +79,12 @@ OpenSpec CLI):
 ```bash
 npm install -g @christang/keel
 keel --version
-codex plugin add keel@<marketplace>        # Codex
+codex plugin marketplace add TanglmChris/keel --ref main --sparse .agents/plugins --sparse plugins/keel
+codex plugin add keel@keel-marketplace     # Codex
 ```
+
+The `--sparse` paths make Codex fetch only the plugin rather than the whole repository, which a
+slow link may not clone within Codex's 30-second limit.
 
 For Codex, review the current hook definitions with `/hooks` in the CLI; installation does not
 grant hook trust. A running Codex session uses an updated plugin at its next hook call, and a
