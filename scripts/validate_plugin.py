@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.134.0"
-PROTOCOL_VERSION = "5.134.0"
+PACKAGE_VERSION = "5.135.0"
+PROTOCOL_VERSION = "5.135.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6909,6 +6909,52 @@ def validate_shift_restore_authorization_scenario() -> int:
     return 0
 
 
+def validate_shift_desktop_wake_overdue_scenario() -> int:
+    """`keel shift status` flags a desktop note whose wake is overdue.
+
+    A wake task that never runs leaves no trace anywhere else; the waiting
+    note with its recorded desktop session is the one place a coordinator or
+    patrol can see it (D2 of shift-desktop-wake-confirm).
+    """
+    label = "shift-desktop-wake-overdue:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-overdue-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        env = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319"}
+        armed = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R021", env=desktop)
+        if armed.returncode != 0:
+            report(f"{label} ready --wake on the desktop app failed: {armed.stderr.strip()}")
+            return 1
+        young = run_keel(verify, "shift", "status", env={**env, "KEEL_SHIFT_WAKE_OVERDUE_MS": "3600000"})
+        if "overdue" in young.stdout:
+            report(f"{label} a note written just now is already called overdue: {young.stdout.strip()}")
+            return 1
+        late = run_keel(verify, "shift", "status", env={**env, "KEEL_SHIFT_WAKE_OVERDUE_MS": "0"})
+        for needle in ("overdue", "local_test-319", "list_task_runs", "send_message"):
+            if needle not in late.stdout:
+                report(f"{label} status past the overdue time does not name {needle}: {late.stdout.strip()}")
+                return 1
+        run_keel(verify, "shift", "resume", env=env)
+        plain = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R022", env=env)
+        if plain.returncode != 0:
+            report(f"{label} ready --wake outside the desktop app failed: {plain.stderr.strip()}")
+            return 1
+        other = run_keel(verify, "shift", "status", env={**env, "KEEL_SHIFT_WAKE_OVERDUE_MS": "0"})
+        if "overdue" in other.stdout:
+            report(f"{label} a note with no desktop session is called overdue: {other.stdout.strip()}")
+            return 1
+    for relative, word in (("docs/shift-change.md", "overdue"), ("docs/shift-change.zh-CN.md", "超时")):
+        if word not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not say {word}.")
+            return 1
+    if "shift-desktop-wake-overdue" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-desktop-wake-overdue scenario passed.")
+    return 0
+
+
 def validate_shift_desktop_wake_scenario() -> int:
     """Issue #319: on the desktop app a clear starts no session until a prompt.
 
@@ -6969,6 +7015,13 @@ def validate_shift_desktop_wake_scenario() -> int:
         if not look < armed.stdout.find("unarchive_session") < armed.stdout.find("send_message", look):
             report(f"{label} the wake does not check get_session, then unarchive_session, then send_message: {armed.stdout.strip()}")
             return 1
+        # The wake confirms delivery: anything but delivered or queued after the
+        # archived retry is a failed wake the owner hears about (D1 of
+        # shift-desktop-wake-confirm).
+        for needle in ("PushNotification", "WAKE FAILED", "delivered"):
+            if needle not in armed.stdout[armed.stdout.find("send_message"):]:
+                report(f"{label} the desktop wake does not say {needle} after send_message: {armed.stdout.strip()}")
+                return 1
         if "archived copy" in armed.stdout:
             report(f"{label} the desktop clear hint still says the rename tells an archived copy apart: {armed.stdout.strip()}")
             return 1
@@ -7016,7 +7069,7 @@ def validate_shift_desktop_wake_scenario() -> int:
                 report(f"{label} {relative} still says {stale}.")
                 return 1
         for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore",
-                       "get_session", "unarchive_session"):
+                       "get_session", "unarchive_session", "PushNotification", "WAKE FAILED"):
             if needle not in text:
                 report(f"{label} {relative} does not name {needle} for the desktop app.")
                 return 1
@@ -40555,6 +40608,7 @@ SCENARIOS: tuple = (
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
+    ("shift-desktop-wake-overdue", validate_shift_desktop_wake_overdue_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),
