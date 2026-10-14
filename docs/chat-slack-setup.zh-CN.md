@@ -243,7 +243,9 @@ keel chat bridge status
 
 ## 唤醒 Codex：`keel chat wake`
 
-Claude Code 靠文件监听来唤醒会话，在有人找这个会话之前，监听不花任何费用。Codex 没有这种监听，它自己只在会话启动时、以及你每次给它发消息时，才会收到群聊提醒。`keel chat wake` 让一台电脑上的 Codex 也能做到有人找才醒：
+Claude Code 靠文件监听来唤醒会话，在有人找这个会话之前，监听不花任何费用。监听跑在会话自己的 Claude 进程里，所以在 Claude 桌面应用上，一个空闲、没有进程在跑的会话，在被唤起之前什么都读不到（[#331](https://github.com/TanglmChris/keel/issues/331)）。Keel 会记下每个角色的桌面会话；发消息、私信、派待办或 `keel patrol --nudge` 碰到这样的角色时，输出会给出唤醒它的步骤：`get_session`，会话已归档时先 `unarchive_session`，再对它的 session id `send_message`。patrol 在第一次 nudge 时就会报给协调者。
+
+Codex 没有这种监听，它自己只在会话启动时、以及你每次给它发消息时，才会收到群聊提醒。`keel chat wake` 让一台电脑上的 Codex 也能做到有人找才醒：
 
 ```bash
 keel chat wake add

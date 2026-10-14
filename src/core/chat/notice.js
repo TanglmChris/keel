@@ -91,12 +91,48 @@ function touchPresence(where, role, state = "online", host = null, started = nul
     // start in the same second as the `ready` still orders after it.
     session_started: started ? new Date().toISOString() : previous.session_started || null,
     session_source: started ? started.source : previous.session_source || null,
+    // The desktop app's session and its Claude process (#331 D1): an ended
+    // session keeps them, since it is the one that needs waking.
+    ...(state === "offline"
+      ? { desktop_session: previous.desktop_session || null, desktop_pid: previous.desktop_pid || null }
+      : desktopFields()),
   };
   try {
     store.writeJsonAtomic(where, presenceFile(where, role), record);
   } catch {
     // Presence is a convenience: failing to record it must not fail a command.
   }
+}
+
+function desktopFields() {
+  const id = process.env.CLAUDE_CODE_HOST_SESSION_ID;
+  if (process.env.CLAUDE_CODE_ENTRYPOINT !== "claude-desktop" || !id) return { desktop_session: null, desktop_pid: null };
+  return { desktop_session: id, desktop_pid: require("../shift").desktopProcess() };
+}
+
+function running(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+// A role whose desktop session has no running Claude process reads no chat
+// record until something resumes it (#331 D2, measured in #320).
+function asleep(where, role) {
+  const record = store.readJsonFile(presenceFile(where, role));
+  if (!record.desktop_session) return null;
+  // With no process found when it was recorded, Keel cannot tell, and says nothing.
+  const pid = Number(record.desktop_pid);
+  return Number.isInteger(pid) && pid > 1 && !running(pid) ? { role, session: record.desktop_session } : null;
+}
+
+// The step that wakes it (#331 D3), as the shift start names it (#320).
+function wakeStep(session, text) {
+  return `Wake it: call \`get_session\` on \`${session}\`; when it reports the session archived, call \`unarchive_session\` on it; `
+    + `then call \`send_message\` to \`${session}\` with ${JSON.stringify(text)}.`;
 }
 
 const ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -381,6 +417,8 @@ function check(cwd) {
 
 module.exports = {
   NOTICE_LIMIT,
+  asleep,
+  wakeStep,
   check,
   bridgeLine,
   hook,

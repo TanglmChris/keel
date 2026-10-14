@@ -177,14 +177,27 @@ function offlineMentions(where, record) {
     .filter((role) => notice.presenceOf(where, role).state === "offline");
 }
 
+// A woken role whose desktop session has no running process reads nothing
+// until something resumes it (#331 D3), so the poster is given the step.
+function asleepTargets(where, record) {
+  const bound = Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean);
+  const candidates = [...new Set([...bound, ...(record.mentions || []), ...(record.assignee ? [record.assignee] : [])])];
+  return candidates.filter((role) => store.wakes(record, role)).sort().map((role) => notice.asleep(where, role)).filter(Boolean);
+}
+
 function postResult(where, record, json) {
-  const offline = offlineMentions(where, record);
+  const asleep = asleepTargets(where, record);
+  const offline = offlineMentions(where, record).filter((role) => !asleep.some((entry) => entry.role === role));
   if (json) {
-    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions, offline }));
+    out(JSON.stringify({ id: record.id, group: record.group, from: record.from, mentions: record.mentions, offline, asleep }));
     return;
   }
   const lines = [`Posted ${record.id} to ${record.group}.`];
   for (const role of offline) lines.push(`Queued for ${role}: offline; it will see this when its session next starts.`);
+  for (const entry of asleep) {
+    lines.push(`${entry.role}'s desktop session ${entry.session} has no running process, so this record alone wakes nothing (#331). `
+      + notice.wakeStep(entry.session, "You have unread keel chat records; run `keel chat unread`."));
+  }
   out(lines.join("\n"));
 }
 
