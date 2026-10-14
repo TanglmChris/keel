@@ -242,9 +242,10 @@ session reads that restore as another session's request and stops to ask you. It
 session, so it takes no scope, and it covers no other session, no clear or archive, and no repository
 action.
 
-`self-shift` (#319) is its outgoing counterpart: the three steps `keel shift ready --wake` prints on
-the desktop app once the note is stored — create the one-shot wake task (which unarchives the
-session first if needed, #326), rename the session, clear it. Remote Control stays on (#324). It does not
+`self-shift` (#319) is its outgoing counterpart: the four steps `keel shift ready --wake` prints on
+the desktop app once the note is stored — create the wake task (which waits for the clear with
+`keel shift await-clear`, then unarchives the session first if needed, #326), start it with
+`run_scheduled_task`, rename the session, clear it. The shift takes well under a minute. Remote Control stays on (#324). It does not
 decide that a shift happens; that stays with the task-boundary rule and the coordinator. It takes no
 scope.
 

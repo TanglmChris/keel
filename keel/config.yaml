@@ -101,7 +101,7 @@
 # `shift-restore` covers what a session started by a shift change on the Claude
 # desktop app does right after `keel shift resume`: turning its own Remote
 # Control back on and renaming itself back (#319). Nothing else. `self-shift`
-# covers the outgoing side: the three steps `keel shift ready --wake` prints
+# covers the outgoing side: the four steps `keel shift ready --wake` prints
 # there once the note is stored. Neither decides that a shift happens.
 #
 # `continuation` is the between-task name: it covers exactly the boundary

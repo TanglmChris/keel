@@ -1,0 +1,170 @@
+# Tasks
+
+## 1. A one-minute desktop wake
+
+- [x] 1.1 `keel shift await-clear` and the recorded desktop process
+  - Covers:
+    - keel-shift-change / A session changes its own shift and is woken once its next session starts / await-clear returns once the outgoing process has exited
+    - D1
+    - D2
+  - Read:
+    - src/core/shift.js
+  - Touch:
+    - src/core/shift.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-await-clear` runs the real `keel shift await-clear --pid` against a child process that exits after one second (exit 0 within 10 s, output says `cleared`) and against a live one with `--timeout-ms 500` (exit 1, output says `not cleared`), and a desktop `keel shift ready --wake` with `KEEL_SHIFT_DESKTOP_PID=4242` writes `Desktop process: 4242.` into the note. Fails with: `await-clear`
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a5ecb846357fc0fe579633f1c3f89f1a559d460cf85c60993f7a3f422ad21e25
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-await-clear` reports `shift-await-clear scenario passed.`
+    - M1.red: fail. With the scenario written first, it reported `shift-await-clear: await-clear did not return 0 with \`cleared\` once the process exited: 2  keel shift: unknown step await-clear`, carrying the declared signature `await-clear`.
+    - M1.green: pass. With `keel shift await-clear` polling `kill(pid, 0)` every 250 ms and `ready` recording `Desktop process:` from the nearest `claude` ancestor, the scenario passed. Against the live session, `desktopProcess()` returned 98855, the `…/claude.app/Contents/MacOS/claude` process `ps` shows, and `keel shift await-clear --pid 98855 --timeout-ms 300` printed `not cleared: process 98855 still runs after 300 ms.` with exit 1.
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario runs the real command against a process that exits (0, `cleared`) and one that does not (1, `not cleared`), and the real desktop `ready --wake` records the overridden pid.
+      - Scope check: `git status --short` lists `src/core/shift.js`, `scripts/validate_plugin.py`, and this change's directory.
+      - Findings: two defects found and fixed while proving it. The app's path holds a space, so splitting the command line missed the process; the match is on the executable's basename Checked against pid 98855. Resolved here: M1
+        An unreaped child answers `kill(pid, 0)`, which hung the first test run; the scenario now reaps it as the app reaps its session process. Resolved here: M1
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 The desktop recipe starts the wake at once and the wake waits for the clear
+  - Covers:
+    - keel-shift-change / A session changes its own shift and is woken once its next session starts / A desktop self-shift is told how its next session gets started
+    - keel-shift-change / A session changes its own shift and is woken once its next session starts / A declared self-shift lets the session take its outgoing steps without asking
+    - keel-shift-change / Shift state is visible / An overdue desktop wake is flagged
+    - keel-standing-authorization / A session's own shift change on the desktop app is a named authorization / self-shift is accepted and listed
+    - D3
+    - D4
+    - D5
+  - Read:
+    - src/core/shift.js
+  - Touch:
+    - src/core/shift.js
+    - docs/shift-change.md
+    - docs/shift-change.zh-CN.md
+    - README.md
+    - keel/config.yaml
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-desktop-wake` follows the real `keel shift ready --wake` with the desktop variables: the output names `await-clear`, `run_scheduled_task`, `keel-shift-wake-verify` and `mcp__scheduled-tasks__run_scheduled_task`, orders `create_scheduled_task` < `run_scheduled_task` < `set_session_title` < `clear_session` and `await-clear` < `get_session` < `send_message`, and names neither `fireAt` nor `three minutes`; both docs name `await-clear` and `run_scheduled_task`. Fails with: `await-clear`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario self-shift-authorization` passes with the declared output saying `take these four steps now`. Fails with: `four steps`
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-desktop-wake-overdue` passes, and `keel shift status` without the override does not flag a note written 2 minutes ago and flags one written 4 minutes ago. Fails with: `4 minutes`
+    - M4 (regression): `npm test` passes the baseline and every registered scenario.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:ee518b4d94fc07dfe3ca983999cbd6b721a45a000678e8ae32ab5fbf8e0a6c0b
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-desktop-wake` reports `shift-desktop-wake scenario passed.`
+    - M1.red: fail. With the checks added first, it reported `shift-desktop-wake: the desktop clear hint does not name await-clear: …`, carrying the declared signature `await-clear`.
+    - M1.green: pass. With the desktop hint rewritten to four steps (create or update `keel-shift-wake-<role>` with no schedule, whose prompt runs `keel shift await-clear --pid <pid>` first; `run_scheduled_task` at once; rename; clear) and both docs following, the scenario passed.
+    - M2: pass. `self-shift-authorization` reports `self-shift-authorization scenario passed.`
+    - M2.red: fail. It reported `self-shift-authorization: a desktop ready --wake with self-shift declared does not cover four steps: …`, carrying `four steps`.
+    - M2.green: pass. With the hint saying `take these four steps now`, the scenario passed.
+    - M3: pass. `shift-desktop-wake-overdue` reports `shift-desktop-wake-overdue scenario passed.`
+    - M3.red: fail. It reported `shift-desktop-wake-overdue: a desktop note written 4 minutes ago is not flagged overdue by default: …`, carrying `4 minutes`.
+    - M3.green: pass. With the default overdue time at 3 minutes, a note dated 2 minutes back is not flagged and one dated 4 minutes back is.
+    - M4: pass. `npm test` reports `validation --all passed: baseline plus 280 scenarios, 1 skipped: output-survives-the-pipe.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenarios run the real `ready --wake` and `status` and assert the four steps, their order, `await-clear` before `get_session` and `send_message`, no `fireAt`, the unattended `run_scheduled_task` entry, `four steps` under `self-shift`, and the 3-minute default.
+      - Scope check: `git status --short` lists `src/core/shift.js`, both shift-change docs, `README.md`, `keel/config.yaml`, `scripts/validate_plugin.py`, and this change's directory.
+      - Findings: the first full run failed `assertion-shape-count` because three `if`s in the new `shift-await-clear` scenario joined several failures behind one message; they are split, and the count is back at 80. Resolved here: M4
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 A real desktop self-shift completes within one minute
+  - Covers:
+    - D6
+  - Mode: diagnose-only
+  - Touch: none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: the behavior is the desktop app's timing on a real self-shift, which no local test can produce; the evidence is the app's own log.
+    - M1: a self-shift of this session with this branch's `keel` follows the printed four steps; `~/Library/Logs/Claude/main.log` shows `Clearing session <id>` and the woken session's first `[CCD start-timing] <id>` line no more than 60 s apart, with no `Emitted tool permission request` for the session or its wake run in between. Measured: `seconds from clear to first turn`
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:431c4f30b8a3195e8058f89a77d3e4e12ac1638f4b4a19080cc6271350aae31b
+    - M1: 19 seconds from clear to first turn. Self-shift of session local_a4222dad-0db8-4d4d-a980-f5a79c53fc6d on 2026-10-14 with this branch's `node bin/keel.js` (5.135.0 tree), wake task `keel-shift-wake-keel-maint` started at once and waiting on `keel shift await-clear --pid`. `~/Library/Logs/Claude/main.log`: wake run local_28e6def8 started 19:05:52, its first turn `[CCD start-timing]` 19:06:01; `Clearing session local_a4222dad…` 19:06:04; `sendMessage on uninitialized session local_a4222dad…; cold-starting` 19:06:16 (Remote Control reconnected by the app after /clear); woken session's `[CCD start-timing] local_a4222dad…` 19:06:23 (first_assistant=5384ms). No `Emitted tool permission request` for either session between 19:05:52 and 19:06:23. `list_task_runs keel-shift-wake-keel-maint`: one run, status succeeded, no WAKE FAILED.
+    - Review:
+      - Status: pass
+      - Acceptance check: clear 19:06:04 → woken first turn 19:06:23 is 19 s, under the 60 s bound, and no permission prompt appeared in the window; measured from the desktop app's own log, not a model report.
+      - Scope check: diagnose-only with Touch none; no product file written, only this task's Evidence and Review.
+      - Findings: none. Discard reason: one sample on one machine; the bound is the owner's and long idle gaps are out of scope by D6.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the specs
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-shift-change/spec.md
+    - openspec/specs/keel-standing-authorization/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion. The behavior was proven in 1.1–1.3, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the MODIFIED requirements replace their counterparts in both published specs, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c56902d91f29c7887d13e874e83c713c27a113da5eeb846882aa0498a88dae15
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.135.0 → 5.136.0; with the "A desktop self-shift completes within a minute" section written, `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` printed `version-alignment scenario passed.` and exited 0 (before the section was written it refused the stub heading, the failing arm).
+    - M2: the two MODIFIED requirements of `keel-shift-change` and the one of `keel-standing-authorization` replaced their published counterparts (adding the `await-clear` scenario); `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` printed `35 published specs validate strictly against openspec 1.14.0` and exited 0. I4's quoted phrases grep to nothing in either published spec.
+    - Review:
+      - Status: pass
+      - Acceptance check: E4 — version markers, changelog section, and both published specs carry the change; both validator scenarios pass.
+      - Scope check: changed files are the version markers, `keel/CHANGELOG.md`, and the two published specs, all in Touch; this task's Contract line, which had been pre-filled with 1.3's fingerprint, was corrected to the one task-start compiled.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Create a one-shot scheduled task with the host's `create_scheduled_task`, firing about three minutes later" and "A task that fires before the clear gets the clear refused, so take the next two steps at once." — the desktop recipe in `src/core/shift.js`; "定在几分钟后触发" and "任务如果在清空之前就触发" in `docs/shift-change.zh-CN.md`, their English counterparts in `docs/shift-change.md`. Updated by: 1.2
+- I2: "take these three steps", "the three steps `keel shift ready --wake` prints" — `src/core/shift.js`, `README.md`, `keel/config.yaml`, both shift-change docs ("交班前的三步"), and the `self-shift-authorization` scenario. Updated by: 1.2
+- I3: "still waiting 15 minutes on" and "过了 15 分钟还没人接班" — both shift-change docs and the 15-minute default in `src/core/shift.js`. Updated by: 1.2
+- I4: "create a one-shot scheduled task with `create_scheduled_task`", "a task which fires before the clear gets the clear refused", "these three steps", "— 15 minutes," and "It covers exactly the three steps" — `openspec/specs/keel-shift-change/spec.md` and `openspec/specs/keel-standing-authorization/spec.md`. Updated by: 2.1
+- I5: "A desktop self-shift leaves the cleared session idle ~3 min before the wake" — native memory `desktop-auto-archive-eats-self-shift`. Discard reason: native memory is outside the repository; this session updates it when the release lands.
+
+## Expectation Coverage
+
+- E1: A desktop self-shift completes within one minute of the clear (owner, 2026-10-14; D6). Covered by: 1.3
+- E2: The wake can never land before the clear, however early it starts, because it waits for the outgoing process to exit (D2). Covered by: 1.1, 1.2
+- E3: A wake whose clear never comes sends nothing and tells the owner. Covered by: 1.2
+- E4: The release carries it. Covered by: 2.1
+- E5: Long gaps and idle sleep are out of scope (owner, 2026-10-14). Discard reason: the owner chose fast shifting as the answer to sleep.
