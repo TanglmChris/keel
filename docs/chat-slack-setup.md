@@ -239,7 +239,9 @@ There is also a Markdown transcript per group, regenerated after each message, a
 
 ## Waking Codex: `keel chat wake`
 
-Claude Code is woken by a file watcher that costs nothing until a message addressed to the session arrives. Codex has no such watcher. On its own, it gets the notice only when its session starts and each time you write to it. `keel chat wake` gives Codex the same behavior on one machine:
+Claude Code is woken by a file watcher that costs nothing until a message addressed to the session arrives. The watcher runs inside the session's Claude process, so on the Claude desktop app a session that is idle, with no process running, reads nothing until something resumes it ([#331](https://github.com/TanglmChris/keel/issues/331)). Keel records each role's desktop session, and when a post, direct message, todo, or `keel patrol --nudge` reaches such a role, the output names the step that wakes it: `get_session`, `unarchive_session` if the session is archived, then `send_message` to its session id. The patrol reports it to the coordinator on the first nudge.
+
+Codex has no such watcher. On its own, it gets the notice only when its session starts and each time you write to it. `keel chat wake` gives Codex the same behavior on one machine:
 
 ```bash
 keel chat wake add

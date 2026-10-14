@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.136.1"
-PROTOCOL_VERSION = "5.136.1"
+PACKAGE_VERSION = "5.137.0"
+PROTOCOL_VERSION = "5.137.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6962,6 +6962,78 @@ def validate_shift_await_clear_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-await-clear scenario passed.")
+    return 0
+
+
+def validate_chat_wake_idle_desktop_scenario() -> int:
+    """A record for an idle desktop session names the step that wakes it (#331).
+
+    On the Claude desktop app a session with no running Claude process reads
+    no chat record, so a todo or a patrol nudge alone wakes nothing there
+    (chat-wake-idle-desktop D1-D4). Outside the desktop app nothing changes.
+    """
+    label = "chat-wake-idle-desktop:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-wake-idle-desktop-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        gone = subprocess.Popen(["node", "-e", ""])
+        gone.wait()
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-331", "KEEL_SHIFT_DESKTOP_PID": str(gone.pid)}
+
+        def hook(environment: dict) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"],
+                cwd=verify, env=environment, text=True, capture_output=True, check=False,
+                input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "source": "startup"}),
+            )
+
+        steps = ("send_message", "get_session", "unarchive_session", "local_test-331")
+        started = hook(desktop)
+        if started.returncode != 0:
+            report(f"{label} the desktop session-start hook failed: {started.stderr.strip()}")
+            return 1
+        run_keel(rtl, "chat", "group", "create", "soc", "verify", env=env)
+        made = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R031 rerun", env=env)
+        if made.returncode != 0:
+            report(f"{label} todo failed: {made.stderr.strip()}")
+            return 1
+        for needle in steps:
+            if needle not in made.stdout:
+                report(f"{label} a todo for an idle desktop session does not name {needle}: {made.stdout.strip()}")
+                return 1
+        as_json = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R032 rerun", "--json", env=env)
+        asleep = json.loads(as_json.stdout).get("asleep") if as_json.returncode == 0 else None
+        if asleep != [{"role": "verify", "session": "local_test-331"}]:
+            report(f"{label} --json does not carry asleep: {as_json.stdout.strip()} {as_json.stderr.strip()}")
+            return 1
+        stored = run_keel(verify, "chat", "todos", "--mine", env=desktop)
+        if "R031 rerun" not in stored.stdout:
+            report(f"{label} the todo was not stored: {stored.stdout.strip()}")
+            return 1
+        time.sleep(1.2)
+        patrol = run_keel(rtl, "patrol", "--nudge", "--idle", "1s", env=env)
+        if "nudged verify" not in patrol.stdout:
+            report(f"{label} the patrol did not nudge verify: {patrol.stdout.strip()} {patrol.stderr.strip()}")
+            return 1
+        risks = [line for line in patrol.stdout.splitlines() if line.startswith("risk:")]
+        if not any("local_test-331" in line and "send_message" in line for line in risks):
+            report(f"{label} the first nudge to an idle desktop session reports no risk naming its wake step: {patrol.stdout.strip()}")
+            return 1
+        if hook(env).returncode != 0:
+            report(f"{label} the plain session-start hook failed.")
+            return 1
+        plain = run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "R033 rerun", env=env)
+        if any(needle in plain.stdout for needle in steps):
+            report(f"{label} a todo for a session outside the desktop app still names a wake step: {plain.stdout.strip()}")
+            return 1
+    for relative in ("docs/chat-slack-setup.md", "docs/chat-slack-setup.zh-CN.md"):
+        if "#331" not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not mention #331.")
+            return 1
+    if "chat-wake-idle-desktop" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-wake-idle-desktop scenario passed.")
     return 0
 
 
@@ -40749,6 +40821,7 @@ SCENARIOS: tuple = (
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
     ("shift-desktop-wake-overdue", validate_shift_desktop_wake_overdue_scenario),
     ("shift-start-desktop", validate_shift_start_desktop_scenario),
+    ("chat-wake-idle-desktop", validate_chat_wake_idle_desktop_scenario),
     ("shift-await-clear", validate_shift_await_clear_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
