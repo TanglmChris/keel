@@ -9,6 +9,7 @@ Issues #324, #326. Owner requirement, 2026-10-14: a desktop self-shift completes
 - On the desktop app, `keel shift ready --wake` prints four steps: create or update an ad-hoc wake task, with no schedule, whose prompt runs `keel shift await-clear` first and only then unarchives if needed and sends; start it at once with `run_scheduled_task`; rename; clear. The wake can start before the clear because it waits for it, and nothing waits for the minute tick.
 - A wake whose `await-clear` times out sends nothing, calls `PushNotification`, and starts its reply with `WAKE FAILED`.
 - `keel shift status` flags an overdue desktop wake after 3 minutes instead of 15.
+- When Keel finds no `claude` process above it, the printed steps no longer tell the session to start a wake task they never created.
 - `self-shift` covers the four steps. `README.md`, the `keel/config.yaml` comments, and both shift-change docs follow.
 - Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.136.0; the OpenSpec dependency pin stays `^1.4.1`.
 

@@ -826,7 +826,9 @@ function clearHint(result) {
           + "A send result of `delivered` or `queued` is a delivered wake; any other result after that retry is a failed wake: call `PushNotification` naming the session and the result, and start your reply with `WAKE FAILED`.\" "
           + "The app's auto-archive can archive the cleared session before the wake (#326); unarchiving brings back its worktree."
         : "1. Keel found no `claude` process above this one, so nothing can wait for the clear: after the clear, type into the new session.",
-      `2. Start it at once with \`run_scheduled_task\` on \`${task}\`. The run waits for this session's clear itself, so starting it first is safe.`,
+      result.pid
+        ? `2. Start it at once with \`run_scheduled_task\` on \`${task}\`. The run waits for this session's clear itself, so starting it first is safe.`
+        : "2. There is no task to start.",
       `3. Rename this session with \`set_session_title\` (for example "${result.role} · shifted ${store.isoLocal(new Date()).slice(0, 16)}"), so it reads as between shifts until the woken session renames it back.`,
       '4. Call clear_session("self").',
       "Keel creates no task. Running unattended needs `mcp__ccd_session_mgmt__set_remote_control`, `mcp__ccd_session_mgmt__get_session`, "

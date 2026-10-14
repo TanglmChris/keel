@@ -7034,7 +7034,8 @@ def validate_shift_desktop_wake_scenario() -> int:
         base = Path(raw)
         _rtl, verify, env, _ = shift_scratch(base)
         env = {**env, "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
-        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319"}
+        # The pid is pinned so the scenario does not depend on running under a `claude` process (CI does not).
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-319", "KEEL_SHIFT_DESKTOP_PID": "4242"}
         note = mailbox_common_dir(verify) / "keel-chat" / "shift" / "verify.md"
 
         armed = run_keel(verify, "shift", "ready", "--wake", "verify note: next is R011", env=desktop)
