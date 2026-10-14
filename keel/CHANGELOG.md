@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.136.1 - `keel shift start` no longer claims a desktop wake it cannot make
+
+Issue #320. Measured 2026-10-14: on the Claude desktop app a session with no running process sees no chat record. `keel shift start start-probe` printed `Woke start-probe …` and the paused target showed no log line for three minutes; a `send_message` to its session id resumed it in 9 s. The shift feature is frozen to bug fixes (owner, 2026-10-14); this reuses the self-shift wake's partner step and adds no mechanism.
+
+- When the waiting note records `Desktop session: <id>`, `keel shift start` still posts the start record, but says that alone wakes nothing there and prints the step that does: `get_session` on the id, `unarchive_session` when archived, then `send_message` with the start text. `--json` carries `desktop`.
+- Notes written elsewhere print `Woke …` as before.
+- Both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.136.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.136.0 - A desktop self-shift completes within a minute
 
 Issues #324, #326. Owner requirement, 2026-10-14: a desktop self-shift completes within one minute, which is also the answer to the Mac idle-sleeping in the gap; long gaps are out of scope. The 5.135.0 wake was a one-shot scheduled task a few minutes out, because a wake arriving before the clear got the clear refused, and the app dispatches due tasks only once a minute. Measured on 2026-10-14 with this release's recipe: cleared 19:06:04, the woken session's first turn 19:06:23 — 19 s, with no permission request in between and Remote Control reconnected by the app.

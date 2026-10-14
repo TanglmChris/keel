@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.136.0"
-PROTOCOL_VERSION = "5.136.0"
+PACKAGE_VERSION = "5.136.1"
+PROTOCOL_VERSION = "5.136.1"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6962,6 +6962,57 @@ def validate_shift_await_clear_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-await-clear scenario passed.")
+    return 0
+
+
+def validate_shift_start_desktop_scenario() -> int:
+    """`keel shift start` names the wake step for a note written on the desktop app.
+
+    A desktop session with no running process sees no chat record, so the
+    start record alone wakes nobody there (#320, D1 of
+    shift-start-desktop-wake). Elsewhere the output is unchanged.
+    """
+    label = "shift-start-desktop:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-start-desktop-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        desktop = {**env, "CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": "local_test-320", "KEEL_SHIFT_DESKTOP_PID": "4242"}
+        ready = run_keel(verify, "shift", "ready", "verify note: next is R030", env=desktop)
+        if ready.returncode != 0:
+            report(f"{label} ready on the desktop app failed: {ready.stderr.strip()}")
+            return 1
+        started = run_keel(rtl, "shift", "start", "verify", env=env)
+        if started.returncode != 0:
+            report(f"{label} start failed: {started.stderr.strip()}")
+            return 1
+        read = run_keel(verify, "chat", "read", "dm-rtl--verify", env=env)
+        if "keel shift resume" not in read.stdout:
+            report(f"{label} the start record did not reach dm-rtl--verify: {read.stdout.strip()} {read.stderr.strip()}")
+            return 1
+        for needle in ("send_message", "get_session", "unarchive_session", "local_test-320", "keel shift resume"):
+            if needle not in started.stdout:
+                report(f"{label} start for a desktop note does not name {needle}: {started.stdout.strip()}")
+                return 1
+        if "Woke" in started.stdout:
+            report(f"{label} start for a desktop note still says it woke the role: {started.stdout.strip()}")
+            return 1
+        run_keel(verify, "shift", "resume", env=env)
+        plain = run_keel(verify, "shift", "ready", "verify note: next is R031", env=env)
+        if plain.returncode != 0:
+            report(f"{label} ready outside the desktop app failed: {plain.stderr.strip()}")
+            return 1
+        other = run_keel(rtl, "shift", "start", "verify", env=env)
+        if "Woke verify" not in other.stdout or "send_message" in other.stdout:
+            report(f"{label} start for a note with no desktop session changed: {other.stdout.strip()}")
+            return 1
+    for relative, word in (("docs/shift-change.md", "#320"), ("docs/shift-change.zh-CN.md", "#320")):
+        if word not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not mention {word}.")
+            return 1
+    if "shift-start-desktop" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-start-desktop scenario passed.")
     return 0
 
 
@@ -40697,6 +40748,7 @@ SCENARIOS: tuple = (
     ("shift-without-role", validate_shift_without_role_scenario),
     ("shift-desktop-wake", validate_shift_desktop_wake_scenario),
     ("shift-desktop-wake-overdue", validate_shift_desktop_wake_overdue_scenario),
+    ("shift-start-desktop", validate_shift_start_desktop_scenario),
     ("shift-await-clear", validate_shift_await_clear_scenario),
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
