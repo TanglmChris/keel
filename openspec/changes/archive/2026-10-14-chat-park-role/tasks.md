@@ -49,7 +49,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -87,7 +87,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:e5b775cd20424c0525004a71e7c8d69d266784f66a9e47a25dde4e05bb338201
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.137.0 → 5.138.0; with the "A role can be parked on purpose" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the ADDED requirement joined `keel-cross-host-mailbox` and the MODIFIED one replaced its counterpart in `keel-coordinator-patrol`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and both published specs carry the change; both validator scenarios pass.
+      - Scope check: changed files are the version markers, `keel/CHANGELOG.md` and the two published specs, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

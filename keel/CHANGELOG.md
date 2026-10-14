@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.138.0 - A role can be parked on purpose
+
+Issue #316 (rtl_ppa_prj, 2026-10-13): the coordinator parked `iecc-design` by archiving its desktop session, and `keel patrol --nudge` kept nudging it over old mentions and reporting `has not answered 2 nudges` as a risk. Keel cannot see that a desktop session is archived; the owner chose an explicit command (2026-10-14).
+
+- `keel chat role --park <role> [--reason <text>]` parks a bound role; `--unpark <role>` ends it and says how many addressed records waited and since when. A park also ends once a session runs as that role again.
+- While parked, `keel patrol --nudge` sends the role nothing and reports no unanswered-nudge risk, binding drift leaves it out, and the patrol's role line says `parked`.
+- A post, dm, or todo that wakes a parked role says it is parked, since when, by whom and why, in place of the offline report and the desktop wake step. `--json` carries `parked`.
+- Both chat docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.138.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.137.0 - Chat names the wake step for an idle desktop session
 
 Issue #331 (rtl_ppa_prj, 2026-10-13/14). On the Claude desktop app an idle session has no running Claude process, so a chat record addressed to it is read by nothing: todos to three idle roles waited about four hours, and an hourly `patrol --nudge` nudged one role seven times while it never woke. A `send_message` to the session id woke each at once, as #320 had measured (9 s).
