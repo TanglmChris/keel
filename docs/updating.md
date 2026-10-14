@@ -24,8 +24,9 @@ Each component prints one line, `keel update: <component>: <status> - <detail>`,
 
 `keel --update --dry-run` prints the commands and runs none. No hook ever runs any of this. Only you do, by running the command.
 
-Two cases need you:
-- **A Codex marketplace that is a local path.** `codex plugin marketplace upgrade` refreshes Git marketplaces only, and a local one follows whatever branch its checkout is on. The Codex line then reads `manual` and names the commands that make it upgradable: `codex plugin marketplace remove keel-marketplace`, then `codex plugin marketplace add TanglmChris/keel --ref main`. Keel does not re-point it.
+Three cases need you:
+- **A Codex marketplace that is a local path.** `codex plugin marketplace upgrade` refreshes Git marketplaces only, and a local one follows whatever branch its checkout is on. The Codex line then reads `manual` and names the commands that make it upgradable: `codex plugin marketplace remove keel-marketplace`, then `codex plugin marketplace add TanglmChris/keel --ref main --sparse .agents/plugins --sparse plugins/keel`. Keel does not re-point it.
+- **A Codex marketplace refresh that keeps failing.** Codex clones a Git marketplace with a fixed 30-second limit, and a slow or proxied link may not clone the whole repository in time (#329). `keel --update` retries the refresh once; if it fails again, the Codex line reads `failed` and names the remedy: add `sparse_paths = [".agents/plugins", "plugins/keel"]` under `[marketplaces.keel-marketplace]` in the Codex `config.toml`, so the refresh fetches only the plugin. A marketplace added with `--sparse .agents/plugins --sparse plugins/keel` already has it.
 - **Changed Codex hook definitions.** Codex trusts each hook by the hash of its definition. When a release changes `hooks/codex.json`, the Codex line says so, and those hooks do not run until you review them in `/hooks`.
 
 ## Projects catch up on their own

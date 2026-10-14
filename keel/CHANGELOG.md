@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.132.0 - The Codex plugin refresh survives a slow link
+
+Issue #329. On 2026-10-14 `keel --update` reported the Codex plugin `failed`: Codex clones a Git marketplace within a fixed 30 s, and through the owner's proxy a shallow clone of the whole repository took 44 s. A sparse marketplace (`.agents/plugins` and `plugins/keel`, 144 KB) refreshed in 19–25 s on the same link, though the link still dropped some attempts. Owner request, 2026-10-14: fix the Codex hang.
+
+- `keel --update` retries `codex plugin marketplace upgrade` once when it fails. When it fails twice, the Codex line reads `failed` and names the remedy: `sparse_paths = [".agents/plugins", "plugins/keel"]` under `[marketplaces.keel-marketplace]` in the Codex `config.toml`.
+- The `manual` hint for a local marketplace, both READMEs, and `docs/updating.md` add the Codex marketplace with `--sparse .agents/plugins --sparse plugins/keel`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.132.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.131.0 - A desktop self-shift dismisses its bound PRs, so auto-archive leaves it for the wake
 
 Issue #326. The first self-shift on 5.130.0 lost its wake: the desktop app's auto-archive archived the cleared, idle session 3 min after the clear, because every PR bound to it was merged, and released its worktree. A retest on 2026-10-13 that dismissed all bound PRs with `unbind_pr` before the clear was not archived, and its wake was delivered on the first send. Owner decision, 2026-10-14: build that into the recipe.

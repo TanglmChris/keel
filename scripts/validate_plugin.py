@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.131.0"
-PROTOCOL_VERSION = "5.131.0"
+PACKAGE_VERSION = "5.132.0"
+PROTOCOL_VERSION = "5.132.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -23140,7 +23140,16 @@ const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "
 const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
 const version = state[host] || "5.0.0";
 const failOn = process.env[`FAKE_FAIL_${host.toUpperCase()}`] || "";
-if (failOn && args.join(" ").includes(failOn)) process.exit(1);
+// FAKE_FAIL_TIMES_<HOST> limits the failures to the first N matching calls.
+const failTimes = Number(process.env[`FAKE_FAIL_TIMES_${host.toUpperCase()}`] || "Infinity");
+if (failOn && args.join(" ").includes(failOn)) {
+  const failed = (state.failed && state.failed[host]) || 0;
+  if (failed < failTimes) {
+    state.failed = { ...(state.failed || {}), [host]: failed + 1 };
+    save();
+    process.exit(1);
+  }
+}
 if (host === "npm") {
   if (args[0] === "pack") {
     const dest = args[args.indexOf("--pack-destination") + 1];
@@ -23269,8 +23278,8 @@ def validate_update_covers_installed_hosts_scenario() -> int:
         if "manual" not in codex_line:
             report(f"{label} a local Codex marketplace was not reported manual: {codex_line!r}")
             return 1
-        if "codex plugin marketplace add TanglmChris/keel --ref main" not in codex_line:
-            report(f"{label} the manual Codex line does not name the Git marketplace command: {codex_line!r}")
+        if "codex plugin marketplace add TanglmChris/keel --ref main --sparse .agents/plugins --sparse plugins/keel" not in codex_line:
+            report(f"{label} the manual Codex line does not name the sparse Git marketplace command (--sparse): {codex_line!r}")
             return 1
         if any(c[0] == "codex" for c in calls):
             report(f"{label} a local Codex marketplace still received commands: {calls!r}")
@@ -23320,6 +23329,97 @@ OVERLAY_BLOCK_RE = re.compile(
     r"<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?"
     r"<!--\s*keel:openspec-surface-overlay:end\s*-->"
 )
+
+
+def validate_update_codex_refresh_retry_scenario() -> int:
+    """Issue #329: a slow link can cut Codex's whole-repository marketplace clone.
+
+    `keel --update` retries the refresh once, and when it still fails, names the
+    sparse marketplace paths that make it fetch only the plugin. Those paths
+    hold the Codex catalog and the plugin it names, and the docs use them.
+    """
+    label = "update-codex-refresh-retry:"
+    upgrade = ["codex", "plugin", "marketplace", "upgrade", "keel-marketplace"]
+    add = ["codex", "plugin", "add", "keel@keel-marketplace"]
+    with tempfile.TemporaryDirectory(prefix="keel-update-retry-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+
+        def update(times: str):
+            log, state = tmp / "log.jsonl", tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "CODEX_HOME": str(tmp / "codex-home"),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state), "FAKE_CODEX_SOURCE": str(tmp / "codex-source"),
+                "FAKE_FAIL_CODEX": "marketplace upgrade", "FAKE_FAIL_TIMES_CODEX": times,
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=60)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            line = [l for l in result.stdout.splitlines() if l.startswith("keel update: codex plugin:")]
+            return result, calls, (line[0] if len(line) == 1 else "")
+
+        result, calls, line = update("1")
+        runs = sum(1 for c in calls if c[:5] == upgrade)
+        if runs != 2:
+            report(f"{label} the Codex marketplace upgrade ran {runs} time(s) after one failure, not 2: {calls!r}")
+            return 1
+        if sum(1 for c in calls if c[:4] == add) != 1:
+            report(f"{label} a refresh that succeeded on retry did not run plugin add once: {calls!r}")
+            return 1
+        if "5.0.0 -> 5.1.0" not in line:
+            report(f"{label} a refresh that succeeded on retry did not report the new version: {line!r}")
+            return 1
+        if result.returncode != 0:
+            report(f"{label} a refresh that succeeded on retry exited {result.returncode}: {result.stdout!r}")
+            return 1
+
+        result, calls, line = update("9")
+        runs = sum(1 for c in calls if c[:5] == upgrade)
+        if runs != 2:
+            report(f"{label} a lasting failure ran the upgrade {runs} time(s), not 2: {calls!r}")
+            return 1
+        if any(c[:4] == add for c in calls):
+            report(f"{label} a lasting refresh failure still ran plugin add: {calls!r}")
+            return 1
+        if result.returncode == 0:
+            report(f"{label} a lasting refresh failure left the exit status 0: {result.stdout!r}")
+            return 1
+        if "failed" not in line:
+            report(f"{label} a lasting refresh failure was not reported failed: {line!r}")
+            return 1
+        for needle in ("sparse_paths", ".agents/plugins", "plugins/keel"):
+            if needle not in line:
+                report(f"{label} the failed Codex line does not name {needle}: {line!r}")
+                return 1
+
+    catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+    paths = [entry["source"]["path"] for entry in catalog["plugins"] if entry["name"] == "keel"]
+    if paths != ["./plugins/keel"]:
+        report(f"{label} the Codex catalog's keel source is not under the sparse path plugins/keel: {paths!r}")
+        return 1
+    for relative in ("README.md", "README.zh-CN.md", "docs/updating.md"):
+        if "--sparse .agents/plugins --sparse plugins/keel" not in (ROOT / relative).read_text(encoding="utf-8"):
+            report(f"{label} {relative} does not add the Codex marketplace sparse.")
+            return 1
+    if "update-codex-refresh-retry" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-codex-refresh-retry scenario passed.")
+    return 0
 
 
 def validate_refresh_covers_every_target_scenario() -> int:
@@ -40416,6 +40516,7 @@ SCENARIOS: tuple = (
     ("guard-keeps-loaded-logic-under-manifest", validate_guard_keeps_loaded_logic_under_manifest_scenario),
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
+    ("update-codex-refresh-retry", validate_update_codex_refresh_retry_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
     ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),

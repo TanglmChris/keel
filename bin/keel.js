@@ -1035,6 +1035,12 @@ function claudeKeel(executable) {
   return { id: entry.id, market: entry.id.slice("keel@".length), version: entry.version || null };
 }
 
+// The Codex marketplace needs only its catalog and the plugin it names; a
+// sparse clone fetches those instead of the whole repository, which a slow
+// link cannot clone within Codex's 30 s limit (#329).
+const CODEX_SPARSE_PATHS = [".agents/plugins", "plugins/keel"];
+const CODEX_SPARSE_FLAGS = CODEX_SPARSE_PATHS.map((entry) => `--sparse ${entry}`).join(" ");
+
 function codexKeel(executable) {
   const listed = hostJson(executable, ["plugin", "list", "--json"]);
   const items = listed && Array.isArray(listed.installed) ? listed.installed : [];
@@ -1057,6 +1063,11 @@ function readOrNull(file) {
   } catch {
     return null;
   }
+}
+
+function hostFails(executable, args) {
+  const result = hostRun(executable, args);
+  return Boolean(result.error) || result.status !== 0;
 }
 
 function runHostSteps(component, name, executable, steps) {
@@ -1124,11 +1135,22 @@ function updateCodexPlugin(options) {
       "manual",
       `its marketplace is a ${installed.sourceType} source (${installed.source}), which \`codex plugin `
         + "marketplace upgrade` cannot refresh; to make it upgradable, run `codex plugin marketplace "
-        + `remove ${market}\` and then codex plugin marketplace add TanglmChris/keel --ref main`
+        + `remove ${market}\` and then codex plugin marketplace add TanglmChris/keel --ref main ${CODEX_SPARSE_FLAGS}`
     );
     return true;
   }
-  if (!runHostSteps(component, "codex", executable, [steps[0]])) return false;
+  // The refresh clones over the network; one retry absorbs a dropped link (#329).
+  if (hostFails(executable, steps[0]) && hostFails(executable, steps[0])) {
+    const codexConfig = path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "config.toml");
+    updateLine(
+      component,
+      "failed",
+      `\`codex ${steps[0].join(" ")}\` failed twice; a slow link can exceed Codex's 30 s clone limit, and a sparse `
+        + `marketplace fetches only the plugin: add sparse_paths = ${JSON.stringify(CODEX_SPARSE_PATHS)} `
+        + `under [marketplaces.${market}] in ${codexConfig}`
+    );
+    return false;
+  }
   // Codex re-reads hook definitions at every call and trusts them by hash, so
   // a changed definition stops running until the owner reviews it. Compared
   // before `plugin add`, which deletes the old install's directory.
