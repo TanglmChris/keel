@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.130.0"
-PROTOCOL_VERSION = "5.130.0"
+PACKAGE_VERSION = "5.131.0"
+PROTOCOL_VERSION = "5.131.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6789,7 +6789,7 @@ def validate_shift_change_scenario() -> int:
 
 
 def validate_self_shift_authorization_scenario() -> int:
-    """Issue #319: `self-shift` lets a desktop session take its own four steps.
+    """Issue #319: `self-shift` lets a desktop session take its own five steps.
 
     The name is read and listed by `--doctor`, a scoped form is refused, and a
     desktop `keel shift ready --wake` says the steps are standing-authorized
@@ -6815,6 +6815,10 @@ def validate_self_shift_authorization_scenario() -> int:
         granted = run_keel(verify, "shift", "ready", "--wake", *reason, "verify note: R015", env=desktop)
         if "Standing-authorized by `self-shift`" not in granted.stdout:
             report(f"{label} a desktop ready --wake with self-shift declared does not say the steps are standing-authorized: {granted.stdout.strip()} {granted.stderr.strip()}")
+            return 1
+        # The PR-dismiss step makes five (#326).
+        if "take these five steps now" not in granted.stdout:
+            report(f"{label} a desktop ready --wake with self-shift declared does not cover five steps: {granted.stdout.strip()}")
             return 1
         run_keel(verify, "shift", "resume", env=desktop)
 
@@ -6939,6 +6943,20 @@ def validate_shift_desktop_wake_scenario() -> int:
         if off == -1 or off > armed.stdout.find("create_scheduled_task"):
             report(f"{label} the desktop clear hint does not turn Remote Control off before create_scheduled_task: {armed.stdout.strip()}")
             return 1
+        # Dismiss the bound PRs after Remote Control is off and before the
+        # task, or the app's auto-archive takes the idle cleared session (#326).
+        for needle in ("unbind_pr", "get_status", "unarchive_session", "mcp__ccd_pr__unbind_pr",
+                       "mcp__ccd_session_mgmt__unarchive_session"):
+            if needle not in armed.stdout:
+                report(f"{label} the desktop clear hint does not name {needle}: {armed.stdout.strip()}")
+                return 1
+        unbind = armed.stdout.find("unbind_pr")
+        if not off < unbind < armed.stdout.find("create_scheduled_task"):
+            report(f"{label} the desktop clear hint does not dismiss bound PRs between Remote Control off and create_scheduled_task: {armed.stdout.strip()}")
+            return 1
+        if "archived copy" in armed.stdout:
+            report(f"{label} the desktop clear hint still says the rename tells an archived copy apart: {armed.stdout.strip()}")
+            return 1
         if "mcp__ccd_session_mgmt__clear_session" in armed.stdout:
             report(f"{label} the desktop clear hint still blames approval of clear_session: {armed.stdout.strip()}")
             return 1
@@ -6963,7 +6981,8 @@ def validate_shift_desktop_wake_scenario() -> int:
         if "The wake is armed" not in plain.stdout:
             report(f"{label} outside the desktop app the clear hint no longer says the wake is armed: {plain.stdout.strip()}")
             return 1
-        for needle in ("send_message", "create_scheduled_task", "set_session_title", "shift-restore"):
+        for needle in ("send_message", "create_scheduled_task", "set_session_title", "shift-restore",
+                       "unbind_pr", "unarchive_session"):
             if needle in plain.stdout:
                 report(f"{label} outside the desktop app the clear hint names {needle}: {plain.stdout.strip()}")
                 return 1
@@ -6977,7 +6996,8 @@ def validate_shift_desktop_wake_scenario() -> int:
 
     for relative in ("docs/shift-change.md", "docs/shift-change.zh-CN.md"):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore"):
+        for needle in ("send_message", "set_remote_control", "set_session_title", "shift-restore",
+                       "unbind_pr", "unarchive_session"):
             if needle not in text:
                 report(f"{label} {relative} does not name {needle} for the desktop app.")
                 return 1

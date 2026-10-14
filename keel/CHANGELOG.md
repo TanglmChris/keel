@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.131.0 - A desktop self-shift dismisses its bound PRs, so auto-archive leaves it for the wake
+
+Issue #326. The first self-shift on 5.130.0 lost its wake: the desktop app's auto-archive archived the cleared, idle session 3 min after the clear, because every PR bound to it was merged, and released its worktree. A retest on 2026-10-13 that dismissed all bound PRs with `unbind_pr` before the clear was not archived, and its wake was delivered on the first send. Owner decision, 2026-10-14: build that into the recipe.
+
+- On the desktop app, `keel shift ready --wake` prints five steps. New step 2, after Remote Control is off and before the task: call `get_status` and dismiss each bound PR with `unbind_pr` until none is bound; the new shift can bind an open one again with `bind_pr`.
+- The wake prompt falls back to `unarchive_session` when `send_message` is refused because the session is archived, and says which path it took.
+- The rename step no longer says it tells an "archived copy" apart; a desktop clear keeps the same session.
+- The unattended line also names `mcp__ccd_pr__unbind_pr` and `mcp__ccd_session_mgmt__unarchive_session` for `permissions.allow`.
+- `self-shift` covers the five steps, including dismissing the session's own bound PRs.
+- `README.md`, the `keel/config.yaml` comment, and both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.131.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.130.0 - A session's own desktop shift steps can be standing-authorized
 
 Issue #319, second probe round on 5.129.0 (2026-10-13): after the clear the chain ran unattended. Before it, the session asked the owner once, because its four outgoing steps were outside `shift-restore`. Owner decision, 2026-10-13: authorize them too.
