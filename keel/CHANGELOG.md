@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.135.0 - A desktop self-shift's wake that does not arrive is seen
+
+Issues #324, #326. On 2026-10-14 the 5.134.0 desktop self-shift ran end to end with no person: cleared 18:01:09, auto-archived 18:02:35, unarchived by the wake 18:07:38, delivered 18:07:52 with Remote Control reconnected by itself. One run is one sample, and two failures stayed silent: a wake whose send does not deliver, and a wake that never runs. Either leaves the role cleared with its note waiting and nobody told. Owner decision, 2026-10-14: close the Claude-side gaps now and park Codex (#334).
+
+- The desktop wake task's prompt confirms delivery: `send_message` reporting `delivered` or `queued` is a delivered wake; any other result after the archived retry is a failed wake, for which the task calls `PushNotification` naming the session and the result and starts its reply with `WAKE FAILED`, so the run's summary shows it.
+- `keel shift status` flags a note from a desktop `ready --wake` still waiting 15 minutes on as an overdue desktop wake, naming the session, `list_task_runs`, and `send_message`. `KEEL_SHIFT_WAKE_OVERDUE_MS` overrides the time.
+- Both shift-change docs follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.135.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.134.0 - A desktop self-shift leaves Remote Control on
 
 Issue #324. Turning Remote Control off was the step an unattended desktop self-shift could not pass: every `set_remote_control(…, false)` since 2026-10-06 raised an app permission request that `permissions.allow` does not skip, and returned only when someone answered it (13 min to 3 h 36 min). The recipe took that step because the `clear_session` description says a session serving Remote Control cannot be cleared. On 2026-10-14 the owner measured it: with Remote Control on, the clear was accepted twice, with and without a viewer on the phone, and the app reconnected Remote Control by itself after the clear, under a new address. Owner decision, 2026-10-14: drop the step.
