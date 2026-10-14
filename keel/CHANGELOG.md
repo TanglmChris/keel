@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.133.0 - A desktop self-shift's wake unarchives the session first
+
+Issue #326. The long-gap test of the 5.131.0 recipe on 2026-10-14 showed its PR-dismiss step does not keep the app's auto-archive off the cleared session. After one `unbind_pr`, `get_status` read `bound: false`, and 3 min after the clear the app archived the session anyway ("PR merged"), listing all 20 PRs the session ever had; the archive followed the session being focused and its PR checks refreshed, not a sweep tick. The wake's unarchive fallback then restored the session, the app rebound the same worktree, and the send was delivered. Owner decision, 2026-10-14: fix the recipe first.
+
+- On the desktop app, `keel shift ready --wake` prints four steps again: the PR-dismiss step is gone.
+- The wake task's prompt first calls `get_session` on the session and, when it is archived, `unarchive_session`, then sends; a send still refused as archived unarchives and sends once more. It says which path it took.
+- The unattended line names `mcp__ccd_session_mgmt__get_session` in place of `mcp__ccd_pr__unbind_pr`.
+- `self-shift` covers the four steps.
+- `README.md`, the `keel/config.yaml` comment, and both shift-change docs follow. The 5.131.0 entry below records what that release did; this entry supersedes its dismiss step.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.133.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.132.0 - The Codex plugin refresh survives a slow link
 
 Issue #329. On 2026-10-14 `keel --update` reported the Codex plugin `failed`: Codex clones a Git marketplace within a fixed 30 s, and through the owner's proxy a shallow clone of the whole repository took 44 s. A sparse marketplace (`.agents/plugins` and `plugins/keel`, 144 KB) refreshed in 19–25 s on the same link, though the link still dropped some attempts. Owner request, 2026-10-14: fix the Codex hang.
