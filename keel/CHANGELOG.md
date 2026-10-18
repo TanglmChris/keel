@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.145.0 - A shift's earlier conversations are kept too
+
+Issue #361: 5.143.0 (#343) kept a role's ended transcripts only when a hook had recorded them, so the transcripts `keel shift history` finds as `(found)` — those from before segments were recorded (#304), the oldest and the first Claude deletes — were never copied, and a copy of one was not read. On 2026-10-18 keel-maint had 2 such transcripts (22 MB) unkept.
+
+- At a segment change the hook also copies each transcript `history` finds for the role without a record, leaving out scheduled runs, and records it, still marked `(found)`, so it is listed and searched from the copy once the host's file is gone. A copy already at least as new as the transcript is left as it is. Each is read once, at the first segment change after this release.
+- `history` also reads a copy at the kept path for a segment whose record names none. docs/shift-change.md follows.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.145.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.144.0 - The Claude marketplace refresh is retried once
 
 Issue #359: on 2026-10-18, after both the 5.139.0 and 5.143.0 releases, `keel --update` on the owner's proxied link reported `claude plugin marketplace update keel-marketplace` `exited 1`, and the same command run directly right after passed. The Codex refresh already retried once (#329); the Claude one did not, and the failure line named only the exit status.
