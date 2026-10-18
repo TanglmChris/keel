@@ -14,9 +14,14 @@ const { parseSince } = require("./chat/view");
 
 const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
 const NOTIFY_SENDER = "keel-patrol";
+// 2 asks the coordinator to act — a risk, or a wait of its own now met — and
+// 3 says patrol recorded or delivered something only other roles need: a
+// coordinator's schedule wakes its model on 2, so a run that merely moved
+// state no longer costs a turn (#350).
 const EXIT_QUIET = 0;
 const EXIT_ERROR = 1;
-const EXIT_WROTE = 2;
+const EXIT_ACT = 2;
+const EXIT_RECORDED = 3;
 
 class PatrolError extends Error {}
 
@@ -402,7 +407,7 @@ function hostTask(where) {
     "",
     `1. Run \`git -C ${at} fetch -q origin\`. If it fails, keep its error and continue.`,
     `2. Run \`keel patrol --repo ${at} --since-last --notify\`.`,
-    `3. Exit 0: nothing changed. Exit 2: keel has already told ${role}. In both cases end without output. `
+    `3. Exit 0: nothing changed. Exit 2: keel has already told ${role} what to act on. Exit 3: keel recorded or told other roles only. In these cases end without output. `
       + "Exit 1: end with one line, `keel patrol failed: <its error output>`, adding the fetch error from step 1 if there was one.",
   ].join("\n");
   return {
@@ -465,7 +470,7 @@ function runPatrol(argv) {
       else if (arg === "--quota-alerts") options.quotaAlerts = String(argv[++index] || "").split(",").map(Number);
       else if (arg === "--quota-quiet-at") options.quotaQuietAt = Number(argv[++index]);
       else if (arg === "--help" || arg === "-h") {
-        process.stdout.write(`${USAGE}\nExit 0: wrote nothing. 2: sent a notice or marked a wait met. 1: error.\n`);
+        process.stdout.write(`${USAGE}\nExit 0: wrote nothing. 2: something for you to act on (a risk, or your own wait met). 3: recorded or told other roles only. 1: error.\n`);
         return EXIT_QUIET;
       } else if (["--repo", "--issues", "--idle"].includes(arg)) {
         const value = argv[++index];
@@ -504,7 +509,9 @@ function runPatrol(argv) {
     }
     process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : render(result)}\n`);
     const changed = result.sinceLast && result.sinceLast.changes.length;
-    const code = result.notices.length || result.held.length || changed || (result.nudges || []).length || result.risks.length ? EXIT_WROTE : EXIT_QUIET;
+    const own = result.held.some((held) => held.from === role);
+    const recorded = result.notices.length || result.held.length || changed || (result.nudges || []).length;
+    const code = result.risks.length || own ? EXIT_ACT : recorded ? EXIT_RECORDED : EXIT_QUIET;
     appendRunLog(where, role, code, result);
     return code;
   } catch (error) {
