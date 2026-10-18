@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.142.0 - A hung host query is bounded and reported as one
+
+Issue #354 (split from #329): on 2026-10-14 `codex plugin list --json` hung for minutes through the owner's proxy, and `keel --update` gave every host call five minutes. The code also turned a failed query into a false statement: `plugin list --json` returning null read as a host with no Keel, so the line said `absent` — "is not installed here or has no Keel plugin". Owner, 2026-10-18: a short limit for the read-only query and an honest failure line.
+
+- `claude plugin list --json` and `codex plugin list --json` are allowed 30 s; the update commands keep five minutes, since they download.
+- A query that times out, exits nonzero, or prints no JSON reports that component `failed`, naming the command and why (`timed out after 30 s`, `exited <status>`, `printed no JSON`), before or after the update steps, and `keel --update` exits nonzero. `absent` stays for a host whose executable does not resolve or that lists no Keel plugin.
+- `KEEL_UPDATE_QUERY_TIMEOUT_MS` overrides the limit, beside `KEEL_UPDATE_CLAUDE` and `KEEL_UPDATE_CODEX`. docs/updating.md follows.
+- The 2026-10-14 hang did not reproduce on 2026-10-18 (codex-cli 0.163.0, 1.1–1.4 s), so its cause is still unknown.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.142.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.141.0 - The Claude plugin comes from npm again
 
 Issue #337 (rtl_ppa_prj, 2026-10-14): the owner wants the Claude plugin to update from the npm package the `keel` CLI comes from; on 2026-10-14 a marketplace refresh failed on an SSH host key while npm already had the release. The issue asked for a marketplace manifest in the npm package, but Claude Code does not load a marketplace from npm (its reference lists that source as `not yet implemented`; the 2.1.302 binary carries the string). It does install a plugin from npm. 5.80.0 had moved the plugin from npm to git; the owner chose (2026-10-18), with that history in view, to move it back, since the components now live in the root manifest and Anthropic's directory tracks its own `claude-directory` branch.
