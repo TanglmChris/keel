@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.147.0"
-PROTOCOL_VERSION = "5.147.0"
+PACKAGE_VERSION = "5.148.0"
+PROTOCOL_VERSION = "5.148.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -39230,6 +39230,83 @@ def validate_a_claim_names_what_would_falsify_it_scenario() -> int:
     return 0
 
 
+def validate_archive_keeps_tracked_evidence_scenario() -> int:
+    """Issue #352: archiving a change whose own .gitignore ignores tracked
+    evidence dropped that evidence from version control.
+
+    The archive is a filesystem move; tracked files survive an ignore rule
+    only at the path they were added at, so at the archived path they read as
+    deleted-and-ignored and the archive commit removed them.
+    `keel openspec archive` re-adds them, and `change-close --action archive`
+    warns about them before any move.
+    """
+    label = "archive-keeps-tracked-evidence:"
+    with tempfile.TemporaryDirectory(prefix="keel-archive-352-") as raw:
+        tmp = Path(raw)
+        repo = tmp / "repo"
+        repo.mkdir()
+
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False)
+
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        env = dict(os.environ)
+        env["CODEX_HOME"] = str(tmp / "codex-home")
+        init = run_keel(repo, "--init", "--target", "claude", env=env)
+        if init.returncode:
+            report(f"{label} init failed: {init.stderr or init.stdout}")
+            return 1
+        change = repo / "openspec/changes/demo"
+        write_text(change / "proposal.md", "## Why\n\nfixture\n\n## What Changes\n\n- fixture\n")
+        write_text(change / "tasks.md", "# Tasks\n\n- [x] 1.1 done\n")
+        write_text(change / ".gitignore", "evidence/**\n")
+        write_text(change / "evidence/run.log", "measured\n")
+        git("add", "-A")
+        git("add", "-f", "openspec/changes/demo/evidence/run.log")
+        git("commit", "-q", "-m", "fixture")
+        if "openspec/changes/demo/evidence/run.log" not in git("ls-files").stdout:
+            report(f"{label} the fixture's evidence is not tracked.")
+            return 1
+
+        # The gate sees it before any move.
+        closing = run_keel(repo, "gate", "change-close", "--change", "demo", "--action", "archive", "--json", env=env)
+        try:
+            warnings = json.loads(closing.stdout).get("warnings", [])
+        except json.JSONDecodeError:
+            report(f"{label} change-close printed no JSON: {closing.stdout!r} {closing.stderr!r}")
+            return 1
+        warned = next((w for w in warnings if "evidence/run.log" in w), "")
+        if not warned:
+            report(f"{label} change-close --action archive does not warn about tracked evidence the change ignores: {warnings!r}")
+            return 1
+        if "keel openspec archive" not in warned:
+            report(f"{label} the warning does not name the archive that keeps it: {warned!r}")
+            return 1
+
+        archived = run_keel(repo, "openspec", "archive", "demo", "--yes", "--skip-specs", env=env)
+        if archived.returncode:
+            report(f"{label} keel openspec archive failed: {archived.stdout!r} {archived.stderr!r}")
+            return 1
+        moved = sorted((repo / "openspec/changes/archive").glob("*demo/evidence/run.log"))
+        if len(moved) != 1:
+            report(f"{label} the archive did not move the evidence: {sorted((repo / 'openspec/changes/archive').rglob('*'))!r}")
+            return 1
+        relative = moved[0].relative_to(repo).as_posix()
+        if relative not in git("ls-files").stdout:
+            report(f"{label} the archived evidence {relative} dropped out of version control: {archived.stdout!r}")
+            return 1
+        if "re-added 1" not in archived.stdout:
+            report(f"{label} the archive does not say it re-added the tracked evidence: {archived.stdout!r}")
+            return 1
+    if "archive-keeps-tracked-evidence" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("archive-keeps-tracked-evidence scenario passed.")
+    return 0
+
+
 def validate_a_listed_marker_opens_its_clause_scenario() -> int:
     """Issue #362: a disposition written as a sub-list item was read as prose.
 
@@ -41869,6 +41946,7 @@ SCENARIOS: tuple = (
         "a-listed-marker-opens-its-clause",
         validate_a_listed_marker_opens_its_clause_scenario,
     ),
+    ("archive-keeps-tracked-evidence", validate_archive_keeps_tracked_evidence_scenario),
     (
         "an-equivalence-claim-names-its-base",
         validate_an_equivalence_claim_names_its_base_scenario,
