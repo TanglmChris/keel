@@ -1015,17 +1015,22 @@ function hostRun(executable, args) {
 
 // A read-only `plugin list --json` normally answers in 1–3 s, and once hung
 // for minutes through a proxy (#354). It gets its own short limit, and a query
-// that fails is reported as one, never as a host with no Keel.
+// that fails is reported as one, never as a host with no Keel. A query that
+// times out is retried once: on the owner's link the same query took 58 s
+// once and about 1 s on the next runs (#365).
 function hostQuery(executable, args) {
   const limit = Number(process.env.KEEL_UPDATE_QUERY_TIMEOUT_MS) || 30 * 1000;
-  const result = spawnSync(executable, args, {
+  const run = () => spawnSync(executable, args, {
     encoding: "utf8",
     shell: process.platform === "win32",
     timeout: limit,
   });
+  const timedOut = (attempt) => attempt.error && attempt.error.code === "ETIMEDOUT";
+  let result = run();
+  if (timedOut(result)) result = run();
   if (result.error && result.error.code === "ENOENT") return { absent: true };
-  if (result.error && result.error.code === "ETIMEDOUT") {
-    return { failed: `timed out after ${limit / 1000} s` };
+  if (timedOut(result)) {
+    return { failed: `timed out twice, after ${limit / 1000} s each` };
   }
   if (result.error) return { failed: result.error.message };
   // On Windows the call goes through cmd.exe, which reports a missing command

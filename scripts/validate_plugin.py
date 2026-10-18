@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.146.0"
-PROTOCOL_VERSION = "5.146.0"
+PACKAGE_VERSION = "5.147.0"
+PROTOCOL_VERSION = "5.147.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -23838,8 +23838,15 @@ const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([host, ...args]) + "\n");
 // FAKE_LIST_SLEEP_<HOST> holds `plugin list --json` for N seconds, and
 // FAKE_LIST_EXIT_<HOST> makes it exit with that status (#354).
+// FAKE_LIST_SLEEP_TIMES_<HOST> holds only the first N such calls (#365); the
+// count is written before the hold, since a held call is killed.
 if (args.join(" ") === "plugin list --json") {
-  const hold = Number(process.env[`FAKE_LIST_SLEEP_${host.toUpperCase()}`] || "0");
+  let hold = Number(process.env[`FAKE_LIST_SLEEP_${host.toUpperCase()}`] || "0");
+  const times = Number(process.env[`FAKE_LIST_SLEEP_TIMES_${host.toUpperCase()}`] || "Infinity");
+  const counter = `${process.env.FAKE_STATE}.held-${host}`;
+  const held = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
+  if (held >= times) hold = 0;
+  else if (hold > 0) fs.writeFileSync(counter, String(held + 1));
   if (hold > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, hold * 1000);
   const code = process.env[`FAKE_LIST_EXIT_${host.toUpperCase()}`];
   if (code) process.exit(Number(code));
@@ -24103,7 +24110,7 @@ def validate_update_host_query_timeout_scenario() -> int:
         if "absent" in codex:
             report(f"{label} a hung codex plugin list --json was reported absent: {codex!r}")
             return 1
-        for needle in ("failed", "codex plugin list --json", "timed out after 1.5 s"):
+        for needle in ("failed", "codex plugin list --json", "1.5 s"):
             if needle not in codex:
                 report(f"{label} the hung-query line does not name {needle!r}: {codex!r}")
                 return 1
@@ -24221,6 +24228,77 @@ def validate_update_claude_refresh_retry_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("update-claude-refresh-retry scenario passed.")
+    return 0
+
+
+def validate_update_host_query_retry_scenario() -> int:
+    """Issue #365: `codex plugin list --json` usually answers in about 1 s and
+    sometimes took 58 s through the owner's proxy.
+
+    A query that times out is retried once before the component reads
+    `failed`, so one slow spell no longer leaves the plugin a release behind.
+    """
+    label = "update-host-query-retry:"
+    listing = ["codex", "plugin", "list", "--json"]
+    with tempfile.TemporaryDirectory(prefix="keel-update-365-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+        source = tmp / "codex-source"
+        write_text(source / "hooks/codex.json", "{}\n")
+
+        def update(times: str):
+            log, state = tmp / "log.jsonl", tmp / "state.json"
+            for stale in (log, state, tmp / "state.json.held-codex"):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000",
+                "CODEX_HOME": str(tmp / "codex-home"), "FAKE_LOG": str(log), "FAKE_STATE": str(state),
+                "FAKE_CODEX_SOURCE": str(source),
+                "FAKE_LIST_SLEEP_CODEX": "15", "FAKE_LIST_SLEEP_TIMES_CODEX": times,
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            started = time.monotonic()
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=120)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            line = next((l for l in result.stdout.splitlines() if l.startswith("keel update: codex plugin:")), "")
+            return result, calls, line, time.monotonic() - started
+
+        result, calls, line, _ = update("1")
+        if "5.0.0 -> 5.1.0" not in line:
+            report(f"{label} a query that timed out once did not go on to update the Codex plugin: {line!r}")
+            return 1
+        if result.returncode != 0:
+            report(f"{label} a query that answered on retry left keel --update exiting {result.returncode}: {result.stdout!r}")
+            return 1
+
+        result, calls, line, took = update("9")
+        for needle in ("failed", "codex plugin list --json", "timed out twice", "4 s"):
+            if needle not in line:
+                report(f"{label} a lasting hang's line does not name {needle!r}: {line!r}")
+                return 1
+        runs = sum(1 for c in calls if c[:4] == listing)
+        if runs != 2:
+            report(f"{label} a lasting hang ran the query {runs} time(s), not 2: {calls!r}")
+            return 1
+        if took > 25:
+            report(f"{label} two 4 s attempts held keel --update for {took:.1f} s.")
+            return 1
+    if "update-host-query-retry" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-host-query-retry scenario passed.")
     return 0
 
 
@@ -41602,6 +41680,7 @@ SCENARIOS: tuple = (
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("update-codex-refresh-retry", validate_update_codex_refresh_retry_scenario),
+    ("update-host-query-retry", validate_update_host_query_retry_scenario),
     ("update-claude-refresh-retry", validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),

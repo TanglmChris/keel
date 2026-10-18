@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.147.0 - A host query that timed out is retried once
+
+Issue #365: on 2026-10-18, after the 5.145.0 release, `keel --update` twice reported `codex plugin list --json` `timed out after 30 s` on the owner's proxied link; run directly the query took 58.2 s, and 15 minutes later about 1 s. The 30 s limit (#354) made each slow spell a missed Codex update.
+
+- A `plugin list --json` that times out is retried once with the same limit; two timeouts read `failed`, `timed out twice, after 30 s each`. A nonzero exit or missing JSON is still reported on the first attempt. docs/updating.md follows.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.147.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.146.0 - A disposition written as a sub-list item is read as one
 
 Issue #362 (rtl_ppa_prj, 2026-10-18): `keel gate task-complete` refused a Review `Findings` written as a sub-list — `- Findings:` then `  - Resolved here: M1`, or a repo path that exists — as `finding-owner`, while the same text on the label's own line passed, and the refusal asked for exactly what had been written. The opening rule (#144) allowed indentation after a line break but not a list bullet.
