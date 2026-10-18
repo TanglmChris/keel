@@ -223,7 +223,10 @@ Declare one entry per glob; `*` matches within one `/` segment and `**` across t
 other scope, this one is enforced: while any `push:` glob is declared, the Claude write guard checks
 every `git push` a `Bash` call runs, with or without a task, and refuses one to any other branch, or
 one whose target it cannot tell — `--all`, `--mirror`, `--tags`, a shell variable, no configured
-push destination — naming `git push origin <branch>` instead. A bare `push` keeps its old meaning,
+push destination — naming `git push origin <branch>` instead. A push that also carries annotated
+tags — `--follow-tags`, or `push.followTags` set in git config — is a tag push (#327): no `push:`
+glob allows it, so it is refused naming `--no-follow-tags`, unless every branch it pushes is
+`push-protected`, where it is asked about like any protected push. A bare `push` keeps its old meaning,
 and declaring it beside a `push:` glob is refused, because it would silently widen the glob. Codex
 has no such hook, so there the scope is carried, not enforced.
 

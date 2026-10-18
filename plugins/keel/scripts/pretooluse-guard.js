@@ -368,8 +368,13 @@ function findPushes(command, cwd) {
   let cdBefore = false;
   for (const words of shellSegments(command)) {
     let i = 0;
-    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i].text)) i += 1;
-    while (i < words.length && PREFIX_COMMANDS.has(words[i].text)) i += 1;
+    const assigned = [];
+    while (i < words.length) {
+      const assignment = words[i].text.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+      if (assignment) assigned.push(assignment[1]);
+      else if (!PREFIX_COMMANDS.has(words[i].text)) break;
+      i += 1;
+    }
     const head = words[i] ? words[i].text : "";
     if (head === "cd" || head === "pushd") {
       cdBefore = true;
@@ -385,12 +390,16 @@ function findPushes(command, cwd) {
     let dir = cwd;
     i += 1;
     let unknownGlobal = null;
+    let expandedConfig = null;
+    const config = [];
     while (i < words.length && words[i].text.startsWith("-")) {
       const option = words[i].text;
       if (option === "-C" && words[i + 1]) {
         dir = path.resolve(dir, words[i + 1].text);
         i += 2;
       } else if (option === "-c" && words[i + 1]) {
+        if (words[i + 1].expands) expandedConfig = words[i + 1].text;
+        config.push("-c", words[i + 1].text);
         i += 2;
       } else if (option === "--no-pager" || option === "-P") {
         i += 1;
@@ -404,7 +413,18 @@ function findPushes(command, cwd) {
       pushes.push({ undetermined: `the git option \`${unknownGlobal}\` is not one the guard reads` });
       continue;
     }
-    pushes.push({ dir, cdBefore, args: words.slice(i + 1) });
+    if (expandedConfig) {
+      pushes.push({ undetermined: `the git config \`-c ${expandedConfig}\` is expanded by the shell` });
+      continue;
+    }
+    // A GIT_CONFIG* assignment can turn on push.followTags for this command
+    // only, where the guard cannot read it (#327).
+    const configVar = assigned.find((name) => name.startsWith("GIT_CONFIG"));
+    if (configVar) {
+      pushes.push({ undetermined: `\`${configVar}\` sets git config the guard cannot read` });
+      continue;
+    }
+    pushes.push({ dir, cdBefore, config, args: words.slice(i + 1) });
   }
   return pushes;
 }
@@ -429,6 +449,7 @@ function pushTargets(push) {
   if (push.undetermined) return push;
   const positionals = [];
   let deleting = false;
+  let followTags = null;
   for (let i = 0; i < push.args.length; i += 1) {
     const word = push.args[i];
     if (word.expands) return { undetermined: `\`${word.text}\` is expanded by the shell` };
@@ -444,6 +465,8 @@ function pushTargets(push) {
     const name = text.includes("=") ? text.slice(0, text.indexOf("=")) : text;
     if (PUSH_UNDETERMINED.has(name)) return { undetermined: `\`${name}\` pushes refs the guard cannot list` };
     if (name === "-d" || name === "--delete") deleting = true;
+    if (name === "--follow-tags") followTags = true;
+    if (name === "--no-follow-tags") followTags = false;
     if (PUSH_VALUED.has(name)) {
       if (!text.includes("=")) i += 1;
       continue;
@@ -458,6 +481,14 @@ function pushTargets(push) {
     }
     return { undetermined: `the push option \`${text}\` is not one the guard reads` };
   }
+  // A push that carries annotated tags is a tag push (#327). git resolves the
+  // config itself, so boolean spellings, key case and `-c` order are its own.
+  let tags = null;
+  if (followTags === true) tags = "`--follow-tags`";
+  else if (followTags === null && gitOut(push.dir,
+    [...(push.config || []), "config", "--type=bool", "--get", "push.followTags"]) === "true") {
+    tags = "`push.followTags`";
+  }
   const refspecs = positionals.slice(1);
   const needsCurrent = () => {
     if (push.cdBefore) return { undetermined: "the directory changes before it, so its branch is unknown here" };
@@ -467,7 +498,7 @@ function pushTargets(push) {
     const unknown = needsCurrent();
     if (unknown) return unknown;
     const branch = pushDestination(push.dir);
-    return branch ? { targets: [branch] } : { undetermined: "the branch has no configured push destination" };
+    return branch ? { targets: [branch], tags } : { undetermined: "the branch has no configured push destination" };
   }
   const targets = [];
   for (const raw of refspecs) {
@@ -486,7 +517,7 @@ function pushTargets(push) {
     else if (dst.startsWith("refs/")) return { undetermined: `\`${raw}\` is not a branch` };
     targets.push(dst);
   }
-  return { targets };
+  return { targets, tags };
 }
 
 function checkPushes(event) {
@@ -495,6 +526,7 @@ function checkPushes(event) {
   if (!/\bgit\b/.test(command) || !/\bpush\b/.test(command)) return 0;
   const cwd = typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
   const asks = [];
+  let carriesTags = false;
   for (const push of findPushes(command, cwd)) {
     const top = gitOut(push.dir || cwd, ["rev-parse", "--show-toplevel"]);
     if (!top) continue;
@@ -513,7 +545,20 @@ function checkPushes(event) {
       );
       return 0;
     }
-    const unlisted = result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
+    // A push carrying tags passes on no `push:` glob; only a protected
+    // branch's ask can carry it, so each branch must be a protected one.
+    if (result.tags && !result.targets.every((b) => protectedEntries.some((e) => globPattern(e.glob).test(b)))) {
+      deny(
+        `Keel push guard: this push also pushes annotated tags (${result.tags}), and `
+          + `keel/config.yaml limits push to ${declared}; no \`push:\` grant covers tags. Push the `
+          + "branch alone with `--no-follow-tags`, or ask the owner to publish the tags."
+      );
+      return 0;
+    }
+    if (result.tags) carriesTags = true;
+    const unlisted = result.tags
+      ? result.targets
+      : result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
     const outside = [];
     for (const branch of unlisted) {
       const entry = protectedEntries.find((e) => globPattern(e.glob).test(branch));
@@ -554,9 +599,10 @@ function checkPushes(event) {
       );
       return 0;
     }
+    const tagNote = carriesTags ? " This push also pushes annotated tags (`--follow-tags` or `push.followTags`)." : "";
     ask(
       `Keel push guard: ${branches} is a protected branch (keel/config.yaml `
-        + "push-protected). Confirm only if the user approves this one push; the next push asks again."
+        + `push-protected).${tagNote} Confirm only if the user approves this one push; the next push asks again.`
     );
   }
   return 0;

@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.139.0 - The push guard sees tags carried by a branch push
+
+Issue #327 (rtl_ppa_prj #300, 2026-10-13): `git push --follow-tags origin <granted branch>` passed the Claude write guard and published every local annotated tag missing on the remote, release tags included, although every explicit tag push was refused.
+
+- A push that carries annotated tags — `--follow-tags` not undone by a later `--no-follow-tags`, or `push.followTags` true in the repository config or a `git -c` on the command — is a tag push. No `push:` glob allows it; it is refused naming `--no-follow-tags`, unless every branch it pushes is `push-protected`, where it takes that entry's ask (role limit and mode refusal included) and the ask says it also pushes annotated tags.
+- A push behind a `GIT_CONFIG*` assignment, or with a shell-expanded `git -c`, is refused as undetermined, since either can set `push.followTags` out of the guard's sight.
+- `env FOO=1 git push …` is checked like any other push; before, an assignment after `env` hid the push from the guard entirely.
+- No `push-tag:` grant is added. README and the config comment follow.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.139.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.138.0 - A role can be parked on purpose
 
 Issue #316 (rtl_ppa_prj, 2026-10-13): the coordinator parked `iecc-design` by archiving its desktop session, and `keel patrol --nudge` kept nudging it over old mentions and reporting `has not answered 2 nudges` as a risk. Keel cannot see that a desktop session is archived; the owner chose an explicit command (2026-10-14).
