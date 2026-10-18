@@ -1013,13 +1013,34 @@ function hostRun(executable, args) {
   });
 }
 
-function hostJson(executable, args) {
-  const result = hostRun(executable, args);
-  if (result.error || result.status !== 0) return null;
+// A read-only `plugin list --json` normally answers in 1–3 s, and once hung
+// for minutes through a proxy (#354). It gets its own short limit, and a query
+// that fails is reported as one, never as a host with no Keel.
+function hostQuery(executable, args) {
+  const limit = Number(process.env.KEEL_UPDATE_QUERY_TIMEOUT_MS) || 30 * 1000;
+  const result = spawnSync(executable, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: limit,
+  });
+  if (result.error && result.error.code === "ENOENT") return { absent: true };
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    return { failed: `timed out after ${limit / 1000} s` };
+  }
+  if (result.error) return { failed: result.error.message };
+  // On Windows the call goes through cmd.exe, which reports a missing command
+  // as a nonzero exit rather than ENOENT.
+  if (
+    result.status !== 0 && process.platform === "win32"
+    && /is not recognized as an internal or external command/i.test(result.stderr || "")
+  ) {
+    return { absent: true };
+  }
+  if (result.status !== 0) return { failed: `exited ${result.status}` };
   try {
-    return JSON.parse(result.stdout);
+    return { json: JSON.parse(result.stdout) };
   } catch {
-    return null;
+    return { failed: "printed no JSON" };
   }
 }
 
@@ -1027,8 +1048,12 @@ function hostJson(executable, args) {
 // host is absent or has none. Both hosts answer `plugin list --json`, in
 // different shapes (2026-10-03: Claude a list of {id, version, installPath},
 // Codex {installed: [{pluginId, version, marketplaceSource, source}]}).
+// Each returns the Keel entry, null for a host with none, or { failed } when
+// the query itself failed.
 function claudeKeel(executable) {
-  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const queried = hostQuery(executable, ["plugin", "list", "--json"]);
+  if (queried.failed) return { failed: `\`claude plugin list --json\` ${queried.failed}` };
+  const listed = queried.json;
   const entry = (Array.isArray(listed) ? listed : [])
     .find((item) => item && typeof item.id === "string" && item.id.startsWith("keel@"));
   if (!entry) return null;
@@ -1042,7 +1067,9 @@ const CODEX_SPARSE_PATHS = [".agents/plugins", "plugins/keel"];
 const CODEX_SPARSE_FLAGS = CODEX_SPARSE_PATHS.map((entry) => `--sparse ${entry}`).join(" ");
 
 function codexKeel(executable) {
-  const listed = hostJson(executable, ["plugin", "list", "--json"]);
+  const queried = hostQuery(executable, ["plugin", "list", "--json"]);
+  if (queried.failed) return { failed: `\`codex plugin list --json\` ${queried.failed}` };
+  const listed = queried.json;
   const items = listed && Array.isArray(listed.installed) ? listed.installed : [];
   const entry = items.find((item) => item && item.name === "keel" && item.installed !== false);
   if (!entry) return null;
@@ -1089,7 +1116,8 @@ function versionChange(before, after) {
 function updateClaudePlugin(options) {
   const component = "claude plugin";
   const executable = process.env.KEEL_UPDATE_CLAUDE || "claude";
-  const installed = claudeKeel(executable);
+  const queried = claudeKeel(executable);
+  const installed = queried && !queried.failed ? queried : null;
   const id = installed ? installed.id : "keel@keel-marketplace";
   const market = installed ? installed.market : "keel-marketplace";
   const steps = [["plugin", "marketplace", "update", market], ["plugin", "update", id]];
@@ -1097,12 +1125,20 @@ function updateClaudePlugin(options) {
     for (const args of steps) process.stdout.write(`keel: would run claude ${args.join(" ")}\n`);
     return true;
   }
+  if (queried && queried.failed) {
+    updateLine(component, "failed", queried.failed);
+    return false;
+  }
   if (!installed) {
     updateLine(component, "absent", "Claude Code is not installed here or has no Keel plugin");
     return true;
   }
   if (!runHostSteps(component, "claude", executable, steps)) return false;
   const after = claudeKeel(executable);
+  if (after && after.failed) {
+    updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
+    return false;
+  }
   updateLine(
     component,
     versionChange(installed.version, after && after.version),
@@ -1114,13 +1150,18 @@ function updateClaudePlugin(options) {
 function updateCodexPlugin(options) {
   const component = "codex plugin";
   const executable = process.env.KEEL_UPDATE_CODEX || "codex";
-  const installed = codexKeel(executable);
+  const queried = codexKeel(executable);
+  const installed = queried && !queried.failed ? queried : null;
   const id = installed ? installed.id : "keel@keel-marketplace";
   const market = installed ? installed.market : "keel-marketplace";
   const steps = [["plugin", "marketplace", "upgrade", market], ["plugin", "add", id]];
   if (options.dryRun) {
     for (const args of steps) process.stdout.write(`keel: would run codex ${args.join(" ")}\n`);
     return true;
+  }
+  if (queried && queried.failed) {
+    updateLine(component, "failed", queried.failed);
+    return false;
   }
   if (!installed) {
     updateLine(component, "absent", "Codex is not installed here or has no Keel plugin");
@@ -1159,10 +1200,18 @@ function updateCodexPlugin(options) {
     ? readOrNull(path.join(codexHome, "plugins", "cache", market, "keel", installed.version, "hooks", "codex.json"))
     : null;
   const upgraded = codexKeel(executable);
+  if (upgraded && upgraded.failed) {
+    updateLine(component, "failed", `${upgraded.failed} after the marketplace refresh`);
+    return false;
+  }
   const newHooks = upgraded && upgraded.path ? readOrNull(path.join(upgraded.path, "hooks", "codex.json")) : null;
   const hooksChanged = oldHooks && newHooks && !oldHooks.equals(newHooks);
   if (!runHostSteps(component, "codex", executable, [steps[1]])) return false;
   const after = codexKeel(executable);
+  if (after && after.failed) {
+    updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
+    return false;
+  }
   updateLine(
     component,
     versionChange(installed.version, after && after.version),

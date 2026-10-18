@@ -48,8 +48,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.141.0"
-PROTOCOL_VERSION = "5.141.0"
+PACKAGE_VERSION = "5.142.0"
+PROTOCOL_VERSION = "5.142.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -23638,6 +23638,14 @@ const path = require("path");
 const host = process.env.FAKE_HOST;
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([host, ...args]) + "\n");
+// FAKE_LIST_SLEEP_<HOST> holds `plugin list --json` for N seconds, and
+// FAKE_LIST_EXIT_<HOST> makes it exit with that status (#354).
+if (args.join(" ") === "plugin list --json") {
+  const hold = Number(process.env[`FAKE_LIST_SLEEP_${host.toUpperCase()}`] || "0");
+  if (hold > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, hold * 1000);
+  const code = process.env[`FAKE_LIST_EXIT_${host.toUpperCase()}`];
+  if (code) process.exit(Number(code));
+}
 const stateFile = process.env.FAKE_STATE;
 const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
 const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
@@ -23832,6 +23840,98 @@ OVERLAY_BLOCK_RE = re.compile(
     r"<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?"
     r"<!--\s*keel:openspec-surface-overlay:end\s*-->"
 )
+
+
+def validate_update_host_query_timeout_scenario() -> int:
+    """Issue #354: a hung or failed host query is `failed`, never `absent`.
+
+    `plugin list --json` once hung for minutes through a proxy; every host call
+    had five minutes, and a query that failed read as a host with no Keel.
+    """
+    label = "update-host-query-timeout:"
+    with tempfile.TemporaryDirectory(prefix="keel-update-354-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+        source = tmp / "codex-source"
+        write_text(source / "hooks/codex.json", "{}\n")
+
+        def update(*extra: str, env_extra: dict[str, str]):
+            log = tmp / "log.jsonl"
+            state = tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]),
+                "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]),
+                "KEEL_UPDATE_QUERY_TIMEOUT_MS": "1500",
+                "CODEX_HOME": str(tmp / "codex-home"),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state),
+                "FAKE_CODEX_SOURCE": str(source),
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            env.update(env_extra)
+            started = time.monotonic()
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update", *extra], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=120)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            return result, calls, time.monotonic() - started
+
+        def line(output: str, component: str) -> str:
+            return next((l for l in output.splitlines() if l.startswith(f"keel update: {component}:")), "")
+
+        result, _, _ = update(env_extra={"FAKE_LIST_EXIT_CLAUDE": "3"})
+        claude = line(result.stdout, "claude plugin")
+        if "absent" in claude:
+            report(f"{label} a claude plugin list --json that exited 3 was reported absent: {claude!r}")
+            return 1
+        if "failed" not in claude or "exited 3" not in claude:
+            report(f"{label} a claude plugin list --json that exited 3 does not read failed with exited 3: {claude!r}")
+            return 1
+
+        result, calls, took = update(env_extra={"FAKE_LIST_SLEEP_CODEX": "10"})
+        codex = line(result.stdout, "codex plugin")
+        if "absent" in codex:
+            report(f"{label} a hung codex plugin list --json was reported absent: {codex!r}")
+            return 1
+        for needle in ("failed", "codex plugin list --json", "timed out after 1.5 s"):
+            if needle not in codex:
+                report(f"{label} the hung-query line does not name {needle!r}: {codex!r}")
+                return 1
+        if any(c[:4] == ["codex", "plugin", "marketplace", "upgrade"] for c in calls):
+            report(f"{label} a Codex update command ran after its query failed: {calls!r}")
+            return 1
+        if "updated" not in line(result.stdout, "claude plugin"):
+            report(f"{label} the Claude line did not still report its update: {result.stdout!r}")
+            return 1
+        if result.returncode == 0:
+            report(f"{label} a failed query left keel --update exiting 0.")
+            return 1
+        if took > 9:
+            report(f"{label} the hung query held keel --update for {took:.1f} s, past its 1.5 s limit.")
+            return 1
+
+        result, _, _ = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
+        if "absent" not in line(result.stdout, "codex plugin"):
+            report(f"{label} a missing codex executable no longer reads absent: {result.stdout!r}")
+            return 1
+
+        result, _, _ = update("--dry-run", env_extra={"FAKE_LIST_SLEEP_CODEX": "10"})
+        if result.returncode != 0:
+            report(f"{label} --dry-run with a hung query exited {result.returncode}: {result.stdout!r}")
+            return 1
+    report("update-host-query-timeout scenario passed.")
+    return 0
 
 
 def validate_update_codex_refresh_retry_scenario() -> int:
@@ -41122,6 +41222,7 @@ SCENARIOS: tuple = (
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("update-codex-refresh-retry", validate_update_codex_refresh_retry_scenario),
+    ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
     ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),

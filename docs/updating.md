@@ -18,7 +18,7 @@ It updates the global CLI, then the Keel plugin of each host it finds installed,
 
 Each component prints one line, `keel update: <component>: <status> - <detail>`, where the status is one of:
 - `updated A -> B` or `current B`;
-- `absent`: the host is not installed or has no Keel plugin;
+- `absent`: the host is not installed or has no Keel plugin — a `plugin list --json` query, allowed 30 s where the update commands get five minutes, that times out, exits nonzero, or prints no JSON is reported `failed` instead, naming the command and why (#354);
 - `manual`: a step only you can take;
 - `failed`: the command that failed, which also makes `keel --update` exit nonzero.
 
