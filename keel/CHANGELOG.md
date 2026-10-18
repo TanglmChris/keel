@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.140.0 - Contract drift names its cause
+
+Issue #342 (rtl_ppa_prj): after a CLI upgrade every checked task drifted and the only way to archive was `--keep-evidence`, a claim Keel does not verify. Recompiling rtl_ppa_prj's own commits under the released CLIs (2026-10-18) found two causes: on 2026-10-03 a real compiler change (5.81.0 fingerprints a multi-line decision whole), and on 2026-10-13 no compiler change at all — 5.123.0 and 5.125.0 compile each commit identically, and the one changed field is the inherited standing authorization after `keel/config.yaml` replaced `push:main` with `push-protected:main@iecc-pm`.
+
+- `task-start --record` writes the Keel version beside the digest: `- Contract: keel-task-capsule/v1 sha256:<hex> (keel <version>)`. Anchors without it stay valid.
+- On drift, `task-complete`, `change-close`, and `keel context` compile the task's sources from the commit that recorded the anchor with the running compiler. When that commit reproduces the anchor, the message names the capsule fields that changed since it. When it does not, the anchor came from another Keel version, and the commit compiles to today's fingerprint, the cause is a compiler change: the gate still fails, and the re-record says the evidence stands, verified against that commit, with no `--keep-evidence`. Otherwise nothing is claimed.
+- `change-close` passes a checked task whose only change since its recording commit is the inherited standing authorization, with a warning naming the task; an unchecked task still drifts (owner, 2026-10-18). On a clone of rtl_ppa_prj at `aee9fa7d` this diagnoses all eight tasks the 2026-10-13 upgrade re-recorded.
+- Anchors recorded before this release carry no version, so a compiler change on them still gets no cause.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.140.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.139.0 - The push guard sees tags carried by a branch push
 
 Issue #327 (rtl_ppa_prj #300, 2026-10-13): `git push --follow-tags origin <granted branch>` passed the Claude write guard and published every local annotated tag missing on the remote, release tags included, although every explicit tag push was refused.

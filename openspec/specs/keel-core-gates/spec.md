@@ -354,8 +354,10 @@ declaration. Keel MUST NOT report the declared checks as stale.
 When a re-record lands a different fingerprint and **no** declaration is given, the report MUST
 name the declaration as available, MUST state the condition under which it applies — that the
 check's assertion did not move — and MUST state that the reason belongs in `Reauthorizations`.
-Keel MUST NOT name which checks are unaffected, because it retains only the previous fingerprint
-and cannot know. The report given **with** a declaration MUST NOT carry the suggestion, its
+Keel MUST NOT name which checks are unaffected, because it cannot know which assertions moved,
+unless the drift is diagnosed as a compiler change (see "Drift names its cause when Git ties the
+anchor to a commit"): then the report MUST say the evidence stands, name the commit it was verified
+against, and name no check as stale. The report given **with** a declaration MUST NOT carry the suggestion, its
 reader having already acted on it.
 
 Keel MUST refuse a declaration naming anything that is not a check of the compiled contract, and
@@ -396,6 +398,11 @@ declaration MUST NOT change what completion requires.
 
 - **WHEN** a task completes after a declaration was made
 - **THEN** every `M<n>` still requires its own Evidence, red-green still applies, and the semantic Review still runs
+
+#### Scenario: A compiler-only re-record keeps the evidence, verified
+
+- **WHEN** a task's drift is diagnosed as a compiler change and `task-start --record` re-records it with no declaration
+- **THEN** the report says the evidence stands, names the recording commit and both Keel versions, and names no check as stale
 
 ### Requirement: Completion evidence follows verification strategy
 `task-complete` MUST validate that every required `M<n>` label has concrete strategy-appropriate Evidence and that the existing semantic Review covers the resolved Acceptance and Touch scope.
@@ -573,7 +580,7 @@ When no task is named explicitly, `task-complete` MUST NOT infer a task whose Ev
 
 `task-complete` MUST recompile the selected task's capsule and compare the result with the fingerprint recorded in its Evidence `Contract` anchor. A difference MUST fail the gate. It MUST NOT be reported as a warning or as `needs-review`, because drift returns the task to authoring rather than to the judgment of the agent recording its own Review.
 
-The diagnostic MUST name the recorded value, the recompiled value, and the command that reauthorizes the task, and MUST state that execution evidence produced under the previous contract is stale. Having named that command, it MUST also name the declaration that command accepts for a check whose assertion did not move.
+The diagnostic MUST name the recorded value, the recompiled value, and the command that reauthorizes the task, and MUST state that execution evidence produced under the previous contract is stale, unless the drift is diagnosed as a compiler change, where it MUST instead state that the evidence stands. Having named that command, it MUST also name the declaration that command accepts for a check whose assertion did not move.
 
 Keel MUST NOT require the anchor to carry a capsule schema prefix. A fingerprint is a digest over the canonical capsule serialization, so a value that matches could only have come from the schema that produced it; the prefix is diagnostic detail, not a gate condition.
 
@@ -592,7 +599,7 @@ Keel MUST NOT require the anchor to carry a capsule schema prefix. A fingerprint
 
 ### Requirement: change-close compares the anchor of every checked task
 
-`change-close` MUST compare each checked task's recorded anchor against its recompiled fingerprint, and MUST fail on a difference. A checked task that records no anchor MUST also fail, because an absent record and a drifted one are the same absence of proof at the gate that closes a live change.
+`change-close` MUST compare each checked task's recorded anchor against its recompiled fingerprint, and MUST fail on a difference, except a difference diagnosed as a standing-authorization change, which MUST pass with a warning naming the task, because the task completed under the authorization it recorded. A checked task that records no anchor MUST also fail, because an absent record and a drifted one are the same absence of proof at the gate that closes a live change.
 
 The close diagnostic MUST identify the task and MUST NOT direct the reader to complete a task that is already checked.
 
@@ -608,6 +615,34 @@ The close diagnostic MUST identify the task and MUST NOT direct the reader to co
 #### Scenario: An unchanged change closes as before
 - **WHEN** every checked task's anchor matches its recompiled fingerprint
 - **THEN** the anchor comparison contributes no problem
+
+#### Scenario: A standing-authorization change does not drift a completed task
+
+- **WHEN** a checked task inherits the standing authorization, its anchor and sources were committed, `keel/config.yaml` then replaces `push:main` with `push-protected:main`, and `change-close` runs
+- **THEN** the gate passes and warns naming the task and the standing authorization
+- **AND THEN** `task-complete` on an unchecked task inheriting the same change still fails with contract drift
+
+### Requirement: Drift names its cause when Git ties the anchor to a commit
+
+`task-start --record` MUST write the running Keel version beside the fingerprint in the `Contract` anchor, as `(keel <version>)`; every reader MUST still accept an anchor without it. When a recorded anchor differs from the recompiled fingerprint, the gates and `keel context` MUST find the newest commit whose `tasks.md` for the change contains the recorded digest, compile that commit's task sources with the running compiler, and report the cause:
+
+- when that compile reproduces the recorded digest, the capsule fields that changed since that commit, naming the commit;
+- when it does not, the anchor names a Keel version other than the running one, and the commit compiles to today's fingerprint, a compiler change, naming the commit and both versions, and stating that no `--keep-evidence` is needed;
+- otherwise the drift message without any cause, claiming nothing.
+
+A compiler change MUST still fail the gate and name `keel gate task-start --record`. A Git or compile failure during diagnosis MUST yield no cause and MUST NOT turn into a gate error.
+
+#### Scenario: A compiler change is named as one
+- **WHEN** a task's committed sources compile to today's fingerprint, its anchor holds another digest, and the anchor names `keel 5.0.0`
+- **THEN** `task-complete` fails with contract drift naming a compiler change, the recording commit, `5.0.0`, and the running version, and says no `--keep-evidence` is needed
+
+#### Scenario: An edit is named by the field it changed
+- **WHEN** a task's anchor was recorded and committed, and its Touch is then edited
+- **THEN** `task-complete` fails with contract drift naming `touch` and the recording commit
+
+#### Scenario: An anchor no commit explains claims nothing
+- **WHEN** a task's anchor holds a digest its committed sources do not compile to, and names the running Keel version
+- **THEN** `task-complete` fails with contract drift that names no cause and no changed field
 
 ### Requirement: Git path output is read in a form that carries no escaping
 
