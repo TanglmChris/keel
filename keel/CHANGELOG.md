@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.150.0 - A patrol's exit status says who must act
+
+Issue #350 (rtl_ppa_prj coordinator, 2026-10-18): `keel patrol` exited 2 whenever it sent a notice, marked a wait met, nudged, or reported a change, and a coordinator's schedule wakes its model on 2, so a moved remote tip or a notice already delivered to another role cost a large-context turn for nothing — 101 of 140 runs that day exited 2.
+
+- Exit 2 now means the coordinator has something to act on: a risk this run, or a wait of its own now met. New exit 3: patrol recorded or delivered something only other roles need — a met wait, a routed issue, a nudge, a reported change. 0 and 1 are unchanged.
+- `keel patrol --help`, the rendered host task and the README name 3. A host task installed before this release does not; re-render it with `keel patrol task`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.150.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.149.0 - A commit id or quoted @word is not a mention
 
 Issue #345 (rtl_ppa_prj, keel 5.138.0): `keel chat post` refused a whole message over any `@<token>` that named no member or alias, so `<branch> @638059e4` — the commonest `@` in that project — and an `@verify` quoted in backticks both refused the post, and roles rewrote and resent (TanglmChris/rtl_ppa_prj#311).
