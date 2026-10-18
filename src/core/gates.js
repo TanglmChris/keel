@@ -19,6 +19,7 @@ const {
   unfilledToken,
 } = require("./task-contract");
 const { contentSignature, gitPaths, readManifest, startGuard } = require("./guard");
+const { diagnoseDrift, driftCause, runningVersion } = require("./drift");
 
 const GATE_STAGES = new Set(["task-start", "task-complete", "change-close"]);
 
@@ -138,13 +139,19 @@ function hasRecordedAnchor(selection, task) {
 // down about it. A digest that matches can only have come from the schema that
 // produced it, so the `keel-task-capsule/v1` prefix is diagnostic detail here
 // rather than a second thing to require.
-function contractDriftProblem(recorded, contract) {
+function contractDriftProblem(recorded, contract, diagnosis = null) {
   if (!recorded || recorded === contract.fingerprint.value) return null;
+  const head = `The Evidence \`Contract\` anchor records sha256:${recorded}, but this `
+    + `task now compiles to ${contract.fingerprint.algorithm}:`
+    + `${contract.fingerprint.value} under ${contract.schema}. `;
+  // A compiler change is the one cause under which the evidence is not stale,
+  // and saying it is would send the author to vouch for what Keel just checked.
+  if (diagnosis && diagnosis.kind === "compiler") {
+    return problem("contract-drift", head + driftCause(diagnosis));
+  }
   return problem(
     "contract-drift",
-    `The Evidence \`Contract\` anchor records sha256:${recorded}, but this `
-      + `task now compiles to ${contract.fingerprint.algorithm}:`
-      + `${contract.fingerprint.value} under ${contract.schema}. The contract `
+    head + `${diagnosis ? `${driftCause(diagnosis)} ` : ""}The contract `
       + "changed after the anchor was recorded, so the authority this task was "
       + "implemented under is not the authority it is being judged against. "
       + "Reauthorize with `keel gate task-start --record`, which rewrites the "
@@ -666,11 +673,18 @@ function taskStartChecked(repo, options) {
     }
   }
   if (result.status === "pass" && anchorPlan) {
+    // The version beside the digest is what lets a later drift be told apart
+    // from a compiler change (#342); every reader still takes the digest alone.
+    const version = runningVersion();
     const anchorLine =
       `${anchorPlan.indent}- Contract: keel-task-capsule/v1 `
-      + `sha256:${compiled.fingerprint.value}${anchorPlan.cr}`;
-    const unchanged = anchorPlan.lines[anchorPlan.cursor] === anchorLine;
-    if (!unchanged) {
+      + `sha256:${compiled.fingerprint.value}${version ? ` (keel ${version})` : ""}${anchorPlan.cr}`;
+    const replacedDigest = anchoredFingerprint(anchorPlan.previous);
+    const unchanged = replacedDigest === compiled.fingerprint.value;
+    const diagnosis = replacedDigest && !unchanged
+      ? diagnoseDrift(repo, selection.change, task.id, anchorPlan.previous, compiled)
+      : null;
+    if (anchorPlan.lines[anchorPlan.cursor] !== anchorLine) {
       anchorPlan.lines[anchorPlan.cursor] = anchorLine;
       fs.writeFileSync(
         selection.tasksPath,
@@ -689,8 +703,17 @@ function taskStartChecked(repo, options) {
     // any Evidence already produced under the previous one is stale. The gate
     // cannot judge which Evidence survives; it names the change and leaves the
     // call to the current agent's Review.
-    const replaced = anchoredFingerprint(anchorPlan.previous);
-    if (replaced && replaced !== compiled.fingerprint.value) {
+    const replaced = replacedDigest;
+    if (replaced && replaced !== compiled.fingerprint.value && diagnosis && diagnosis.kind === "compiler") {
+      result.warnings.push(
+        `Re-recorded over a compiler change: was sha256:${replaced}, now `
+          + `sha256:${compiled.fingerprint.value}. The task's sources as committed in `
+          + `${diagnosis.commit.slice(0, 12)}, the commit that recorded the previous anchor, `
+          + `compile to the new fingerprint, and that anchor was recorded by Keel `
+          + `${diagnosis.recordedVersion} (now ${diagnosis.runningVersion}), so the `
+          + "evidence stands, verified against that commit; no `--keep-evidence` is needed."
+      );
+    } else if (replaced && replaced !== compiled.fingerprint.value) {
       // The gate still cannot judge which evidence survives, and this does not
       // make it able to. What it can stop doing is saying "all of it" to an
       // author who can see that one check's assertion did not change — because
@@ -1719,9 +1742,13 @@ function taskComplete(repo, options) {
   } else if (usableContract) {
     // Only when an anchor exists: a missing one is already its own problem, and
     // reporting drift on top of it would name a comparison that never ran.
+    const recorded = recordedAnchor(selection, task);
     const drift = contractDriftProblem(
-      recordedAnchor(selection, task),
-      usableContract
+      recorded,
+      usableContract,
+      recorded && recorded !== usableContract.fingerprint.value
+        ? diagnoseDrift(repo, selection.change, task.id, contractAnchorPlan(selection, task).previous, usableContract)
+        : null
     );
     if (drift) checks.problems.push(drift);
   }
@@ -2188,6 +2215,7 @@ function changeClose(repo, options) {
   const selection = loadSelection(repo, options, false);
   const problems = [];
   const reviewProblems = [];
+  const warnings = [];
   const contracts = [];
   const changeVerify = changeVerifyChecks(selection.content, selection.tasks);
   if (selection.tasks.length === 0) {
@@ -2226,9 +2254,22 @@ function changeClose(repo, options) {
             + "--record` and `keel gate task-complete` before closing."
         )
       );
-    } else if (contract.diagnostics.length === 0) {
-      const drift = contractDriftProblem(anchor, contract);
-      if (drift) {
+    } else if (contract.diagnostics.length === 0 && anchor !== contract.fingerprint.value) {
+      const diagnosis = diagnoseDrift(
+        repo, selection.change, task.id, contractAnchorPlan(selection, task).previous, contract
+      );
+      // A checked task completed under the authorization it recorded; a later
+      // edit to keel/config.yaml changes what comes next, not what was done.
+      if (diagnosis && diagnosis.kind === "authorization") {
+        warnings.push(
+          `Task ${task.id} is checked complete and its anchor no longer matches, `
+            + `${driftCause(diagnosis).replace(/^Cause: s/, "s")} A completed task is `
+            + "not drifted by a standing authorization change, so the close does not "
+            + "count it; work that continues under the new authorization is still "
+            + "compared against it."
+        );
+      } else {
+        const drift = contractDriftProblem(anchor, contract, diagnosis);
         problems.push(problem(drift.code, `Task ${task.id}: ${drift.message}`));
       }
     }
@@ -2287,7 +2328,7 @@ function changeClose(repo, options) {
     selection.change,
     selection.tasks.map((task) => task.id),
     [...problems, ...reviewProblems],
-    expectations.report ? [expectations.report] : [],
+    [...warnings, ...(expectations.report ? [expectations.report] : [])],
     null,
     contracts
   );
