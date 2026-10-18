@@ -23,6 +23,7 @@ const {
   ownerLanguageRule,
 } = require("./config");
 const { isKeelSourceRepo } = require("./capabilities");
+const { diagnoseDrift, driftCause } = require("./drift");
 
 const NEXT_ACTIONS = new Set([
   "discuss",
@@ -122,9 +123,9 @@ function taskHasCompletionEvidence(record, contract) {
 // wrong record here: an anchor that moved was written up as a Review edit,
 // which is measurably not covered at all. The capsule already knows the answer
 // — every authority entry carries the source its text was resolved from — so
-// the search set is free. What is not free is the field that moved: only the
-// previous fingerprint is retained, not the capsule behind it, so this names
-// where to look and never what changed.
+// the search set is free. The field that moved is named only when the commit
+// that recorded the anchor reproduces it (src/core/drift.js, #342); this search
+// set is what remains when no commit does.
 function driftSearchSet(contract) {
   const sources = [
     ...new Set(
@@ -160,10 +161,14 @@ function taskSelection(repo, change, record, source, requestedAction = null) {
   }
   const anchor = recordedFingerprint(record);
   if (anchor && anchor !== contract.fingerprint.value) {
+    const anchorLine = (field(record, "Evidence").match(/^\s*-\s*Contract:\s*(.*)$/im) || [])[1];
+    const diagnosis = diagnoseDrift(repo, change, record.id, anchorLine, contract);
     return blocked(
       `Task contract fingerprint drift for ${change}#${record.id}: recorded `
         + `sha256:${anchor}, current sha256:${contract.fingerprint.value}. `
-        + `${driftSearchSet(contract)}`,
+        + (diagnosis && diagnosis.kind === "compiler"
+          ? driftCause(diagnosis)
+          : `${diagnosis ? `${driftCause(diagnosis)} ` : ""}${driftSearchSet(contract)}`),
       [relativePath(repo, tasksPath)]
     );
   }

@@ -1303,7 +1303,7 @@ function couplingProblems(task, mode, designContract, compact) {
   return problems;
 }
 
-function compileTaskContract(repo, change, task) {
+function compileTaskContract(repo, change, task, options = {}) {
   const mode = normalizeText(field(task, "Mode")).toLowerCase()
     || "implementation";
   const resolved = resolveAuthority(repo, change, task);
@@ -1387,7 +1387,9 @@ function compileTaskContract(repo, change, task) {
   }
   if (taskVerification.strategy.toLowerCase() === "equivalence") {
     resolved.diagnostics.push(
-      ...equivalenceProblems(repo, taskVerification)
+      // Git questions go to the real repository when the sources were read
+      // from a commit into a scratch directory (#342).
+      ...equivalenceProblems(options.gitRepo || repo, taskVerification)
     );
   }
   const couplingMode = normalizeText(field(task, "Coupling")).toLowerCase()

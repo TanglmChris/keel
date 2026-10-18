@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.139.0"
-PROTOCOL_VERSION = "5.139.0"
+PACKAGE_VERSION = "5.140.0"
+PROTOCOL_VERSION = "5.140.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8182,7 +8182,7 @@ def validate_record_derives_skeleton_scenario() -> int:
         after = tasks.read_text(encoding="utf-8")
         before_lines, after_lines = red_green.splitlines(), after.splitlines()
         added = [line for line in after_lines if line not in before_lines]
-        want = ["  - Evidence:", f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}", *expected_slots]
+        want = ["  - Evidence:", f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint} (keel {PACKAGE_VERSION})", *expected_slots]
         if added != want:
             report(f"{label} --record added {added!r}, expected {want!r}.")
             return 1
@@ -8240,7 +8240,7 @@ def validate_record_derives_skeleton_scenario() -> int:
             return 1
         fingerprint = payload["contract"]["fingerprint"]["value"]
         got = evidence_lines(tasks.read_text(encoding="utf-8"))
-        want = [f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}", *expected_slots]
+        want = [f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint} (keel {PACKAGE_VERSION})", *expected_slots]
         if got != want:
             report(f"{label} --record over Contract, Blocker and Reauthorizations left the block out of "
                    f"template order: {got!r}, expected {want!r}.")
@@ -16743,6 +16743,138 @@ def _anchor_fixture(
     )
 
 
+def validate_contract_drift_diagnosis_scenario() -> int:
+    """Issue #342: drift names its cause when Git ties the anchor to a commit.
+
+    Measured on rtl_ppa_prj: one upgrade-time drift was a compiler change
+    (5.81.0), the other a `keel/config.yaml` edit. Every case here commits real
+    gate output in a real repository and asks the real CLI what moved.
+    """
+    label = "contract-drift-diagnosis:"
+    version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    with tempfile.TemporaryDirectory(prefix="keel-drift-342-") as raw:
+        repo = mailbox_repository(Path(raw) / "repo")
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(message: str) -> str:
+            git("add", "-A")
+            git("commit", "-q", "-m", message)
+            return git("rev-parse", "HEAD")
+
+        def change(name: str, doc: str) -> Path:
+            path = repo / "openspec/changes" / name / "tasks.md"
+            write_text(path, doc)
+            write_text(
+                repo / "openspec/changes" / name / "specs/demo/spec.md",
+                "## ADDED Requirements\n\n"
+                "### Requirement: Demo\nKeel MUST demo.\n\n"
+                "#### Scenario: demo\n- **WHEN** a\n- **THEN** b\n",
+            )
+            return path
+
+        def gate(name: str, stage: str, *extra: str) -> dict:
+            return json.loads(run_keel(repo, "gate", stage, "--change", name, *extra, "--json").stdout)
+
+        def record(name: str) -> dict:
+            return gate(name, "task-start", "--task", "1.1", "--record", "--no-guard")
+
+        def drift_message(payload: dict) -> str:
+            found = [p.get("message", "") for p in payload.get("problems", []) if p.get("code") == "contract-drift"]
+            return found[0] if found else ""
+
+        def rewrite_anchor(path: Path, digest: str, keel: str) -> None:
+            text = path.read_text(encoding="utf-8")
+            text = re.sub(r"- Contract: .*", f"- Contract: keel-task-capsule/v1 sha256:{digest} (keel {keel})", text, count=1)
+            write_text(path, text)
+
+        write_authorize_config(repo, "authorize:\n  - commit\n  - push:main\n")
+
+        # A compiler change: the committed sources compile to today's
+        # fingerprint, and the anchor holds another digest from another version.
+        comp = change("comp", _anchor_fixture(contract=f"keel-task-capsule/v1 sha256:{'a' * 64} (keel 5.0.0)"))
+        sha = commit("comp recorded under an older compiler")
+        message = drift_message(gate("comp", "task-complete", "--task", "1.1"))
+        if "compiler" not in message:
+            report(f"{label} the drift message does not name a compiler change: {message!r}")
+            return 1
+        for needle in (sha[:12], "5.0.0", version, "no `--keep-evidence` is needed"):
+            if needle not in message:
+                report(f"{label} the compiler-change message does not name {needle!r}: {message!r}")
+                return 1
+        rerecord = record("comp")
+        warned = " ".join(rerecord.get("warnings", []))
+        if "evidence stands" not in warned or sha[:12] not in warned:
+            report(f"{label} the compiler-only re-record does not say the evidence stands at {sha[:12]}: {warned!r}")
+            return 1
+        if "stale" in warned:
+            report(f"{label} the compiler-only re-record still calls evidence stale: {warned!r}")
+            return 1
+        # The anchor carries the version that recorded it.
+        if f"(keel {version})" not in comp.read_text(encoding="utf-8"):
+            report(f"{label} the recorded anchor does not carry (keel {version}): "
+                   f"{re.search(r'- Contract: .*', comp.read_text(encoding='utf-8')).group(0)!r}")
+            return 1
+
+        # An anchor nothing explains claims nothing.
+        same = change("same", _anchor_fixture(contract="pending"))
+        record("same")
+        rewrite_anchor(same, "b" * 64, version)
+        commit("same: an anchor its sources do not compile to")
+        message = drift_message(gate("same", "task-complete", "--task", "1.1"))
+        if not message:
+            report(f"{label} an unexplained anchor reported no contract drift.")
+            return 1
+        if "compiler" in message or "changed since" in message:
+            report(f"{label} an unexplained anchor was given a cause: {message!r}")
+            return 1
+
+        # An edit is named by the field it changed.
+        edit = change("edit", _anchor_fixture(contract="pending"))
+        record("edit")
+        sha = commit("edit recorded")
+        write_text(edit, edit.read_text(encoding="utf-8").replace("src/feature.js", "src/DRIFTED.js"))
+        message = drift_message(gate("edit", "task-complete", "--task", "1.1"))
+        if "`touch`" not in message or sha[:12] not in message:
+            report(f"{label} the edit drift does not name `touch` and {sha[:12]}: {message!r}")
+            return 1
+        context = run_keel(repo, "context", "--change", "edit", "--task", "1.1")
+        if "`touch`" not in context.stdout:
+            report(f"{label} keel context does not name the changed field: {context.stdout!r}")
+            return 1
+        write_text(edit, edit.read_text(encoding="utf-8").replace("src/DRIFTED.js", "src/feature.js"))
+
+        # A standing-authorization change does not drift a completed task.
+        done = change("auth", _anchor_fixture(contract="pending", checked=True))
+        write_text(done.parent / "proposal.md", "## Why\n\nA fixture.\n")
+        write_text(done.parent / "design.md", "## Context\n\nA fixture.\n")
+        record("auth")
+        going = change("auth2", _anchor_fixture(contract="pending"))
+        record("auth2")
+        commit("auth recorded under push:main")
+        if gate("auth", "change-close", "--action", "archive").get("status") != "pass":
+            report(f"{label} the authorization fixture does not close before the change: "
+                   f"{gate('auth', 'change-close', '--action', 'archive')!r}")
+            return 1
+        write_authorize_config(repo, "authorize:\n  - commit\n  - push-protected:main\n")
+        commit("push:main becomes push-protected:main")
+        closed = gate("auth", "change-close", "--action", "archive")
+        if closed.get("status") != "pass":
+            report(f"{label} a standing-authorization change drifted a completed task at the close: "
+                   f"{[p.get('message') for p in closed.get('problems', [])]!r}")
+            return 1
+        warned = " ".join(closed.get("warnings", []))
+        if "1.1" not in warned or "standing authorization" not in warned:
+            report(f"{label} the close does not warn naming 1.1 and the standing authorization: {warned!r}")
+            return 1
+        if not drift_message(gate("auth2", "task-complete", "--task", "1.1")):
+            report(f"{label} an unchecked task inheriting the changed authorization was not drift.")
+            return 1
+    report("contract-drift-diagnosis scenario passed.")
+    return 0
+
+
 def validate_contract_anchor_is_compared_scenario() -> int:
     """Issue #37: completion checked that an anchor existed, never that it matched.
 
@@ -20742,7 +20874,7 @@ def validate_core_gates_scenario() -> int:
             or len(changed_lines) != 1
             or changed_lines[0][0] != "    - Contract: pending"
             or changed_lines[0][1]
-            != f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint}"
+            != f"    - Contract: keel-task-capsule/v1 sha256:{fingerprint} (keel {PACKAGE_VERSION})"
         ):
             report(
                 "core-gates scenario --record must replace exactly the "
@@ -20816,7 +20948,7 @@ def validate_core_gates_scenario() -> int:
             or len(before_rerecord) != len(after_rerecord)
             or len(rerecord_changed) != 1
             or rerecord_changed[0][1]
-            != f"    - Contract: keel-task-capsule/v1 sha256:{new_fingerprint}"
+            != f"    - Contract: keel-task-capsule/v1 sha256:{new_fingerprint} (keel {PACKAGE_VERSION})"
             or not any(
                 fingerprint in warning
                 for warning in rerecord_result.get("warnings", [])
@@ -40917,6 +41049,7 @@ SCENARIOS: tuple = (
         "contract-anchor-is-compared",
         validate_contract_anchor_is_compared_scenario,
     ),
+    ("contract-drift-diagnosis", validate_contract_drift_diagnosis_scenario),
     (
         "guard-scope-is-the-repository",
         validate_guard_scope_is_the_repository_scenario,
