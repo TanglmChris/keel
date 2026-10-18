@@ -39152,6 +39152,96 @@ def validate_a_claim_names_what_would_falsify_it_scenario() -> int:
     return 0
 
 
+def validate_a_listed_marker_opens_its_clause_scenario() -> int:
+    """Issue #362: a disposition written as a sub-list item was read as prose.
+
+    A `Findings` value whose marker sits on its own `- ` line under the label
+    reached the marker scan as a line break, indentation and `- `; the opening
+    rule allowed only indentation after a break, so `Resolved here: M1` read as
+    a mid-sentence mention and the entry was refused `finding-owner`, while the
+    same text on the label's own line passed.
+    """
+    label = "a-listed-marker-opens-its-clause"
+
+    def findings_task(findings: list[str]) -> str:
+        return "\n".join(
+            [
+                "- [x] 1.1 Findings probe",
+                "  - Owner: claude",
+                "  - Mode: implementation",
+                "  - Covers:",
+                "    - E1: the task proves its own behavior",
+                "  - Read:",
+                "    - README.md",
+                "  - Touch:",
+                "    - src/example.js",
+                "  - Verify:",
+                "    - Strategy: vertical-tdd",
+                "    - M1: node test.js asserts the public behavior",
+                "  - Evidence:",
+                "    - Contract: pending",
+                "    - M1: pass. node test.js reported the behavior.",
+                "    - M1.red: fail. the behavior did not exist.",
+                "    - M1.green: pass.",
+                "    - Review:",
+                "      - Status: pass",
+                "      - Acceptance check: the behavior is proven.",
+                "      - Scope check: only Touch changed.",
+                "      - Findings:",
+                *[f"        - {item}" for item in findings],
+                "    - Blocker: none",
+                "    - Reauthorizations: none",
+            ]
+        )
+
+    with tempfile.TemporaryDirectory(prefix="keel-listed-marker-") as raw:
+        root = Path(raw)
+
+        def complete(name: str, *findings: str) -> dict:
+            repo = root / name
+            write_gate_fixture(repo, tasks=findings_task(list(findings)))
+            write_text(repo / "flow/Makefile", "all:\n")
+            run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--record", "--json")
+            done = run_keel(repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json")
+            try:
+                return json.loads(done.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unparsed", "problems": [{"message": done.stdout[:400]}]}
+
+        # The forms #362 reported refused, each as a sub-list item.
+        for name, items in (
+            ("check", ["Resolved here: M1"]),
+            ("path", ["Resolved here: flow/Makefile"]),
+            ("path-then-cjk-sentence", ["Resolved here: flow/Makefile。规则已改为按点名运行。"]),
+            ("two-items", ["Resolved here: M1", "Discard reason: out of scope."]),
+        ):
+            payload = complete(name, *items)
+            if payload.get("status") != "pass":
+                report(f"{label}: a sub-list {items!r} is not read as a disposition ({name}); "
+                       f"{problem_codes(payload)!r} {problem_text(payload)!r}.")
+                return 1
+
+        # The control: a listed claim is held to the evidence rule, not waved through.
+        payload = complete("unknown-check", "Resolved here: M9")
+        if "M9" not in problem_text(payload):
+            report(f"{label}: a sub-list `Resolved here: M9` naming an undeclared check was not refused "
+                   f"for that check; {problem_codes(payload)!r} {problem_text(payload)!r}.")
+            return 1
+
+        # A negation on a listed line is still a negation (#144).
+        payload = complete("negated", "Not resolved here: a different module. Durable owner: https://example.com/issues/1")
+        if payload.get("status") != "pass":
+            report(f"{label}: a listed negation was refused; "
+                   f"{problem_codes(payload)!r} {problem_text(payload)!r}.")
+            return 1
+
+    if "a-listed-marker-opens-its-clause" not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: scenario is not registered.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_a_negation_is_not_a_marker_scenario() -> int:
     """Issue #144: `Not resolved here:` was read as `Resolved here:`.
 
@@ -41695,6 +41785,10 @@ SCENARIOS: tuple = (
     (
         "a-negation-is-not-a-marker",
         validate_a_negation_is_not_a_marker_scenario,
+    ),
+    (
+        "a-listed-marker-opens-its-clause",
+        validate_a_listed_marker_opens_its_clause_scenario,
     ),
     (
         "an-equivalence-claim-names-its-base",
