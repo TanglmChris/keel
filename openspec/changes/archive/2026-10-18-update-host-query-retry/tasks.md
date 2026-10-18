@@ -39,7 +39,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -76,14 +76,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:b00a71e686e2dc38f6a2f564f0dfa59404e6e5c0af43925d883185bdfa5a5107 (keel 5.146.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.146.0 → 5.147.0; with the "A host query that timed out is retried once" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the MODIFIED requirement replaced its counterpart in `keel-native-plugin-package`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and the published spec carry the change; both validator scenarios pass.
+      - Scope check: changed files beyond task 1.1's are the version markers, `keel/CHANGELOG.md` and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
