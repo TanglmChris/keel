@@ -42,7 +42,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -79,14 +79,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:a3a7d913bb61874e415eeefb19d394d930cc19ae612f5582d92b0546ac5c3e40 (keel 5.143.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.143.0 → 5.144.0; with the "The Claude marketplace refresh is retried once" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the MODIFIED requirement replaced its counterpart in `keel-native-plugin-package`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and the published spec carry the change; both validator scenarios pass.
+      - Scope check: changed files beyond task 1.1's are the version markers, `keel/CHANGELOG.md` and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
