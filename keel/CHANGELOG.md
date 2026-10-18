@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.148.0 - An archive keeps the evidence a change tracked
+
+Issue #352 (rtl_ppa_prj, keel 5.139.0, 2026-10-18): archiving `iecc-coupled-fifo-loop-fix` dropped 34 tracked evidence files from version control. The change's own `.gitignore` (`evidence/**`) matched them; they had been force-added, and the archive's filesystem move put them at a path where the rule left them untracked, so the archive commit deleted them while they sat on disk.
+
+- `keel openspec archive <change>` records the files Git tracks under the change before the move and re-adds, with `git add -f`, those the archived path leaves ignored, saying how many.
+- `keel gate change-close --action archive` warns, before any move, about tracked files under the change that an ignore rule matches, naming them and `keel openspec archive`; after any other move, `git add -f` their archived paths.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.148.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.147.0 - A host query that timed out is retried once
 
 Issue #365: on 2026-10-18, after the 5.145.0 release, `keel --update` twice reported `codex plugin list --json` `timed out after 30 s` on the owner's proxied link; run directly the query took 58.2 s, and 15 minutes later about 1 s. The 30 s limit (#354) made each slow spell a missed Codex update.
