@@ -701,6 +701,51 @@ function npmCommand() {
 // further up. The `.bin` entry is the published contract between npm and a
 // consumer; resolving through the dependency's internal bin path instead would
 // bind Keel to a path that belongs to the dependency.
+// An archive moves the change directory on the filesystem. A file Git tracked
+// there stays tracked only at the path it was added at, so one that an ignore
+// rule matches — evidence a change's own .gitignore excludes and was
+// force-added — is dropped by the archive commit (#352). The files tracked
+// before the move are recorded, and those the archived path leaves ignored are
+// re-added afterwards.
+function archiveTracking(repo, args) {
+  const name = args.slice(1).find((arg) => !arg.startsWith("-"));
+  if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return null;
+  const listed = spawnSync("git", ["ls-files", "-z", "--", `openspec/changes/${name}/`], { cwd: repo, encoding: "utf8" });
+  if (listed.error || listed.status !== 0) return null;
+  const prefix = `openspec/changes/${name}/`;
+  const files = listed.stdout.split("\0").filter((file) => file.startsWith(prefix)).map((file) => file.slice(prefix.length));
+  return files.length > 0 ? { name, files } : null;
+}
+
+function keepArchivedTracked(repo, tracking) {
+  const archive = path.join(repo, "openspec", "changes", "archive");
+  let entries = [];
+  try {
+    entries = fs.readdirSync(archive);
+  } catch {
+    return;
+  }
+  const dirs = entries.filter((entry) => entry === tracking.name || entry.endsWith(`-${tracking.name}`))
+    .map((entry) => path.join(archive, entry))
+    .filter((dir) => tracking.files.some((file) => fs.existsSync(path.join(dir, file))))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  if (dirs.length === 0) return;
+  const moved = tracking.files.map((file) => path.relative(repo, path.join(dirs[0], file)).split(path.sep).join("/"))
+    .filter((file) => fs.existsSync(path.join(repo, file)));
+  if (moved.length === 0) return;
+  const ignored = spawnSync("git", ["check-ignore", "--no-index", "-z", "--stdin"], {
+    cwd: repo, encoding: "utf8", input: `${moved.join("\0")}\0`,
+  });
+  const dropped = ignored.status === 0 ? ignored.stdout.split("\0").filter(Boolean) : [];
+  if (dropped.length === 0) return;
+  const added = spawnSync("git", ["add", "-f", "--", ...dropped], { cwd: repo, encoding: "utf8" });
+  if (added.error || added.status !== 0) {
+    process.stderr.write(`keel: ${dropped.length} tracked file(s) the archive move left ignored could not be re-added; run git add -f on them (#352)\n`);
+    return;
+  }
+  process.stdout.write(`keel: re-added ${dropped.length} tracked file(s) the archive move left ignored (#352)\n`);
+}
+
 function openspecBinNames() {
   return process.platform === "win32"
     ? ["openspec.cmd", "openspec.exe", "openspec"]
@@ -2695,7 +2740,9 @@ function runAction(options) {
       );
       return 1;
     }
+    const archiving = options.openspecArgs[0] === "archive" ? archiveTracking(process.cwd(), options.openspecArgs) : null;
     const status = runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    if (status === 0 && archiving) keepArchivedTracked(process.cwd(), archiving);
     if (status !== 0 || options.openspecArgs[0] !== "update") return status;
     const repo = process.cwd();
     for (const target of installedOpenSpecTargets(repo)) {

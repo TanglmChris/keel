@@ -2211,6 +2211,20 @@ function hasDeltaSpec(changePath) {
   return false;
 }
 
+// Tracked files under a change that an ignore rule matches. Git keeps them
+// tracked where they were added, and an archive moves them to a new path,
+// where the same rule leaves them untracked: the archive commit then deletes
+// them while they sit on disk (#352).
+function trackedButIgnored(repo, changePath) {
+  const result = spawnSync(
+    "git",
+    ["ls-files", "-z", "-c", "-i", "--exclude-standard", "--", path.relative(repo, changePath) || "."],
+    { cwd: repo, encoding: "utf8" }
+  );
+  if (result.error || result.status !== 0) return [];
+  return result.stdout.split("\0").filter(Boolean);
+}
+
 function changeClose(repo, options) {
   if (!["sync", "archive"].includes(options.closeAction)) {
     throw new GateInputError(
@@ -2312,6 +2326,16 @@ function changeClose(repo, options) {
     );
   }
   if (options.closeAction === "archive") {
+    const dropped = trackedButIgnored(repo, changePath);
+    if (dropped.length > 0) {
+      const named = dropped.slice(0, 5).map((file) => `\`${file}\``).join(", ");
+      warnings.push(
+        `${dropped.length} tracked file(s) under this change match an ignore rule (${named}`
+          + `${dropped.length > 5 ? ", …" : ""}). Git keeps them tracked only at the path they were `
+          + "added at, so an archive that moves the directory drops them from version control. "
+          + "`keel openspec archive` re-adds them; after any other move, `git add -f` their archived paths."
+      );
+    }
     for (const artifact of ["proposal.md", "design.md"]) {
       if (!fs.existsSync(path.join(changePath, artifact))) {
         problems.push(
