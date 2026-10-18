@@ -75,7 +75,9 @@
 # `issue`, `issue-close`, `cleanup`, and `chat-reply` are the names that carry
 # the resource they reach, and each is refused without one. `push` may carry
 # branch globs (`push:claude/*`), and only that scope is enforced: the Claude
-# write guard refuses a `git push` to any other branch (#257).
+# write guard refuses a `git push` to any other branch (#257), and one that also
+# carries annotated tags (`--follow-tags`, `push.followTags`) unless every branch
+# it pushes is `push-protected` (#327).
 # `push-protected:main@<role>` names a branch the guard asks the user about,
 # one push at a time, instead of refusing (#280). `chat-reply:<group>` lets a session answer,
 # in that chat group, a record addressed to its role, and nothing the record

@@ -47,8 +47,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.138.0"
-PROTOCOL_VERSION = "5.138.0"
+PACKAGE_VERSION = "5.139.0"
+PROTOCOL_VERSION = "5.139.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -32164,6 +32164,111 @@ def validate_push_guard_redirects_scenario() -> int:
     return 0
 
 
+def validate_push_guard_follow_tags_scenario() -> int:
+    """Issue #327: a push that carries annotated tags is a tag push.
+
+    The real hook denies `--follow-tags`, `push.followTags` from the repository
+    config or `git -c`, and a `GIT_CONFIG*` assignment on a `push:` branch;
+    turning tag carriage off restores the branch push; a protected branch is
+    asked about with its tags; and nothing is checked without a push scope.
+    """
+    label = "push-guard-follow-tags:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-follow-tags-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        pm = chat_worktree(repo, base / "pm")
+        rtl = chat_worktree(repo, base / "rtl")
+        env = chat_environment()
+        run_keel(pm, "chat", "role", "--set", "iecc-pm", env=env)
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+        hook_env = {
+            k: v for k, v in os.environ.items()
+            if k not in ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE") and not k.startswith("GIT_CONFIG")
+        }
+        hook_env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+
+        def declare(entries: list[str]) -> None:
+            for cwd in (pm, rtl):
+                write_authorize_config(cwd, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+
+        def decide(cwd: Path, command: str) -> dict:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd), "permission_mode": "default"}
+            result = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/pretooluse-guard.js")],
+                cwd=cwd, env=hook_env, input=json.dumps(event), text=True, capture_output=True, check=False,
+            )
+            return pretooluse_decision(result) or {"permissionDecision": "pass"}
+
+        def expect(what: str, cwd: Path, command: str, want: str, needles: tuple[str, ...] = ()) -> bool:
+            decision = decide(cwd, command)
+            if decision.get("permissionDecision") != want:
+                verdict = "allowed" if decision.get("permissionDecision") == "pass" else decision.get("permissionDecision")
+                report(f"{label} {what} was {verdict}, not {want} ({command!r}): {decision!r}")
+                return False
+            reason = decision.get("permissionDecisionReason", "")
+            for needle in needles:
+                if needle not in reason:
+                    report(f"{label} {what} does not name {needle!r}: {reason!r}")
+                    return False
+            return True
+
+        def set_follow_tags(value: str | None) -> None:
+            args = ["config", "push.followTags", value] if value else ["config", "--unset", "push.followTags"]
+            subprocess.run(["git", *args], cwd=rtl, check=False, capture_output=True)
+
+        declare(["push:flow-*"])
+        branch = "origin flow-release"
+        if not expect("--follow-tags push to a granted branch", rtl, f"git push --follow-tags {branch}", "deny",
+                      ("--follow-tags", "--no-follow-tags")):
+            report(f"{label} --follow-tags push to a granted branch was allowed")
+            return 1
+        if not expect("--follow-tags undone by --no-follow-tags", rtl,
+                      f"git push --follow-tags --no-follow-tags {branch}", "pass"):
+            return 1
+        if not expect("a plain push to a granted branch", rtl, f"git push {branch}", "pass"):
+            return 1
+        if not expect("git -c push.followTags=true", rtl, f"git -c push.followTags=true push {branch}", "deny",
+                      ("push.followTags",)):
+            return 1
+        set_follow_tags("true")
+        if not expect("a plain push under push.followTags=true", rtl, f"git push {branch}", "deny", ("push.followTags",)):
+            return 1
+        if not expect("git -c push.followTags=false over the config", rtl,
+                      f"git -c push.followTags=false push {branch}", "pass"):
+            return 1
+        set_follow_tags(None)
+        if not expect("a GIT_CONFIG_COUNT assignment", rtl,
+                      f"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true git push {branch}",
+                      "deny", ("GIT_CONFIG_COUNT",)):
+            return 1
+
+        if not expect("a GIT_CONFIG_COUNT assignment behind env", rtl,
+                      f"env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true git push {branch}",
+                      "deny", ("GIT_CONFIG_COUNT",)):
+            return 1
+        if not expect("a shell-expanded git -c", rtl, f'git -c "$CFG" push {branch}', "deny", ("expanded",)):
+            return 1
+        if not expect("a push to main behind `env FOO=1`", rtl, "env FOO=1 git push origin main", "deny", ("`main`",)):
+            return 1
+
+        declare(["push:flow-*", "push-protected:main@iecc-pm"])
+        if not expect("the coordinator's --follow-tags push to main", pm, "git push --follow-tags origin main", "ask",
+                      ("`main`", "annotated tags")):
+            return 1
+        if not expect("another role's --follow-tags push to main", rtl, "git push --follow-tags origin main", "deny",
+                      ("iecc-pm",)):
+            return 1
+        if not expect("a --follow-tags push to a granted branch beside a protected one", pm,
+                      f"git push --follow-tags {branch}", "deny", ("--no-follow-tags",)):
+            return 1
+
+        declare(["commit"])
+        if not expect("a --follow-tags push with no push scope", rtl, f"git push --follow-tags {branch}", "pass"):
+            return 1
+    report("push-guard-follow-tags scenario passed.")
+    return 0
+
+
 def validate_touch_write_guard_scenario() -> int:
     with tempfile.TemporaryDirectory(
         prefix="keel-touch-guard-", ignore_cleanup_errors=True
@@ -40948,6 +41053,7 @@ SCENARIOS: tuple = (
     ("touch-write-guard", validate_touch_write_guard_scenario),
     ("push-branch-guard", validate_push_branch_guard_scenario),
     ("push-guard-redirects", validate_push_guard_redirects_scenario),
+    ("push-guard-follow-tags", validate_push_guard_follow_tags_scenario),
     ("push-protected-guard", validate_push_protected_guard_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
