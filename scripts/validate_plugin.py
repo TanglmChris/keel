@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -47,8 +48,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.140.0"
-PROTOCOL_VERSION = "5.140.0"
+PACKAGE_VERSION = "5.141.0"
+PROTOCOL_VERSION = "5.141.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8834,10 +8835,10 @@ def validate_version_alignment_scenario() -> int:
             )
             return 1
 
-    # M5 — on Claude the plugin is the tagged repository: the root manifest
-    # carries the version, and the marketplace entry names it and the tag it
-    # installs, so all three are version markers, and the script that moves
-    # every marker has to move them.
+    # M5 — on Claude the plugin is the npm package: the root manifest carries
+    # the version, and the marketplace entry names it and the package version
+    # it installs, so all three are version markers, and the script that moves
+    # every marker has to move them (#337).
     def claude_entry_versions(root: Path) -> dict:
         market = json.loads(
             (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
@@ -8846,10 +8847,9 @@ def validate_version_alignment_scenario() -> int:
             (e for e in market.get("plugins", []) if e.get("name") == "keel"), {}
         )
         source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
-        ref = source.get("ref")
         return {
             "version": entry.get("version"),
-            "source.ref": ref[1:] if isinstance(ref, str) and ref.startswith("v") else ref,
+            "source.version": source.get("version"),
         }
 
     def root_manifest_version(root: Path) -> str | None:
@@ -21879,7 +21879,7 @@ def validate_native_plugin_manifests_scenario() -> int:
         ),
         None,
     )
-    # M1 — on Claude the plugin is the tagged repository tree, and the manifest
+    # M1 — on Claude the plugin is the npm package's tree, and the manifest
     # at its root is the one Claude manifest, so a directory entry nobody here
     # controls only has to say where the repository is.
     root_manifest_path = ROOT / ".claude-plugin/plugin.json"
@@ -21981,15 +21981,15 @@ def validate_native_plugin_manifests_scenario() -> int:
         )
         return 1
 
-    # M2 — Keel's own entry installs the same tagged tree the official
-    # directory would, from git. It pins the tag rather than a commit because
-    # the file is part of the commit it would have to name, and it restates no
-    # component, so the root manifest stays the only place they are declared.
+    # M2 — Keel's own entry installs the npm package the CLI comes from, at
+    # exactly this release (#337). It restates no component, so the root
+    # manifest stays the only place they are declared, and the package has to
+    # ship that manifest or the installed plugin has no components at all.
     source = (claude_entry or {}).get("source")
     want_source = {
-        "source": "url",
-        "url": KEEL_REPOSITORY_GIT_URL,
-        "ref": f"v{package_version}",
+        "source": "npm",
+        "package": "@christang/keel",
+        "version": package_version,
     }
     restated = [
         key for key in ("skills", "agents", "hooks") if key in (claude_entry or {})
@@ -22001,7 +22001,7 @@ def validate_native_plugin_manifests_scenario() -> int:
     ):
         report(
             "native-plugin-manifests claude marketplace entry is not the "
-            f"tagged repository at v{package_version}: source {source!r}, "
+            f"npm package at {package_version}: source {source!r}, "
             f"version {(claude_entry or {}).get('version')!r}, restated "
             f"components {restated!r}"
         )
@@ -22035,6 +22035,7 @@ def validate_native_plugin_manifests_scenario() -> int:
             for name, ok in (
                 ("bin/keel", modes.get("bin/keel", 0) & 0o111),
                 ("npm-shrinkwrap.json", "npm-shrinkwrap.json" in modes),
+                (".claude-plugin/plugin.json", ".claude-plugin/plugin.json" in modes),
             )
             if not ok
         ]
@@ -22561,9 +22562,6 @@ def validate_native_plugin_session_start_scenario() -> int:
 # one independently: the plugin's by planting a manifest beside a copy of the
 # shipping hook, the CLI's by what the fake CLI prints, and the repository's by
 # the managed block in its AGENTS.md.
-# Where the Claude plugin is fetched from, by Keel's marketplace and by the
-# official directory entry each release states.
-KEEL_REPOSITORY_GIT_URL = "https://github.com/TanglmChris/keel.git"
 VERSION_DRIFT_STATEMENT = "runtime versions disagree"
 # How an update applies: the hooks are fixed when the plugin loads, and the
 # host's `/reload-plugins` reloads it in the running session (#164). A restart
@@ -24252,39 +24250,37 @@ def validate_release_notes_name_the_directory_branch_scenario() -> int:
 
 
 def stage_claude_market_under_test(tmp: Path) -> tuple[Path, str, str] | str:
-    """A Claude marketplace that installs this tree rather than GitHub's.
+    """A Claude marketplace that installs this tree's npm package, not npm's.
 
-    The committed entry installs the Keel repository at this release's tag,
-    which does not exist until the release lands, and at a tag that does exist
-    it installs GitHub's copy and tests nothing here. So an install smoke
-    stages the working tree — tracked and untracked-but-not-ignored files, as
-    they are on disk — as a scratch git repository tagged the same way, and
-    puts it behind a copy of the committed entry whose URL points at it and
-    whose other fields are unchanged. The host then fetches it through git and
-    installs its dependencies exactly as it would from GitHub. A sentinel only
-    the staged tree carries lets the caller prove which copy was installed.
-    Returns the marketplace directory, its name, and the sentinel, or a failure
-    message.
+    The committed entry installs `@christang/keel` from npm at this release's
+    version, which is not published until the release lands, and a published
+    version installs npm's copy and tests nothing here. An npm source also
+    refuses a local folder or `file:` package (#337). So an install smoke packs
+    this tree with `npm pack`, unpacks the tarball — exactly the files the
+    package publishes — and serves it as a scratch git repository behind a copy
+    of the committed entry whose source points at it and whose other fields are
+    unchanged. The host then copies it and installs its dependencies as it
+    would from npm; only the transport differs. A sentinel only the staged
+    package carries lets the caller prove which copy was installed. Returns the
+    marketplace directory, its name, and the sentinel, or a failure message.
     """
     git = shutil.which("git")
-    if git is None:
-        return "needs git to stage the tree under test."
-    listed = subprocess.run(
-        [git, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT,
-        capture_output=True,
-        check=False,
+    npm = shutil.which("npm")
+    if git is None or npm is None:
+        return "needs git and npm to stage the package under test."
+    packs = tmp / "packed"
+    packs.mkdir(parents=True, exist_ok=True)
+    packed = subprocess.run(
+        [npm, "pack", "--json", "--pack-destination", str(packs)],
+        cwd=ROOT, capture_output=True, text=True, check=False,
     )
-    if listed.returncode != 0:
-        return "git ls-files failed: " + listed.stderr.decode("utf-8", "replace")
-    staged = tmp / "keel-under-test"
-    for relative in filter(None, listed.stdout.decode("utf-8").split("\0")):
-        source = ROOT / relative
-        if not source.is_file():
-            continue
-        target = staged / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+    try:
+        tarball = packs / json.loads(packed.stdout)[0]["filename"]
+    except (ValueError, KeyError, IndexError):
+        return "npm pack failed: " + (packed.stderr or packed.stdout).strip()[:400]
+    with tarfile.open(tarball) as archive:
+        archive.extractall(packs, filter="data")
+    staged = packs / "package"
     sentinel = ".keel-package-under-test"
     write_text(staged / sentinel, "\n")
     committed = json.loads(
@@ -24293,22 +24289,20 @@ def stage_claude_market_under_test(tmp: Path) -> tuple[Path, str, str] | str:
     entry = next(
         (e for e in committed.get("plugins", []) if e.get("name") == "keel"), None
     )
-    source_field = (entry or {}).get("source")
-    if not isinstance(source_field, dict) or not source_field.get("ref"):
-        return f"the committed Claude entry pins no git ref: {source_field!r}"
+    if not isinstance((entry or {}).get("source"), dict):
+        return f"the committed Claude entry has no source object: {entry!r}"
     identity = ["-c", "user.name=keel", "-c", "user.email=keel@invalid"]
     for args in (
         ["init", "-q"],
         ["add", "-A"],
-        [*identity, "commit", "-q", "-m", "tree under test"],
-        ["tag", source_field["ref"]],
+        [*identity, "commit", "-q", "-m", "package under test"],
     ):
         done = subprocess.run(
             [git, *args], cwd=staged, capture_output=True, text=True, check=False
         )
         if done.returncode != 0:
-            return f"git {args[-1]} failed staging the tree: {done.stderr.strip()}"
-    source_field["url"] = staged.resolve().as_uri()
+            return f"git {args[-1]} failed staging the package: {done.stderr.strip()}"
+    entry["source"] = {"source": "url", "url": staged.resolve().as_uri()}
     market = tmp / "claude-market"
     write_text(
         market / ".claude-plugin/marketplace.json",
@@ -24852,7 +24846,7 @@ def validate_native_plugin_marketplaces_scenario() -> int:
                 "which does not carry the sentinel the staged tree does."
             )
             return 1
-        # M4 — the git install is a working plugin: the host loaded the
+        # M4 — the packaged install is a working plugin: the host loaded the
         # skills and both hooks from the root manifest, and installed the
         # OpenSpec the lockfile pins, since nothing in the tree carries it.
         details = run_claude("plugin", "details", f"keel@{claude_market_name}")
@@ -24870,12 +24864,12 @@ def validate_native_plugin_marketplaces_scenario() -> int:
         if details.returncode != 0:
             report(
                 "native-plugin-marketplaces claude plugin details failed for "
-                f"the git-installed plugin: {(details.stderr or details_text).strip()!r}"
+                f"the packaged plugin: {(details.stderr or details_text).strip()!r}"
             )
             return 1
         if missing:
             report(
-                "native-plugin-marketplaces the git-installed plugin lacks "
+                "native-plugin-marketplaces the packaged plugin lacks "
                 f"{missing!r} in claude plugin details: {details_text!r}"
             )
             return 1
@@ -24890,7 +24884,7 @@ def validate_native_plugin_marketplaces_scenario() -> int:
         openspec_bin = install_path / "node_modules/.bin/openspec"
         if not openspec_bin.exists():
             report(
-                "native-plugin-marketplaces the git-installed plugin has no "
+                "native-plugin-marketplaces the packaged plugin has no "
                 f"installed OpenSpec at {openspec_bin}; the host did not "
                 "install the tree's dependencies."
             )
@@ -24904,13 +24898,13 @@ def validate_native_plugin_marketplaces_scenario() -> int:
         pinned = shrinkwrap_openspec_version()
         if probe.returncode != 0:
             report(
-                "native-plugin-marketplaces the git-installed OpenSpec failed "
+                "native-plugin-marketplaces the packaged OpenSpec failed "
                 f"to run: {(probe.stderr or probe.stdout).strip()!r}"
             )
             return 1
         if pinned not in probe.stdout:
             report(
-                "native-plugin-marketplaces the git-installed plugin does not "
+                "native-plugin-marketplaces the packaged plugin does not "
                 f"carry the pinned OpenSpec {pinned}: {probe.stdout.strip()!r}"
             )
             return 1
