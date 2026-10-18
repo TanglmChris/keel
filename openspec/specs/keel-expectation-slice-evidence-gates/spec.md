@@ -507,7 +507,9 @@ is between two declared identifier lists; sufficiency remains `keel-review-check
 ### Requirement: A disposition marker is recognized only where it opens its clause
 
 A Review `Findings` disposition marker MUST be recognized only where it opens its clause — preceded
-by the start of the value, a line break, or sentence-ending punctuation. A marker preceded by a word
+by the start of the value, a line break, or sentence-ending punctuation, optionally followed by the
+bullet of a list item, so a disposition written as a sub-list item under `Findings` is read exactly as
+one on the label's own line. A marker preceded by a word
 MUST NOT be read as a disposition, because it is part of that sentence rather than the head of a
 clause, and the commonest such sentence states the opposite of what the marker means.
 
@@ -536,6 +538,11 @@ name the opening requirement so an author whose marker sits mid-sentence is told
 - **WHEN** a `Findings` entry's only marker is preceded by a word
 - **THEN** the entry is refused for carrying no disposition
 - **AND THEN** the diagnostic names the requirement that a marker open its clause
+
+#### Scenario: A disposition written as a sub-list item parses
+- **WHEN** `Findings` is followed by a sub-list item `Resolved here: M1` naming a check this task declares, or `Resolved here:` naming a repo path that exists
+- **THEN** the entry completes exactly as the same text on the label's line does
+- **AND THEN** a sub-list `Resolved here:` naming an undeclared check is refused for that check, and a sub-list `Not resolved here:` is still not a resolution claim
 
 ### Requirement: A critical statement's owned extent is structural
 

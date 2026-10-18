@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.146.0 - A disposition written as a sub-list item is read as one
+
+Issue #362 (rtl_ppa_prj, 2026-10-18): `keel gate task-complete` refused a Review `Findings` written as a sub-list — `- Findings:` then `  - Resolved here: M1`, or a repo path that exists — as `finding-owner`, while the same text on the label's own line passed, and the refusal asked for exactly what had been written. The opening rule (#144) allowed indentation after a line break but not a list bullet.
+
+- A `-`, `*` or `+` bullet at the head of a line now opens a marker's clause, so a listed disposition is judged exactly as one on the label's line; `- Not resolved here:` is still prose. The refusal that explains the rule names the bullet among the openings.
+- Consequence for live changes: a listed `Resolved here:` was previously never read, so one followed only by prose passed. It is now held to the same evidence rule as the single-line form — an `M<n>` check the task declares or a repo path that exists — and is refused at `task-complete` and `change-close` otherwise. Measured on rtl_ppa_prj's live `regen-sim-fail-and-root-waivers`: tasks 1.1 and 1.2 each carry one; editing the Findings text is a record-layer change and moves no fingerprint.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.146.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.145.0 - A shift's earlier conversations are kept too
 
 Issue #361: 5.143.0 (#343) kept a role's ended transcripts only when a hook had recorded them, so the transcripts `keel shift history` finds as `(found)` — those from before segments were recorded (#304), the oldest and the first Claude deletes — were never copied, and a copy of one was not read. On 2026-10-18 keel-maint had 2 such transcripts (22 MB) unkept.
