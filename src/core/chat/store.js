@@ -527,10 +527,23 @@ const MENTION = /(^|[^\w@/])@([A-Za-z0-9][A-Za-z0-9/-]*)/g;
 // `@role`, `@alias` (case-insensitive), `@all`, `@owner`, and the cross-project
 // `@project/role`. Anything else is refused by name, so a typo cannot post a
 // message that silently reaches nobody (design D3, D4).
+// Quoted text is not a mention: a fenced block or an inline code span is
+// blanked with spaces of its own length before the scan, so `@verify` written
+// as an example neither refuses the post nor wakes anyone (#345).
+function mentionText(text) {
+  return String(text)
+    .replace(/```[\s\S]*?(?:```|$)/g, (block) => block.replace(/[^\n]/g, " "))
+    .replace(/`[^`\n]*`/g, (span) => " ".repeat(span.length));
+}
+
+// `<branch> @ <sha>` is the commonest `@` in some projects; a hex token that
+// names nobody is that commit id, not a typo of a role (#345).
+const COMMIT_ID = /^[0-9a-f]{7,40}$/;
+
 function resolveMentions(where, group, state, text) {
   const aliases = aliasMap(where.root);
   const mentions = [];
-  for (const match of String(text).matchAll(MENTION)) {
+  for (const match of mentionText(text).matchAll(MENTION)) {
     const token = match[2].replace(/[-/]+$/, "").toLowerCase();
     let role = null;
     if (token === ALL || token === OWNER) role = token;
@@ -540,6 +553,7 @@ function resolveMentions(where, group, state, text) {
     if (role && role !== ALL && role !== OWNER && !role.includes("/") && !state.members.has(role)) {
       throw new ChatError(`@${match[2]} names role ${role}, which is not a member of group ${group}.`);
     }
+    if (!role && COMMIT_ID.test(token)) continue;
     if (!role) {
       throw new ChatError(`@${match[2]} is not a member or alias in group ${group}.`);
     }
@@ -984,6 +998,7 @@ function readGroups(where, role, group) {
 
 module.exports = {
   wait,
+  mentionText,
   openWaits,
   markMet,
   canAct,
