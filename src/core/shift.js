@@ -707,7 +707,8 @@ function grepTranscript(file, needle, limit = 3) {
 
 // Transcripts Claude already keeps for a worktree (#304 D6, F5): its project
 // directory is the cwd with every non-alphanumeric character turned into `-`.
-function claudeTranscripts(worktree) {
+// `wanted` is asked before a file is read, so a caller can skip the parse.
+function claudeTranscripts(worktree, wanted = () => true) {
   const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
   const found = [];
   for (const cwd of new Set([worktree, realpath(worktree)])) {
@@ -715,6 +716,7 @@ function claudeTranscripts(worktree) {
     for (const name of safeList(dir)) {
       if (!name.endsWith(".jsonl")) continue;
       const file = path.join(dir, name);
+      if (!wanted(file)) continue;
       let first = null;
       let last = null;
       let opening = null;
@@ -741,6 +743,13 @@ function claudeTranscripts(worktree) {
   return found;
 }
 
+// The Claude transcripts of every worktree bound to `role`, scheduled runs left out.
+function foundTranscripts(where, role, wanted) {
+  const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
+    .filter(([, name]) => name === role).map(([worktree]) => worktree);
+  return bound.flatMap((worktree) => claudeTranscripts(worktree, wanted));
+}
+
 function history(where, named, grep) {
   const role = named || store.currentRole(where);
   if (!role) throw new ShiftError("keel shift history needs a role: name it, or run it in a worktree bound to one.");
@@ -749,9 +758,11 @@ function history(where, named, grep) {
   const stored = fs.existsSync(file) ? store.readJsonFile(file).segments : [];
   const recorded = Array.isArray(stored) ? stored : [];
   const known = new Set(recorded.map((segment) => segment.transcript));
-  const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
-    .filter(([, name]) => name === role).map(([worktree]) => worktree);
-  const earlier = bound.flatMap(claudeTranscripts).filter((segment) => !known.has(segment.transcript));
+  const earlier = foundTranscripts(where, role).filter((segment) => !known.has(segment.transcript));
+  const { keptFile } = require("./chat/notice");
+  // A found segment has no record to name its copy, so the kept path is looked at directly (#361).
+  const keptCopy = (segment) => [segment.kept, keptFile(where, role, segment.transcript)]
+    .find((file) => file && fs.existsSync(file)) || null;
   const seen = new Set();
   // Newest first; the sort is stable, so segments recorded in the same second keep their order.
   const segments = [...recorded.slice().reverse(), ...earlier]
@@ -760,7 +771,7 @@ function history(where, named, grep) {
     .map((segment) => ({
       ...segment,
       exists: fs.existsSync(segment.transcript),
-      kept: segment.kept && fs.existsSync(segment.kept) ? segment.kept : null,
+      kept: keptCopy(segment),
     }));
   const notes = safeList(path.join(shiftDir(where), "history"))
     .filter((name) => name.startsWith(`${role}-`) && name.endsWith(".md"))
@@ -1021,4 +1032,4 @@ function waitingFor(repo) {
 }
 
 module.exports = {
-  desktopProcess, check, describe, runShift, shiftStatus: status, waitingFor };
+  desktopProcess, foundTranscripts, check, describe, runShift, shiftStatus: status, waitingFor };
