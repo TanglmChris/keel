@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.144.0"
-PROTOCOL_VERSION = "5.144.0"
+PACKAGE_VERSION = "5.145.0"
+PROTOCOL_VERSION = "5.145.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6370,6 +6370,91 @@ def validate_shift_keeps_transcripts_scenario() -> int:
             report(f"{label} B grew after its copy and was not copied again.")
             return 1
     report("shift-keeps-transcripts scenario passed.")
+    return 0
+
+
+def validate_shift_keeps_found_transcripts_scenario() -> int:
+    """Issue #361: a transcript `history` finds but never recorded is kept too.
+
+    Transcripts from before segments were recorded (#304) are listed
+    `(found)`; the hook copied only recorded segments, and `history` read a
+    copy only through a segment record, so the oldest conversations were the
+    ones left unkept.
+    """
+    label = "shift-keeps-found-transcripts:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-361-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        kept_dir = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "transcripts" / "verify"
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        bound = next(path for path, role in roles.items() if role == "verify")
+        project = base / "claude-config" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", bound)
+        project.mkdir(parents=True)
+        env = {**env, "CLAUDE_CONFIG_DIR": str(base / "claude-config")}
+
+        def transcript(name: str, opening: str, said: str) -> Path:
+            path = project / f"{name}.jsonl"
+            path.write_text("\n".join(json.dumps(record) for record in (
+                {"type": "user", "timestamp": "2026-10-02T01:00:00.000Z", "cwd": bound, "message": {"role": "user", "content": opening}},
+                {"type": "assistant", "timestamp": "2026-10-02T01:00:05.000Z", "cwd": bound,
+                 "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}},
+            )) + "\n", encoding="utf-8")
+            return path
+
+        def hook(path: Path) -> None:
+            for event, name in (("session-start", "SessionStart"), ("user-prompt-submit", "UserPromptSubmit")):
+                subprocess.run(
+                    ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                    cwd=verify, env=env, text=True, capture_output=True, check=False,
+                    input=json.dumps({"cwd": str(verify), "hook_event_name": name, "session_id": "s1",
+                                      "prompt": "go", "source": "startup", "transcript_path": str(path)}),
+                )
+
+        old = transcript("old", "start the shift", "The ECC syndrome table was settled on day one.")
+        scheduled = transcript("patrol", '<scheduled-task name="patrol">run', "patrol ran")
+        listed = run_keel(verify, "shift", "history", "verify", env=env)
+        if "(found)" not in next((l for l in listed.stdout.splitlines() if "old.jsonl" in l), ""):
+            report(f"{label} the unrecorded transcript is not listed as found: {listed.stdout!r} {listed.stderr!r}")
+            return 1
+        hook(transcript("a", "carry on", "first recorded shift"))
+        hook(transcript("b", "carry on", "second recorded shift"))
+        kept_old = kept_dir / "old.jsonl.gz"
+        if not kept_old.is_file():
+            report(f"{label} a segment change left the found transcript unkept: "
+                   f"{sorted(p.name for p in kept_dir.glob('*')) if kept_dir.exists() else 'no directory'}")
+            return 1
+        if gzip.decompress(kept_old.read_bytes()) != old.read_bytes():
+            report(f"{label} the found transcript's copy is not its bytes.")
+            return 1
+        if (kept_dir / "patrol.jsonl.gz").exists():
+            report(f"{label} a scheduled run's transcript was kept as the role's conversation.")
+            return 1
+        if (kept_dir / "b.jsonl.gz").exists():
+            report(f"{label} the current transcript was copied while it is still being written.")
+            return 1
+
+        old.unlink()
+        listed = run_keel(verify, "shift", "history", "verify", env=env)
+        line = next((l for l in listed.stdout.splitlines() if "old.jsonl" in l), "")
+        if "(missing)" in line:
+            report(f"{label} the found transcript, deleted but kept, is listed missing: {listed.stdout!r}")
+            return 1
+        if "(kept)" not in line:
+            report(f"{label} the found transcript, deleted but kept, is not listed (kept): {listed.stdout!r}")
+            return 1
+        found = run_keel(verify, "shift", "history", "verify", "--grep", "syndrome table", env=env)
+        if "syndrome table" not in found.stdout:
+            report(f"{label} --grep does not search the found transcript's copy: {found.stdout!r} {found.stderr!r}")
+            return 1
+        hook(transcript("c", "carry on", "third recorded shift"))
+        listed = run_keel(verify, "shift", "history", "verify", env=env)
+        if sum(1 for l in listed.stdout.splitlines() if "old.jsonl" in l) != 1:
+            report(f"{label} another segment change did not leave the kept found transcript listed once: {listed.stdout!r}")
+            return 1
+    if "shift-keeps-found-transcripts" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-keeps-found-transcripts scenario passed.")
     return 0
 
 
@@ -41445,6 +41530,7 @@ SCENARIOS: tuple = (
     ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
     ("shift-keeps-transcripts", validate_shift_keeps_transcripts_scenario),
+    ("shift-keeps-found-transcripts", validate_shift_keeps_found_transcripts_scenario),
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),

@@ -268,6 +268,13 @@ function keptFile(where, role, transcript) {
 // copy. The host deletes transcripts after its cleanup period (30 days by
 // default for Claude), so the copy is what keeps a shift's conversation. The
 // current segment is left alone: it is still being written.
+function writeKept(target, transcript) {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, zlib.gzipSync(fs.readFileSync(transcript)));
+  fs.renameSync(temporary, target);
+}
+
 function keepEnded(where, role, segments) {
   for (const segment of segments) {
     if (!segment.ended || !segment.transcript) continue;
@@ -276,16 +283,45 @@ function keepEnded(where, role, segments) {
       const target = keptFile(where, role, segment.transcript);
       const kept = segment.kept_from;
       if (fs.existsSync(target) && kept && kept.size === source.size && kept.mtime === source.mtimeMs) continue;
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      const temporary = `${target}.${process.pid}.tmp`;
-      fs.writeFileSync(temporary, zlib.gzipSync(fs.readFileSync(segment.transcript)));
-      fs.renameSync(temporary, target);
+      writeKept(target, segment.transcript);
       segment.kept = target;
       segment.kept_from = { size: source.size, mtime: source.mtimeMs };
     } catch {
       // The host's file may already be gone; a copy is a convenience.
     }
   }
+  keepFound(where, role, segments);
+}
+
+// The transcripts `history` finds for the role but no record names — those
+// from before segments were recorded (#304) — are kept too, and recorded,
+// still marked found, so `history` lists them once the host's file is gone
+// and later changes refresh their copy like any other ended segment (#361).
+// Each is read once, when it is first recorded.
+function keepFound(where, role, segments) {
+  const recorded = new Set(segments.map((segment) => segment.transcript));
+  let found = [];
+  try {
+    found = require("../shift").foundTranscripts(where, role, (transcript) => !recorded.has(transcript));
+  } catch {
+    return;
+  }
+  const added = [];
+  for (const segment of found) {
+    if (recorded.has(segment.transcript)) continue;
+    recorded.add(segment.transcript);
+    try {
+      const source = fs.statSync(segment.transcript);
+      const target = keptFile(where, role, segment.transcript);
+      // A copy at least as new as the transcript, such as one made by hand, is kept as it is.
+      if (!fs.existsSync(target) || fs.statSync(target).mtimeMs < source.mtimeMs) writeKept(target, segment.transcript);
+      added.push({ ...segment, kept: target, kept_from: { size: source.size, mtime: source.mtimeMs } });
+    } catch {
+      // As for a recorded segment, a copy is a convenience.
+    }
+  }
+  // The current segment stays last: `recordSegment` reads it there.
+  segments.splice(Math.max(segments.length - 1, 0), 0, ...added);
 }
 
 function recordSegment(where, role, transcript) {
@@ -485,6 +521,7 @@ module.exports = {
   wakeStep,
   check,
   bridgeLine,
+  keptFile,
   hook,
   noticeText,
   presenceFile,
