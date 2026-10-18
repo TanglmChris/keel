@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.149.0 - A commit id or quoted @word is not a mention
+
+Issue #345 (rtl_ppa_prj, keel 5.138.0): `keel chat post` refused a whole message over any `@<token>` that named no member or alias, so `<branch> @638059e4` — the commonest `@` in that project — and an `@verify` quoted in backticks both refused the post, and roles rewrote and resent (TanglmChris/rtl_ppa_prj#311).
+
+- Text inside inline code or a fenced block is not read for mentions, in `post`, `dm` and `todo` and in the Slack bridge alike.
+- An `@` token of 7–40 hex digits that names no member or alias is left as text. A bare `@typo` is still refused by name.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.149.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.148.0 - An archive keeps the evidence a change tracked
 
 Issue #352 (rtl_ppa_prj, keel 5.139.0, 2026-10-18): archiving `iecc-coupled-fifo-loop-fix` dropped 34 tracked evidence files from version control. The change's own `.gitignore` (`evidence/**`) matched them; they had been force-added, and the archive's filesystem move put them at a path where the rule left them untracked, so the archive commit deleted them while they sat on disk.
