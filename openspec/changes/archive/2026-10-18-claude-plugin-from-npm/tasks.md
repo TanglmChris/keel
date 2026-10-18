@@ -1,0 +1,145 @@
+# Tasks
+
+## 1. The Claude plugin comes from npm
+
+- [x] 1.1 npm-sourced Claude entry; the package ships the root manifest; the install smoke installs the packed package
+  - Covers:
+    - keel-native-plugin-package / The Claude plugin is the npm package / One package carries the plugin and its CLI
+    - keel-native-plugin-package / The Claude plugin is the npm package / The Codex-shared hooks carry no Claude-only event
+    - keel-native-plugin-package / The Claude plugin is the npm package / The packaged install carries the pinned OpenSpec
+    - keel-native-plugin-package / Native marketplaces install and update Keel in isolation / Claude marketplace installs Keel
+    - D1
+    - D2
+    - D3
+    - D4
+  - Read:
+    - .claude-plugin/marketplace.json
+    - scripts/bump_version.js
+    - scripts/validate_plugin.py
+  - Touch:
+    - .claude-plugin/marketplace.json
+    - package.json
+    - scripts/bump_version.js
+    - scripts/validate_plugin.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-manifests` requires the committed Claude entry's source to be `{"source": "npm", "package": "@christang/keel", "version": <package version>}` with that version and no restated component, and `npm pack --dry-run --json` to list `.claude-plugin/plugin.json`. Fails with: `is not the npm package at`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-marketplaces` installs, in an isolated `CLAUDE_CONFIG_DIR`, the tarball `npm pack` produces, unpacked and served as a scratch git repository behind a copy of the committed entry, and requires the sentinel, the Keel skills, both hooks, and `node_modules/.bin/openspec` at the lockfile's version.
+    - M3: `node scripts/bump_version.js` run on a scratch copy moves the npm entry's `version` and `source.version` with the other markers, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes. Fails with: `expected a git-sourced keel entry`
+    - M4 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario native-plugin-install-matrix` and `--scenario the-tarball-is-the-repository` still pass.
+    - M5 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:345576e1835fd4fef5ab20e373a45d6d32c48c8ae584977741597be624b03251 (keel 5.140.0)
+    - M1: pass. `--scenario native-plugin-manifests` reports `native-plugin-manifests scenario passed.`
+    - M1.red: fail. With the check written first: `native-plugin-manifests claude marketplace entry is not the npm package at 5.140.0: source {'source': 'url', 'url': 'https://github.com/TanglmChris/keel.git', 'ref': 'v5.140.0'}, version '5.140.0', restated components []`, carrying the declared signature `is not the npm package at`.
+    - M1.green: pass. With the entry's source `{"source": "npm", "package": "@christang/keel", "version": "5.140.0"}` and `.claude-plugin/plugin.json` in `package.json` `files`, the scenario passed.
+    - M2: pass. `--scenario native-plugin-marketplaces` reports `native-plugin-marketplaces scenario passed.`
+    - M2.red: fail. With staging switched to `npm pack` first: `native-plugin-marketplaces the git-installed plugin lacks ['keel-align-expectations', 'keel-review-checklist', 'SessionStart', 'PreToolUse'] in claude plugin details: 'keel 5.140.0 … Component inventory …'` — the packed package carried no root manifest (the message wording was then corrected to `the packaged plugin`).
+    - M2.green: pass. With `.claude-plugin/plugin.json` packed, the staged package installed with the sentinel, the skills, both hooks, and the lockfile's OpenSpec.
+    - M3: pass. `--scenario version-alignment` reports `version-alignment scenario passed.`, its scratch `bump_version.js 99.0.0` moving `version` and `source.version`.
+    - M3.red: fail. With the entry switched to npm before the script: `version-alignment scenario: bump_version.js failed in a scratch copy.` / `bump-version: expected a git-sourced keel entry in .claude-plugin/marketplace.json`, carrying the declared signature.
+    - M3.green: pass. With `bumpClaudeMarketplace` requiring an npm source and setting `entry.source.version`, the scenario passed.
+    - M4: pass. `--scenario native-plugin-install-matrix` reports `native-plugin-install-matrix scenario passed.`; `--scenario the-tarball-is-the-repository` reports `76 packed files, all tracked.` (both inside the M5 run).
+    - M5: pass. `npm test`: `validation --all passed: baseline plus 285 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 reads the committed entry and `npm pack --dry-run --json`; M2 has a real `claude` in an isolated `CLAUDE_CONFIG_DIR` install exactly the files `npm pack` produces, requiring the sentinel, skills, both hooks and the lockfile's OpenSpec; M3 runs `bump_version.js` on a scratch copy. Beyond the checks: `claude plugin marketplace add https://raw.githubusercontent.com/TanglmChris/keel/main/.claude-plugin/marketplace.json` in an isolated config recorded a `url` source, as README now documents.
+      - Scope check: `git status --short` lists `.claude-plugin/marketplace.json`, `package.json`, `scripts/bump_version.js`, `scripts/validate_plugin.py`, `README.md`, `README.zh-CN.md`, and this change's directory, all in Touch or the record layer.
+      - Findings:
+        - Discard reason: the install smoke serves the packed files through git, not npm, because an npm source refuses a local package; the npm transport itself is covered by task 1.2's measurement against the real registry.
+        - Discard reason: between a merge to main and the npm publish, the catalog names a version npm does not have yet, so a refresh in that window fails until the release lands; the git source had the same window before its tag existed.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 A git-sourced install updates to the npm-sourced one
+  - Mode: diagnose-only
+  - Covers:
+    - keel-native-plugin-package / The Claude plugin is the npm package / A git-sourced install updates to the npm-sourced one
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: the switch is between two published releases and a registry the tests cannot stand up; it is measured against the real registry with the last published version, and nothing in this repository can fail first.
+    - M1: in an isolated `CLAUDE_CONFIG_DIR`, a directory marketplace whose entry is the git source at `v5.139.0` installs Keel; the entry is then changed to `npm` `@christang/keel` `5.140.0`, and `claude plugin marketplace update keel-marketplace` and `claude plugin update keel@keel-marketplace` report the update to `5.140.0`, the cache directory holds the npm package's files and no `openspec/` directory, and its `node_modules/.bin/openspec --version` prints the lockfile's version.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:94826eae66e216820e13640a77a78ec57811a93c94c8c539abfc96751ca3eadd (keel 5.140.0)
+    - M1: pass. Isolated `CLAUDE_CONFIG_DIR`, directory marketplace: the git entry at `v5.139.0` installed Keel (the 5.139.0 cache holds `openspec/`); with the entry changed to `npm` `@christang/keel` `5.140.0`, `claude plugin marketplace update keel-marketplace` printed `Successfully updated marketplace` and `claude plugin update keel@keel-marketplace` printed `Plugin "keel" updated from 5.139.0 to 5.140.0`; the 5.140.0 cache holds `LICENSE README.md README.zh-CN.md assets bin node_modules npm-shrinkwrap.json package.json plugins scripts src` and no `openspec/`, and its `node_modules/.bin/openspec --version` printed `1.14.0`, the lockfile's version. (A first run before this task's start gate passed is not counted.)
+    - Review:
+      - Status: pass
+      - Acceptance check: a real `claude` moved an install from the git-sourced entry to the npm-sourced one with `claude plugin update`, and the result is the npm package's tree with the pinned OpenSpec. 5.140.0 on npm has no root manifest, so the measured install has no components; that is what 1.1 adds and proves with the packed install.
+      - Scope check: no repository file changed; everything ran in a scratchpad `CLAUDE_CONFIG_DIR` and marketplace.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-native-plugin-package/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1 and 1.2, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, the npm entry included, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the ADDED requirement replaces the REMOVED one in `keel-native-plugin-package` and the MODIFIED one replaces its counterpart, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a930e1fd476358b79752c394a9063664aae953b6882f60acfb02b7beb93ebed3 (keel 5.140.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.140.0 → 5.141.0, the npm entry's `version` and `source.version` included; with the "The Claude plugin comes from npm again" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: "The Claude plugin is the npm package" replaced "The Claude plugin is the tagged repository", the MODIFIED marketplace requirement replaced its counterpart, and the purpose line now reads `as the npm package that carries its own CLI`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and the published spec carry the change; both validator scenarios pass, and `native-plugin-manifests` passes at 5.141.0.
+      - Scope check: changed files beyond tasks 1.1–1.2 are the version markers, `keel/CHANGELOG.md` and the published spec, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "the Claude catalog MUST reference the Keel repository at the release tag, whose tree contains it" and "### Requirement: The Claude plugin is the tagged repository" — `openspec/specs/keel-native-plugin-package/spec.md`. Updated by: 2.1
+- I2: "It is this repository at the release's tag, the same tree npm publishes as `@christang/keel`" — `README.md`. Updated by: 1.1
+- I3: "插件就是本仓库在发布 tag 上的那棵树" — `README.zh-CN.md`. Updated by: 1.1
+- I4: "On Claude the plugin is the tagged repository tree" and "expected a git-sourced keel entry" — `scripts/bump_version.js`. Updated by: 1.1
+- I5: "on Claude the plugin is the tagged repository", "Keel's own entry installs the same tagged tree", and "The committed entry installs the Keel repository at this release's tag" — `scripts/validate_plugin.py`. Updated by: 1.1
+- I6: "Installing the Claude plugin now needs `git` and network access to GitHub" — `keel/CHANGELOG.md` 5.80.0 entry. Discard reason: a changelog entry records its release; the new entry says the plugin comes from npm again.
+
+## Expectation Coverage
+
+- E1: The Claude plugin updates from the npm package the CLI comes from, carries its components and the pinned OpenSpec, and an existing git-sourced install moves to it (#337, D1, D2, D3). Covered by: 1.1, 1.2
+- E2: The release carries it. Covered by: 2.1
