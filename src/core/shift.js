@@ -13,6 +13,7 @@
 
 const fs = require("fs");
 const os = require("os");
+const zlib = require("zlib");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 const store = require("./chat/store");
@@ -649,6 +650,27 @@ function status(where) {
 
 // --- history (#304 D3, D4) -------------------------------------------------------
 
+// The speaker and text of a conversation record: Claude's `{type, message}`,
+// or a Codex rollout's `{type: "response_item", payload: {type: "message"}}`
+// (#343). Anything else is not conversation.
+function conversationLine(record) {
+  if (!record) return null;
+  if (record.type === "user" || record.type === "assistant") return { speaker: record.type, text: transcriptText(record) };
+  const payload = record.type === "response_item" ? record.payload : null;
+  if (payload && payload.type === "message" && (payload.role === "user" || payload.role === "assistant")) {
+    const parts = Array.isArray(payload.content) ? payload.content : [];
+    const text = parts.filter((part) => part && typeof part.text === "string").map((part) => part.text).join("\n");
+    return { speaker: payload.role, text };
+  }
+  return null;
+}
+
+// A transcript's text, from the host's file or Keel's gzip copy of it.
+function readTranscript(file) {
+  const bytes = fs.readFileSync(file);
+  return (file.endsWith(".gz") ? zlib.gunzipSync(bytes) : bytes).toString("utf8");
+}
+
 function transcriptText(record) {
   const content = record && record.message ? record.message.content : null;
   if (typeof content === "string") return content;
@@ -659,7 +681,7 @@ function transcriptText(record) {
 function grepTranscript(file, needle, limit = 3) {
   const hits = [];
   const lower = needle.toLowerCase();
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+  for (const line of readTranscript(file).split("\n")) {
     if (!line.trim()) continue;
     let record;
     try {
@@ -667,13 +689,14 @@ function grepTranscript(file, needle, limit = 3) {
     } catch {
       continue;
     }
-    if (record.type !== "user" && record.type !== "assistant") continue;
-    const text = transcriptText(record);
+    const said = conversationLine(record);
+    if (!said) continue;
+    const text = said.text;
     const at = text.toLowerCase().indexOf(lower);
     if (at < 0) continue;
     const from = Math.max(0, at - 60);
     const snippet = text.slice(from, at + needle.length + 60).replace(/\s+/g, " ");
-    const hit = { timestamp: record.timestamp || null, speaker: record.type, snippet: `${from ? "…" : ""}${snippet}…` };
+    const hit = { timestamp: record.timestamp || null, speaker: said.speaker, snippet: `${from ? "…" : ""}${snippet}…` };
     // A transcript can hold the same message twice; report it once.
     if (hits.some((seen) => seen.timestamp === hit.timestamp && seen.snippet === hit.snippet)) continue;
     hits.push(hit);
@@ -734,12 +757,19 @@ function history(where, named, grep) {
   const segments = [...recorded.slice().reverse(), ...earlier]
     .filter((segment) => !seen.has(segment.transcript) && seen.add(segment.transcript))
     .sort((a, b) => Date.parse(b.started) - Date.parse(a.started))
-    .map((segment) => ({ ...segment, exists: fs.existsSync(segment.transcript) }));
+    .map((segment) => ({
+      ...segment,
+      exists: fs.existsSync(segment.transcript),
+      kept: segment.kept && fs.existsSync(segment.kept) ? segment.kept : null,
+    }));
   const notes = safeList(path.join(shiftDir(where), "history"))
     .filter((name) => name.startsWith(`${role}-`) && name.endsWith(".md"))
     .sort().reverse().map((name) => path.join(shiftDir(where), "history", name));
   if (grep) {
-    for (const segment of segments) segment.matches = segment.exists ? grepTranscript(segment.transcript, grep) : [];
+    for (const segment of segments) {
+      const source = segment.exists ? segment.transcript : segment.kept;
+      segment.matches = source ? grepTranscript(source, grep) : [];
+    }
   }
   return { role, segments, notes };
 }
@@ -748,7 +778,7 @@ function renderHistory(result, grep) {
   const lines = [];
   for (const segment of result.segments) {
     if (grep && !segment.matches.length) continue;
-    lines.push(`${segment.started} → ${segment.ended || "now"}  ${segment.transcript}${segment.found ? " (found)" : ""}${segment.exists ? "" : " (missing)"}`);
+    lines.push(`${segment.started} → ${segment.ended || "now"}  ${segment.transcript}${segment.found ? " (found)" : ""}${segment.exists ? "" : segment.kept ? " (kept)" : " (missing)"}`);
     for (const hit of segment.matches || []) lines.push(`  ${hit.timestamp || "?"} ${hit.speaker}: ${hit.snippet}`);
   }
   if (!grep) for (const note of result.notes) lines.push(`note  ${note}`);

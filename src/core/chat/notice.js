@@ -15,6 +15,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const store = require("./store");
 const { relativeAge } = require("./view");
 
@@ -257,6 +258,36 @@ function segmentsFile(where, role) {
   return path.join(where.root, "shift", "segments", `${role}.json`);
 }
 
+// Where Keel keeps a copy of a role's ended transcript (#343). It stays on this
+// machine: the chat archive syncs none of `shift/`.
+function keptFile(where, role, transcript) {
+  return path.join(where.root, "shift", "transcripts", role, `${path.basename(transcript)}.gz`);
+}
+
+// Copies each ended segment's transcript that exists and has no up-to-date
+// copy. The host deletes transcripts after its cleanup period (30 days by
+// default for Claude), so the copy is what keeps a shift's conversation. The
+// current segment is left alone: it is still being written.
+function keepEnded(where, role, segments) {
+  for (const segment of segments) {
+    if (!segment.ended || !segment.transcript) continue;
+    try {
+      const source = fs.statSync(segment.transcript);
+      const target = keptFile(where, role, segment.transcript);
+      const kept = segment.kept_from;
+      if (fs.existsSync(target) && kept && kept.size === source.size && kept.mtime === source.mtimeMs) continue;
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const temporary = `${target}.${process.pid}.tmp`;
+      fs.writeFileSync(temporary, zlib.gzipSync(fs.readFileSync(segment.transcript)));
+      fs.renameSync(temporary, target);
+      segment.kept = target;
+      segment.kept_from = { size: source.size, mtime: source.mtimeMs };
+    } catch {
+      // The host's file may already be gone; a copy is a convenience.
+    }
+  }
+}
+
 function recordSegment(where, role, transcript) {
   if (typeof transcript !== "string" || !path.isAbsolute(transcript)) return;
   try {
@@ -267,6 +298,7 @@ function recordSegment(where, role, transcript) {
     const now = store.isoLocal(new Date());
     if (last && !last.ended) last.ended = now;
     segments.push({ transcript, started: now, ended: null });
+    keepEnded(where, role, segments);
     store.writeJsonAtomic(where, file, { segments });
   } catch {
     // A convenience, like presence: never fail the hook.

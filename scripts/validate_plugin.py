@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import gzip
 import hashlib
 import os
 import re
@@ -48,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.142.0"
-PROTOCOL_VERSION = "5.142.0"
+PACKAGE_VERSION = "5.143.0"
+PROTOCOL_VERSION = "5.143.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -6257,6 +6258,118 @@ def validate_host_run_session_scenario() -> int:
             report(f"{label} keel patrol task does not say to create the task from a folder bound to no role: {task.stdout!r} {task.stderr!r}")
             return 1
     report("host-run-session scenario passed.")
+    return 0
+
+
+def validate_shift_keeps_transcripts_scenario() -> int:
+    """Issue #343: a shift's conversation outlives the host's transcript file.
+
+    Claude deletes transcripts after `cleanupPeriodDays` (30 by default), so
+    when a role's session starts a new transcript the hook copies the ended
+    one into Keel's store; `history` and `--grep` read the copy once the
+    host's file is gone, and `--grep` reads a Codex rollout too.
+    """
+    label = "shift-keeps-transcripts:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-343-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        store_root = mailbox_common_dir(rtl) / "keel-chat"
+        kept_dir = store_root / "shift" / "transcripts" / "verify"
+        transcripts = base / "transcripts"
+        transcripts.mkdir()
+
+        def claude_transcript(name: str, said: str) -> Path:
+            path = transcripts / f"{name}.jsonl"
+            path.write_text("\n".join(json.dumps(record) for record in (
+                {"type": "user", "timestamp": "2026-10-12T01:00:00.000Z", "message": {"role": "user", "content": "carry on"}},
+                {"type": "assistant", "timestamp": "2026-10-12T01:00:05.000Z",
+                 "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}},
+            )) + "\n", encoding="utf-8")
+            return path
+
+        def hook(transcript: Path, session: str) -> None:
+            for event, name in (("session-start", "SessionStart"), ("user-prompt-submit", "UserPromptSubmit")):
+                subprocess.run(
+                    ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                    cwd=verify, env=env, text=True, capture_output=True, check=False,
+                    input=json.dumps({"cwd": str(verify), "hook_event_name": name, "session_id": session,
+                                      "prompt": "go", "source": "startup", "transcript_path": str(transcript)}),
+                )
+
+        def history(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(verify, "shift", "history", *args, env=env)
+
+        a = claude_transcript("a", "The arbiter retry budget is four cycles.")
+        b = claude_transcript("b", "Resumed from the note.")
+        hook(a, "s1")
+        hook(b, "s1")
+        kept_a = kept_dir / "a.jsonl.gz"
+        if not kept_a.is_file():
+            report(f"{label} no kept copy of transcript A under {kept_dir}: {sorted(p.name for p in kept_dir.glob('*')) if kept_dir.exists() else 'no directory'}")
+            return 1
+        if gzip.decompress(kept_a.read_bytes()) != a.read_bytes():
+            report(f"{label} the kept copy of A is not A's bytes.")
+            return 1
+        if (kept_dir / "b.jsonl.gz").exists():
+            report(f"{label} the current transcript B was copied while it is still being written.")
+            return 1
+
+        a.unlink()
+        listed = history("verify")
+        line_a = next((l for l in listed.stdout.splitlines() if str(a) in l), "")
+        if "(missing)" in line_a:
+            report(f"{label} A, deleted but kept, is still listed as missing: {line_a!r}")
+            return 1
+        if "(kept)" not in line_a:
+            report(f"{label} A, deleted but kept, is not marked (kept): {line_a!r}")
+            return 1
+        found = history("verify", "--grep", "retry budget")
+        if found.returncode != 0:
+            report(f"{label} --grep for a phrase in the kept copy of A exited {found.returncode}: {found.stdout!r} {found.stderr!r}")
+            return 1
+        if "retry budget" not in found.stdout:
+            report(f"{label} --grep does not print the phrase from the kept copy of A: {found.stdout!r}")
+            return 1
+
+        # A Codex rollout is searched the same way.
+        c = transcripts / "rollout-c.jsonl"
+        c.write_text("\n".join(json.dumps(record) for record in (
+            {"timestamp": "2026-10-18T09:50:18.096Z", "type": "session_meta", "payload": {}},
+            {"timestamp": "2026-10-18T09:50:21.766Z", "type": "response_item",
+             "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Check the FIFO depth for the IECC lane."}]}},
+            {"timestamp": "2026-10-18T09:50:23.621Z", "type": "response_item",
+             "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}},
+        )) + "\n", encoding="utf-8")
+        hook(c, "s2")
+        found = history("verify", "--grep", "FIFO depth")
+        if found.returncode != 0:
+            report(f"{label} --grep for a phrase in a Codex rollout exited {found.returncode}: {found.stdout!r} {found.stderr!r}")
+            return 1
+        if "FIFO depth" not in found.stdout:
+            report(f"{label} --grep does not print the phrase from a Codex rollout: {found.stdout!r}")
+            return 1
+
+        # A transcript that grew after its copy is copied again.
+        with b.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"type": "assistant", "timestamp": "2026-10-12T02:00:00.000Z",
+                                     "message": {"role": "assistant", "content": [{"type": "text", "text": "late line"}]}}) + "\n")
+        d = claude_transcript("d", "Next shift.")
+        hook(d, "s3")
+        kept_b = kept_dir / "b.jsonl.gz"
+        if not kept_b.is_file():
+            report(f"{label} B ended and has no kept copy.")
+            return 1
+        if gzip.decompress(kept_b.read_bytes()) != b.read_bytes():
+            report(f"{label} B's kept copy does not match B after it ended.")
+            return 1
+        with b.open("a", encoding="utf-8") as handle:
+            handle.write("{}\n")
+        e = claude_transcript("e", "Another shift.")
+        hook(e, "s4")
+        if gzip.decompress(kept_b.read_bytes()) != b.read_bytes():
+            report(f"{label} B grew after its copy and was not copied again.")
+            return 1
+    report("shift-keeps-transcripts scenario passed.")
     return 0
 
 
@@ -41238,6 +41351,7 @@ SCENARIOS: tuple = (
     ("owner-language", validate_owner_language_scenario),
     ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
+    ("shift-keeps-transcripts", validate_shift_keeps_transcripts_scenario),
     ("role-drift", validate_role_drift_scenario),
     ("host-run-session", validate_host_run_session_scenario),
     ("shift-without-role", validate_shift_without_role_scenario),
