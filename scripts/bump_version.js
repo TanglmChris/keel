@@ -62,9 +62,9 @@ function bumpPackageFiles(newVersion) {
   process.stdout.write("  updated npm-shrinkwrap.json\n");
 }
 
-// On Claude the plugin is the tagged repository tree. Its root manifest carries
-// the release version, and Keel's marketplace entry names that version and the
-// tag it installs from git. All three move, or a refresh installs the old tree.
+// On Claude the plugin is the npm package (#337). Its root manifest carries the
+// release version, and Keel's marketplace entry names that version and the
+// package version it installs. All three move, or a refresh installs the old one.
 function bumpClaudeMarketplace(newVersion) {
   const manifestRel = ".claude-plugin/plugin.json";
   const manifestPath = path.join(ROOT, manifestRel);
@@ -81,12 +81,12 @@ function bumpClaudeMarketplace(newVersion) {
     !entry
     || !entry.source
     || typeof entry.source !== "object"
-    || entry.source.source !== "url"
+    || entry.source.source !== "npm"
   ) {
-    fail(`expected a git-sourced keel entry in ${relPath}`);
+    fail(`expected an npm-sourced keel entry in ${relPath}`);
   }
   entry.version = newVersion;
-  entry.source.ref = `v${newVersion}`;
+  entry.source.version = newVersion;
   writeJson(filePath, market);
   process.stdout.write(`  updated ${relPath}\n`);
 }

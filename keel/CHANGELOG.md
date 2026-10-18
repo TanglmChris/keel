@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.141.0 - The Claude plugin comes from npm again
+
+Issue #337 (rtl_ppa_prj, 2026-10-14): the owner wants the Claude plugin to update from the npm package the `keel` CLI comes from; on 2026-10-14 a marketplace refresh failed on an SSH host key while npm already had the release. The issue asked for a marketplace manifest in the npm package, but Claude Code does not load a marketplace from npm (its reference lists that source as `not yet implemented`; the 2.1.302 binary carries the string). It does install a plugin from npm. 5.80.0 had moved the plugin from npm to git; the owner chose (2026-10-18), with that history in view, to move it back, since the components now live in the root manifest and Anthropic's directory tracks its own `claude-directory` branch.
+
+- Keel's Claude marketplace entry takes the plugin from npm: `{"source": "npm", "package": "@christang/keel", "version": "<release>"}`. `bump_version.js` moves it with the other markers.
+- The npm package ships `.claude-plugin/plugin.json`, so the package root is the plugin. Without it — as in the published 5.140.0 — an npm install has `Skills (0)` and `Hooks (0)`.
+- An install from the git-sourced entry moves to the npm-sourced one with `claude plugin update`: measured in an isolated configuration, 5.139.0 from git updated to 5.140.0 from npm with the lockfile's OpenSpec.
+- The install smoke now installs exactly the files `npm pack` produces, served to the host through a scratch git repository.
+- The marketplace catalog is still read from GitHub. Both READMEs show how to read it over HTTPS with a `url` marketplace source when a git clone fails.
+- Installing the Claude plugin no longer needs `git`; it needs `npm`, which the host already ran for the pinned OpenSpec.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.141.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.140.0 - Contract drift names its cause
 
 Issue #342 (rtl_ppa_prj): after a CLI upgrade every checked task drifted and the only way to archive was `--keep-evidence`, a claim Keel does not verify. Recompiling rtl_ppa_prj's own commits under the released CLIs (2026-10-18) found two causes: on 2026-10-03 a real compiler change (5.81.0 fingerprints a multi-line decision whole), and on 2026-10-13 no compiler change at all — 5.123.0 and 5.125.0 compile each commit identically, and the one changed field is the inherited standing authorization after `keel/config.yaml` replaced `push:main` with `push-protected:main@iecc-pm`.

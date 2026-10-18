@@ -1,7 +1,7 @@
 # keel-native-plugin-package Specification
 
 ## Purpose
-Define how Keel ships as one native plugin for Codex and Claude: one canonical plugin source, the marketplaces that install and update it, how the plugin and its CLI stay compatible (on Claude, as the tagged repository tree that carries its own CLI), the SessionStart and write-guard hooks it packages for both hosts and the Claude-only chat hooks (notices, idle wake-up, and SessionEnd presence), and what project setup declares about keeping it current.
+Define how Keel ships as one native plugin for Codex and Claude: one canonical plugin source, the marketplaces that install and update it, how the plugin and its CLI stay compatible (on Claude, as the npm package that carries its own CLI), the SessionStart and write-guard hooks it packages for both hosts and the Claude-only chat hooks (notices, idle wake-up, and SessionEnd presence), and what project setup declares about keeping it current.
 ## Requirements
 ### Requirement: Keel has one canonical dual-runtime plugin source
 Keel MUST package one plugin at `plugins/keel` with native Codex and Claude manifests, one canonical portable skill/reference tree, and default-discovered hook assets. It MUST NOT generate per-target copies of the same skill or protocol authority.
@@ -20,7 +20,7 @@ Keel MUST package one plugin at `plugins/keel` with native Codex and Claude mani
 - **THEN** every Keel skill and reference has one canonical source under `plugins/keel/skills`
 - **AND THEN** no `src/skills` or per-target skills copy is current authority
 ### Requirement: Native marketplaces install and update Keel in isolation
-Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Codex catalog MUST reference the `plugins/keel` source, and the Claude catalog MUST reference the Keel repository at the release tag, whose tree contains it. Keel MUST prove fresh install, update/cache refresh, discovery in a fresh session, disable/remove, and reinstall without mutating the developer's personal marketplace during tests.
+Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Codex catalog MUST reference the `plugins/keel` source, and the Claude catalog MUST reference the `@christang/keel` npm package at the release version. Keel MUST prove fresh install, update/cache refresh, discovery in a fresh session, disable/remove, and reinstall without mutating the developer's personal marketplace during tests.
 
 #### Scenario: Codex marketplace installs Keel
 - **WHEN** an isolated Codex home adds the repo marketplace and installs Keel
@@ -28,7 +28,7 @@ Keel MUST provide valid repo marketplace catalogs for Codex and Claude. The Code
 - **AND THEN** a fresh task can discover its skills and hook source
 
 #### Scenario: Claude marketplace installs Keel
-- **WHEN** an isolated Claude configuration validates the marketplace and installs Keel from a git copy of the tree under test
+- **WHEN** an isolated Claude configuration validates the marketplace and installs Keel from the package `npm pack` produces for the tree under test
 - **THEN** Claude lists one Keel plugin with the expected version and component inventory
 - **AND THEN** an updated plugin applies after `/reload-plugins` or at the next session start
 
@@ -160,26 +160,26 @@ git-type spec.
 - **THEN** update packs that explicit git spec instead of the registry default
 - **AND THEN** the explicit override takes precedence over the registry default
 
-### Requirement: The Claude plugin is the tagged repository
+### Requirement: The Claude plugin is the npm package
 
-Keel's Claude plugin MUST be described by a manifest at the repository root, `.claude-plugin/plugin.json`, which declares the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved from the repository root plus the Claude-only chat hooks — UserPromptSubmit, FileChanged, and SessionEnd groups, and a second SessionStart hook, each running `mail-hook.js` — and whose version is the release version. The Claude-only hooks MUST NOT appear in `plugins/keel/hooks/hooks.json`, while Codex explicitly selects its host-compatible `plugins/keel/hooks/codex.json`. Keel's Claude marketplace entry MUST take the plugin from the Keel GitHub repository at the tag `v<version>` of the release version, MUST carry that version, and MUST NOT restate the manifest's components. The repository MUST carry an extensionless executable `bin/keel` and a committed lockfile, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
+Keel's Claude plugin MUST be described by a manifest at the repository root, `.claude-plugin/plugin.json`, which declares the canonical skills, the Claude agent, and hooks equal to `plugins/keel/hooks/hooks.json` with their script paths resolved from the repository root plus the Claude-only chat hooks — UserPromptSubmit, FileChanged, and SessionEnd groups, and a second SessionStart hook, each running `mail-hook.js` — and whose version is the release version. The Claude-only hooks MUST NOT appear in `plugins/keel/hooks/hooks.json`, while Codex explicitly selects its host-compatible `plugins/keel/hooks/codex.json`. The npm package MUST ship that manifest, so that the package root is the plugin. Keel's Claude marketplace entry MUST take the plugin from the npm package `@christang/keel` at exactly the release version, MUST carry that version, and MUST NOT restate the manifest's components. The package MUST carry an extensionless executable `bin/keel` and its `npm-shrinkwrap.json`, so that the host can put `keel` on the agent's PATH and install the pinned OpenSpec dependency.
 
-#### Scenario: One tree carries the plugin and its CLI
-- **WHEN** the root manifest and the Claude marketplace entry are inspected
-- **THEN** the manifest's skills and agent resolve inside the repository, its hooks equal `plugins/keel/hooks/hooks.json` after resolving script paths from the root plus exactly the Claude-only chat hooks, and its version is the release version
-- **AND THEN** the entry's source is the Keel repository at `v<version>`, and the entry declares no skills, agents, or hooks
+#### Scenario: One package carries the plugin and its CLI
+- **WHEN** the root manifest, the npm package's file list, and the Claude marketplace entry are inspected
+- **THEN** the manifest's skills and agent resolve inside the repository, its hooks equal `plugins/keel/hooks/hooks.json` after resolving script paths from the root plus exactly the Claude-only chat hooks, its version is the release version, and `npm pack` includes it
+- **AND THEN** the entry's source is `npm` `@christang/keel` at the release version, and the entry declares no skills, agents, or hooks
 
 #### Scenario: The Codex-shared hooks carry no Claude-only event
 - **WHEN** `plugins/keel/hooks/hooks.json` is inspected
 - **THEN** it declares only SessionStart and PreToolUse and no `asyncRewake` field
 
-#### Scenario: The git install carries the pinned OpenSpec
-- **WHEN** an isolated Claude configuration installs Keel from a git copy of the tree under test through the committed entry's shape
+#### Scenario: The packaged install carries the pinned OpenSpec
+- **WHEN** an isolated Claude configuration installs Keel from the package `npm pack` produces for the tree under test, through the committed entry's shape
 - **THEN** the installed plugin lists the Keel skills and both hooks, and its `node_modules/.bin/openspec` reports the version the lockfile pins
 
-#### Scenario: An npm-sourced install updates to the git-sourced one
-- **WHEN** a configuration that installed Keel from the npm-sourced entry updates after the marketplace names the git-sourced one
-- **THEN** the updated plugin is the git-sourced tree and carries the pinned OpenSpec
+#### Scenario: A git-sourced install updates to the npm-sourced one
+- **WHEN** a configuration that installed Keel from the git-sourced entry updates after the marketplace names the npm-sourced one
+- **THEN** the updated plugin is the npm package's tree and carries the pinned OpenSpec
 
 ### Requirement: Each release updates the directory branch
 
