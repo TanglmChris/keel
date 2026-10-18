@@ -1039,8 +1039,8 @@ function transientOwnerMessage(candidate) {
 // global because each resolved claim owes its own evidence; checking only the
 // first would let a second one assert itself for free.
 // A marker is a disposition only where it OPENS its clause: the start of the
-// value, a line break, or sentence-ending punctuation may precede it, and a word
-// may not. `Not resolved here:` contains the marker and means its opposite, and a
+// value, a line break, or sentence-ending punctuation may precede it, each
+// optionally followed by a list item's bullet, and a word may not. `Not resolved here:` contains the marker and means its opposite, and a
 // `\b` boundary sat happily at the space inside it — the negation was read as a
 // resolution claim and the next word, `it`, as its evidence, so a dismissal was
 // read as a repair and then refused for lacking repair evidence (issue #144).
@@ -1050,7 +1050,12 @@ function transientOwnerMessage(candidate) {
 // Written as a lookbehind so the captures keep reading from the same offsets —
 // every rule here is positional, and a rule that shortened the text would move
 // what they read.
-const CLAUSE_OPENING = "(?<=^|[\\n.;:!?\u2014\u2013])[ \\t]*";
+//
+// A Findings written as a sub-list reaches this scan as a line break, the
+// item's indentation and its bullet, so the bullet is an opening too: without
+// it `- Resolved here: M1` read as a mid-sentence mention and was refused for
+// carrying no disposition, while the same text on the label's line passed (#362).
+const CLAUSE_OPENING = "(?<=^|[\\n.;:!?\u2014\u2013])[ \\t]*(?:[-*+][ \\t]+)?";
 
 const RESOLVED_HERE = new RegExp(
   `${CLAUSE_OPENING}resolved here\\s*:[ \\t]*(\\S*)`,
@@ -1684,7 +1689,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
             + (mentionsUnopenedMarker(scannable)
               ? " A marker counts only where it opens its clause — after the "
                 + "start of the value, a line break, or sentence-ending "
-                + "punctuation. This text mentions one mid-sentence, so it was "
+                + "punctuation, or the bullet of a list item. This text mentions one mid-sentence, so it was "
                 + "read as prose; move it to the start of its own clause, or "
                 + "keep it as prose and add the disposition separately."
               : "")
