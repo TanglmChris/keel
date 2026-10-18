@@ -476,7 +476,8 @@ function lenientMentions(project, group, text) {
   const state = store.groupState(store.readLog(project.where, group));
   const aliases = store.aliasMap(project.where.root);
   const mentions = [];
-  for (const match of String(text).matchAll(MENTION)) {
+  // Quoted text is not a mention here either (#345).
+  for (const match of store.mentionText(text).matchAll(MENTION)) {
     const token = match[2].replace(/[-/]+$/, "").toLowerCase();
     let role = null;
     if (token === store.ALL || token === store.OWNER || token.includes("/") || state.members.has(token)) role = token;

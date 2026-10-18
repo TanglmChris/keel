@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.148.0"
-PROTOCOL_VERSION = "5.148.0"
+PACKAGE_VERSION = "5.149.0"
+PROTOCOL_VERSION = "5.149.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2448,6 +2448,57 @@ def chat_scratch_group(base: Path) -> tuple[Path, Path, dict[str, str]]:
         run_keel(cwd, "chat", "role", "--set", role, env=env)
     run_keel(rtl, "chat", "group", "create", "soc", "--member", "verify", env=env)
     return rtl, verify, env
+
+
+def validate_chat_mention_skips_code_scenario() -> int:
+    """Issue #345: `keel chat post` refused a whole message over `@<commit-id>`
+    or an `@word` inside backticks.
+
+    The refusal exists so a typo cannot post a message that reaches nobody;
+    a commit id (`branch @ 638059e4`) and quoted text are not mentions.
+    """
+    label = "chat-mention-skips-code:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-345-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+
+        def post(text: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "chat", "post", "soc", text, "--json", env=env)
+
+        for name, text in (
+            ("commit-id", "main moved: claude/x @638059e4 waiting for the push window"),
+            ("long-commit-id", "landed @638059e4c0ffee1234567890abcdef12345678"),
+            ("inline-code", "write it as `@verifyy` in the note"),
+            ("fenced", "example:\n```\nkeel chat post soc @nobody hi\n```\nthat is all"),
+        ):
+            result = post(text)
+            if result.returncode != 0:
+                report(f"{label} a post with {name} was refused: {result.stdout!r} {result.stderr!r}")
+                return 1
+            mentions = chat_json(result).get("mentions", [])
+            if mentions:
+                report(f"{label} a post with {name} recorded mentions {mentions!r}.")
+                return 1
+
+        typo = post("@verifyy please check")
+        if typo.returncode == 0:
+            report(f"{label} a bare typo is no longer refused: {typo.stdout!r}")
+            return 1
+        if "@verifyy is not a member" not in typo.stderr:
+            report(f"{label} a bare typo's refusal does not name it: {typo.stderr!r}")
+            return 1
+        real = post("`@nobody` is quoted, @verify is asked")
+        if real.returncode != 0:
+            report(f"{label} a real mention beside quoted text was refused: {real.stderr!r}")
+            return 1
+        if chat_json(real).get("mentions") != ["verify"]:
+            report(f"{label} a real mention beside quoted text was not recorded alone: {real.stdout!r}")
+            return 1
+    if "chat-mention-skips-code" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-mention-skips-code scenario passed.")
+    return 0
 
 
 def validate_chat_supersedes_scenario() -> int:
@@ -41790,6 +41841,7 @@ SCENARIOS: tuple = (
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
+    ("chat-mention-skips-code", validate_chat_mention_skips_code_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
