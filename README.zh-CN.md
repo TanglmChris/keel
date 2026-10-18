@@ -38,14 +38,36 @@ Node.js `>=20.19.0`（内置的 OpenSpec CLI 需要）。
 
 ## 安装
 
-**Claude Code** —— 装插件就够了。插件就是本仓库在发布 tag 上的那棵树，和 npm 发布的 `@christang/keel`
-是同一份，技能和 hook 之外还带着 `keel` CLI；安装插件时 Claude 会按锁文件装好锁定版本的 OpenSpec。
+**Claude Code** —— 装插件就够了。插件就是发布版本的 npm 包 `@christang/keel`，和 `keel` CLI 来自同一个包，
+技能和 hook 之外还带着 `keel` CLI；安装插件时 Claude 会按锁文件装好锁定版本的 OpenSpec（#337）。
 agent 运行的 `keel` 就是插件带来的这一份：
 
 ```bash
 claude plugin marketplace add TanglmChris/keel
 claude plugin install keel@keel-marketplace
 ```
+
+插件用你的 npm 客户端获取；只有 marketplace 清单 `.claude-plugin/marketplace.json` 从 GitHub 读取。
+如果某台机器 clone GitHub 失败（SSH host key、代理等），可以改为用 `url` 来源、通过 HTTPS 读取清单：
+
+```bash
+claude plugin marketplace add https://raw.githubusercontent.com/TanglmChris/keel/main/.claude-plugin/marketplace.json
+```
+
+或者在 `~/.claude/settings.json` 里声明：
+
+```json
+"extraKnownMarketplaces": {
+  "keel-marketplace": {
+    "source": {
+      "source": "url",
+      "url": "https://raw.githubusercontent.com/TanglmChris/keel/main/.claude-plugin/marketplace.json"
+    }
+  }
+}
+```
+
+Claude Code 目前还不支持从 npm 包加载 marketplace（其参考文档把这种来源列为尚未实现），所以清单本身还不能也从 npm 来。
 
 项目初始化后，更新会自己到来：`keel --init --target claude`（以及 `keel --install`）会在项目的
 `.claude/settings.json` 里为 `keel-marketplace` 声明自动更新，Claude 先读这个声明，而不是它默认的"关闭"。

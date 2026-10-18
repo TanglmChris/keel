@@ -47,15 +47,39 @@ Node.js `>=20.19.0` (the bundled OpenSpec CLI needs it).
 
 ## Install
 
-**Claude Code** — the plugin is the whole install. It is this repository at the release's tag,
-the same tree npm publishes as `@christang/keel`, so it carries the `keel` CLI along with the
+**Claude Code** — the plugin is the whole install. It is the npm package `@christang/keel` at the
+release version, the same package the `keel` CLI comes from, so it carries the CLI along with the
 skills and hooks, and Claude installs the pinned OpenSpec from its lockfile when it installs the
-plugin. The agent's `keel` commands run the copy the plugin brought:
+plugin (#337). The agent's `keel` commands run the copy the plugin brought:
 
 ```bash
 claude plugin marketplace add TanglmChris/keel
 claude plugin install keel@keel-marketplace
 ```
+
+The plugin is fetched with your npm client; only the marketplace catalog,
+`.claude-plugin/marketplace.json`, is read from GitHub. If cloning GitHub fails on a machine — an SSH
+host key, a proxy — read the catalog over HTTPS instead, with a `url` marketplace source:
+
+```bash
+claude plugin marketplace add https://raw.githubusercontent.com/TanglmChris/keel/main/.claude-plugin/marketplace.json
+```
+
+or, declared in `~/.claude/settings.json`:
+
+```json
+"extraKnownMarketplaces": {
+  "keel-marketplace": {
+    "source": {
+      "source": "url",
+      "url": "https://raw.githubusercontent.com/TanglmChris/keel/main/.claude-plugin/marketplace.json"
+    }
+  }
+}
+```
+
+Claude Code does not yet load a marketplace from an npm package (its reference lists that source as
+not implemented), so the catalog cannot come from npm too.
 
 Updates arrive by themselves once a project is set up: `keel --init --target claude` (and
 `keel --install`) declares auto-update for `keel-marketplace` in the project's
