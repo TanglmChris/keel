@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.143.0 - A shift's conversation is kept, not only pointed at
+
+Issue #343 (owner, 2026-10-15; an explicit exception to the shift freeze): `keel shift history` listed each shift's transcript by path, and the host deletes transcripts — Claude Code after `cleanupPeriodDays`, 30 days unless set, and unset on the owner's machine — after which `history` printed `(missing)` and `--grep` found nothing. The owner settled the open questions on 2026-10-18: copy when the next segment starts, keep it local, raw JSONL gzip-compressed, keep everything, and cover Codex too.
+
+- When a role's session starts a new transcript, the chat hook copies each ended segment that exists and has no up-to-date copy into `<git common dir>/keel-chat/shift/transcripts/<role>/<name>.gz`, unchanged bytes gzip-compressed. The current segment is never copied. Measured: keel-maint's 9 ended transcripts, 19.2 MB, compress to 3.9 MB in 609 ms.
+- The copy stays on this machine: the chat archive syncs `groups`, `cursors`, `members` and `presence` only. Nothing is pruned.
+- `keel shift history` marks a segment whose host file is gone `(kept)` and `--grep` searches the copy.
+- Codex is covered by the same hook: a real `codex exec` (codex-cli 0.163.0) recorded its rollout file as the role's segment, and `--grep` now reads Codex rollout messages as well as Claude's.
+- docs/shift-change.md follows.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.143.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.142.0 - A hung host query is bounded and reported as one
 
 Issue #354 (split from #329): on 2026-10-14 `codex plugin list --json` hung for minutes through the owner's proxy, and `keel --update` gave every host call five minutes. The code also turned a failed query into a false statement: `plugin list --json` returning null read as a host with no Keel, so the line said `absent` — "is not installed here or has no Keel plugin". Owner, 2026-10-18: a short limit for the read-only query and an honest failure line.
