@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.144.0 - The Claude marketplace refresh is retried once
+
+Issue #359: on 2026-10-18, after both the 5.139.0 and 5.143.0 releases, `keel --update` on the owner's proxied link reported `claude plugin marketplace update keel-marketplace` `exited 1`, and the same command run directly right after passed. The Codex refresh already retried once (#329); the Claude one did not, and the failure line named only the exit status.
+
+- `claude plugin marketplace update` is retried once when it fails; two failures read `failed` and say the refresh failed twice. `claude plugin update` is not retried.
+- A host step that exits nonzero names its exit status and, when the host wrote any, its last line of stderr, so the cause shows the first time. docs/updating.md follows.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.144.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.143.0 - A shift's conversation is kept, not only pointed at
 
 Issue #343 (owner, 2026-10-15; an explicit exception to the shift freeze): `keel shift history` listed each shift's transcript by path, and the host deletes transcripts — Claude Code after `cleanupPeriodDays`, 30 days unless set, and unset on the owner's machine — after which `history` printed `(missing)` and `--grep` found nothing. The owner settled the open questions on 2026-10-18: copy when the next segment starts, keep it local, raw JSONL gzip-compressed, keep everything, and cover Codex too.

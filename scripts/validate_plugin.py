@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.143.0"
-PROTOCOL_VERSION = "5.143.0"
+PACKAGE_VERSION = "5.144.0"
+PROTOCOL_VERSION = "5.144.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -23771,6 +23771,7 @@ if (failOn && args.join(" ").includes(failOn)) {
   if (failed < failTimes) {
     state.failed = { ...(state.failed || {}), [host]: failed + 1 };
     save();
+    process.stderr.write(`fake ${host}: warming up\nfake ${host}: refused ${args.join(" ")}\n`);
     process.exit(1);
   }
 }
@@ -24044,6 +24045,97 @@ def validate_update_host_query_timeout_scenario() -> int:
             report(f"{label} --dry-run with a hung query exited {result.returncode}: {result.stdout!r}")
             return 1
     report("update-host-query-timeout scenario passed.")
+    return 0
+
+
+def validate_update_claude_refresh_retry_scenario() -> int:
+    """Issue #359: the Claude marketplace refresh failed once and passed on a direct retry.
+
+    `keel --update` retries `claude plugin marketplace update` once, as it does
+    Codex's refresh, and a step that still fails names the host's last stderr
+    line instead of only its exit status.
+    """
+    label = "update-claude-refresh-retry:"
+    refresh = ["claude", "plugin", "marketplace", "update", "keel-marketplace"]
+    plugin_update = ["claude", "plugin", "update", "keel@keel-marketplace"]
+    with tempfile.TemporaryDirectory(prefix="keel-update-359-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+
+        def update(fail_on: str, times: str):
+            log, state = tmp / "log.jsonl", tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "CODEX_HOME": str(tmp / "codex-home"),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state), "FAKE_CODEX_SOURCE": str(tmp / "codex-source"),
+                "FAKE_FAIL_CLAUDE": fail_on, "FAKE_FAIL_TIMES_CLAUDE": times,
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=60)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            line = [l for l in result.stdout.splitlines() if l.startswith("keel update: claude plugin:")]
+            return result, calls, (line[0] if len(line) == 1 else "")
+
+        result, calls, line = update("marketplace update", "1")
+        runs = sum(1 for c in calls if c[:5] == refresh)
+        if runs != 2:
+            report(f"{label} the Claude marketplace update ran {runs} time(s) after one failure, not 2: {calls!r}")
+            return 1
+        if sum(1 for c in calls if c[:4] == plugin_update) != 1:
+            report(f"{label} a refresh that succeeded on retry did not run plugin update once: {calls!r}")
+            return 1
+        if "5.0.0 -> 5.1.0" not in line:
+            report(f"{label} a refresh that succeeded on retry did not report the new version: {line!r}")
+            return 1
+        if result.returncode != 0:
+            report(f"{label} a refresh that succeeded on retry exited {result.returncode}: {result.stdout!r}")
+            return 1
+
+        result, calls, line = update("marketplace update", "9")
+        runs = sum(1 for c in calls if c[:5] == refresh)
+        if runs != 2:
+            report(f"{label} a lasting failure ran the marketplace update {runs} time(s), not 2: {calls!r}")
+            return 1
+        if any(c[:4] == plugin_update for c in calls):
+            report(f"{label} a lasting refresh failure still ran plugin update: {calls!r}")
+            return 1
+        if result.returncode == 0:
+            report(f"{label} a lasting refresh failure left the exit status 0: {result.stdout!r}")
+            return 1
+        for needle in ("failed", "failed twice", "fake claude: refused plugin marketplace update"):
+            if needle not in line:
+                report(f"{label} the failed Claude line does not name {needle!r}: {line!r}")
+                return 1
+        if "warming up" in line:
+            report(f"{label} the failed Claude line carries more than the last stderr line: {line!r}")
+            return 1
+
+        # A step with no retry still names the host's own error, not only its status.
+        result, calls, line = update("plugin update keel", "9")
+        if sum(1 for c in calls if c[:4] == plugin_update) != 1:
+            report(f"{label} a failing plugin update was retried or skipped: {calls!r}")
+            return 1
+        for needle in ("failed", "exited 1", "fake claude: refused plugin update"):
+            if needle not in line:
+                report(f"{label} the failed plugin-update line does not name {needle!r}: {line!r}")
+                return 1
+    if "update-claude-refresh-retry" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-claude-refresh-retry scenario passed.")
     return 0
 
 
@@ -41335,6 +41427,7 @@ SCENARIOS: tuple = (
     ("adopted-update-is-silent-unless-reload", validate_adopted_update_is_silent_unless_reload_scenario),
     ("update-covers-installed-hosts", validate_update_covers_installed_hosts_scenario),
     ("update-codex-refresh-retry", validate_update_codex_refresh_retry_scenario),
+    ("update-claude-refresh-retry", validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
