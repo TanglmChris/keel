@@ -20,7 +20,9 @@ Each component prints one line, `keel update: <component>: <status> - <detail>`,
 - `updated A -> B` or `current B`;
 - `absent`: the host is not installed or has no Keel plugin — a `plugin list --json` query, allowed 30 s where the update commands get five minutes, that times out, exits nonzero, or prints no JSON is reported `failed` instead, naming the command and why (#354);
 - `manual`: a step only you can take;
-- `failed`: the command that failed, which also makes `keel --update` exit nonzero.
+- `failed`: the command that failed and why — its exit status and, when the host wrote any, its last line of error output (#359) — which also makes `keel --update` exit nonzero.
+
+The Claude marketplace refresh is retried once when it fails, as the Codex one is: on a proxied link it has failed once and passed on a direct rerun (#359). A refresh that fails twice reads `failed` and says so.
 
 `keel --update --dry-run` prints the commands and runs none. No hook ever runs any of this. Only you do, by running the command.
 

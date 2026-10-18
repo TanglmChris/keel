@@ -1097,12 +1097,19 @@ function hostFails(executable, args) {
   return Boolean(result.error) || result.status !== 0;
 }
 
+// Why a host step failed: its spawn error, or its exit status with the last
+// line it wrote to stderr, so the cause is visible the first time (#359).
+function hostFailure(result) {
+  if (result.error) return result.error.message;
+  const last = String(result.stderr || "").trim().split(/\r?\n/).pop().trim();
+  return `exited ${result.status}${last ? `: ${last}` : ""}`;
+}
+
 function runHostSteps(component, name, executable, steps) {
   for (const args of steps) {
     const result = hostRun(executable, args);
     if (result.error || result.status !== 0) {
-      const why = result.error ? result.error.message : `exited ${result.status}`;
-      updateLine(component, "failed", `\`${name} ${args.join(" ")}\` ${why}`);
+      updateLine(component, "failed", `\`${name} ${args.join(" ")}\` ${hostFailure(result)}`);
       return false;
     }
   }
@@ -1133,7 +1140,15 @@ function updateClaudePlugin(options) {
     updateLine(component, "absent", "Claude Code is not installed here or has no Keel plugin");
     return true;
   }
-  if (!runHostSteps(component, "claude", executable, steps)) return false;
+  // The refresh fetches over the network, and on a proxied link it has failed
+  // once and passed on a direct retry; one retry absorbs that, as for Codex (#359).
+  let refreshed = hostRun(executable, steps[0]);
+  if (refreshed.error || refreshed.status !== 0) refreshed = hostRun(executable, steps[0]);
+  if (refreshed.error || refreshed.status !== 0) {
+    updateLine(component, "failed", `\`claude ${steps[0].join(" ")}\` failed twice; ${hostFailure(refreshed)}`);
+    return false;
+  }
+  if (!runHostSteps(component, "claude", executable, [steps[1]])) return false;
   const after = claudeKeel(executable);
   if (after && after.failed) {
     updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
