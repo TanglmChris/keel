@@ -666,10 +666,20 @@ keel gate task-start --change <c> --task <t> --record --keep-evidence M1,M3
 ```
 
 The report then names only the checks still stale, names the ones you declared unaffected, and says
-the narrowing came from your declaration. **Keel does not verify the claim** — it keeps only the
+the narrowing came from your declaration. **Keel does not verify the claim** — the anchor keeps the
 previous fingerprint, not the capsule behind it, so it cannot compare a check's former text to its
 current one. State your reason in the task's `Reauthorizations` line, where a reviewer can disagree
 with it. Nothing about completion changes: every check still needs its Evidence.
+
+When Git can say what moved, the drift message says it instead (#342). The anchor records the Keel
+version beside the digest — `- Contract: keel-task-capsule/v1 sha256:<hex> (keel <version>)` — and
+on drift Keel compiles the task's sources from the commit that recorded the anchor with the running
+compiler. If that commit reproduces the anchor, the message names the capsule fields that changed
+since it. If it does not, but the anchor came from another Keel version and the commit compiles to
+today's fingerprint, the cause is a compiler change: re-record with `task-start --record`, and the
+evidence stands without a `--keep-evidence` claim. Otherwise nothing is claimed. A checked task
+whose only change since its recording commit is the inherited standing authorization in
+`keel/config.yaml` does not fail `change-close`; it is named in a warning.
 
 ## Pausing a change
 
