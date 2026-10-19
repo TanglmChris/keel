@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.154.0 - An all-digit sha a note names is still a commit
+
+5.152.0 (#347) read a commit id in a shift note as 7–40 hex digits with a letter and a digit, so a date would not count; about 2% of short shas are all digits and were skipped, even after `@`. CI hit it at random on 2026-10-19 (`'feat @ 02607471' is not marked …`).
+
+- After `@` in `<branch> @ <sha>`, any 7–40 hex digits are a commit id. A bare all-digit token is listed when it resolves to a commit, so a date still is not.
+- `shift-resume-checks-commits` now exercises an all-digit sha on every run instead of 2% of them.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.154.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.153.0 - A patrol recommends its next run
 
 Issue #356 (rtl_ppa_prj coordinator, 2026-10-18): the patrol ran at a fixed `every:` cadence — hourly all day, though most runs during waits and overnight only recorded presence flips, and an hour is too slow once a risk appears — and the project wrote its own adaptive rules into its host task. On 2026-10-19 the owner chose one model-free CLI waker (`keel tick`) to run the patrol on this recommendation.
