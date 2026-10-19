@@ -475,14 +475,16 @@ function ready(where, options) {
       store.writeRecord(where, { group: todo.group, kind: "done", from: role, target: todo.id });
     }
   }
-  // A CLI session cannot clear itself: `keel tick` stops it once idle and
-  // starts the next (#357 D1), so nothing waits for a clear.
+  // A CLI session cannot clear itself: its hand-over stops it once it has
+  // finished and starts the next (#357 D1), so nothing waits for a clear. A
+  // waiter carries it out within seconds; `keel tick` stays as the fallback (#388 D1).
   const queued = options.wake && cli ? queueHandOff(where, role, cli) : null;
-  const waiter = options.wake && !queued ? armWake(where, role, since) : null;
+  const waiter = options.wake && !queued ? armWake(where, role, since) : queued ? armHandOver(where, role) : null;
   return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, queued, startedBy: role ? null : options.forceReason, desktop, pid, cli, worktree: where.worktree };
 }
 
 // --- the CLI hand-off queue (#357) --------------------------------------------------
+// `ready --wake` queues an entry; the waiter it leaves and `keel tick` both carry it out (#388).
 
 function queueFile(where, role) {
   return path.join(shiftDir(where), "queue", `${role}.json`);
@@ -501,50 +503,146 @@ function handOffs(where) {
 
 const SHIFT_START_TEXT = (role) => `${role}: your new shift starts now. Run keel context, then keel shift resume.`;
 
-// One step of the waker (#357 D2): a busy old session waits; an idle or gone
-// one is stopped (kept: \`claude attach\` reopens it) and a new session starts.
-function handOver(where) {
+// The old session has finished when it is gone, or is not busy and its job
+// state is not a turn in progress: a session blocked on a question to the owner
+// reads `idle` with state `working`, and stopping it cuts the conversation off (#388).
+function finished(row) {
+  if (!row) return true;
+  if (row.status === "busy") return false;
+  return !row.state || ["done", "idle", "stopped"].includes(row.state);
+}
+
+function listAgents(claude) {
+  const listed = spawnSync(claude, ["agents", "--json", "--all"], { encoding: "utf8" });
+  try {
+    const parsed = JSON.parse(listed.stdout);
+    return listed.status === 0 && Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// Stop the old session, give it a name that says it shifted, stop it again. The
+// rename is a resume with `/rename` and no other flag, which keeps the session id
+// and shows in `claude agents` (measured 2026-10-19); it is best effort (#388 D4).
+function retire(claude, entry, row) {
+  const id = row.id || entry.session.slice(0, 8);
+  if (row.state !== "stopped") spawnSync(claude, ["stop", id], { encoding: "utf8" });
+  const stamp = store.isoLocal(new Date()).slice(0, 16).replace("T", " ");
+  const name = `${entry.role} · shifted ${stamp}`;
+  spawnSync(claude, ["--bg", "--resume", entry.session, `/rename ${name}`], { encoding: "utf8", cwd: row.cwd || entry.worktree });
+  const deadline = Date.now() + envMs("KEEL_SHIFT_RENAME_WAIT_MS", 30000);
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  let shown = false;
+  for (;;) {
+    const now = (listAgents(claude) || []).find((item) => item && item.sessionId === entry.session);
+    shown = Boolean(now && now.name === name);
+    if (shown || Date.now() >= deadline) break;
+    Atomics.wait(pause, 0, 0, 500);
+  }
+  spawnSync(claude, ["stop", id], { encoding: "utf8" });
+  return shown ? name : null;
+}
+
+// One runner at a time per role (#388 D2): the waiter and the tick both carry
+// hand-overs out, and a lock younger than two minutes is the other's.
+function withHandOverLock(where, role, fn) {
+  const file = path.join(shiftDir(where), "queue", `${role}.lock`);
+  try {
+    if (Date.now() - fs.statSync(file).mtimeMs > 2 * 60 * 1000) fs.unlinkSync(file);
+  } catch {
+    // no lock yet
+  }
+  let fd;
+  try {
+    fd = fs.openSync(file, "wx");
+  } catch {
+    return null;
+  }
+  try {
+    return fn();
+  } finally {
+    fs.closeSync(fd);
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // already gone
+    }
+  }
+}
+
+// One step of the waker (#357 D2): a busy or unfinished old session waits; a
+// finished or gone one is retired (kept: \`claude attach\` reopens it) and a new
+// session starts. `only` limits the step to one role (the waiter's).
+function handOver(where, only = null) {
   const { readShiftDeclaration } = require("./config");
   const claude = process.env.KEEL_CLAUDE || "claude";
-  const pending = handOffs(where).filter((entry) => entry.state === "pending");
+  const pending = handOffs(where).filter((entry) => entry.state === "pending" && (!only || entry.role === only));
   if (!pending.length) return [];
-  const listed = spawnSync(claude, ["agents", "--json"], { encoding: "utf8" });
-  let sessions = [];
-  try {
-    sessions = JSON.parse(listed.stdout);
-  } catch {
-    sessions = [];
-  }
+  const sessions = listAgents(claude);
+  // A listing that failed says nothing about the old session: wait for the next step.
+  if (!sessions) return [];
   const done = [];
-  for (const entry of pending) {
-    const row = (Array.isArray(sessions) ? sessions : []).find((item) => item && item.sessionId === entry.session);
-    if (row && row.status === "busy") continue;
-    // `stop`, `attach` and `logs` take the 8-character job id, not the full
-    // session id (`No job matching`, measured 2026-10-19).
-    if (row) spawnSync(claude, ["stop", row.id || entry.session.slice(0, 8)], { encoding: "utf8" });
-    const mode = readShiftDeclaration(entry.worktree).permissionMode;
-    const started = spawnSync(claude, ["--bg", "-n", entry.role, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
-      cwd: entry.worktree, encoding: "utf8",
+  for (const queued of pending) {
+    const ran = withHandOverLock(where, queued.role, () => {
+      const entry = store.readJsonFile(queueFile(where, queued.role));
+      if (!entry || entry.state !== "pending") return null;
+      const row = sessions.find((item) => item && item.sessionId === entry.session);
+      if (!finished(row)) return null;
+      // `stop`, `attach` and `logs` take the 8-character job id, not the full
+      // session id (`No job matching`, measured 2026-10-19).
+      if (row) entry.renamed = retire(claude, entry, row);
+      const mode = readShiftDeclaration(entry.worktree).permissionMode;
+      const started = spawnSync(claude, ["--bg", "-n", entry.role, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
+        cwd: entry.worktree, encoding: "utf8",
+      });
+      const output = `${started.stdout || ""}`;
+      if (!started.error && started.status === 0) {
+        const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
+        Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id });
+      } else {
+        const reason = started.error ? started.error.message : String(started.stderr || output).trim().split(/\r?\n/).pop();
+        Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
+      }
+      store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+      return entry;
     });
-    const output = `${started.stdout || ""}`;
-    if (!started.error && started.status === 0) {
-      const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
-      Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id });
-    } else {
-      const reason = started.error ? started.error.message : String(started.stderr || output).trim().split(/\r?\n/).pop();
-      Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
-    }
-    store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
-    done.push(entry);
+    if (ran) done.push(ran);
   }
   return done;
+}
+
+// `ready --wake` on the CLI leaves this waiter (#388 D1). Its working directory
+// is `/`, so `check` never counts it, and its environment has none of the old
+// session's `CLAUDE*` variables, which the claude it starts must not inherit.
+function armHandOver(where, role) {
+  const keel = path.resolve(__dirname, "..", "..", "bin", "keel.js");
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("CLAUDE")));
+  const child = spawn(process.execPath, [keel, "shift", "handover-wait", "--role", role, "--repo", where.worktree],
+    { detached: true, stdio: "ignore", cwd: path.parse(where.worktree).root, env });
+  child.unref();
+  return child.pid;
+}
+
+function waitForHandOver(where, role) {
+  const poll = envMs("KEEL_SHIFT_HANDOVER_POLL_MS", 3000);
+  const deadline = Date.now() + envMs("KEEL_SHIFT_HANDOVER_TIMEOUT_MS", 2 * 60 * 60 * 1000);
+  const step = () => {
+    const entry = store.readJsonFile(queueFile(where, role));
+    if (!entry || entry.state !== "pending" || Date.now() > deadline) return;
+    handOver(where, role);
+    setTimeout(step, poll);
+  };
+  // `ready` has just run, so the session is still finishing its turn: look first after one interval.
+  setTimeout(step, poll);
 }
 
 function describeHandOff(entry) {
   const tail = entry.state === "delivered"
     ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}`
     : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}` : "pending: waits for the session to go idle";
-  return `- ${entry.role}: ${tail}; requested ${entry.requested_at}; old session kept, reopen it with \`claude attach ${entry.session.slice(0, 8)}\``;
+  const renamed = entry.state === "delivered" ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
+  return `- ${entry.role}: ${tail}${renamed}; requested ${entry.requested_at}; old session kept, reopen it with \`claude attach ${entry.session.slice(0, 8)}\``;
 }
 
 // A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
@@ -995,9 +1093,9 @@ const CLEAR_HINT = [
 // or — without a chat role — the person who opens it.
 function clearHint(result) {
   if (result.queued) {
-    return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session is idle, "
-      + `\`keel tick\` stops it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
-      + `in ${result.worktree} that runs \`keel shift resume\`. \`keel shift status\` shows the hand-off.`;
+    return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session has finished, "
+      + `a waiter stops it and renames it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
+      + `in ${result.worktree} that runs \`keel shift resume\`; \`keel tick\` does the same if the waiter is gone. \`keel shift status\` shows the hand-off.`;
   }
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
@@ -1098,6 +1196,13 @@ function runShift(argv) {
         if (!options.role || !Number.isFinite(options.since)) throw new ShiftError("keel shift wake-wait needs --role and --since.");
         store.checkName(options.role, "Role");
         waitForWake(where, options.role, options.since);
+        return 0;
+      }
+      case "handover-wait": {
+        // Internal: the detached waiter `ready --wake` spawns in a CLI session.
+        if (!options.role) throw new ShiftError("keel shift handover-wait needs --role.");
+        store.checkName(options.role, "Role");
+        waitForHandOver(where, options.role);
         return 0;
       }
       case "start": {
