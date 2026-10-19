@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.152.0 - A resumed note's commits are checked against the remote
+
+Issue #347 (rtl_ppa_prj): shift notes go stale between `ready` and `resume`, and the next shift acted on one that called a commit "waiting to be merged" after it had reached `origin/main`.
+
+- `keel shift resume` lists, after the note, each commit id and `<branch> @ <sha>` the note names — a commit id being 7–40 hex digits with a letter and a digit, so a date is not one — marked `already in origin/<default>`, `branch moved: now <sha>`, `branch gone` or `not found`; `--json` carries it as `commits`.
+- It reads the remote-tracking refs as they are, fetches nothing, and says when they were last fetched; fetch first for a current answer.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.152.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.151.0 - Chat posts carry Keel's time by default
 
 Issue #349 (rtl_ppa_prj coordinator, 2026-10-18): `--stamp` (#298) was opt-in, so replies written without it carried hand-typed times — one said "12:0x" at 12:50 — in a project that expects every message to carry a time.
