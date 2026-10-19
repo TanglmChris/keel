@@ -41,7 +41,7 @@ patrol:
   cadence: adaptive
 ```
 
-`runner: tick` 告诉协调者的新会话和 `keel shift resume`：巡检在会话之外运行，所以不会再提醒它们重建计划任务。`keel tick task` 会打印 launchd 任务：一个 plist，每 300 秒在协调者的 worktree 里调用一次 `keel tick`，日志写到聊天存储里的 `tick/tick.log`。同时打印安装它的两条命令和卸载它的一条命令。Keel 不替你安装，命令请自己运行。plist 里带的是打印它的那个 shell 的 `PATH`，所以打印时 `claude` 和 `git` 必须都在 `PATH` 上。
+`runner: tick` 告诉协调者的新会话和 `keel shift resume`：巡检在会话之外运行，所以不会再提醒它们重建计划任务。`keel tick task` 会打印 launchd 任务：一个 plist，每 300 秒在协调者的 worktree 里调用一次 `keel tick`，日志写到聊天存储里的 `tick/tick.log`。同时打印安装它的两条命令和卸载它的一条命令。Keel 不替你安装，命令请自己运行。plist 里带的是打印它的那个 shell 的 `PATH`，所以打印时 `claude` 和 `git` 必须都在 `PATH` 上，只是 Claude 插件缓存目录（它属于某一个版本）会被去掉。它运行的是那个 `PATH` 上与打印它的 node 为同一个可执行文件的 `node`，例如 `/opt/homebrew/bin/node`，而不是带版本号的 `Cellar` 目标，所以 `brew upgrade` 不会弄坏这个任务；`keel chat wake add` 和聊天桥也一样。`keel --doctor` 会为每个 `dev.keel.*` LaunchAgent 打印一行 `launchd`，列出 node 已不存在的那些，并给出重建它的命令。
 
 每次巡检都会打印一行 `next:`，即推荐的下次运行时间，`keel tick` 会等到这个时间。不声明 `cadence: adaptive` 时，它就是 `every:`（规则 `fixed`）。声明后，取第一条成立的规则：
 

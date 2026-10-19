@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.163.0 - Keel's launchd jobs name a node that outlives an upgrade
+
+Issue #387: `keel tick task` printed `process.execPath`, which for Homebrew's node is the versioned `Cellar` path. After `brew upgrade node` that path is gone and launchd fails silently every interval, so hand-offs and wakes stop.
+
+- The LaunchAgents that `keel tick task`, `keel chat wake add` and the chat bridge print or write name the `node` on `PATH` that is the same binary as the running one (`/opt/homebrew/bin/node`, not its `Cellar` target), and `process.execPath` only when none is.
+- Their `PATH` leaves out Claude plugin cache directories, which belong to one release.
+- `keel --doctor` prints a `launchd` line for each `dev.keel.*` LaunchAgent and names any whose node no longer exists, with the command that re-creates it. It does not change doctor's exit status.
+- An already-installed job keeps its old path until `keel tick task` is run again and the job re-bootstrapped; Keel installs nothing.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.163.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.162.0 - A CLI shift change is prompt, waits for a finished session, and renames the old one
 
 Issue #388, from the owner's 2026-10-19 runs: keel-maint's hand-off took 3 m 41 s, kaiwu-ip's sat `pending` because no tick is installed there, the old session was stopped while it waited on a question to the owner, and both old sessions kept the role's name until the owner renamed them by hand.

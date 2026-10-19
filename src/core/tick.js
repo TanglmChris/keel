@@ -9,6 +9,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const store = require("./chat/store");
+const { stableNode, launchdPath } = require("./launchd");
 
 const USAGE = "keel tick [--repo <path>] [--json]   one model-free step: run the patrol when it is due\n"
   + "       keel tick task [--json] [--repo <path>]   print the launchd job that calls it";
@@ -126,7 +127,7 @@ function task(where) {
   if (!found.worktree) throw new TickError(found.why);
   const label = `dev.keel.tick.${where.project.replace(/[^A-Za-z0-9.-]/g, "-")}`;
   const logs = path.join(where.root, "tick");
-  const args = [process.execPath, KEEL, "tick", "--repo", found.worktree];
+  const args = [stableNode(), KEEL, "tick", "--repo", found.worktree];
   const plist = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -135,7 +136,7 @@ function task(where) {
     "  <key>Label</key>", `  <string>${xml(label)}</string>`,
     "  <key>ProgramArguments</key>", "  <array>", ...args.map((arg) => `    <string>${xml(arg)}</string>`), "  </array>",
     "  <key>WorkingDirectory</key>", `  <string>${xml(found.worktree)}</string>`,
-    "  <key>EnvironmentVariables</key>", "  <dict>", "    <key>PATH</key>", `    <string>${xml(process.env.PATH || "")}</string>`, "  </dict>",
+    "  <key>EnvironmentVariables</key>", "  <dict>", "    <key>PATH</key>", `    <string>${xml(launchdPath(process.env.PATH))}</string>`, "  </dict>",
     "  <key>StartInterval</key>", `  <integer>${INTERVAL_SECONDS}</integer>`,
     "  <key>StandardOutPath</key>", `  <string>${xml(path.join(logs, "tick.log"))}</string>`,
     "  <key>StandardErrorPath</key>", `  <string>${xml(path.join(logs, "tick.err"))}</string>`,
