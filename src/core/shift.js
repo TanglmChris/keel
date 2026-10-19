@@ -594,13 +594,18 @@ function remoteDefault(cwd) {
 function noteCommits(cwd, text) {
   const seen = new Set();
   const named = [];
+  // After `@` the pair already says it is a commit, so an all-digit sha counts
+  // (about 2% of short shas are all digits).
   for (const match of String(text).matchAll(NOTE_PAIR)) {
-    if (!looksLikeSha(match[2])) continue;
     named.push({ index: match.index, branch: match[1], sha: match[2], token: `${match[1]} @ ${match[2]}` });
     seen.add(match.index + match[0].length - match[2].length);
   }
   for (const match of String(text).matchAll(NOTE_SHA)) {
-    if (!looksLikeSha(match[1]) || seen.has(match.index)) continue;
+    if (seen.has(match.index)) continue;
+    // A bare token needs a letter and a digit, or, when it is all digits, to
+    // resolve to a commit, so a date does not count.
+    const allDigits = /^\d+$/.test(match[1]);
+    if (allDigits ? !git(cwd, ["rev-parse", "--verify", "--quiet", `${match[1]}^{commit}`]).ok : !looksLikeSha(match[1])) continue;
     named.push({ index: match.index, branch: null, sha: match[1], token: match[1] });
   }
   named.sort((a, b) => a.index - b.index);
