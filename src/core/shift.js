@@ -525,14 +525,28 @@ function listAgents(claude) {
 // Stop the old session, give it a name that says it shifted, stop it again. The
 // rename is a resume with `/rename` and no other flag, which keeps the session id
 // and shows in `claude agents` (measured 2026-10-19); it is best effort (#388 D4).
+// `claude stop` returns before the process exits, and a resume of a session still
+// running starts a copy of it (#395), so the resume waits for the stop to show.
 function retire(claude, entry, row) {
   const id = row.id || entry.session.slice(0, 8);
+  const pause = new Int32Array(new SharedArrayBuffer(4));
   if (row.state !== "stopped") spawnSync(claude, ["stop", id], { encoding: "utf8" });
+  const stopBy = Date.now() + envMs("KEEL_SHIFT_STOP_WAIT_MS", 30000);
+  for (;;) {
+    // A listing that failed says nothing about the session: keep waiting.
+    const listed = listAgents(claude);
+    const now = listed && listed.find((item) => item && item.sessionId === entry.session);
+    if (listed && (!now || !now.status)) break;
+    if (Date.now() >= stopBy) {
+      spawnSync(claude, ["stop", id], { encoding: "utf8" });
+      return null;
+    }
+    Atomics.wait(pause, 0, 0, 500);
+  }
   const stamp = store.isoLocal(new Date()).slice(0, 16).replace("T", " ");
   const name = `${entry.role} · shifted ${stamp}`;
   spawnSync(claude, ["--bg", "--resume", entry.session, `/rename ${name}`], { encoding: "utf8", cwd: row.cwd || entry.worktree });
   const deadline = Date.now() + envMs("KEEL_SHIFT_RENAME_WAIT_MS", 30000);
-  const pause = new Int32Array(new SharedArrayBuffer(4));
   let shown = false;
   for (;;) {
     const now = (listAgents(claude) || []).find((item) => item && item.sessionId === entry.session);

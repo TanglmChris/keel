@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.166.0 - The CLI hand-over renames the old session only once it has stopped
+
+Issue #395, the owner's end-to-end test of 5.165.0: the hand-over was delivered in 40 s, but the old session kept its name and a running copy of it was left under the role's name — `keel context` in the new shift warned of two live sessions bound to keel-maint. `claude stop` returns before the process exits, and the `/rename` resume that followed at once found the session still running and started a copy (reproduced on a throwaway session: `session … is already running in the background, so this started a copy as …`).
+
+- After `claude stop`, the hand-over waits until `claude agents` shows the old session stopped or gone, for at most 30 s (`KEEL_SHIFT_STOP_WAIT_MS`), before resuming it for the rename. A session that never shows as stopped is not resumed; its rename is recorded as not shown and the new session still starts.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.166.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.165.0 - The CLI hand-over waits on the session's status, not its job state
 
 Issue #393, the owner's end-to-end test of 5.164.0: keel-maint ended its turn after `keel shift ready --wake` and its hand-off stayed `pending` for over eight minutes. 5.162.0 waited for the job `state` to be `done`, but `state` labels the session's last message — a reply describing pending work stays `working` — and the premise it rested on was never measured.
