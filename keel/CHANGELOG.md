@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.156.0 - A role's ended CLI session is resumed in one step
+
+Issue #348 (rtl_ppa_prj coordinator, 2026-10-18): waking a role whose session had ended was three host calls done by hand, six times in a day. After the team moved to background CLI sessions on 2026-10-19 the owner folded it into the CLI waker. Measured that day: an idle background session is already woken by the chat FileChanged hook; an ended one comes back with `claude --bg --resume <id> "<prompt>"`, and keeps its id only when no other flag is passed.
+
+- A Claude Code CLI session's hooks record its session id, process id and worktree in the role's presence (`cli_session`, `cli_pid`, `cli_worktree`).
+- `keel chat wake now <role>` resumes that session with exactly `claude --bg --resume <id> "<pointer to keel chat unread>"` in its worktree when the process has exited, and runs nothing while it runs. `KEEL_CLAUDE` names another executable.
+- `keel tick` does the same once per new addressed record for every role that is not parked. A post, dm or todo to such a role, and a patrol nudge escalation about it, name `keel chat wake now <role>` instead of the desktop step.
+- The protocol rule that Keel starts no session except through an owner-installed waker now also admits `keel tick` run by the owner's launchd job and an explicit `keel chat wake now`, both only resuming a session the role recorded.
+- `update-host-query-timeout` keeps a 30 s query limit except in its hung case, so parallel load no longer fails it.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.156.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.155.0 - `keel tick` runs the patrol when it is due
 
 On 2026-10-19 the agent team moved from the desktop app to background CLI sessions, where the desktop host tasks that ran the patrol no longer reach the coordinator and the project keeps no session-level cron. The owner chose one model-free CLI waker, `keel tick`, running the patrol on the recommendation 5.153.0 added (#356).
