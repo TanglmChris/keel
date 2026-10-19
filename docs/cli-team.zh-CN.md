@@ -10,7 +10,7 @@
 | 唤醒空闲的会话 | @ 提及、指派的待办或私信 | 相同：聊天的文件钩子会唤醒空闲的后台会话 |
 | 唤醒已结束的会话 | 对该会话 `send_message` | `keel chat wake now <角色>`，或由 `keel tick` 在每来一条新记录时做一次 |
 | 按计划跑巡检 | 宿主定时任务（`host_task:`） | 由 launchd 调用的 `keel tick`（`runner: tick`） |
-| 换班 | 会话清空自己，等待器唤醒新一班 | 等待器停掉旧会话并给它改名、启动新会话；等待器不在时由 `keel tick` 做同样的事 |
+| 换班 | 会话清空自己，等待器唤醒新一班 | 等待器停掉旧会话、启动一个以开班时间命名的新会话；等待器不在时由 `keel tick` 做同样的事 |
 | 打开上一班的对话 | 已归档的应用会话 | 对已停止的会话运行 `claude attach <id>` |
 
 ## 设置一个角色
@@ -59,7 +59,7 @@ patrol:
 
 CLI 会话不能清空自己，所以换班改为替换会话。角色和在任何宿主上一样，运行 `keel shift check` 和 `keel shift ready --wake "<便条>"`。在 CLI 会话里，`ready --wake` 会在便条里记下这个会话（`CLI session:` 和 `CLI process:`），在聊天存储里排一个交接，并留一个后台等待器去执行它，然后告诉会话结束本轮。
 
-等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就让它退役：先 `claude stop`（对话会保留），等它的进程真正退出（`claude stop` 返回时、以及 `claude agents` 不再显示它的 status 时，进程都还没退出，恢复一个仍在运行的会话会开出它的副本，#395、#397），再用 `/rename <角色> · shifted <日期时间>` 恢复它一次，给旧会话一个说明它已换班的名字（会话 id 不变），然后再 `claude stop` 一次。30 秒内进程还没退出的会话不会被恢复，改名记为没有出现。30 秒内改名没有出现在 `claude agents` 里，会记在 `keel shift status` 里，不会耽误交接。然后在同一个 worktree 里用 `claude --bg -n <角色> --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 也是新的。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
+等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就用 `claude stop` 停掉它（对话会保留），不再恢复它。然后在同一个 worktree 里用 `claude --bg -n "<角色> · <月-日 时:分>" --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 是新的，名字也是自己的：角色名加本地开班时间，所以在 `claude agents` 和 claude.ai 上没有两班同名。旧会话保留它启动时的名字，不再改名：改名要恢复旧会话，而开着 Remote Control 的会话会用 claude.ai 上的标题把改名盖回去（#399）。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
 
 ```yaml
 shift:
