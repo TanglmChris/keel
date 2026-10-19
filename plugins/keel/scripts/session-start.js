@@ -661,7 +661,13 @@ function main() {
     );
   }
   // The patrolling role re-arms its schedule after a shift change (#260).
-  if (context.patrol && context.patrol.role && context.patrol.hostTask) {
+  if (context.patrol && context.patrol.role && context.patrol.runner === "tick") {
+    // `keel tick` runs it from the host scheduler, which outlives the session.
+    lines.push(
+      `- patrol: role ${context.patrol.role}'s \`keel patrol\` is run by \`keel tick\` from the host scheduler (render it with \`keel tick task\`), `
+        + "which outlives this session; no session schedule is needed."
+    );
+  } else if (context.patrol && context.patrol.role && context.patrol.hostTask) {
     // A host scheduled task outlives the session (#295 D3).
     lines.push(
       `- patrol: role ${context.patrol.role} runs \`keel patrol\` every ${context.patrol.every} through host scheduled task `
