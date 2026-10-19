@@ -2675,12 +2675,18 @@ def validate_chat_role_rename_scenario() -> int:
         run_keel(rtl2, "chat", "post", "soc", "first", env=env2)
         run_keel(verify2, "chat", "read", env=env2)
         run_keel(rtl2, "chat", "group", "add", "soc", "check", env=env2)
+        # kaiwu-ip's order: the new name joined, then the old one was removed.
+        run_keel(rtl2, "chat", "group", "remove", "soc", "verify", env=env2)
         run_keel(rtl2, "chat", "post", "soc", "second", env=env2)
         run_keel(verify2, "chat", "role", "--set", "check", env=env2)
         run_keel(verify2, "chat", "read", env=env2)
         merged = run_keel(verify2, "chat", "role", "--rename", "verify", "check", env=env2)
         if merged.returncode != 0:
             report(f"{label} keel chat role --rename was refused onto an existing role: {merged.stdout!r} {merged.stderr!r}")
+            return 1
+        groups2 = json.loads(run_keel(verify2, "chat", "group", "list", "--json", env=env2).stdout)["groups"]
+        if "check" not in next((g["members"] for g in groups2 if g["name"] == "soc"), []):
+            report(f"{label} the old name's leave after the new one joined removed check from soc: {groups2!r}")
             return 1
         left = json.loads(run_keel(verify2, "chat", "unread", "--json", env=env2).stdout)
         if "second" in json.dumps(left):
