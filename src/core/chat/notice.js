@@ -104,9 +104,63 @@ function touchPresence(where, role, state = "online", host = null, started = nul
   };
   try {
     store.writeJsonAtomic(where, presenceFile(where, role), record);
+    touchSession(where, role, state);
   } catch {
     // Presence is a convenience: failing to record it must not fail a command.
   }
+}
+
+// --- one role, several sessions (#369 point 4) ------------------------------------
+
+function sessionsFile(where, role) {
+  return path.join(where.root, "presence", `${role}.sessions.json`);
+}
+
+function thisSession() {
+  if (process.env.CLAUDE_CODE_ENTRYPOINT === "claude-desktop" && process.env.CLAUDE_CODE_HOST_SESSION_ID) {
+    return { id: process.env.CLAUDE_CODE_HOST_SESSION_ID, pid: require("../shift").desktopProcess(), host: "claude-desktop" };
+  }
+  if (process.env.CLAUDE_CODE_SESSION_ID) {
+    const pid = Number(process.env.CLAUDE_PID);
+    return { id: process.env.CLAUDE_CODE_SESSION_ID, pid: Number.isInteger(pid) && pid > 1 ? pid : null, host: "claude-code" };
+  }
+  return null;
+}
+
+const SESSION_STALE_MS = 24 * 60 * 60 * 1000;
+const SESSION_RECENT_MS = 30 * 60 * 1000;
+
+function sessionLive(entry, now) {
+  const pid = Number(entry.pid);
+  if (Number.isInteger(pid) && pid > 1) return running(pid);
+  return now - Date.parse(entry.last_active || "") < SESSION_RECENT_MS;
+}
+
+// Each session records itself, so two on one role are visible (D1); an
+// ended or stale one is dropped.
+function touchSession(where, role, state) {
+  const self = thisSession();
+  const file = sessionsFile(where, role);
+  const sessions = store.readJsonFile(file);
+  const now = Date.now();
+  for (const [id, entry] of Object.entries(sessions)) {
+    const pid = Number(entry.pid);
+    const ended = Number.isInteger(pid) && pid > 1 && !running(pid);
+    if (ended || now - Date.parse(entry.last_active || "") > SESSION_STALE_MS) delete sessions[id];
+  }
+  if (self && state === "offline") delete sessions[self.id];
+  else if (self) sessions[self.id] = { pid: self.pid, worktree: where.worktree, host: self.host, last_active: store.isoLocal(new Date()) };
+  if (!self && !Object.keys(sessions).length && !fs.existsSync(file)) return;
+  store.writeJsonAtomic(where, file, sessions);
+}
+
+// The warning for two or more live sessions on a role (D3), or null.
+function twinWarning(where, role, now = Date.now()) {
+  const live = Object.entries(store.readJsonFile(sessionsFile(where, role))).filter(([, entry]) => sessionLive(entry, now));
+  if (live.length < 2) return null;
+  const named = live.map(([id, entry]) => `${id} (pid ${entry.pid || "unknown"}, ${entry.worktree || "unknown worktree"})`).join(", ");
+  return `${live.length} live sessions are bound to role ${role}: ${named}. They post under one name and share one read cursor, `
+    + "so one can hide unread records from the other; stop one, or bind it to another role with `keel chat role --set`.";
 }
 
 function desktopFields() {
@@ -552,6 +606,7 @@ module.exports = {
   unpark,
   wakeStep,
   resumeCli,
+  twinWarning,
   check,
   bridgeLine,
   keptFile,

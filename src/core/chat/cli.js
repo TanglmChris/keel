@@ -738,6 +738,11 @@ function runChat(argv) {
     migrateIfNeeded(where);
     const role = store.currentRole(where);
     if (role) notice.touchPresence(where, role);
+    // Two live sessions on one role share its name and cursor (#369 D3).
+    if (role && ["post", "dm", "todo", "unread", "read"].includes(options.positionals[0])) {
+      const twins = notice.twinWarning(where, role);
+      if (twins) process.stderr.write(`keel chat: ${twins}\n`);
+    }
     return dispatch(where, options);
   } catch (error) {
     if (!(error instanceof ChatError)) throw error;
