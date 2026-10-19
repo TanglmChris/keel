@@ -41,8 +41,32 @@ function patrolWorktree(where) {
   return { declaration, worktree: bound[0], why: null };
 }
 
+// Roles whose CLI session ended while a record addressed to them waits are
+// resumed once per new record (#348 D4); a parked role is left alone.
+function wakeEnded(where, state) {
+  const notice = require("./chat/notice");
+  const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
+  state.woken = state.woken || {};
+  const woken = [];
+  for (const role of roles) {
+    if (notice.parkOf(where, role)) continue;
+    const entry = notice.asleep(where, role);
+    if (!entry || !entry.cli) continue;
+    const waiting = store.unread(where, role).filter((record) => store.wakes(record, role)).map((record) => record.id).sort();
+    const newest = waiting[waiting.length - 1];
+    if (!newest || (state.woken[role] && state.woken[role] >= newest)) continue;
+    const resumed = notice.resumeCli(entry);
+    state.woken[role] = newest;
+    woken.push({ role, session: entry.session, record: newest, ok: resumed.ok, output: resumed.output });
+  }
+  return woken;
+}
+
 function tick(where, now = new Date()) {
-  const result = { patrol: null };
+  const result = { patrol: null, woken: [] };
+  const wakeState = readState(where);
+  result.woken = wakeEnded(where, wakeState);
+  if (result.woken.length) store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken });
   const found = patrolWorktree(where);
   if (!found.worktree) {
     result.patrol = { ran: false, why: found.why };
@@ -78,6 +102,11 @@ function tick(where, now = new Date()) {
 }
 
 function render(result) {
+  const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
+  return [...woke, renderPatrol(result)].join("\n");
+}
+
+function renderPatrol(result) {
   const p = result.patrol;
   if (!p.ran) return `keel tick: ${p.why}`;
   const lines = [`keel tick: ran the patrol (exit ${p.exit})${p.next_at ? `; next ${p.next_at} (${p.rule})` : ""}`];

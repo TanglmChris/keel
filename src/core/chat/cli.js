@@ -52,6 +52,7 @@ const USAGE = [
   "keel chat wake remove   (stop waking this worktree's role on this machine)",
   "keel chat wake status [--json]",
   "keel chat wake run --once [--worktree <path>]   (what the waker's LaunchAgent runs)",
+  "keel chat wake now <role>   (resume a role whose Claude Code CLI session has ended: claude --bg --resume <its id>)",
   "Every command takes --repo <path> to act on another repository.",
 ];
 
@@ -248,7 +249,11 @@ function postResult(where, record, json) {
       + "this waits until it is unparked or its session runs again — route anything urgent through the coordinator.");
   }
   for (const role of offline) lines.push(`Queued for ${role}: offline; it will see this when its session next starts.`);
-  for (const entry of asleep) {
+  for (const entry of asleep.filter((item) => item.cli)) {
+    lines.push(`${entry.role}'s CLI session ${entry.session} has no running process, so this record alone wakes nothing; `
+      + `resume it with \`keel chat wake now ${entry.role}\` (#348).`);
+  }
+  for (const entry of asleep.filter((item) => !item.cli)) {
     lines.push(`${entry.role}'s desktop session ${entry.session} has no running process, so this record alone wakes nothing (#331). `
       + notice.wakeStep(entry.session, "You have unread keel chat records; run `keel chat unread`."));
   }
@@ -676,8 +681,25 @@ function runWake(cwd, options) {
       if (options.json) out(JSON.stringify(result));
       return 0;
     }
+    case "now": {
+      // One step for a role whose CLI session ended (#348 D3).
+      const role = options.positionals[2];
+      if (!role) throw new ChatError("keel chat wake now needs a role.");
+      store.checkName(role, "Role");
+      const where = store.requireLocation(cwd);
+      const presence = store.readJsonFile(path.join(where.root, "presence", `${role}.json`));
+      if (!presence.cli_session) throw new ChatError(`${role} has recorded no Claude Code CLI session, so there is nothing to resume.`);
+      const entry = notice.asleep(where, role);
+      if (!entry || !entry.cli) {
+        out(`${role}'s CLI session ${presence.cli_session} is running; a record addressed to it wakes it, so nothing was resumed.`);
+        return 0;
+      }
+      const resumed = notice.resumeCli(entry);
+      out(`${resumed.ok ? "Resumed" : "Could not resume"} ${role}'s CLI session ${entry.session} in ${entry.worktree}.${resumed.output ? `\n${resumed.output}` : ""}`);
+      return resumed.ok ? 0 : 1;
+    }
     default:
-      throw new ChatError(`Unknown keel chat wake action ${JSON.stringify(action)}: use add, remove, status, or run.`);
+      throw new ChatError(`Unknown keel chat wake action ${JSON.stringify(action)}: use add, remove, status, run, or now.`);
   }
 }
 
