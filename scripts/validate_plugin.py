@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.157.0"
-PROTOCOL_VERSION = "5.157.0"
+PACKAGE_VERSION = "5.158.0"
+PROTOCOL_VERSION = "5.158.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2595,6 +2595,67 @@ def validate_chat_wake_now_cli_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-wake-now-cli scenario passed.")
+    return 0
+
+
+def validate_two_live_sessions_on_one_role_scenario() -> int:
+    """Issue #369 point 4: two live sessions bound to one role are reported.
+
+    On 2026-10-18 a desktop PM session and its CLI copy both ran as `iecc-pm`
+    in one worktree: both posted under the one name and shared one read
+    cursor, and neither knew. Each session now records itself under the role;
+    with two live ones `keel context`, `keel chat post` and `keel chat unread`
+    say so, and the warning goes once one has ended.
+    """
+    label = "two-live-sessions-on-one-role:"
+    with tempfile.TemporaryDirectory(prefix="keel-twins-369-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        write_text(verify / "openspec/specs/.keep", "")
+        other = subprocess.Popen(["sleep", "300"])
+        try:
+            def as_session(sid: str, pid: int) -> dict:
+                return {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": sid, "CLAUDE_PID": str(pid)}
+
+            def start(sid: str, pid: int) -> None:
+                subprocess.run(["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"], cwd=verify,
+                               env=as_session(sid, pid), text=True, capture_output=True, check=False,
+                               input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "session_id": sid, "source": "startup"}))
+
+            start("sess-a", os.getpid())
+            alone = json.loads(run_keel(verify, "context", "--json", env=as_session("sess-a", os.getpid())).stdout)
+            if any("live sessions" in w for w in alone.get("warnings", [])):
+                report(f"{label} one session was reported as two: {alone.get('warnings')!r}")
+                return 1
+            start("sess-b", other.pid)
+            context = json.loads(run_keel(verify, "context", "--json", env=as_session("sess-a", os.getpid())).stdout)
+            warning = next((w for w in context.get("warnings", []) if "live sessions" in w), "")
+            for needle in ("verify", "sess-a", "sess-b", "read cursor"):
+                if needle not in warning:
+                    report(f"{label} keel context's warning does not name {needle!r}: {context.get('warnings')!r}")
+                    return 1
+            posted = run_keel(verify, "chat", "post", "soc", "hello", env=as_session("sess-a", os.getpid()))
+            if "live sessions" not in posted.stderr:
+                report(f"{label} keel chat post does not warn: {posted.stdout!r} {posted.stderr!r}")
+                return 1
+            read = run_keel(verify, "chat", "unread", "--json", env=as_session("sess-a", os.getpid()))
+            if "live sessions" not in read.stderr:
+                report(f"{label} keel chat unread does not warn: {read.stderr!r}")
+                return 1
+            json.loads(read.stdout)
+            other.kill()
+            other.wait()
+            after = json.loads(run_keel(verify, "context", "--json", env=as_session("sess-a", os.getpid())).stdout)
+            if any("live sessions" in w for w in after.get("warnings", [])):
+                report(f"{label} the warning stayed after one session ended: {after.get('warnings')!r}")
+                return 1
+        finally:
+            if other.poll() is None:
+                other.kill()
+    if "two-live-sessions-on-one-role" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("two-live-sessions-on-one-role scenario passed.")
     return 0
 
 
@@ -42442,6 +42503,7 @@ SCENARIOS: tuple = (
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-mention-skips-code", validate_chat_mention_skips_code_scenario),
+    ("two-live-sessions-on-one-role", validate_two_live_sessions_on_one_role_scenario),
     ("chat-wake-now-cli", validate_chat_wake_now_cli_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),

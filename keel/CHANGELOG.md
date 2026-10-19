@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.158.0 - two live sessions on one role are reported
+
+- Each session that writes a role's presence now also records itself under the role (`presence/<role>.sessions.json`: session id, Claude process, worktree, last activity), and entries whose process has ended are dropped.
+- With two or more live sessions bound to one role — the 2026-10-18 incident where a `claude --resume` of a desktop session left both copies posting as one role and sharing one read cursor — `keel context` warns, and `keel chat post`, `dm`, `todo`, `unread` and `read` warn on stderr, naming the role, the sessions and what they share (#369).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.158.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.157.0 - A CLI session hands over its shift through `keel tick`
 
 Issue #357, after the team moved to background CLI sessions on 2026-10-19: a CLI session cannot clear itself, so the owner chose that a self-shift stops the old session and starts a new one — a clean context — keeping the old one findable, run by the one CLI waker. #357 also asked for one runner with a visible queue instead of a host task per role.

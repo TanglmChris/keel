@@ -871,6 +871,12 @@ function resolveContext(repo, options) {
     context.ownerLanguage = language.tag;
     context.ownerLanguageRule = ownerLanguageRule(language.tag);
   }
+  // Two live sessions on one role post as one and share a cursor (#369).
+  if (context.role) {
+    const chatWhere = require("./chat/store").locate(repo);
+    const twins = chatWhere ? require("./chat/notice").twinWarning(chatWhere, context.role) : null;
+    if (twins) context.warnings.push(twins);
+  }
   // The patrolling role is reminded to re-arm its schedule (#260).
   const patrol = readPatrolDeclaration(repo);
   if (patrol.message) context.warnings.push(patrol.message);
