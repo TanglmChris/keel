@@ -190,6 +190,19 @@ authorize:
 # grants the agent nothing.
 # Admission comes from this declaration and never from a precedent.
 #
+# patrol (optional): which role `keel patrol` runs as, and how often. Declared
+# 2026-10-19 by the owner's decision to install a resident `keel tick` for this
+# repository, so a keel-maint CLI session's `keel shift ready --wake` is carried
+# out (stop the old session, start the new one) and an ended session addressed
+# in the chat is resumed. launchd runs `keel tick` every 300 s (`keel tick
+# task` prints the job); the patrol itself runs when its recommended next run
+# has passed.
+patrol:
+  role: keel-maint
+  every: 1h
+  runner: tick
+  cadence: adaptive
+
 # Declared 2026-07-29 by the owner, and left in the bare-list form on purpose:
 # the repository that ships the compatibility is the one that demonstrates it.
 # `auto` is applied to an issue by hand, one issue at a time; nothing else
