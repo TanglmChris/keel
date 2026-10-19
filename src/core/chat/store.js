@@ -218,7 +218,9 @@ function mapRecord(record, renames) {
   record.from = map(record.from);
   if (record.assignee) record.assignee = map(record.assignee);
   if (Array.isArray(record.mentions)) record.mentions = [...new Set(record.mentions.map(map))];
-  if ((record.kind === "join" || record.kind === "leave") && record.target) record.target = map(record.target);
+  // A join or leave keeps the name it was written for; `member` is the role
+  // it now means, applied once membership is computed (groupState).
+  if ((record.kind === "join" || record.kind === "leave") && record.target) record.member = map(record.target);
   if (record.group && isDirect(record.group)) record.direct = [...new Set(directMembers(record.group).map(map))];
   return record;
 }
@@ -457,7 +459,16 @@ function groupState(records) {
     }
     if (record.kind === "archive") archived = true;
   }
-  return { members, listeners, archived, exists: records.length > 0 };
+  // Renamed names (#376): membership is computed under the names the records
+  // were written for, so an old name's leave after the new name joined does
+  // not remove the new one; the result is then read through the renames. A
+  // merged role is listen-only only when every name it merges was.
+  const meant = new Map(records.filter((r) => r.member).map((r) => [r.target, r.member]));
+  if (!meant.size) return { members, listeners, archived, exists: records.length > 0 };
+  const as = (name) => meant.get(name) || name;
+  const mapped = new Set([...members].map(as));
+  const speaking = new Set([...members].filter((name) => !listeners.has(name)).map(as));
+  return { members: mapped, listeners: new Set([...mapped].filter((name) => !speaking.has(name))), archived, exists: records.length > 0 };
 }
 
 function isDirect(group) {
