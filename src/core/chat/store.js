@@ -624,7 +624,8 @@ function post(where, options) {
   return record;
 }
 
-const DONE_REPLY = /^\s*(done\b|✅)/i;
+// A Keel stamp may open the reply (#349): `[10-19 11:00] ✅` still closes.
+const DONE_REPLY = /^\s*(?:\[\d{2}-\d{2} \d{2}:\d{2}\]\s*)?(done\b|✅)/i;
 
 // A record supersedes only its author's current version of a message or todo
 // in the same group (#252 D1), so the chain stays linear and readable.

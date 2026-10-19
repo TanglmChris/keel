@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.150.0"
-PROTOCOL_VERSION = "5.150.0"
+PACKAGE_VERSION = "5.151.0"
+PROTOCOL_VERSION = "5.151.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2311,7 +2311,8 @@ def validate_chat_core_scenario() -> int:
             report(f"{label} post did not report an id: {first.stdout.strip()} {first.stderr.strip()}")
             return 1
         peek = chat(verify, "soc", "--peek", "--json")
-        texts = [(r.get("from"), r.get("text")) for r in chat_json(peek).get("records", [])]
+        # Keel stamps the time by default (#349); the stamp is not the author's text.
+        texts = [(r.get("from"), re.sub(r"^\[\d{2}-\d{2} \d{2}:\d{2}\] ", "", r.get("text") or "")) for r in chat_json(peek).get("records", [])]
         if ("rtl", "Stimulus misreads the spec.") not in texts:
             report(f"{label} the verify worktree did not see rtl's message: {peek.stdout.strip()} {peek.stderr.strip()}")
             return 1
@@ -2678,6 +2679,80 @@ def validate_chat_stamp_help_scenario() -> int:
                 report(f"{label} keel chat {flag} printed no usage: {helped.stdout!r}")
                 return 1
     report("chat-stamp-help scenario passed.")
+    return 0
+
+
+def validate_chat_stamp_default_scenario() -> int:
+    """Issue #349: `post` and `dm` stamp Keel's time by default.
+
+    `--stamp` was opt-in, so replies written without it carried hand-typed
+    times — one said "12:0x" at 12:50. The stamp is now the default, `--no-stamp`
+    opts out, and a text that already opens with a stamp is not stamped twice.
+    """
+    label = "chat-stamp-default:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-349-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+
+        def last(group: str) -> tuple[str, str]:
+            record = sorted(chat_log(rtl, group).glob("*.md"))[-1].read_text(encoding="utf-8")
+            created = re.search(r"^created: \d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})", record, re.M)
+            month, day, hour, minute = created.groups()
+            return f"[{month}-{day} {hour}:{minute}] ", record.split("\n---\n", 1)[1].strip()
+
+        def chat(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "chat", *args, env=env)
+
+        first = chat_json(chat("post", "soc", "R009 done", "--json"))
+        for group, args, text in (
+            ("soc", ("post", "soc", "plain post"), "plain post"),
+            ("soc", ("post", "soc", "--reply-to", first.get("id", ""), "a reply"), "a reply"),
+            ("dm-rtl--verify", ("dm", "verify", "a direct message"), "a direct message"),
+        ):
+            done = chat(*args)
+            if done.returncode != 0:
+                report(f"{label} {' '.join(args)} failed: {done.stderr.strip()}")
+                return 1
+            want, body = last(group)
+            if body != want + text:
+                report(f"{label} {' '.join(args)} without --stamp stored {body!r}, not {want + text!r}")
+                return 1
+        chat("post", "soc", "--no-stamp", "no stamp here")
+        _, body = last("soc")
+        if body != "no stamp here":
+            report(f"{label} --no-stamp stored {body!r}")
+            return 1
+        chat("post", "soc", "[10-19 11:00] already stamped")
+        _, body = last("soc")
+        if body != "[10-19 11:00] already stamped":
+            report(f"{label} a text that opens with a stamp was stamped again: {body!r}")
+            return 1
+        both = chat("post", "soc", "--stamp", "--no-stamp", "x")
+        if both.returncode == 0:
+            report(f"{label} --stamp with --no-stamp was accepted.")
+            return 1
+        # A stamp must not change what the text means (D3).
+        todo = chat_json(chat("todo", "soc", "--assignee", "verify", "rerun R009", "--json")).get("id", "")
+        if not todo:
+            report(f"{label} the todo was not created.")
+            return 1
+        if not any(t.get("id") == todo for t in chat_json(chat("todos", "soc", "--json")).get("todos", [])):
+            report(f"{label} the new todo is not listed open.")
+            return 1
+        chat("post", "soc", "--reply-to", todo, "✅ rerun clean")
+        listed = chat_json(chat("todos", "soc", "--json"))
+        if any(t.get("id") == todo for t in listed.get("todos", [])):
+            report(f"{label} a stamped ✅ reply did not close its todo: {listed!r}")
+            return 1
+        chat("post", "soc", "# Plan\n- one\n- two")
+        want, body = last("soc")
+        if body != want.rstrip() + "\n# Plan\n- one\n- two":
+            report(f"{label} a post opening with a heading was not stamped on its own line: {body!r}")
+            return 1
+    if "chat-stamp-default" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-stamp-default scenario passed.")
     return 0
 
 
@@ -41551,6 +41626,7 @@ SCENARIOS: tuple = (
         "chat-stamp-help",
         validate_chat_stamp_help_scenario,
     ),
+    ("chat-stamp-default", validate_chat_stamp_default_scenario),
     (
         "chat-human-view",
         validate_chat_human_view_scenario,
