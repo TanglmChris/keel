@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.164.0 - /keel:shift changes a session's own shift in one command
+
+Issue #386: a session changing its own shift had to remember the order — `keel shift check`, the note, `keel shift ready --wake` — and what each outcome of the check means. On 2026-10-19 the check's only item was the host's own `caffeinate -i -t 300`, and nothing said that is not a loose end.
+
+- The Claude plugin ships `/keel:shift` (`plugins/keel/commands/shift.md`, declared under `commands` in the root `.claude-plugin/plugin.json`). It has the session run `keel shift check`, settle each item or ask the owner, write the hand-off note, and run `keel shift ready --wake --file -` with the note on stdin through a quoted heredoc, then do what `ready` prints for the host.
+- It says how to tell a keep-awake process the host started under the session (`caffeinate`) from a process the session started, and, on the CLI, to end the turn at once: the waiter added in 5.162.0 replaces a session only when it has finished.
+- The shift mechanism does not change. Codex has no plugin commands, so its manifest is unchanged.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.164.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.163.0 - Keel's launchd jobs name a node that outlives an upgrade
 
 Issue #387: `keel tick task` printed `process.execPath`, which for Homebrew's node is the versioned `Cellar` path. After `brew upgrade node` that path is gone and launchd fails silently every interval, so hand-offs and wakes stop.
