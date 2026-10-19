@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.160.0 - a rename keeps a membership the new name already had
+
+A dry run of 5.159.0's `keel chat role --rename iecc-pm kaiwu-pm-iecc`, on a copy of kaiwu-ip's chat store, dropped `kaiwu-pm-iecc` from group `iecc` together with the record it had unread. kaiwu-ip had added the new name to the group and then removed the old one (#376's workaround), and 5.159.0 read that `leave iecc-pm` as the new role leaving.
+
+- Group membership is now computed under the names the `join` and `leave` records were written for, and only then read through the renames. A leave of the old name removes only the old name's membership.
+- A role merged from several names is listen-only in a group only when every one of those names was.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.160.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.159.0 - a chat role can be renamed
 
 Issue #376 (kaiwu-ip, 2026-10-19): nine roles were renamed with the project, and `keel chat role --set <new>` moved only the worktree binding. The old name stayed a member of every direct group and kept the cursors, the shift note and the patrol state, and it could not become an alias, because it was still a member.

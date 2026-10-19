@@ -36,7 +36,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -73,14 +73,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:a80d5470a8cc543e4df0cd4de9e25f87245b769a5f294656ec082d048cc470dc (keel 5.158.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.159.0 → 5.160.0; with the "a rename keeps a membership the new name already had" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the delta requirements were promoted into `keel-cross-host-mailbox`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and the published spec carry the change; both validator scenarios pass.
+      - Scope check: changed files beyond task 1.1's are the version markers, `keel/CHANGELOG.md` and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
@@ -90,5 +90,5 @@
 
 ## Expectation Coverage
 
-- E1: A role renamed after a hand migration keeps the groups the new name had joined (F1; D1, D2). Covered by: 1.1
+- E1: A role renamed after a hand migration keeps the groups the new name had joined, as kaiwu-ip's did (D1, D2). Covered by: 1.1
 - E2: The release carries it. Covered by: 2.1
