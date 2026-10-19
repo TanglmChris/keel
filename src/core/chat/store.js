@@ -129,11 +129,11 @@ function currentRole(where) {
     const override = (process.env[variable] || "").trim();
     if (override) {
       checkName(override, variable);
-      return override;
+      return canonicalRole(where.root, override);
     }
   }
   const bound = readRoles(where.root)[where.worktree];
-  return validName(bound) ? bound : null;
+  return validName(bound) ? canonicalRole(where.root, bound) : null;
 }
 
 function requireRole(where) {
@@ -155,6 +155,8 @@ function setRole(where, name) {
   checkName(name, "Role");
   // `keel` signs the loop guard's system records, so no member may take it.
   if (name === "keel") throw new ChatError("Role name keel is reserved for Keel's own system records.");
+  const renamed = canonicalRole(where.root, name);
+  if (renamed !== name) throw new ChatError(`Role ${name} was renamed to ${renamed}; bind ${renamed} instead.`);
   const roles = readRoles(where.root);
   roles[where.worktree] = name;
   writeRoles(where, roles);
@@ -188,7 +190,37 @@ function aliasMap(root) {
   for (const role of listMemberRoles(root)) {
     for (const alias of readMember(root, role).aliases) map[alias] = role;
   }
+  // A former name addresses its role (#376 D3).
+  for (const former of Object.keys(readRenames(root))) map[former] = canonicalRole(root, former);
   return map;
+}
+
+// --- renamed roles (#376) -------------------------------------------------------
+
+// `{ "<old>": "<new>" }`: an identity record, never a rewrite of the log (D1).
+function readRenames(root) {
+  const parsed = readJson(path.join(root, "renames.json"), {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+// A name's current role, through chains of renames.
+function canonicalRole(root, name, renames = readRenames(root)) {
+  let role = name;
+  for (let hops = 0; hops < 32 && validName(renames[role]); hops += 1) role = renames[role];
+  return role;
+}
+
+// Every role field a record carries, read through the renames (D2); a direct
+// group's members come from its name, so they are given as `direct`.
+function mapRecord(record, renames) {
+  if (!record || !Object.keys(renames).length) return record;
+  const map = (name) => (validName(name) ? canonicalRole(null, name, renames) : name);
+  record.from = map(record.from);
+  if (record.assignee) record.assignee = map(record.assignee);
+  if (Array.isArray(record.mentions)) record.mentions = [...new Set(record.mentions.map(map))];
+  if ((record.kind === "join" || record.kind === "leave") && record.target) record.target = map(record.target);
+  if (record.group && isDirect(record.group)) record.direct = [...new Set(directMembers(record.group).map(map))];
+  return record;
 }
 
 function addAlias(where, role, rawAlias) {
@@ -322,6 +354,7 @@ function readLog(where, group) {
     return [];
   }
   const records = [];
+  const renames = readRenames(where.root);
   for (const name of names) {
     let parsed = null;
     try {
@@ -329,7 +362,7 @@ function readLog(where, group) {
     } catch {
       continue;
     }
-    if (parsed && parsed.id === name.slice(0, -3)) records.push(parsed);
+    if (parsed && parsed.id === name.slice(0, -3)) records.push(mapRecord(parsed, renames));
   }
   return records;
 }
@@ -348,7 +381,7 @@ function writeRecord(where, fields, date = new Date()) {
   // Each worktree bound to a woken role gets its own signal too, which a
   // session watches from its start whether or not a role was bound yet
   // (chat-wake-late-binding D2).
-  const targets = signalTargets(record);
+  const targets = signalTargets(mapRecord({ ...record, mentions: [...(record.mentions || [])] }, readRenames(where.root)));
   const bound = targets.length ? readRoles(where.root) : {};
   for (const role of targets) {
     const signals = [path.join(where.root, "signal", role)];
@@ -392,7 +425,7 @@ function wakes(record, role) {
   if (!READABLE_KINDS.has(record.kind) || record.from === role) return false;
   if ((record.mentions || []).includes(role)) return true;
   if (record.kind === "todo" && record.assignee === role) return true;
-  return directMembers(record.group).includes(role);
+  return (record.direct || directMembers(record.group)).includes(role);
 }
 
 function signalTargets(record) {
@@ -400,7 +433,7 @@ function signalTargets(record) {
   const roles = new Set([
     ...(record.mentions || []),
     ...(record.kind === "todo" && record.assignee ? [record.assignee] : []),
-    ...directMembers(record.group),
+    ...(record.direct || directMembers(record.group)),
   ]);
   return [...roles].filter((role) => validName(role) && wakes(record, role));
 }
@@ -489,6 +522,7 @@ function createGroup(where, actor, group, members, { direct = false } = {}) {
 
 function changeMember(where, actor, group, member, kind, { listen = false } = {}) {
   checkName(member, "Member");
+  member = canonicalRole(where.root, member);
   if (isDirect(group)) {
     throw new ChatError(`Direct group ${group} has fixed members.`);
   }
@@ -567,7 +601,7 @@ function findRecord(where, id) {
     const file = path.join(groupDir(where, group), "log", `${id}.md`);
     if (!fs.existsSync(file)) continue;
     const record = parseRecord(fs.readFileSync(file, "utf8"));
-    if (record) return record;
+    if (record) return mapRecord(record, readRenames(where.root));
   }
   return null;
 }
@@ -734,6 +768,7 @@ function normalizeIssue(issue) {
 
 function todo(where, options) {
   checkName(options.assignee, "Assignee");
+  options = { ...options, assignee: canonicalRole(where.root, options.assignee) };
   const { state } = loadGroup(where, options.group);
   if (!canAct(state, options.assignee)) {
     throw new ChatError(`Assignee ${options.assignee} is not a member of group ${options.group}.`);
@@ -815,6 +850,7 @@ function search(where, text, { group = null } = {}) {
 function directPost(where, target, text, extra = {}) {
   const from = requireRole(where);
   checkName(target, "Recipient");
+  target = canonicalRole(where.root, target);
   if (target === from) throw new ChatError("A direct group needs two different roles.");
   const group = directName(from, target);
   if (!groupState(readLog(where, group)).exists) {
@@ -998,6 +1034,10 @@ function readGroups(where, role, group) {
 }
 
 module.exports = {
+  readRenames,
+  readRoles,
+  knownRoles,
+  canonicalRole,
   wait,
   mentionText,
   openWaits,

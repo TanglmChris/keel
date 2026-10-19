@@ -2598,6 +2598,108 @@ def validate_chat_wake_now_cli_scenario() -> int:
     return 0
 
 
+def validate_chat_role_rename_scenario() -> int:
+    """Issue #376: a renamed role kept nothing but its worktree binding.
+
+    kaiwu-ip renamed nine roles on 2026-10-19 with `role --set <new>`; the old
+    name stayed a member of every direct group, kept the cursors, the shift
+    note and the patrol state, and could not become an alias. `keel chat role
+    --rename <old> <new>` reads the log through the rename and moves the state.
+    """
+    label = "chat-role-rename:"
+    with tempfile.TemporaryDirectory(prefix="keel-rename-376-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base / "one")
+        run_keel(rtl, "chat", "dm", "verify", "hello there", env=env)
+        run_keel(rtl, "chat", "todo", "soc", "--assignee", "verify", "fix the lint", env=env)
+        run_keel(verify, "chat", "read", env=env)
+        readied = run_keel(verify, "shift", "ready", "--force-reason", "test", "half way through the lint", env=env)
+        if readied.returncode != 0:
+            report(f"{label} shift ready failed: {readied.stdout!r} {readied.stderr!r}")
+            return 1
+        write_text(verify / "keel/config.yaml", "patrol:\n  role: verify\n  every: 30m\n")
+        for args, why, needle in ((("nobody", "check"), "an unknown role", "no role nobody"),
+                                  (("verify", "verify"), "a rename onto itself", "itself"),
+                                  (("verify", "rtl"), "a rename onto a role bound elsewhere", "both bound")):
+            refused = run_keel(verify, "chat", "role", "--rename", *args, env=env)
+            if refused.returncode == 0:
+                report(f"{label} {why} was accepted: {refused.stdout!r}")
+                return 1
+            if needle not in refused.stderr:
+                report(f"{label} {why} was not refused for that reason: {refused.stderr!r}")
+                return 1
+        renamed = run_keel(verify, "chat", "role", "--rename", "verify", "check", env=env)
+        if renamed.returncode != 0:
+            report(f"{label} keel chat role --rename was refused: {renamed.stdout!r} {renamed.stderr!r}")
+            return 1
+        if "role: verify" not in renamed.stdout:
+            report(f"{label} the rename does not list keel/config.yaml's patrol line: {renamed.stdout!r}")
+            return 1
+        groups = json.loads(run_keel(verify, "chat", "group", "list", "--json", env=env).stdout)["groups"]
+        for name in ("soc", "dm-rtl--verify"):
+            members = next((g["members"] for g in groups if g["name"] == name), [])
+            if "check" not in members:
+                report(f"{label} check is not a member of {name}: {groups!r}")
+                return 1
+        todos = json.loads(run_keel(verify, "chat", "todos", "--mine", "--json", env=env).stdout)["todos"]
+        if not any("fix the lint" in t.get("text", "") for t in todos):
+            report(f"{label} check does not hold verify's todo: {todos!r}")
+            return 1
+        unread = json.loads(run_keel(verify, "chat", "unread", "--json", env=env).stdout)
+        if "hello there" in json.dumps(unread):
+            report(f"{label} a record verify had read is unread again: {unread!r}")
+            return 1
+        status = json.loads(run_keel(verify, "shift", "status", "--json", env=env).stdout)
+        if not any(r.get("role") == "check" and r.get("note") for r in status.get("roles", [])):
+            report(f"{label} shift status shows no note under check: {status!r}")
+            return 1
+        posted = run_keel(rtl, "chat", "post", "soc", "@verify please look", "--json", env=env)
+        if posted.returncode != 0:
+            report(f"{label} @verify was refused: {posted.stderr!r}")
+            return 1
+        if "check" not in json.loads(posted.stdout).get("mentions", []):
+            report(f"{label} @verify does not mention check: {posted.stdout!r}")
+            return 1
+        if run_keel(verify, "chat", "notice", "--check", env=env).returncode != 0:
+            report(f"{label} @verify does not wake check")
+            return 1
+        rebound = run_keel(rtl, "chat", "role", "--set", "verify", env=env)
+        if rebound.returncode == 0:
+            report(f"{label} binding the old name was accepted: {rebound.stdout!r}")
+            return 1
+        if "check" not in rebound.stderr:
+            report(f"{label} binding the old name was refused without naming check: {rebound.stderr!r}")
+            return 1
+
+        rtl2, verify2, env2, _ = shift_scratch(base / "two")
+        run_keel(rtl2, "chat", "post", "soc", "first", env=env2)
+        run_keel(verify2, "chat", "read", env=env2)
+        run_keel(rtl2, "chat", "group", "add", "soc", "check", env=env2)
+        run_keel(rtl2, "chat", "post", "soc", "second", env=env2)
+        run_keel(verify2, "chat", "role", "--set", "check", env=env2)
+        run_keel(verify2, "chat", "read", env=env2)
+        merged = run_keel(verify2, "chat", "role", "--rename", "verify", "check", env=env2)
+        if merged.returncode != 0:
+            report(f"{label} keel chat role --rename was refused onto an existing role: {merged.stdout!r} {merged.stderr!r}")
+            return 1
+        left = json.loads(run_keel(verify2, "chat", "unread", "--json", env=env2).stdout)
+        if "second" in json.dumps(left):
+            report(f"{label} check's later cursor was not kept: {left!r}")
+            return 1
+        alias = run_keel(rtl2, "chat", "role", "--alias", "verify", env=env2)
+        if alias.returncode == 0:
+            report(f"{label} --alias verify was accepted: {alias.stdout!r}")
+            return 1
+        if "check" not in alias.stderr:
+            report(f"{label} --alias verify was refused without naming check: {alias.stderr!r}")
+            return 1
+    if "chat-role-rename" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-role-rename scenario passed.")
+    return 0
+
+
 def validate_two_live_sessions_on_one_role_scenario() -> int:
     """Issue #369 point 4: two live sessions bound to one role are reported.
 
@@ -42504,6 +42606,7 @@ SCENARIOS: tuple = (
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-mention-skips-code", validate_chat_mention_skips_code_scenario),
     ("two-live-sessions-on-one-role", validate_two_live_sessions_on_one_role_scenario),
+    ("chat-role-rename", validate_chat_role_rename_scenario),
     ("chat-wake-now-cli", validate_chat_wake_now_cli_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),

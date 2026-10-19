@@ -17,6 +17,7 @@ const { ChatError } = store;
 const USAGE = [
   "keel chat role [--set <name>] [--alias <alias>] [--prune] [--json]   (--prune: drop bindings to removed worktrees)",
   "keel chat role --park <role> [--reason <text>] | --unpark <role>   (a role parked on purpose is not nudged or reported by the patrol)",
+  "keel chat role --rename <old> <new> [--json]   (the chat reads <old> as <new>; bindings and per-role state move to <new>)",
   "keel chat group create <group> [--member <role>]...",
   "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
@@ -59,6 +60,7 @@ const USAGE = [
 const VALUED = {
   "--set": "set",
   "--alias": "alias",
+  "--rename": "rename",
   "--park": "park",
   "--unpark": "unpark",
   "--reason": "reason",
@@ -364,6 +366,14 @@ function dispatch(where, options) {
         const pruned = require("./drift").pruneBindings(where);
         if (options.json) out(JSON.stringify({ pruned }));
         else out(pruned.length ? pruned.map((entry) => `Pruned ${entry.role} from ${entry.worktree}.`).join("\n") : "No binding points at a removed worktree.");
+        return 0;
+      }
+      if (options.rename !== null && options.rename !== undefined) {
+        // `--rename <old> <new>` (#376 D7).
+        if (!rest[0]) throw new ChatError("keel chat role --rename needs the old and the new name: --rename <old> <new>.");
+        const rename = require("./rename");
+        const result = rename.rename(where, store.currentRole(where), String(options.rename).toLowerCase(), String(rest[0]).toLowerCase());
+        out(options.json ? JSON.stringify(result) : rename.render(result));
         return 0;
       }
       let role = store.currentRole(where);
