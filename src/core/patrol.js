@@ -308,7 +308,11 @@ function nudgeRoles(where, patroller, options) {
     // A nudge to a desktop session with no running process wakes nothing,
     // so the coordinator hears it on the first one (#331 D4).
     const sleeping = sent.some((entry) => entry.role === role) ? notice.asleep(where, role) : null;
-    if (sleeping) {
+    if (sleeping && sleeping.cli) {
+      // An ended CLI session is resumed in one step (#348 D5).
+      escalations.push(`${role}'s CLI session ${sleeping.session} has no running process, so the nudge wakes nothing: `
+        + `resume it with \`keel chat wake now ${role}\`.`);
+    } else if (sleeping) {
       escalations.push(`${role}'s desktop session ${sleeping.session} has no running process, so the nudge wakes nothing: `
         + notice.wakeStep(sleeping.session, "You have unread keel chat records; run `keel chat unread`."));
     }

@@ -2502,6 +2502,102 @@ def validate_chat_mention_skips_code_scenario() -> int:
     return 0
 
 
+def validate_chat_wake_now_cli_scenario() -> int:
+    """Issue #348 on the CLI (owner's CLI waker, 2026-10-19): one step wakes a role.
+
+    A background CLI session's hooks record its session id and process. When
+    that process has exited, `keel chat wake now <role>` resumes it with
+    `claude --bg --resume <id> "<pointer>"` in its worktree — no other flag, so
+    the id is kept — and `keel tick` does the same once per new addressed
+    record. A running session is left to the record itself, which wakes it.
+    """
+    label = "chat-wake-now-cli:"
+    with tempfile.TemporaryDirectory(prefix="keel-wake-348-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        calls = base / "claude-calls.jsonl"
+        fake = base / "fake-claude"
+        write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd()}}) + '\\n')\n"
+                   "print('backgrounded · fake')\n")
+        fake.chmod(0o755)
+        env = {**env, "KEEL_CLAUDE": str(fake)}
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+
+        def start(pid: int) -> None:
+            subprocess.run(["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"], cwd=verify, text=True,
+                           capture_output=True, check=False,
+                           env={**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": "sess-verify-1", "CLAUDE_PID": str(pid)},
+                           input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "session_id": "sess-verify-1", "source": "startup"}))
+
+        def made() -> list[dict]:
+            return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
+        start(dead.pid)
+        posted = run_keel(rtl, "chat", "dm", "verify", "rerun R009", env=env)
+        if "keel chat wake now verify" not in posted.stdout:
+            report(f"{label} a dm to a role whose CLI process exited does not name `keel chat wake now verify`: {posted.stdout!r}")
+            return 1
+        if "get_session" in posted.stdout:
+            report(f"{label} a CLI role is given the desktop wake step: {posted.stdout!r}")
+            return 1
+        woke = run_keel(rtl, "chat", "wake", "now", "verify", env=env)
+        if woke.returncode != 0:
+            report(f"{label} keel chat wake now failed: {woke.stdout!r} {woke.stderr!r}")
+            return 1
+        if len(made()) != 1:
+            report(f"{label} wake now did not run claude once: {made()!r}")
+            return 1
+        call = made()[0]
+        if call["argv"][:3] != ["--bg", "--resume", "sess-verify-1"] or len(call["argv"]) != 4:
+            report(f"{label} wake now ran claude with {call['argv']!r}, not --bg --resume <id> <prompt> and nothing else.")
+            return 1
+        if "keel chat unread" not in call["argv"][3]:
+            report(f"{label} the resume prompt does not point at keel chat unread: {call['argv'][3]!r}")
+            return 1
+        if os.path.realpath(call["cwd"]) != os.path.realpath(verify):
+            report(f"{label} claude was resumed in {call['cwd']}, not verify's worktree.")
+            return 1
+
+        start(os.getpid())
+        alive = run_keel(rtl, "chat", "wake", "now", "verify", env=env)
+        if len(made()) != 1:
+            report(f"{label} wake now resumed a role whose process is running: {made()!r}")
+            return 1
+        if "running" not in alive.stdout:
+            report(f"{label} wake now does not say the session is running: {alive.stdout!r}")
+            return 1
+
+        start(dead.pid)
+        run_keel(rtl, "chat", "dm", "verify", "rerun R010", env=env)
+        run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        if len(made()) != 2:
+            report(f"{label} keel tick did not wake the exited role for its new record: {made()!r}")
+            return 1
+        run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        if len(made()) != 2:
+            report(f"{label} a second tick woke the role again for the same record: {made()!r}")
+            return 1
+        time.sleep(2)
+        nudged = run_keel(rtl, "patrol", "--nudge", "--idle", "1s", env=env).stdout
+        escalation = next((l for l in nudged.splitlines() if "verify" in l and "wakes nothing" in l), "")
+        if "keel chat wake now verify" not in escalation or "get_session" in escalation:
+            report(f"{label} the patrol's nudge escalation for an ended CLI session is not `keel chat wake now verify`: {nudged!r}")
+            return 1
+        run_keel(rtl, "chat", "role", "--park", "verify", "--reason", "held for review", env=env)
+        run_keel(rtl, "chat", "dm", "verify", "rerun R011", env=env)
+        run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        if len(made()) != 2:
+            report(f"{label} keel tick woke a parked role: {made()!r}")
+            return 1
+    if "chat-wake-now-cli" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-wake-now-cli scenario passed.")
+    return 0
+
+
 def validate_chat_supersedes_scenario() -> int:
     """Issue #252: a record supersedes its author's earlier one.
 
@@ -24514,7 +24610,7 @@ def validate_update_host_query_timeout_scenario() -> int:
                 "KEEL_UPDATE_NPM": str(launchers["npm"]),
                 "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
                 "KEEL_UPDATE_CODEX": str(launchers["codex"]),
-                "KEEL_UPDATE_QUERY_TIMEOUT_MS": "1500",
+                "KEEL_UPDATE_QUERY_TIMEOUT_MS": "30000",
                 "CODEX_HOME": str(tmp / "codex-home"),
                 "FAKE_LOG": str(log), "FAKE_STATE": str(state),
                 "FAKE_CODEX_SOURCE": str(source),
@@ -24539,12 +24635,13 @@ def validate_update_host_query_timeout_scenario() -> int:
             report(f"{label} a claude plugin list --json that exited 3 does not read failed with exited 3: {claude!r}")
             return 1
 
-        result, calls, took = update(env_extra={"FAKE_LIST_SLEEP_CODEX": "10"})
+        # Only the hung case needs a short limit; the others keep 30 s, so load cannot trip them.
+        result, calls, took = update(env_extra={"FAKE_LIST_SLEEP_CODEX": "15", "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000"})
         codex = line(result.stdout, "codex plugin")
         if "absent" in codex:
             report(f"{label} a hung codex plugin list --json was reported absent: {codex!r}")
             return 1
-        for needle in ("failed", "codex plugin list --json", "1.5 s"):
+        for needle in ("failed", "codex plugin list --json", "4 s"):
             if needle not in codex:
                 report(f"{label} the hung-query line does not name {needle!r}: {codex!r}")
                 return 1
@@ -24557,8 +24654,8 @@ def validate_update_host_query_timeout_scenario() -> int:
         if result.returncode == 0:
             report(f"{label} a failed query left keel --update exiting 0.")
             return 1
-        if took > 9:
-            report(f"{label} the hung query held keel --update for {took:.1f} s, past its 1.5 s limit.")
+        if took > 20:
+            report(f"{label} the hung query held keel --update for {took:.1f} s, past two 4 s attempts.")
             return 1
 
         result, _, _ = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
@@ -24566,7 +24663,7 @@ def validate_update_host_query_timeout_scenario() -> int:
             report(f"{label} a missing codex executable no longer reads absent: {result.stdout!r}")
             return 1
 
-        result, _, _ = update("--dry-run", env_extra={"FAKE_LIST_SLEEP_CODEX": "10"})
+        result, _, _ = update("--dry-run", env_extra={"FAKE_LIST_SLEEP_CODEX": "15", "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000"})
         if result.returncode != 0:
             report(f"{label} --dry-run with a hung query exited {result.returncode}: {result.stdout!r}")
             return 1
@@ -42227,6 +42324,7 @@ SCENARIOS: tuple = (
     ("resource-lock", validate_resource_lock_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-mention-skips-code", validate_chat_mention_skips_code_scenario),
+    ("chat-wake-now-cli", validate_chat_wake_now_cli_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),

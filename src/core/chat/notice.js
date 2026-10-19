@@ -97,6 +97,10 @@ function touchPresence(where, role, state = "online", host = null, started = nul
     ...(state === "offline"
       ? { desktop_session: previous.desktop_session || null, desktop_pid: previous.desktop_pid || null }
       : desktopFields()),
+    // A Claude Code CLI session and its process, for the same reason (#348 D1).
+    ...(state === "offline"
+      ? { cli_session: previous.cli_session || null, cli_pid: previous.cli_pid || null, cli_worktree: previous.cli_worktree || null }
+      : cliFields(where)),
   };
   try {
     store.writeJsonAtomic(where, presenceFile(where, role), record);
@@ -109,6 +113,13 @@ function desktopFields() {
   const id = process.env.CLAUDE_CODE_HOST_SESSION_ID;
   if (process.env.CLAUDE_CODE_ENTRYPOINT !== "claude-desktop" || !id) return { desktop_session: null, desktop_pid: null };
   return { desktop_session: id, desktop_pid: require("../shift").desktopProcess() };
+}
+
+function cliFields(where) {
+  const id = process.env.CLAUDE_CODE_SESSION_ID;
+  if (process.env.CLAUDE_CODE_ENTRYPOINT !== "cli" || !id) return { cli_session: null, cli_pid: null, cli_worktree: null };
+  const pid = Number(process.env.CLAUDE_PID);
+  return { cli_session: id, cli_pid: Number.isInteger(pid) && pid > 1 ? pid : null, cli_worktree: where.worktree };
 }
 
 function running(pid) {
@@ -124,6 +135,13 @@ function running(pid) {
 // record until something resumes it (#331 D2, measured in #320).
 function asleep(where, role) {
   const record = store.readJsonFile(presenceFile(where, role));
+  // An ended CLI session is resumed by `keel chat wake now` (#348 D2).
+  if (!record.desktop_session && record.cli_session) {
+    const cliPid = Number(record.cli_pid);
+    return Number.isInteger(cliPid) && cliPid > 1 && !running(cliPid)
+      ? { role, session: record.cli_session, cli: true, worktree: record.cli_worktree || null }
+      : null;
+  }
   if (!record.desktop_session) return null;
   // With no process found when it was recorded, Keel cannot tell, and says nothing.
   const pid = Number(record.desktop_pid);
@@ -134,6 +152,20 @@ function asleep(where, role) {
 function wakeStep(session, text) {
   return `Wake it: call \`get_session\` on \`${session}\`; when it reports the session archived, call \`unarchive_session\` on it; `
     + `then call \`send_message\` to \`${session}\` with ${JSON.stringify(text)}.`;
+}
+
+// The prompt an ended CLI session resumes with: a pointer, never the work.
+const CLI_WAKE_PROMPT = "You have unread keel chat records; run keel context, then keel chat unread.";
+
+// Resumes a role's recorded CLI session (#348 D3). Only `--bg --resume <id>`
+// and the prompt: any other flag starts a copy with a new session id.
+function resumeCli(entry) {
+  const claude = process.env.KEEL_CLAUDE || "claude";
+  const result = require("child_process").spawnSync(claude, ["--bg", "--resume", entry.session, CLI_WAKE_PROMPT], {
+    cwd: entry.worktree || undefined, encoding: "utf8",
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+  return { ok: !result.error && result.status === 0, output: result.error ? result.error.message : output };
 }
 
 // --- parked roles (#316) ------------------------------------------------------------
@@ -519,6 +551,7 @@ module.exports = {
   parkOf,
   unpark,
   wakeStep,
+  resumeCli,
   check,
   bridgeLine,
   keptFile,
