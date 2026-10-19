@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.165.0 - The CLI hand-over waits on the session's status, not its job state
+
+Issue #393, the owner's end-to-end test of 5.164.0: keel-maint ended its turn after `keel shift ready --wake` and its hand-off stayed `pending` for over eight minutes. 5.162.0 waited for the job `state` to be `done`, but `state` labels the session's last message — a reply describing pending work stays `working` — and the premise it rested on was never measured.
+
+- The hand-over now reads `claude agents`' `status` only: a session gone, stopped, or `idle` is handed over; `busy`, `waiting` (measured: a session blocked on a question reads `status: waiting`, `state: blocked`) and anything else wait.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.165.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.164.0 - /keel:shift changes a session's own shift in one command
 
 Issue #386: a session changing its own shift had to remember the order — `keel shift check`, the note, `keel shift ready --wake` — and what each outcome of the check means. On 2026-10-19 the check's only item was the host's own `caffeinate -i -t 300`, and nothing said that is not a loose end.

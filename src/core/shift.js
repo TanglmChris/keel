@@ -503,13 +503,13 @@ function handOffs(where) {
 
 const SHIFT_START_TEXT = (role) => `${role}: your new shift starts now. Run keel context, then keel shift resume.`;
 
-// The old session has finished when it is gone, or is not busy and its job
-// state is not a turn in progress: a session blocked on a question to the owner
-// reads `idle` with state `working`, and stopping it cuts the conversation off (#388).
+// The old session has finished when it is gone, stopped (no status), or idle.
+// `busy` and `waiting` (blocked on a question to the owner, measured) wait, and
+// so does anything unknown. The job `state` labels the last message, not the
+// turn: an ended turn that described pending work stayed `working` (#393).
 function finished(row) {
-  if (!row) return true;
-  if (row.status === "busy") return false;
-  return !row.state || ["done", "idle", "stopped"].includes(row.state);
+  if (!row || !row.status) return true;
+  return row.status === "idle";
 }
 
 function listAgents(claude) {

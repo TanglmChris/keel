@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.164.0"
-PROTOCOL_VERSION = "5.164.0"
+PACKAGE_VERSION = "5.165.0"
+PROTOCOL_VERSION = "5.165.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8241,8 +8241,8 @@ def validate_shift_cli_self_shift_scenario() -> int:
     retires it (stop, rename by resuming it with `/rename`, stop) and starts a
     new session in the role's worktree that runs `keel shift resume`. `keel
     tick` carries out a queued hand-off too, and the two start one session. A
-    session that is busy, or blocked on a question (idle, but its job state is
-    still `working`), is left alone. `keel shift status` shows the queue, and a
+    session that is busy, or waiting for input (blocked on a question), is left
+    alone; its job state is not read (#393). `keel shift status` shows the queue, and a
     failed start is a patrol risk.
     """
     label = "shift-cli-self-shift:"
@@ -8280,6 +8280,8 @@ def validate_shift_cli_self_shift_scenario() -> int:
             row = {"kind": "background", "name": name, "sessionId": OLD, "id": OLD[:8], "pid": os.getpid(), "state": state, "cwd": str(verify)}
             if status:
                 row["status"] = status
+            if status == "waiting":
+                row["waitingFor"] = "input needed"
             agents.write_text(json.dumps([row]))
 
         def rows() -> list[dict]:
@@ -8321,7 +8323,7 @@ def validate_shift_cli_self_shift_scenario() -> int:
             report(f"{label} the note does not record the CLI session.")
             return 1
 
-        # A busy session, and one blocked on a question, are left alone.
+        # A busy session, and one blocked on a question (measured: status waiting, state blocked), are left alone.
         time.sleep(1.0)
         if acted():
             report(f"{label} the hand-over acted while the old session was busy: {acted()!r}")
@@ -8329,14 +8331,15 @@ def validate_shift_cli_self_shift_scenario() -> int:
         if "pending" not in status_text():
             report(f"{label} shift status does not show the pending hand-off: {status_text()!r}")
             return 1
-        agents_row("idle", "working")
+        agents_row("waiting", "blocked")
         time.sleep(1.0)
         if acted():
-            report(f"{label} the hand-over cut off a session blocked on a question (idle, state working): {acted()!r}")
+            report(f"{label} the hand-over cut off a session blocked on a question (status waiting): {acted()!r}")
             return 1
 
-        # Finished: the waiter retires it and starts the next, with no tick.
-        agents_row("idle", "done")
+        # Finished: idle, though its state still labels its last message `working` (#393, keel-maint's
+        # ended turn). The waiter retires it and starts the next, with no tick.
+        agents_row("idle", "working")
         if not wait_for(lambda: len(starts()) >= 1):
             report(f"{label} the waiter did not hand over without a tick: {acted()!r}")
             return 1
