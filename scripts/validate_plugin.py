@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.163.0"
-PROTOCOL_VERSION = "5.163.0"
+PACKAGE_VERSION = "5.164.0"
+PROTOCOL_VERSION = "5.164.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3446,6 +3446,79 @@ def validate_launchd_stable_node_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("launchd-stable-node scenario passed.")
+    return 0
+
+
+def validate_shift_slash_command_scenario() -> int:
+    """Issue #386: a session changes its own shift with one slash command.
+
+    `/keel:shift` is a command file in the Claude plugin that orders what a
+    session does: check, settle each loose end (a keep-awake the host started,
+    such as `caffeinate`, is not one), write the note, `ready --wake`. The
+    scenario finds it through the root manifest and runs its own fenced `keel
+    shift` lines in a clean worktree bound to a role, so a flag `keel` no
+    longer accepts, or a heredoc that stores nothing, fails it.
+    """
+    label = "shift-slash-command:"
+    manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    declared = manifest.get("commands") or []
+    if not declared:
+        report(f"{label} the root manifest declares no command")
+        return 1
+    files = [ROOT / entry for entry in declared if (ROOT / entry).name == "shift.md"]
+    if len(files) != 1 or not files[0].is_file():
+        report(f"{label} the root manifest's commands {declared!r} do not resolve to one plugins/keel/commands/shift.md")
+        return 1
+    if files[0].relative_to(ROOT).parts[:3] != ("plugins", "keel", "commands"):
+        report(f"{label} the command is not under plugins/keel/commands: {files[0]}")
+        return 1
+    text = files[0].read_text(encoding="utf-8")
+    front = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    if not front or not re.search(r"^description: \S", front.group(1), re.M):
+        report(f"{label} the command has no front matter with a description.")
+        return 1
+    for needle in ("caffeinate", "--force-reason", "self-shift", "end your turn"):
+        if needle not in text:
+            report(f"{label} the command does not say {needle!r}.")
+            return 1
+    blocks = re.findall(r"```bash\n(.*?)```", text, re.S)
+    lines = [b for b in blocks if b.lstrip().startswith("keel shift")]
+    if [b.split()[2] for b in lines] != ["check", "ready"]:
+        report(f"{label} the command's keel shift blocks are not check, then ready: {[b.split()[:3] for b in lines]!r}")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-shift-386-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        shim = base / "shim"
+        write_text(shim / "keel", f'#!/bin/sh\nexec node "{ROOT / "bin" / "keel.js"}" "$@"\n')
+        (shim / "keel").chmod(0o755)
+        env = {**env, "PATH": f"{shim}{os.pathsep}{os.environ.get('PATH', '')}", "KEEL_SHIFT_WAKE_TIMEOUT_MS": "2000"}
+        checked = subprocess.run(["sh", "-c", lines[0]], cwd=verify, env=env, text=True, capture_output=True, check=False)
+        if checked.returncode != 0:
+            report(f"{label} the command's check line exited {checked.returncode} in a clean worktree: {checked.stdout!r} {checked.stderr!r}")
+            return 1
+        handed = subprocess.run(["sh", "-c", lines[1]], cwd=verify, env=env, text=True, capture_output=True, check=False)
+        if handed.returncode != 0:
+            report(f"{label} the command's ready line exited {handed.returncode}: {handed.stdout!r} {handed.stderr!r}")
+            return 1
+        body = re.search(r"<<'EOF'\n(.*?)\nEOF", lines[1], re.S)
+        stored = mailbox_common_dir(verify) / "keel-chat" / "shift" / "verify.md"
+        if not body:
+            report(f"{label} the command's ready line carries no quoted heredoc: {lines[1]!r}")
+            return 1
+        if not stored.exists():
+            report(f"{label} the command's ready line stored no note at {stored}: {handed.stdout!r}")
+            return 1
+        if body.group(1).strip() not in stored.read_text(encoding="utf-8"):
+            report(f"{label} the stored note is not the heredoc's: {stored.read_text(encoding='utf-8')!r}")
+            return 1
+        if "wake is armed" not in handed.stdout:
+            report(f"{label} the command's ready line did not arm the wake: {handed.stdout!r}")
+            return 1
+    if "shift-slash-command" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-slash-command scenario passed.")
     return 0
 
 
@@ -42876,6 +42949,7 @@ SCENARIOS: tuple = (
     ("patrol-next", validate_patrol_next_scenario),
     ("tick-runs-due-patrol", validate_tick_runs_due_patrol_scenario),
     ("launchd-stable-node", validate_launchd_stable_node_scenario),
+    ("shift-slash-command", validate_shift_slash_command_scenario),
     ("patrol-exit-says-who-acts", validate_patrol_exit_says_who_acts_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),
