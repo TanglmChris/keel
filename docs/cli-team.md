@@ -10,7 +10,7 @@ The desktop path of `keel chat`, `keel shift` and `keel patrol` relies on the Cl
 | Wake an idle session | a mention, an assigned todo or a direct message | the same: the chat's file hook wakes an idle background session |
 | Wake a session that has ended | `send_message` to the session | `keel chat wake now <role>`, or `keel tick` once per new record |
 | Run the patrol on a schedule | a host scheduled task (`host_task:`) | `keel tick`, run by launchd (`runner: tick`) |
-| Change shift | the session clears itself; a waiter wakes the new shift | `keel tick` stops the old session and starts a new one |
+| Change shift | the session clears itself; a waiter wakes the new shift | a waiter stops and renames the old session and starts a new one; `keel tick` does the same if the waiter is gone |
 | Open a previous shift's conversation | the archived app session | `claude attach <id>` on the stopped session |
 
 ## Setting up a role
@@ -57,9 +57,9 @@ Each default can be overridden by a flat key under `patrol:` (`risk: 15m`), and 
 
 ## Changing shift
 
-A CLI session cannot clear itself, so a shift change replaces the session instead. The role runs `keel shift check` and `keel shift ready --wake "<note>"` as on any host. In a CLI session, `ready --wake` records the session in the note (`CLI session:` and `CLI process:`) and queues a hand-off in the chat store instead of leaving a waiter, then tells the session to end its turn.
+A CLI session cannot clear itself, so a shift change replaces the session instead. The role runs `keel shift check` and `keel shift ready --wake "<note>"` as on any host. In a CLI session, `ready --wake` records the session in the note (`CLI session:` and `CLI process:`) and queues a hand-off in the chat store, leaves a detached waiter that carries it out, then tells the session to end its turn.
 
-On its next run after that, `keel tick` looks the session up in `claude agents`. While the session is still busy, it waits. Once the session is idle, or gone, it stops it with `claude stop` — which keeps the conversation — and starts a new session in the same worktree with `claude --bg -n <role> --permission-mode <mode>` and the prompt to run `keel context` and `keel shift resume`. The new shift starts with a clean context and a new session id. The mode comes from `keel/config.yaml`, and is `auto` when nothing is declared:
+The waiter looks the session up in `claude agents` every few seconds (`keel tick` does the same on each run, as the fallback when the waiter has died; a lock keeps the two from starting two sessions, and a repository needs no tick for its shift changes). While the session is busy, or its job state is still `working` — it is blocked on a question to you — it waits: a hand-over never cuts a conversation off. Once the session has finished, or is gone, it retires it: `claude stop` — which keeps the conversation — then a resume with `/rename <role> · shifted <date time>`, which gives the old session a name that says it shifted and keeps its session id, then `claude stop` again. A rename that does not show in `claude agents` within 30 seconds is noted in `keel shift status` and does not hold the hand-over up. Then it starts a new session in the same worktree with `claude --bg -n <role> --permission-mode <mode>` and the prompt to run `keel context` and `keel shift resume`. The new shift starts with a clean context and a new session id. The mode comes from `keel/config.yaml`, and is `auto` when nothing is declared:
 
 ```yaml
 shift:

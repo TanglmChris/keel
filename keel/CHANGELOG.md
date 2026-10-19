@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.162.0 - A CLI shift change is prompt, waits for a finished session, and renames the old one
+
+Issue #388, from the owner's 2026-10-19 runs: keel-maint's hand-off took 3 m 41 s, kaiwu-ip's sat `pending` because no tick is installed there, the old session was stopped while it waited on a question to the owner, and both old sessions kept the role's name until the owner renamed them by hand.
+
+- `keel shift ready --wake` in a CLI session leaves a detached `keel shift handover-wait` waiter (working directory `/`, none of the old session's `CLAUDE*` variables) that carries the hand-over out every 3 seconds, so no tick is needed. `keel tick` still carries it out as the fallback, and a per-role lock keeps the two from starting two sessions.
+- A session that is busy, or idle with job state `working` (blocked on a question), is left alone; the hand-over waits for `done`. A `claude agents` listing that fails is treated as unknown rather than as a gone session.
+- The old session is retired: `claude stop`, then `claude --bg --resume <id> "/rename <role> · shifted <date time>"` (measured to keep the session id and to show in `claude agents`), then `claude stop` again, then the new session starts. A rename that does not show within 30 seconds is noted in `keel shift status` and does not hold the hand-over up.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.162.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.161.0 - a scoped grant may name the roles it applies to
 
 Issue #378 (kaiwu-ip, 2026-10-19): the team runs one session per capability, and the owner split standing authorization by capability. Only `push-protected` took a role, so the split could be written only as comments, and Keel could not tell that a review session should not push a design branch.

@@ -10,7 +10,7 @@
 | 唤醒空闲的会话 | @ 提及、指派的待办或私信 | 相同：聊天的文件钩子会唤醒空闲的后台会话 |
 | 唤醒已结束的会话 | 对该会话 `send_message` | `keel chat wake now <角色>`，或由 `keel tick` 在每来一条新记录时做一次 |
 | 按计划跑巡检 | 宿主定时任务（`host_task:`） | 由 launchd 调用的 `keel tick`（`runner: tick`） |
-| 换班 | 会话清空自己，等待器唤醒新一班 | `keel tick` 停掉旧会话、启动新会话 |
+| 换班 | 会话清空自己，等待器唤醒新一班 | 等待器停掉旧会话并给它改名、启动新会话；等待器不在时由 `keel tick` 做同样的事 |
 | 打开上一班的对话 | 已归档的应用会话 | 对已停止的会话运行 `claude attach <id>` |
 
 ## 设置一个角色
@@ -57,9 +57,9 @@ patrol:
 
 ## 换班
 
-CLI 会话不能清空自己，所以换班改为替换会话。角色和在任何宿主上一样，运行 `keel shift check` 和 `keel shift ready --wake "<便条>"`。在 CLI 会话里，`ready --wake` 会在便条里记下这个会话（`CLI session:` 和 `CLI process:`），在聊天存储里排一个交接，而不是留一个等待器，然后告诉会话结束本轮。
+CLI 会话不能清空自己，所以换班改为替换会话。角色和在任何宿主上一样，运行 `keel shift check` 和 `keel shift ready --wake "<便条>"`。在 CLI 会话里，`ready --wake` 会在便条里记下这个会话（`CLI session:` 和 `CLI process:`），在聊天存储里排一个交接，并留一个后台等待器去执行它，然后告诉会话结束本轮。
 
-此后 `keel tick` 的下一次运行会在 `claude agents` 里查这个会话。会话还在忙，就继续等。会话一旦空闲或已不在，就用 `claude stop` 停掉它（对话会保留），并在同一个 worktree 里用 `claude --bg -n <角色> --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 也是新的。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
+等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。会话还在忙，或者它的任务状态仍是 `working`（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。会话一旦结束或已不在，就让它退役：先 `claude stop`（对话会保留），再用 `/rename <角色> · shifted <日期时间>` 恢复它一次，给旧会话一个说明它已换班的名字（会话 id 不变），然后再 `claude stop` 一次。30 秒内改名没有出现在 `claude agents` 里，会记在 `keel shift status` 里，不会耽误交接。然后在同一个 worktree 里用 `claude --bg -n <角色> --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 也是新的。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
 
 ```yaml
 shift:
