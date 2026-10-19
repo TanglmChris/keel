@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.154.0"
-PROTOCOL_VERSION = "5.154.0"
+PACKAGE_VERSION = "5.155.0"
+PROTOCOL_VERSION = "5.155.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3097,6 +3097,92 @@ def validate_patrol_next_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("patrol-next scenario passed.")
+    return 0
+
+
+def validate_tick_runs_due_patrol_scenario() -> int:
+    """The owner's CLI waker (2026-10-19, #356): `keel tick` runs the patrol when due.
+
+    A host scheduler (launchd) calls `keel tick` every few minutes; each call
+    is one model-free step. It fetches and patrols only once the last run's
+    recommended `next_at` has passed, records the next one, and otherwise exits
+    quietly. `keel tick task` prints the launchd job and creates nothing.
+    """
+    label = "tick-runs-due-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        write_text(rtl / "openspec/specs/.keep", "")
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n  runner: tick\n  cadence: adaptive\n")
+        subprocess.run(["git", "add", "-A"], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "tick"], cwd=rtl, check=True, capture_output=True)
+        store_root = mailbox_common_dir(rtl) / "keel-chat"
+        log = store_root / "patrol" / "log" / "rtl.log"
+        state = store_root / "tick" / "state.json"
+
+        def tick(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(verify, "tick", "--repo", str(rtl), *args, env=env)
+
+        def runs() -> int:
+            return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
+
+        first = tick()
+        if first.returncode != 0:
+            report(f"{label} the first tick exited {first.returncode}: {first.stdout!r} {first.stderr!r}")
+            return 1
+        if runs() != 1:
+            report(f"{label} the first tick did not run the patrol once: {runs()} log lines; {first.stdout!r}")
+            return 1
+        saved = json.loads(state.read_text(encoding="utf-8")) if state.exists() else {}
+        if not saved.get("patrol", {}).get("next_at"):
+            report(f"{label} the tick did not record the next patrol: {saved!r}")
+            return 1
+        second = tick()
+        if second.returncode != 0 or runs() != 1:
+            report(f"{label} a tick before next_at ran the patrol: {runs()} log lines; {second.stdout!r}")
+            return 1
+        if "not due" not in second.stdout:
+            report(f"{label} a skipped tick does not say the patrol is not due: {second.stdout!r}")
+            return 1
+        saved["patrol"]["next_at"] = "2000-01-01T00:00:00+00:00"
+        state.write_text(json.dumps(saved), encoding="utf-8")
+        tick()
+        if runs() != 2:
+            report(f"{label} a tick after next_at did not run the patrol: {runs()} log lines.")
+            return 1
+
+        rendered = run_keel(rtl, "tick", "task", env=env)
+        if rendered.returncode != 0:
+            report(f"{label} keel tick task failed: {rendered.stderr!r}")
+            return 1
+        for needle in ("<key>Label</key>", "<key>StartInterval</key>", "<integer>300</integer>", "<string>tick</string>",
+                       f"<string>{os.path.realpath(rtl)}</string>", "launchctl bootstrap", "Keel creates nothing"):
+            if needle not in rendered.stdout:
+                report(f"{label} keel tick task does not carry {needle!r}: {rendered.stdout!r}")
+                return 1
+        if list((base / "home").glob("**/*.plist")) if (base / "home").exists() else []:
+            report(f"{label} keel tick task wrote a plist.")
+            return 1
+
+        context = json.loads(run_keel(rtl, "context", "--json", env=env).stdout)
+        if (context.get("patrol") or {}).get("runner") != "tick":
+            report(f"{label} the coordinator's context does not carry runner tick: {context.get('patrol')!r}")
+            return 1
+        session = run_session_start_hook(
+            rtl, {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(rtl)},
+            keel_cli=f'node "{ROOT / "bin" / "keel.js"}"',
+        )
+        reminder = session_start_context(session) or ""
+        if "re-create it with the host" in reminder:
+            report(f"{label} with runner: tick the coordinator is still told to re-create a session schedule: {reminder!r}")
+            return 1
+        if "keel tick" not in reminder:
+            report(f"{label} with runner: tick the projection does not name keel tick: {reminder!r}")
+            return 1
+    if "tick-runs-due-patrol" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("tick-runs-due-patrol scenario passed.")
     return 0
 
 
@@ -42145,6 +42231,7 @@ SCENARIOS: tuple = (
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
     ("patrol-next", validate_patrol_next_scenario),
+    ("tick-runs-due-patrol", validate_tick_runs_due_patrol_scenario),
     ("patrol-exit-says-who-acts", validate_patrol_exit_says_who_acts_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),

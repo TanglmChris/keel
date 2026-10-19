@@ -3041,6 +3041,10 @@ function main() {
   if (process.argv[2] === "patrol") {
     return require("../src/core/patrol").runPatrol(process.argv.slice(3));
   }
+  // `keel tick` likewise: the model-free step a host scheduler calls (#356).
+  if (process.argv[2] === "tick") {
+    return require("../src/core/tick").runTick(process.argv.slice(3));
+  }
   if (process.argv[2] === "worktrees") {
     return require("../src/core/worktrees").runWorktrees(process.argv.slice(3));
   }

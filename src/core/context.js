@@ -877,6 +877,7 @@ function resolveContext(repo, options) {
   if (patrol.role && context.role === patrol.role) {
     context.patrol = { role: patrol.role, every: patrol.every };
     if (patrol.hostTask) context.patrol.hostTask = patrol.hostTask;
+    if (patrol.runner) context.patrol.runner = patrol.runner;
   }
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by

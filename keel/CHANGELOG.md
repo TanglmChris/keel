@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.155.0 - `keel tick` runs the patrol when it is due
+
+On 2026-10-19 the agent team moved from the desktop app to background CLI sessions, where the desktop host tasks that ran the patrol no longer reach the coordinator and the project keeps no session-level cron. The owner chose one model-free CLI waker, `keel tick`, running the patrol on the recommendation 5.153.0 added (#356).
+
+- `keel tick [--repo <path>]` is one model-free step for a host scheduler: when `patrol:` names a role bound to a worktree and the recorded `next_at` has passed or is absent, it fetches `origin` there and runs `keel patrol --since-last --notify` as that role, then records the new `next_at` in `<chat store>/tick/state.json`; otherwise it says the patrol is not due.
+- `keel tick task` prints a launchd job that calls `keel tick` every 300 s — absolute `node` and `bin/keel.js`, the caller's `PATH`, logs under the chat store — and the two commands that install it. It creates nothing; the recurrence stays the host's (`Keel ships no scheduler`).
+- `patrol: runner: tick` makes the coordinator's context, `keel shift resume` and the SessionStart projection name `keel tick` instead of asking for a session schedule.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.155.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.154.0 - An all-digit sha a note names is still a commit
 
 5.152.0 (#347) read a commit id in a shift note as 7–40 hex digits with a letter and a digit, so a date would not count; about 2% of short shas are all digits and were skipped, even after `@`. CI hit it at random on 2026-10-19 (`'feat @ 02607471' is not marked …`).
