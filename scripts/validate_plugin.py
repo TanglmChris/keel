@@ -6244,6 +6244,25 @@ def validate_shift_resume_checks_commits_scenario() -> int:
         if line_for("20261018"):
             report(f"{label} a date was read as a commit id: {resumed.stdout!r}")
             return 1
+
+        # A short sha can be all digits (about 2% of them): one named after `@`,
+        # or one that resolves to a commit, is still a commit id.
+        digits, n = "", 0
+        while not digits:
+            n += 1
+            candidate = git("commit-tree", tree, "-p", landed, "-m", f"digits {n}")
+            if candidate[:8].isdigit():
+                digits = candidate
+        git("push", "-q", "origin", f"{digits}:refs/heads/digits-branch")
+        run_keel(verify, "shift", "ready", f"digits-branch @ {digits[:8]} is the tip. Also see {digits[:8]}.", env=env)
+        again = run_keel(verify, "shift", "resume", env=env).stdout.splitlines()
+        pair = next((l for l in again if l.startswith(f"- digits-branch @ {digits[:8]}")), "")
+        if "current" not in pair:
+            report(f"{label} an all-digit sha after `@` is not marked current: {pair!r} in {again!r}")
+            return 1
+        if not any(l.startswith(f"- {digits[:8]}:") for l in again):
+            report(f"{label} an all-digit sha that resolves to a commit is not listed: {again!r}")
+            return 1
         if "not fetched" not in resumed.stdout:
             report(f"{label} the check does not say it did not fetch: {resumed.stdout!r}")
             return 1
