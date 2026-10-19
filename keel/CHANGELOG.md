@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.157.0 - A CLI session hands over its shift through `keel tick`
+
+Issue #357, after the team moved to background CLI sessions on 2026-10-19: a CLI session cannot clear itself, so the owner chose that a self-shift stops the old session and starts a new one — a clean context — keeping the old one findable, run by the one CLI waker. #357 also asked for one runner with a visible queue instead of a host task per role.
+
+- In a Claude Code CLI session, `keel shift ready --wake` records `CLI session:` and `CLI process:` in the note and queues the hand-off in `<chat store>/shift/queue/<role>.json` instead of arming the desktop clear waiter, and says to end the turn.
+- `keel tick` hands each over once `claude agents --json` shows the old session idle or gone: `claude stop <job id>` (the conversation is kept; `claude attach <job id>` reopens it), then `claude --bg -n <role> --permission-mode <mode> "<run keel context, then keel shift resume>"` in the role's worktree, recording `delivered` with the new session or `failed` with the reason. `stop` and `attach` take the 8-character job id; the full session id gives `No job matching`.
+- `keel shift status` lists the hand-offs; the patrol reports a failed one, or one pending over 15 minutes, as a risk. `shift: permission_mode:` sets the new session's mode (default `auto`).
+- The desktop clear path is unchanged for desktop sessions; #346, a race in that path, is closed as not applicable to the CLI team.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.157.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.156.0 - A role's ended CLI session is resumed in one step
 
 Issue #348 (rtl_ppa_prj coordinator, 2026-10-18): waking a role whose session had ended was three host calls done by hand, six times in a day. After the team moved to background CLI sessions on 2026-10-19 the owner folded it into the CLI waker. Measured that day: an idle background session is already woken by the chat FileChanged hook; an ended one comes back with `claude --bg --resume <id> "<prompt>"`, and keeps its id only when no other flag is passed.
