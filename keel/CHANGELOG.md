@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.167.0 - CLI shifts keep a bounded number of old sessions, and any past shift can be read in full
+
+Issue #397, after the owner saw several `keel-maint` rows in `claude agents` on 2026-10-20.
+
+- The hand-over waits for the old session's process to exit before resuming it for the rename. 5.166.0 (#395) waited for its row to lose `status`, which happens about 1.8 s before the process exits (measured: 0.83 s against 2.68 s), and a resume in that gap still started a running copy.
+- After a delivered hand-over, the newest `shift: keep_old_sessions:` stopped background sessions of the role (default 3) stay in `claude agents`; each older one is removed with `claude rm` once Keel's store holds a copy of its transcript, and one whose transcript is nowhere stays. `keel shift status` names the removed sessions. `claude rm` leaves the host's transcript.
+- `keel shift history <role> --show <session id>` prints one shift's whole conversation — prompts, replies, tool calls and results, uncut — from the host's transcript or Keel's kept copy, listed in `claude agents` or not.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.167.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.166.0 - The CLI hand-over renames the old session only once it has stopped
 
 Issue #395, the owner's end-to-end test of 5.165.0: the hand-over was delivered in 40 s, but the old session kept its name and a running copy of it was left under the role's name — `keel context` in the new shift warned of two live sessions bound to keel-maint. `claude stop` returns before the process exits, and the `/rename` resume that followed at once found the session still running and started a copy (reproduced on a throwaway session: `session … is already running in the background, so this started a copy as …`).

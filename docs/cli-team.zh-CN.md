@@ -59,14 +59,17 @@ patrol:
 
 CLI 会话不能清空自己，所以换班改为替换会话。角色和在任何宿主上一样，运行 `keel shift check` 和 `keel shift ready --wake "<便条>"`。在 CLI 会话里，`ready --wake` 会在便条里记下这个会话（`CLI session:` 和 `CLI process:`），在聊天存储里排一个交接，并留一个后台等待器去执行它，然后告诉会话结束本轮。
 
-等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就让它退役：先 `claude stop`（对话会保留），等 `claude agents` 显示它已停下（`claude stop` 返回时进程还没退出，恢复一个仍在运行的会话会开出它的副本，#395），再用 `/rename <角色> · shifted <日期时间>` 恢复它一次，给旧会话一个说明它已换班的名字（会话 id 不变），然后再 `claude stop` 一次。30 秒内没显示已停下的会话不会被恢复，改名记为没有出现。30 秒内改名没有出现在 `claude agents` 里，会记在 `keel shift status` 里，不会耽误交接。然后在同一个 worktree 里用 `claude --bg -n <角色> --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 也是新的。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
+等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就让它退役：先 `claude stop`（对话会保留），等它的进程真正退出（`claude stop` 返回时、以及 `claude agents` 不再显示它的 status 时，进程都还没退出，恢复一个仍在运行的会话会开出它的副本，#395、#397），再用 `/rename <角色> · shifted <日期时间>` 恢复它一次，给旧会话一个说明它已换班的名字（会话 id 不变），然后再 `claude stop` 一次。30 秒内进程还没退出的会话不会被恢复，改名记为没有出现。30 秒内改名没有出现在 `claude agents` 里，会记在 `keel shift status` 里，不会耽误交接。然后在同一个 worktree 里用 `claude --bg -n <角色> --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 也是新的。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
 
 ```yaml
 shift:
   permission_mode: auto   # default、acceptEdits、auto、plan 或 bypassPermissions
+  keep_old_sessions: 3    # 每个角色在 `claude agents` 里保留的旧班数
 ```
 
-`keel shift status` 会列出每个交接的状态：等待中、已送达（带新会话的 id）或失败（带错误信息），并给出重新打开旧会话的命令 `claude attach <其 id 的前 8 个字符>`。失败的交接，或等待超过 15 分钟的交接，会成为巡检风险，从而通知到协调者。worktree 没被信任过是失败的一种情形：新会话在那里起不来。
+每次换班都会在 `claude agents` 里留下一个已停止的旧会话。交接之后，该角色最新的 `keep_old_sessions` 个已停会话（不声明时为 3；0 表示一个不留）留在列表里，可以 `claude attach`；更早的，在 Keel 的存储里已有其 transcript 副本之后用 `claude rm` 移除；找不到 transcript 的会话保留不动（#397）。内容不会丢：`claude rm` 不删宿主的 transcript，Keel 另有一份副本，`keel shift history <角色> --show <会话 id>` 能打印任何一班的完整对话，无论它还在不在列表里。
+
+`keel shift status` 会列出每个交接的状态：等待中、已送达（带新会话的 id）或失败（带错误信息），并给出重新打开旧会话的命令 `claude attach <其 id 的前 8 个字符>`，旧会话已被移除时则给出 `keel shift history <角色> --show <id>`；还会列出这次交接移除的更早会话。失败的交接，或等待超过 15 分钟的交接，会成为巡检风险，从而通知到协调者。worktree 没被信任过是失败的一种情形：新会话在那里起不来。
 
 在 CLI 上，`keel shift resume` 不要求恢复任何东西：新会话已经带上了角色的名字，`self-shift` 和 `shift-restore` 授权的那些桌面端步骤都不适用。
 

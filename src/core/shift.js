@@ -32,6 +32,7 @@ const USAGE = [
   "keel shift status [--json]            each role's shift state",
   "keel shift await-clear --pid <pid>    wait until a desktop session's process has exited (its clear); exit 1 after --timeout-ms",
   "keel shift history [role] [--grep t]  a role's past transcripts and notes; --grep searches them (#304)",
+  "                 [--show <id>]        ...or print one past shift's whole conversation, listed in claude agents or not (#397)",
   "Options: --repo <path>. See docs/shift-change.md.",
 ].join("\n");
 
@@ -526,17 +527,20 @@ function listAgents(claude) {
 // rename is a resume with `/rename` and no other flag, which keeps the session id
 // and shows in `claude agents` (measured 2026-10-19); it is best effort (#388 D4).
 // `claude stop` returns before the process exits, and a resume of a session still
-// running starts a copy of it (#395), so the resume waits for the stop to show.
+// running starts a copy of it (#395). The row loses its status before the process
+// exits too (0.83 s against 2.68 s, measured), so the resume waits for the process
+// the row showed before the stop (#397 D1); a row with no pid was already stopped.
 function retire(claude, entry, row) {
   const id = row.id || entry.session.slice(0, 8);
   const pause = new Int32Array(new SharedArrayBuffer(4));
+  const pid = Number.isInteger(row.pid) && row.pid > 1 ? row.pid : null;
   if (row.state !== "stopped") spawnSync(claude, ["stop", id], { encoding: "utf8" });
   const stopBy = Date.now() + envMs("KEEL_SHIFT_STOP_WAIT_MS", 30000);
   for (;;) {
     // A listing that failed says nothing about the session: keep waiting.
-    const listed = listAgents(claude);
+    const listed = pid ? null : listAgents(claude);
     const now = listed && listed.find((item) => item && item.sessionId === entry.session);
-    if (listed && (!now || !now.status)) break;
+    if (pid ? !alive(pid) : listed && (!now || !now.status)) break;
     if (Date.now() >= stopBy) {
       spawnSync(claude, ["stop", id], { encoding: "utf8" });
       return null;
@@ -556,6 +560,53 @@ function retire(claude, entry, row) {
   }
   spawnSync(claude, ["stop", id], { encoding: "utf8" });
   return shown ? name : null;
+}
+
+// The host's transcript of a session in `cwd`, under either spelling of the path.
+function hostTranscript(cwd, session) {
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  return [cwd, realpath(cwd)].map((dir) => path.join(config, "projects", dir.replace(/[^A-Za-z0-9]/g, "-"), `${session}.jsonl`))
+    .find((file) => fs.existsSync(file)) || null;
+}
+
+// Keel's copy of a transcript, written now when it is missing or older (#343).
+function keptCopyOf(where, role, transcript) {
+  const { keptFile } = require("./chat/notice");
+  const target = keptFile(where, role, transcript);
+  try {
+    if (!fs.existsSync(target) || fs.statSync(target).mtimeMs < fs.statSync(transcript).mtimeMs) {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const temporary = `${target}.${process.pid}.tmp`;
+      fs.writeFileSync(temporary, zlib.gzipSync(fs.readFileSync(transcript)));
+      fs.renameSync(temporary, target);
+    }
+    return target;
+  } catch {
+    return null;
+  }
+}
+
+// After a delivered hand-over, the newest `keep` stopped background sessions in
+// the role's bound worktrees stay listed; each older one is removed with
+// `claude rm` once Keel's store holds its transcript, and one whose transcript
+// is nowhere stays (#397 D2). `claude rm` leaves the host's transcript (F4).
+function removeOldSessions(claude, where, entry, keep) {
+  const bound = new Set(Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
+    .filter(([, name]) => name === entry.role).map(([worktree]) => realpath(worktree)));
+  const listed = listAgents(claude);
+  if (!listed) return [];
+  const old = listed
+    .filter((row) => row && row.kind === "background" && !row.status && row.cwd && bound.has(realpath(row.cwd))
+      && row.sessionId && row.id !== entry.new_session)
+    .sort((a, b) => (Number(b.startedAt) || 0) - (Number(a.startedAt) || 0));
+  const removed = [];
+  for (const row of old.slice(keep)) {
+    const transcript = hostTranscript(row.cwd, row.sessionId);
+    if (!transcript || !keptCopyOf(where, entry.role, transcript)) continue;
+    const gone = spawnSync(claude, ["rm", row.id || row.sessionId.slice(0, 8)], { encoding: "utf8" });
+    if (!gone.error && gone.status === 0) removed.push(row.id || row.sessionId.slice(0, 8));
+  }
+  return removed;
 }
 
 // One runner at a time per role (#388 D2): the waiter and the tick both carry
@@ -606,7 +657,8 @@ function handOver(where, only = null) {
       // `stop`, `attach` and `logs` take the 8-character job id, not the full
       // session id (`No job matching`, measured 2026-10-19).
       if (row) entry.renamed = retire(claude, entry, row);
-      const mode = readShiftDeclaration(entry.worktree).permissionMode;
+      const declared = readShiftDeclaration(entry.worktree);
+      const mode = declared.permissionMode;
       const started = spawnSync(claude, ["--bg", "-n", entry.role, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
         cwd: entry.worktree, encoding: "utf8",
       });
@@ -614,6 +666,8 @@ function handOver(where, only = null) {
       if (!started.error && started.status === 0) {
         const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
         Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id });
+        entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
+        if (declared.message) entry.notice = declared.message;
       } else {
         const reason = started.error ? started.error.message : String(started.stderr || output).trim().split(/\r?\n/).pop();
         Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
@@ -656,7 +710,13 @@ function describeHandOff(entry) {
     ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}`
     : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}` : "pending: waits for the session to go idle";
   const renamed = entry.state === "delivered" ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
-  return `- ${entry.role}: ${tail}${renamed}; requested ${entry.requested_at}; old session kept, reopen it with \`claude attach ${entry.session.slice(0, 8)}\``;
+  const removed = (entry.removed || []).length ? `; older sessions removed from \`claude agents\` (transcripts kept by Keel): ${entry.removed.join(", ")}` : "";
+  const notice = entry.notice ? `; ${entry.notice}` : "";
+  const own = entry.session.slice(0, 8);
+  const reopen = (entry.removed || []).includes(own)
+    ? `old session removed, its conversation kept: \`keel shift history ${entry.role} --show ${own}\``
+    : `old session kept, reopen it with \`claude attach ${own}\``;
+  return `- ${entry.role}: ${tail}${renamed}; requested ${entry.requested_at}; ${reopen}${removed}${notice}`;
 }
 
 // A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
@@ -1047,6 +1107,61 @@ function history(where, named, grep) {
   return { role, segments, notes };
 }
 
+// One past shift in full (#397 D3): the segment whose transcript name starts
+// with `id`, read from the host's file or Keel's kept copy, every conversation
+// record in file order with tool calls and results, nothing cut.
+function showSegment(where, named, id) {
+  const wanted = String(id || "").trim();
+  if (!wanted) throw new ShiftError("keel shift history --show needs a session id or its first 8 characters.");
+  const { role, segments } = history(where, named, null);
+  const matches = segments.filter((segment) => path.basename(segment.transcript).startsWith(wanted));
+  if (!matches.length) throw new ShiftError(`no segment of ${role} matches ${JSON.stringify(wanted)}; \`keel shift history ${role}\` lists them.`);
+  if (matches.length > 1) {
+    throw new ShiftError(`${matches.length} segments of ${role} match ${JSON.stringify(wanted)}: ${matches.map((segment) => path.basename(segment.transcript)).join(", ")}.`);
+  }
+  const segment = matches[0];
+  const source = segment.exists ? segment.transcript : segment.kept;
+  if (!source) throw new ShiftError(`${segment.transcript} is gone and Keel kept no copy of it.`);
+  const entries = [];
+  for (const line of readTranscript(source).split("\n")) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    entries.push(...shownEntries(record));
+  }
+  return { role, transcript: segment.transcript, source, started: segment.started, ended: segment.ended || null, entries };
+}
+
+function shownEntries(record) {
+  const at = record.timestamp || null;
+  const content = record.message ? record.message.content : null;
+  if ((record.type === "user" || record.type === "assistant") && Array.isArray(content)) {
+    const shown = [];
+    for (const part of content) {
+      if (!part) continue;
+      if (part.type === "text" && part.text) shown.push({ at, speaker: record.type, text: part.text });
+      else if (part.type === "tool_use") shown.push({ at, speaker: `tool ${part.name}`, text: JSON.stringify(part.input) });
+      else if (part.type === "tool_result") {
+        const text = typeof part.content === "string" ? part.content
+          : Array.isArray(part.content) ? part.content.filter((item) => item && item.type === "text").map((item) => item.text).join("\n") : "";
+        shown.push({ at, speaker: "result", text });
+      }
+    }
+    return shown;
+  }
+  const said = conversationLine(record);
+  return said && said.text ? [{ at, speaker: said.speaker, text: said.text }] : [];
+}
+
+function renderShown(shown) {
+  const head = `${shown.started} → ${shown.ended || "now"}  ${shown.transcript}${shown.source === shown.transcript ? "" : ` (kept: ${shown.source})`}`;
+  return [head, ...shown.entries.map((entry) => `\n[${entry.at || "?"}] ${entry.speaker}:\n${entry.text}`)].join("\n");
+}
+
 function renderHistory(result, grep) {
   const lines = [];
   for (const segment of result.segments) {
@@ -1177,6 +1292,7 @@ function runShift(argv) {
     else if (arg === "--pid") options.pid = Number(argv[++index]);
     else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++index]);
     else if (arg === "--grep") options.grep = argv[++index] || "";
+    else if (arg === "--show") options.show = argv[++index] || "";
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(`${USAGE}\n`);
       return 0;
@@ -1268,6 +1384,11 @@ function runShift(argv) {
         return 0;
       }
       case "history": {
+        if (options.show !== undefined) {
+          const shown = showSegment(where, rest[0] || null, options.show);
+          out(shown, renderShown(shown));
+          return 0;
+        }
         const result = history(where, rest[0] || null, options.grep);
         out(result, renderHistory(result, options.grep));
         return options.grep && !result.segments.some((segment) => segment.matches.length) ? 1 : 0;
