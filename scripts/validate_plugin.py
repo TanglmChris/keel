@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.151.0"
-PROTOCOL_VERSION = "5.151.0"
+PACKAGE_VERSION = "5.152.0"
+PROTOCOL_VERSION = "5.152.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
