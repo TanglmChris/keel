@@ -187,7 +187,8 @@ function gitOut(cwd, args) {
   return result.status === 0 ? String(result.stdout || "").trim() : null;
 }
 
-// `push:` globs and `push-protected:` entries ({ glob, role }) of `authorize:`.
+// `push:` and `push-protected:` entries ({ glob, role }) of `authorize:`; a
+// role pattern after `@` limits either to matching sessions (#378).
 function readPushGlobs(top) {
   let text = "";
   try {
@@ -207,8 +208,8 @@ function readPushGlobs(top) {
     if (!inBlock) continue;
     if (!/^\s/.test(line)) break;
     const bare = line.replace(/\s+#.*$/, "");
-    const entry = bare.match(/^\s+-\s*push:(\S+)\s*$/);
-    if (entry) globs.push(entry[1]);
+    const entry = bare.match(/^\s+-\s*push:([^@\s]+)(?:@(\S+))?\s*$/);
+    if (entry) globs.push({ glob: entry[1], role: entry[2] || null });
     const guarded = bare.match(/^\s+-\s*push-protected:([^@\s]+)(?:@(\S+))?\s*$/);
     if (guarded) protectedEntries.push({ glob: guarded[1], role: guarded[2] || null });
   }
@@ -225,11 +226,27 @@ function sessionRole(top) {
   const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (!common) return null;
   try {
-    const roles = JSON.parse(fs.readFileSync(path.join(fs.realpathSync(common), "keel-chat", "roles.json"), "utf8"));
-    return roles[fs.realpathSync(top)] || null;
+    const root = path.join(fs.realpathSync(common), "keel-chat");
+    const roles = JSON.parse(fs.readFileSync(path.join(root, "roles.json"), "utf8"));
+    let role = roles[fs.realpathSync(top)] || null;
+    // A renamed role reads as its new name (#376).
+    let renames = {};
+    try {
+      renames = JSON.parse(fs.readFileSync(path.join(root, "renames.json"), "utf8")) || {};
+    } catch {
+      renames = {};
+    }
+    for (let hops = 0; role && renames[role] && hops < 32; hops += 1) role = renames[role];
+    return role;
   } catch {
     return null;
   }
+}
+
+// A role pattern: chat-role characters, `*` matching any run of them (#378).
+function roleMatches(pattern, role) {
+  if (!role) return false;
+  return new RegExp(`^${String(pattern).split("*").join("[a-z0-9-]*")}$`).test(role);
 }
 
 // Modes in which the host cannot be relied on to ask (#280 D3, F2).
@@ -533,7 +550,7 @@ function checkPushes(event) {
     const { globs, protectedEntries } = readPushGlobs(top);
     if (!globs.length && !protectedEntries.length) continue;
     const declared = [
-      ...globs.map((glob) => `\`push:${glob}\``),
+      ...globs.map((e) => `\`push:${e.glob}${e.role ? `@${e.role}` : ""}\``),
       ...protectedEntries.map((e) => `\`push-protected:${e.glob}${e.role ? `@${e.role}` : ""}\``),
     ].join(", ");
     const result = pushTargets(push);
@@ -556,19 +573,30 @@ function checkPushes(event) {
       return 0;
     }
     if (result.tags) carriesTags = true;
+    let role;
+    const roleOf = () => (role === undefined ? (role = sessionRole(top)) : role);
+    const mine = (e) => !e.role || roleMatches(e.role, roleOf());
     const unlisted = result.tags
       ? result.targets
-      : result.targets.filter((branch) => !globs.some((glob) => globPattern(glob).test(branch)));
+      : result.targets.filter((branch) => !globs.some((e) => mine(e) && globPattern(e.glob).test(branch)));
     const outside = [];
     for (const branch of unlisted) {
       const entry = protectedEntries.find((e) => globPattern(e.glob).test(branch));
       if (!entry) {
+        // Another role's grant (#378): name who may push it.
+        const theirs = globs.filter((e) => e.role && globPattern(e.glob).test(branch)).map((e) => e.role);
+        if (theirs.length && !result.tags) {
+          deny(
+            `Keel push guard: \`${branch}\` may be pushed by role ${theirs.join(" or ")} (keel/config.yaml), and this `
+              + `session is ${roleOf() ? `role ${roleOf()}` : "bound to no chat role"}.`
+          );
+          return 0;
+        }
         outside.push(branch);
         continue;
       }
       if (entry.role) {
-        const role = sessionRole(top);
-        if (role !== entry.role) {
+        if (!roleMatches(entry.role, roleOf())) {
           deny(
             `Keel push guard: \`${branch}\` is protected for role ${entry.role}, and this `
               + `session is ${role ? `role ${role}` : "bound to no chat role"}; only an ${entry.role} `

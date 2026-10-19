@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.160.0"
-PROTOCOL_VERSION = "5.160.0"
+PACKAGE_VERSION = "5.161.0"
+PROTOCOL_VERSION = "5.161.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -30941,9 +30941,9 @@ def validate_continuation_authorization_scenario() -> int:
 
 
 ACCEPTED_AUTHORIZE_NAMES = (
-    "commit, push, push:<branch glob>, release, archive, continuation, "
-    "issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, "
-    "issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore, self-shift"
+    "commit, push, push:<branch glob>[@<role>], release, archive, continuation, "
+    "issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], "
+    "issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift"
 )
 
 
@@ -31005,7 +31005,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, push:<branch glob>,\n# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,\n# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,\n# push-protected:<branch glob>[@<role>], shift-restore, self-shift" not in config_text:
+    if "commit, push, push:<branch glob>[@<role>],\n# release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,\n# chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],\n# push-protected:<branch glob>[@<role>], shift-restore, self-shift" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."
@@ -33467,6 +33467,101 @@ def validate_push_branch_guard_scenario() -> int:
             report(f"{label} a bare push declaration intercepted a push.")
             return 1
     report("push-branch-guard scenario passed.")
+    return 0
+
+
+def validate_authorize_role_scoped_scenario() -> int:
+    """Issue #378: a scoped grant may name the roles it applies to.
+
+    kaiwu-ip split its standing authorization by capability, one session per
+    capability, and could only write the split as comments: every scoped grant
+    but `push-protected` applied to every session. `@<role pattern>` limits an
+    entry to matching roles; the push guard stays on for a role no entry names.
+    """
+    label = "authorize-role-scoped:"
+    with tempfile.TemporaryDirectory(prefix="keel-authorize-378-") as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        rtl = chat_worktree(repo, base / "rtl")
+        verify = chat_worktree(repo, base / "verify")
+        env = chat_environment()
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+        run_keel(verify, "chat", "role", "--set", "verify", env=env)
+        entries = ["commit", "push:design-*@rtl", "push:review-*@ver*", "issue:acme/widgets@rtl",
+                   "chat-reply:soc@verify", "push-protected:main@rt*"]
+        for cwd in (rtl, verify):
+            write_authorize_config(cwd, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+
+        def line(stdout: str, name: str) -> str:
+            return next((l for l in stdout.splitlines() if l.strip().startswith(f"{name}:")), "")
+
+        for cwd, role, granted, withheld in ((rtl, "rtl", "issue", "chat-reply"), (verify, "verify", "chat-reply", "issue")):
+            doctor = run_keel(cwd, "--doctor", env=env)
+            if not line(doctor.stdout, granted):
+                report(f"{label} {role}'s doctor has no {granted} line: {doctor.stdout}")
+                return 1
+            if "not authorized" in line(doctor.stdout, granted):
+                report(f"{label} {role}'s doctor does not report {granted} authorized: {doctor.stdout}")
+                return 1
+            if "not authorized" not in line(doctor.stdout, withheld):
+                report(f"{label} {role}'s doctor reports {withheld}, another role's grant: {line(doctor.stdout, withheld)!r}")
+                return 1
+            roles = [l for l in doctor.stdout.splitlines() if l.startswith("roles:")]
+            if not any("rtl" in l and "issue:acme/widgets@rtl" in l for l in roles):
+                report(f"{label} {role}'s doctor lists no roles line for rtl's grants: {roles!r}")
+                return 1
+            if not any("verify" in l and "chat-reply:soc@verify" in l for l in roles):
+                report(f"{label} {role}'s doctor lists no roles line for verify's grants: {roles!r}")
+                return 1
+
+        hook_env = {k: v for k, v in os.environ.items() if k not in ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")}
+        hook_env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+
+        def decide(cwd: Path, command: str, role: str | None = None) -> dict:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd), "permission_mode": "default"}
+            run_env = {**hook_env, **({"KEEL_CHAT_ROLE": role} if role else {})}
+            result = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/pretooluse-guard.js")],
+                cwd=cwd, env=run_env, input=json.dumps(event), text=True, capture_output=True, check=False,
+            )
+            return pretooluse_decision(result) or {"permissionDecision": "pass"}
+
+        if decide(rtl, "git push origin design-x").get("permissionDecision") != "pass":
+            report(f"{label} rtl's own design branch was not allowed: {decide(rtl, 'git push origin design-x')!r}")
+            return 1
+        other = decide(verify, "git push origin design-x")
+        if other.get("permissionDecision") != "deny":
+            report(f"{label} verify pushing rtl's design branch was {other!r}, not deny.")
+            return 1
+        if "rtl" not in other.get("permissionDecisionReason", ""):
+            report(f"{label} the refusal does not name the role that may push it: {other!r}")
+            return 1
+        if decide(verify, "git push origin review-x").get("permissionDecision") != "pass":
+            report(f"{label} verify's review branch, granted by the ver* pattern, was not allowed.")
+            return 1
+        unnamed = decide(verify, "git push origin design-x", role="spec")
+        if unnamed.get("permissionDecision") != "deny":
+            report(f"{label} a role no entry names was left unlimited: {unnamed!r}")
+            return 1
+        if decide(rtl, "git push origin HEAD:main").get("permissionDecision") != "ask":
+            report(f"{label} rtl, matching main@rt*, was not asked about main.")
+            return 1
+        if decide(verify, "git push origin HEAD:main").get("permissionDecision") != "deny":
+            report(f"{label} verify's push to main@rt* was not refused.")
+            return 1
+
+        write_authorize_config(rtl, "authorize:\n  - issue:acme/widgets@Not A Role\n")
+        bad = run_keel(rtl, "--doctor", env=env)
+        if bad.returncode == 0:
+            report(f"{label} a malformed role pattern was accepted: {bad.stdout}")
+            return 1
+        if "issue:acme/widgets@Not A Role" not in bad.stdout:
+            report(f"{label} the refusal does not name the entry: {bad.stdout}")
+            return 1
+    if "authorize-role-scoped" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("authorize-role-scoped scenario passed.")
     return 0
 
 
@@ -42649,6 +42744,7 @@ SCENARIOS: tuple = (
     ("push-guard-redirects", validate_push_guard_redirects_scenario),
     ("push-guard-follow-tags", validate_push_guard_follow_tags_scenario),
     ("push-protected-guard", validate_push_protected_guard_scenario),
+    ("authorize-role-scoped", validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", validate_repo_action_mode_scenario),
     ("runner-skip-accounting", validate_runner_skip_accounting_scenario),

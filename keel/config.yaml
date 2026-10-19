@@ -63,9 +63,9 @@
 #   fast_check: npm test -- --fast
 #
 # authorize (optional): standing authorization for repository actions. The
-# accepted names are the whole vocabulary — commit, push, push:<branch glob>,
-# release, archive, continuation, issue:<owner>/<repo>, protocol-refresh,
-# chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch,
+# accepted names are the whole vocabulary — commit, push, push:<branch glob>[@<role>],
+# release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,
+# chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],
 # push-protected:<branch glob>[@<role>], shift-restore, self-shift — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty

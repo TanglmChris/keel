@@ -210,7 +210,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>, release, archive, continuation, issue:<owner>/<repo>, protocol-refresh, chat-reply:<group>, issue-close:<owner>/<repo>, cleanup:scratch, push-protected:<branch glob>[@<role>], shift-restore, self-shift
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift
   - commit
   - push
 ```
@@ -261,6 +261,17 @@ Code asks you to confirm that one command, and the next push asks again — Keel
 refused. A permission mode that cannot be relied on to ask, `bypassPermissions` or `dontAsk`, is
 refused too. Declaring it turns the push check on by itself, and a bare `push` beside it is
 refused.
+
+Every scoped entry — `push:`, `issue:`, `issue-close:`, `cleanup:`, `chat-reply:` and
+`push-protected:` — may end in `@<role>`, or a role pattern such as `@kaiwu-design-*`, where `*`
+matches any run of role characters (#378). Such an entry reaches only a session whose chat role
+matches. A session reads the grants for its own role in the capsule, `keel context`,
+`keel --doctor` and its chat-reply groups, and `keel --doctor` lists, for each bound role, the
+scoped entries that reach it. On push, the Claude write guard allows a branch only through an
+entry for the session's role, and refuses a branch another role's entry covers by naming that role.
+The check stays on for every session while any push entry is declared, so a role that no entry
+names is limited, not unlimited. The tracker, chat and scratchpad scopes stay carried rather than
+enforced: the role decides only which session reads them.
 
 `shift-restore` (#319) covers the two things a session started by a shift change on the Claude
 desktop app must do right after `keel shift resume`: turn its own Remote Control back on if it came

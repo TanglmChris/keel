@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.161.0 - a scoped grant may name the roles it applies to
+
+Issue #378 (kaiwu-ip, 2026-10-19): the team runs one session per capability, and the owner split standing authorization by capability. Only `push-protected` took a role, so the split could be written only as comments, and Keel could not tell that a review session should not push a design branch.
+
+- Every scoped `authorize:` entry — `push:`, `issue:`, `issue-close:`, `cleanup:`, `chat-reply:` and `push-protected:` — may end in `@<role>`, or a pattern such as `@kaiwu-design-*`. Only a session whose chat role matches gets that grant; an entry without one applies as before. A malformed pattern voids the declaration, naming the entry.
+- A session reads only its own role's grants in the capsule, `keel context`, its chat-reply groups and `keel --doctor`. `push-protected` stays listed with its role, as before, since the guard already refuses other roles by name. `keel --doctor` adds a `roles` line per bound role, listing the scoped entries that reach it.
+- The Claude write guard allows a branch only through a `push:` entry for the session's role, and refuses a branch another role's entry covers by naming that role. The check stays on while any push entry is declared, so a role no entry names is limited, not unlimited.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.161.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.160.0 - a rename keeps a membership the new name already had
 
 A dry run of 5.159.0's `keel chat role --rename iecc-pm kaiwu-pm-iecc`, on a copy of kaiwu-ip's chat store, dropped `kaiwu-pm-iecc` from group `iecc` together with the record it had unread. kaiwu-ip had added the new name to the group and then removed the old one (#376's workaround), and 5.159.0 read that `leave iecc-pm` as the new role leaving.
