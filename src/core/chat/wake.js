@@ -125,8 +125,9 @@ function xml(text) {
 
 function plistText(label, worktree, signal) {
   const cli = path.resolve(__dirname, "..", "..", "..", "bin", "keel.js");
-  const args = [process.execPath, cli, "chat", "wake", "run", "--once", "--worktree", worktree];
-  const environment = { PATH: process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin" };
+  const { stableNode, launchdPath } = require("../launchd");
+  const args = [stableNode(), cli, "chat", "wake", "run", "--once", "--worktree", worktree];
+  const environment = { PATH: launchdPath(process.env.PATH) };
   for (const key of ["KEEL_HOME", "KEEL_CHAT_CODEX"]) {
     if (process.env[key]) environment[key] = process.env[key];
   }

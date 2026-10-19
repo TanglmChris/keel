@@ -125,8 +125,9 @@ function xml(text) {
 
 function plistText() {
   const cli = path.resolve(__dirname, "..", "..", "..", "bin", "keel.js");
-  const args = [process.execPath, cli, "chat", "bridge", "run"];
-  const environment = { PATH: process.env.PATH || "/usr/bin:/bin:/usr/sbin:/sbin" };
+  const { stableNode, launchdPath } = require("../launchd");
+  const args = [stableNode(), cli, "chat", "bridge", "run"];
+  const environment = { PATH: launchdPath(process.env.PATH) };
   if (process.env.KEEL_HOME) environment.KEEL_HOME = process.env.KEEL_HOME;
   if (process.env.KEEL_CHAT_MACHINE) environment.KEEL_CHAT_MACHINE = process.env.KEEL_CHAT_MACHINE;
   const log = path.join(bridgeDir(), "bridge.log");
