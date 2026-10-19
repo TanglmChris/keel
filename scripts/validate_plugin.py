@@ -3020,6 +3020,86 @@ def validate_patrol_exit_says_who_acts_scenario() -> int:
     return 0
 
 
+def validate_patrol_next_scenario() -> int:
+    """Issue #356: a patrol recommends when to run next.
+
+    With `cadence: adaptive` the first matching rule picks the delay — risk,
+    quota, night, busy, idle — and each case has a failing arm: the same
+    fixture without its condition gives another rule. A fixed `every:` keeps
+    today's cadence.
+    """
+    label = "patrol-next:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-356-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+
+        def config(extra: str) -> None:
+            write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n" + extra)
+
+        def patrol(*args: str) -> dict:
+            result = run_keel(rtl, "patrol", "--json", *args, env=env)
+            return json.loads(result.stdout) if result.stdout.strip().startswith("{") else {"raw": result.stdout + result.stderr}
+
+        def expect(name: str, payload: dict, rule: str, seconds: int | None) -> bool:
+            if payload.get("next_rule") != rule:
+                report(f"{label} {name}: next_rule {payload.get('next_rule')!r}, not {rule!r}: {payload!r}")
+                return False
+            if seconds is not None and payload.get("next_after_s") != seconds:
+                report(f"{label} {name}: next_after_s {payload.get('next_after_s')!r}, not {seconds}")
+                return False
+            return True
+
+        config("")
+        if not expect("fixed", patrol(), "fixed", 3600):
+            return 1
+        config("  cadence: adaptive\n")
+        if not expect("idle", patrol(), "idle", 3 * 3600):
+            return 1
+        subprocess.run(["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"], cwd=verify, env=env,
+                       text=True, capture_output=True, check=False,
+                       input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "session_id": "v1", "source": "startup"}))
+        if not expect("busy", patrol(), "busy", 3600):
+            return 1
+        patrol("--quota", "92")
+        if not expect("quota", patrol("--quota", "92"), "quota", 4 * 3600):
+            return 1
+        # The risk is a clean checkout turning dirty, so the config is committed first.
+        subprocess.run(["git", "add", "-A"], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "cadence"], cwd=rtl, check=True, capture_output=True)
+        patrol("--since-last")
+        (rtl / "stray.txt").write_text("x\n")
+        if not expect("risk", patrol("--since-last"), "risk", 30 * 60):
+            return 1
+        (rtl / "stray.txt").unlink()
+        patrol("--since-last")
+        now = datetime.now()
+        start = (now - timedelta(minutes=30)).strftime("%H:%M")
+        end_at = now + timedelta(minutes=90)
+        config(f"  cadence: adaptive\n  idle: 2h\n  quiet: {start}-{end_at.strftime('%H:%M')}\n")
+        night = patrol()
+        if not expect("night", night, "night", None):
+            return 1
+        if not 80 * 60 <= night.get("next_after_s", 0) <= 91 * 60:
+            report(f"{label} night: next_after_s {night.get('next_after_s')} does not end at the window's end.")
+            return 1
+        config("  cadence: adaptive\n  busy: 45m\n  min: 50m\n")
+        if not expect("busy clamped to min", patrol(), "busy", 50 * 60):
+            return 1
+        text = run_keel(rtl, "patrol", env=env).stdout
+        if not re.search(r"^next: 50m \(busy\)$", text, re.M):
+            report(f"{label} the text output has no `next: 50m (busy)` line: {text!r}")
+            return 1
+        log = (mailbox_common_dir(rtl) / "keel-chat" / "patrol" / "log" / "rtl.log").read_text(encoding="utf-8").splitlines()
+        if not log[-1].endswith("next=50m (busy)"):
+            report(f"{label} the run log does not record the next run: {log[-1]!r}")
+            return 1
+    if "patrol-next" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("patrol-next scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 
@@ -42045,6 +42125,7 @@ SCENARIOS: tuple = (
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
+    ("patrol-next", validate_patrol_next_scenario),
     ("patrol-exit-says-who-acts", validate_patrol_exit_says_who_acts_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),
