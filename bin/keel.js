@@ -48,6 +48,7 @@ const {
   STANDING_AUTHORIZATION_ACTIONS,
   readPrecedentStore,
   readStandingAuthorization,
+  roleMatches,
   readFullModePaths,
   readExecutorTier,
   readMergeDeclaration,
@@ -2378,7 +2379,7 @@ function gitConfigHooksPath(repo) {
 
 function printStandingAuthorizationSurface(repo) {
   process.stdout.write("\nStanding authorization:\n");
-  const { declared, scopes, unknown, message } = readStandingAuthorization(repo);
+  const { declared, scopes, unknown, message, otherRoles, entries, role } = readStandingAuthorization(repo);
   if (unknown.length > 0) {
     printDoctorLine("authorize", "failed", message);
     return false;
@@ -2386,9 +2387,10 @@ function printStandingAuthorizationSurface(repo) {
   printDoctorLine(
     "authorize",
     declared.length > 0 ? "ok" : "none",
-    declared.length > 0
+    (declared.length > 0
       ? `declared in keel/config.yaml: ${declared.join(", ")}`
-      : "undeclared; every action stays hard-stop"
+      : "undeclared; every action stays hard-stop")
+      + (otherRoles.length ? `; for other roles than ${role || "this unbound session"}: ${otherRoles.join(", ")}` : "")
   );
   for (const action of STANDING_AUTHORIZATION_ACTIONS) {
     // Keyed on the action, never on the declared string. A scoped entry is
@@ -2430,6 +2432,21 @@ function printStandingAuthorizationSurface(repo) {
         + "branches, one command at a time; a role after `@` limits who may be "
         + "asked, and a mode that cannot ask (bypassPermissions, dontAsk) is refused"
     );
+  }
+  // Per bound role, the scoped entries that reach it (#378 D4).
+  if (entries.some((entry) => entry.role)) {
+    let bound = [];
+    try {
+      const store = require("../src/core/chat/store");
+      const where = store.locate(repo);
+      if (where) bound = [...new Set(Object.values(store.readRoles(where.root)).map((name) => store.canonicalRole(where.root, name)))].sort();
+    } catch {
+      bound = [];
+    }
+    for (const name of bound) {
+      const reach = entries.filter((entry) => entry.scope !== null && (!entry.role || roleMatches(entry.role, name))).map((entry) => entry.entry);
+      printDoctorLine("roles", name, reach.length ? reach.join(", ") : "no scoped grant");
+    }
   }
   if (scopes.get("push")) {
     printDoctorLine(

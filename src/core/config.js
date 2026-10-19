@@ -71,17 +71,27 @@ const AUTHORIZATION_SCOPES = {
   // Branch-name characters and `*`; `*` matches within one `/` segment and
   // `**` across them, as Touch globs do.
   push: { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
-  "push-protected": { form: "<branch glob>[@<role>]", pattern: /^[A-Za-z0-9._/*-]+(?:@[a-z0-9][a-z0-9-]{0,31})?$/ },
+  "push-protected": { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
 };
+
+// `@<role pattern>` after any scope (#378): chat-role characters and `*`,
+// which matches any run of them. Only a session of a matching role reads it.
+const AUTHORIZATION_ROLE_PATTERN = /^[a-z0-9*][a-z0-9*-]{0,31}$/;
+
+function roleMatches(pattern, role) {
+  if (!role) return false;
+  // The pattern is checked to hold only `[a-z0-9-]` and `*`, so each part is a literal.
+  return new RegExp(`^${String(pattern).split("*").join("[a-z0-9-]*")}$`).test(role);
+}
 
 // How the accepted names are spelled back to an author: the scoped ones carry
 // their form, so the list is copyable rather than a name the next message
 // refuses.
 const STANDING_AUTHORIZATION_ACCEPTED_FORMS = STANDING_AUTHORIZATION_ACTIONS.flatMap(
   (action) => {
-    if (SCOPED_AUTHORIZATION_ACTIONS.has(action)) return [`${action}:${AUTHORIZATION_SCOPES[action].form}`];
+    if (SCOPED_AUTHORIZATION_ACTIONS.has(action)) return [`${action}:${AUTHORIZATION_SCOPES[action].form}[@<role>]`];
     if (OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS.has(action)) {
-      return [action, `${action}:${AUTHORIZATION_SCOPES[action].form}`];
+      return [action, `${action}:${AUTHORIZATION_SCOPES[action].form}[@<role>]`];
     }
     return [action];
   }
@@ -105,10 +115,35 @@ function classifyAuthorizationEntry(entry) {
     return { ok: true, entry, action, scope: null };
   }
   if (scope === null) return { ok: false, entry, action, reason: "missing-scope" };
-  if (!AUTHORIZATION_SCOPES[action].pattern.test(scope)) {
+  const at = scope.lastIndexOf("@");
+  const bare = at === -1 ? scope : scope.slice(0, at);
+  const role = at === -1 ? null : scope.slice(at + 1);
+  if (!AUTHORIZATION_SCOPES[action].pattern.test(bare)) {
     return { ok: false, entry, action, reason: "malformed-scope" };
   }
-  return { ok: true, entry, action, scope };
+  if (role !== null && !AUTHORIZATION_ROLE_PATTERN.test(role)) {
+    return { ok: false, entry, action, reason: "malformed-role" };
+  }
+  // `push-protected` keeps its role in the scope it prints, as before (#280).
+  return { ok: true, entry, action, scope: action === "push-protected" ? scope : bare, role };
+}
+
+// The chat role of the session reading the declaration (#378 D2): the
+// override, else the worktree's binding, read through any rename.
+function sessionChatRole(repo) {
+  for (const variable of ["KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE"]) {
+    const value = (process.env[variable] || "").trim();
+    if (value) return value;
+  }
+  try {
+    const store = require("./chat/store");
+    const where = store.locate(repo);
+    if (!where) return null;
+    const bound = store.readRoles(where.root)[where.worktree];
+    return bound ? store.canonicalRole(where.root, bound) : null;
+  } catch {
+    return null;
+  }
 }
 
 // The closed vocabulary of capability tiers a repository may declare for a
@@ -301,6 +336,13 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
   // names are ... issue" beside "unrecognized action: issue" would contradict
   // itself. Name what is missing instead, and why this one name carries it.
   for (const problem of problems) {
+    if (problem.reason === "malformed-role") {
+      notes.push(
+        `\`${problem.entry}\` ends in a role pattern that is not chat-role characters — `
+          + "lowercase letters, digits, and hyphens — with `*` matching any run of them."
+      );
+      continue;
+    }
     if (problem.reason === "mixed-push") {
       notes.push(
         `\`push\` and ${problem.scoped.map((entry) => `\`${entry}\``).join(", ")} are `
@@ -365,7 +407,12 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
   return notes.length === 0 ? base : `${base} ${notes.join(" ")}`;
 }
 
-function readStandingAuthorization(repo) {
+function readStandingAuthorization(repo, options = {}) {
+  const role = Object.prototype.hasOwnProperty.call(options, "role") ? options.role : sessionChatRole(repo);
+  // Entries for other roles (#378 D2): read, checked, and left out of what
+  // this session is granted; `push-protected` prints its own role instead.
+  const otherRoles = [];
+  const entries = [];
   const declared = [];
   const unknown = [];
   const problems = [];
@@ -379,6 +426,11 @@ function readStandingAuthorization(repo) {
   for (const entry of configList(repo, "authorize")) {
     const classified = classifyAuthorizationEntry(entry);
     if (classified.ok) {
+      entries.push(classified);
+      if (classified.role && classified.action !== "push-protected" && !roleMatches(classified.role, role)) {
+        otherRoles.push(entry);
+        continue;
+      }
       declared.push(entry);
       if (!scopes.has(classified.action)) scopes.set(classified.action, classified.scope);
       if (classified.action === "chat-reply" && !chatReplyGroups.includes(classified.scope)) {
@@ -403,11 +455,12 @@ function readStandingAuthorization(repo) {
       protectedPushes.push(classified.scope);
     }
   }
-  if ((pushGlobs.length || protectedPushes.length) && declared.includes("push")) {
+  const anyScopedPush = entries.some((e) => (e.action === "push" && e.scope !== null) || e.action === "push-protected");
+  if (anyScopedPush && declared.includes("push")) {
     unknown.push("push");
     problems.push({
       reason: "mixed-push", entry: "push", action: "push",
-      scoped: [...pushGlobs.map((glob) => `push:${glob}`), ...protectedPushes.map((scope) => `push-protected:${scope}`)],
+      scoped: entries.filter((e) => (e.action === "push" && e.scope !== null) || e.action === "push-protected").map((e) => e.entry),
     });
   }
   if (unknown.length > 0) {
@@ -417,6 +470,9 @@ function readStandingAuthorization(repo) {
       chatReplyGroups: [],
       pushGlobs: [],
       protectedPushes: [],
+      otherRoles: [],
+      entries: [],
+      role,
       unknown,
       message: standingAuthorizationUnknownMessage(unknown, problems),
     };
@@ -424,7 +480,7 @@ function readStandingAuthorization(repo) {
   if (chatReplyGroups.length) scopes.set("chat-reply", chatReplyGroups.join(", "));
   if (pushGlobs.length) scopes.set("push", pushGlobs.join(", "));
   if (protectedPushes.length) scopes.set("push-protected", protectedPushes.join(", "));
-  return { declared, scopes, chatReplyGroups, pushGlobs, protectedPushes, unknown, message: null };
+  return { declared, scopes, chatReplyGroups, pushGlobs, protectedPushes, otherRoles, entries, role, unknown, message: null };
 }
 
 // `full_mode_paths:` — the paths whose change always routes Full, whatever the
@@ -1018,6 +1074,7 @@ module.exports = {
   executorTierUnreadableMessage,
   readPrecedentStore,
   readStandingAuthorization,
+  roleMatches,
   readTriagePolicy,
   triageIssue,
 };
