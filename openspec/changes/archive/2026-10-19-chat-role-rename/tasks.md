@@ -51,7 +51,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -88,14 +88,14 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:ad1d21fc586027314b6ee1b8e12a11935337be36e3cf064845c1d40c0682d275 (keel 5.158.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.158.0 → 5.159.0; with the "a chat role can be renamed" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the delta requirements were promoted into `keel-cross-host-mailbox`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the changelog section and the published spec carry the change; both validator scenarios pass.
+      - Scope check: changed files beyond task 1.1's are the version markers, `keel/CHANGELOG.md` and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
