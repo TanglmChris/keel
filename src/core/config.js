@@ -955,8 +955,14 @@ function readPatrolDeclaration(repo) {
     if (window) cadence.quiet = { start: Number(window[1]) * 60 + Number(window[2]), end: Number(window[3]) * 60 + Number(window[4]) };
     else ignored.push(`quiet \`${block.quiet}\` is not a window such as 23:00-08:30`);
   }
+  // `runner: tick` says `keel tick` runs the patrol from the host scheduler.
+  let runner = null;
+  if (block.runner !== undefined) {
+    if (block.runner === "tick") runner = "tick";
+    else ignored.push(`runner \`${block.runner}\` is not tick`);
+  }
   const message = ignored.length ? `keel/config.yaml patrol: ${ignored.join("; ")}, so it is ignored.` : null;
-  return { declared: true, role: block.role, every: block.every, hostTask, model, message, cadence };
+  return { declared: true, role: block.role, every: block.every, hostTask, model, message, cadence, runner };
 }
 
 function durationSeconds(value) {
@@ -965,6 +971,10 @@ function durationSeconds(value) {
 }
 
 function patrolReminder(patrol) {
+  if (patrol.runner === "tick") {
+    return `Patrol: role ${patrol.role}'s \`keel patrol\` is run by \`keel tick\` from the host scheduler (render it with \`keel tick task\`), `
+      + "which outlives this session; no session schedule is needed.";
+  }
   if (patrol.hostTask) {
     return `Patrol: role ${patrol.role} runs \`keel patrol\` every ${patrol.every} through host scheduled task `
       + `${patrol.hostTask}, which outlives this session; confirm it is still enabled rather than creating a schedule in this session.`;
