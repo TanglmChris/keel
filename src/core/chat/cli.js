@@ -21,13 +21,13 @@ const USAGE = [
   "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
   "keel chat group list [--all] [--json]   (also: keel chat list)",
-  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--stamp] [--not-a-loop <why>] [--json]   (also: keel chat <group> <text...>)",
+  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--no-stamp] [--not-a-loop <why>] [--json]   (also: keel chat <group> <text...>; Keel stamps the time unless --no-stamp)",
   "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
   "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
   "keel chat summary --since <90s|15m|2h|3d|date> [--group <group>] [--json]   (what changed, per group and sender; reads without marking read)",
   "keel chat wait <group> --commit <sha> [--remote <name>] [note...]   (or --issue <n> --closed: what this role waits for; keel patrol tells it when it holds)",
   "keel chat waits [--json]                 waits not yet met",
-  "keel chat dm <role> <text...> [--stamp] [--not-a-loop <why>] [--json]",
+  "keel chat dm <role> <text...> [--no-stamp] [--not-a-loop <why>] [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
   "keel chat read [<group>] [--json]",
@@ -78,10 +78,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--help": "help", "-h": "help", "--prune": "prune" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, help: false, prune: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -119,11 +119,20 @@ function parseChatArgs(argv) {
   return options;
 }
 
-// `--stamp` (#298 D3): the time comes from Keel's clock, never the author's estimate.
+// The time comes from Keel's clock, never the author's estimate (#298 D3).
+// It is the default since replies without `--stamp` carried hand-typed times
+// (#349); `--no-stamp` opts out, and a text that already opens with a stamp
+// is left as it is.
+const OPENING_STAMP = /^\[\d{2}-\d{2} \d{2}:\d{2}\]/;
+const MARKDOWN_BLOCK = /^(?:#{1,6}\s|[-*+]\s|>|```|\d+[.)]\s|\|)/;
+
 function stamped(text, options) {
-  if (!options.stamp || !String(text || "").trim()) return text;
+  if (options.stamp && options.noStamp) throw new ChatError("--stamp and --no-stamp cannot both be given.");
+  if (options.noStamp || !String(text || "").trim() || OPENING_STAMP.test(String(text).trimStart())) return text;
   const now = store.isoLocal(new Date());
-  return `[${now.slice(5, 10)} ${now.slice(11, 16)}] ${text}`;
+  const stamp = `[${now.slice(5, 10)} ${now.slice(11, 16)}]`;
+  // A first line that opens a Markdown block keeps its line start (#349 D3).
+  return MARKDOWN_BLOCK.test(String(text).trimStart()) ? `${stamp}\n${String(text).trimStart()}` : `${stamp} ${text}`;
 }
 
 function out(text) {
