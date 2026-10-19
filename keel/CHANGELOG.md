@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.153.0 - A patrol recommends its next run
+
+Issue #356 (rtl_ppa_prj coordinator, 2026-10-18): the patrol ran at a fixed `every:` cadence — hourly all day, though most runs during waits and overnight only recorded presence flips, and an hour is too slow once a risk appears — and the project wrote its own adaptive rules into its host task. On 2026-10-19 the owner chose one model-free CLI waker (`keel tick`) to run the patrol on this recommendation.
+
+- `keel patrol` prints `next: <duration> (<rule>)`; `--json` adds `next_after_s`, `next_rule` and `next_at`, and the run log records `next=`.
+- With `cadence: adaptive` under `patrol:`, the first matching rule picks it: `risk` 30m, `quota` (`--quota` ≥ 90) 4h, `night` (inside `quiet: HH:MM-HH:MM`, no risk) until the window ends, `busy` (another role active, or an open wait or todo whose role is active) 60m, `idle` 3h. `risk:`, `quota:`, `busy:`, `idle:`, `quiet:` override them and `min:`/`max:` clamp. Without it the recommendation is `every:`, rule `fixed`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.153.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.152.0 - A resumed note's commits are checked against the remote
 
 Issue #347 (rtl_ppa_prj): shift notes go stale between `ready` and `resume`, and the next shift acted on one that called a commit "waiting to be merged" after it had reached `origin/main`.
