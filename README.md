@@ -842,15 +842,16 @@ keel patrol --issues /tmp/issues.json        # as the coordinator's role
 as met and sends the waiting role one direct message, which wakes it. It lists every role's
 presence, last activity, and open todos, marking those idle beyond `--idle` (default `30m`). It
 fetches nothing, schedules nothing, calls no model, and writes nothing when nothing is new; it exits
-0 then, 2 when it sent something, and 1 on an error, so a cheap scheduler — cron, `/loop`, CI — can
-wake the model only on 2. `keel chat waits` lists what is still awaited.
+0 then, 2 when the coordinator has something to act on — a risk, or its own wait met — 3 when it only
+recorded something or told other roles, and 1 on an error, so a cheap scheduler — cron, `/loop`, CI —
+can wake the model only on 2 (#350). `keel chat waits` lists what is still awaited.
 
 A patrol on an hourly schedule should report change, not state, or it wakes the coordinator every
 hour for a note deliberately left parked (#295). `keel patrol --since-last` keeps a snapshot per role
 — shift status, the remote default branch tip, the main checkout's uncommitted paths, each role's
 idleness and open todos, and the coordinator's addressed records unread beyond `--idle` — and prints
 only `changed:` lines for what differs from the previous run; the first run records a baseline. It
-writes that snapshot on every run, and exits 2 only when something changed. Add `--notify` and the
+writes that snapshot on every run, and exits 3 when something changed and 2 only when a risk did. Add `--notify` and the
 coordinator gets one direct message from `keel-patrol`, which wakes its session, carrying only risks
 (#307): the shared checkout gaining uncommitted paths after a clean run, free disk the host reports with
 `--disk-free-gb` dropping below `--disk-min-gb` (default 20), and a role that left two nudges in a row
