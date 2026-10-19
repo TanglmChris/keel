@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.162.0"
-PROTOCOL_VERSION = "5.162.0"
+PACKAGE_VERSION = "5.163.0"
+PROTOCOL_VERSION = "5.163.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -3362,6 +3362,90 @@ def validate_patrol_next_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("patrol-next scenario passed.")
+    return 0
+
+
+def validate_launchd_stable_node_scenario() -> int:
+    """Issue #387: a launchd job must name a node that outlives `brew upgrade`.
+
+    `keel tick task` printed `process.execPath`, Homebrew's versioned Cellar
+    path, which is gone after an upgrade; launchd then fails silently every
+    interval. The jobs now name the `node` on PATH that is the same binary (the
+    symlink the package manager keeps current), leave plugin cache directories
+    out of PATH, and `keel --doctor` reports a job whose node no longer exists.
+    """
+    label = "launchd-stable-node:"
+    with tempfile.TemporaryDirectory(prefix="keel-launchd-387-") as raw:
+        base = Path(raw)
+        rtl, cx, env, _ = chat_wake_scratch(base)
+        real = os.path.realpath(shutil.which("node") or "node")
+        versioned = base / "cellar" / "node" / "9.9.9" / "bin"
+        versioned.mkdir(parents=True)
+        (versioned / "node").symlink_to(real)
+        stable = base / "bin"
+        stable.mkdir()
+        (stable / "node").symlink_to(versioned / "node")
+        cache = base / "home" / ".claude" / "plugins" / "cache" / "keel-marketplace" / "keel" / "5.149.0" / "bin"
+        cache.mkdir(parents=True)
+        path = os.pathsep.join([str(cache), str(stable), os.environ.get("PATH", "")])
+        env = {**env, "PATH": path}
+        write_text(rtl / "openspec/specs/.keep", "")
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n  runner: tick\n")
+        subprocess.run(["git", "add", "-A"], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "tick"], cwd=rtl, check=True, capture_output=True)
+
+        def keel(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run([str(stable / "node"), str(ROOT / "bin" / "keel.js"), *args], cwd=cwd, env=env,
+                                  text=True, capture_output=True, check=False)
+
+        def program(plist: str) -> str:
+            return (re.search(r"<key>ProgramArguments</key>\s*<array>\s*<string>(.*?)</string>", plist, re.S) or [None, ""])[1]
+
+        def path_of(plist: str) -> str:
+            return (re.search(r"<key>PATH</key>\s*<string>(.*?)</string>", plist, re.S) or [None, ""])[1]
+
+        task = keel(rtl, "tick", "task")
+        if task.returncode != 0:
+            report(f"{label} keel tick task failed: {task.stderr!r}")
+            return 1
+        if program(task.stdout) != str(stable / "node"):
+            report(f"{label} the tick job names the versioned node: {program(task.stdout)!r}, not {str(stable / 'node')!r}")
+            return 1
+        if str(stable) not in path_of(task.stdout).split(os.pathsep) or "plugins/cache" in path_of(task.stdout):
+            report(f"{label} the tick job's PATH is not the stable directories without the plugin cache: {path_of(task.stdout)!r}")
+            return 1
+
+        added = keel(cx, "chat", "wake", "add")
+        plists = sorted((base / "agents").glob("dev.keel.chat-wake.*.plist"))
+        if added.returncode != 0 or len(plists) != 1:
+            report(f"{label} keel chat wake add wrote {len(plists)} LaunchAgents: {(added.stdout + added.stderr).strip()!r}")
+            return 1
+        waker = plists[0].read_text(encoding="utf-8")
+        if program(waker) != str(stable / "node"):
+            report(f"{label} the chat waker's LaunchAgent names the versioned node: {program(waker)!r}")
+            return 1
+        if "plugins/cache" in path_of(waker):
+            report(f"{label} the chat waker's LaunchAgent keeps a plugin cache directory in PATH: {path_of(waker)!r}")
+            return 1
+
+        gone = base / "Cellar" / "node" / "0.0.0" / "bin" / "node"
+        broken = base / "agents" / "dev.keel.tick.x.plist"
+        broken.write_text(task.stdout[task.stdout.index("<?xml"):task.stdout.index("</plist>") + 8].replace(str(stable / "node"), str(gone)), encoding="utf-8")
+        problem = keel(rtl, "--doctor")
+        line = next((l for l in problem.stdout.splitlines() if l.startswith("launchd: problem")), "")
+        for needle in ("dev.keel.tick.x.plist", str(gone), "keel tick task"):
+            if needle not in line:
+                report(f"{label} doctor does not name {needle!r} for a job whose node is gone: {problem.stdout!r}")
+                return 1
+        broken.write_text(broken.read_text(encoding="utf-8").replace(str(gone), str(stable / "node")), encoding="utf-8")
+        fine = keel(rtl, "--doctor")
+        if "launchd: ok" not in fine.stdout or "launchd: problem" in fine.stdout:
+            report(f"{label} doctor does not report ok once the node exists: {fine.stdout!r}")
+            return 1
+    if "launchd-stable-node" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("launchd-stable-node scenario passed.")
     return 0
 
 
@@ -42791,6 +42875,7 @@ SCENARIOS: tuple = (
     ("patrol-since-last", validate_patrol_since_last_scenario),
     ("patrol-next", validate_patrol_next_scenario),
     ("tick-runs-due-patrol", validate_tick_runs_due_patrol_scenario),
+    ("launchd-stable-node", validate_launchd_stable_node_scenario),
     ("patrol-exit-says-who-acts", validate_patrol_exit_says_who_acts_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),

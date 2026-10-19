@@ -2314,12 +2314,30 @@ function runDoctor(options) {
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
   printChatRoleDrift(repo);
+  printLaunchdJobs();
 
   return authorizationOk ? checkStatus : 1;
 }
 
 // Chat role bindings that drifted from where sessions run (#301 D3). Nothing
 // is printed without a chat store that binds roles.
+// A launchd job that names a node an upgrade removed fails silently every
+// interval (#387); the report does not change doctor's exit status, since the
+// job belongs to the machine and not to this repository.
+function printLaunchdJobs() {
+  const jobs = require("../src/core/launchd").inspectJobs();
+  if (!jobs.length) return;
+  const gone = jobs.filter((job) => !job.exists);
+  for (const job of gone) {
+    printDoctorLine(
+      "launchd",
+      "problem",
+      `${job.name} runs ${job.program || "no program"}, which does not exist; re-create it with \`${job.recreate}\``
+    );
+  }
+  if (!gone.length) printDoctorLine("launchd", "ok", `${jobs.length} dev.keel job${jobs.length === 1 ? "" : "s"}, each naming a node that exists`);
+}
+
 function printChatRoleDrift(repo) {
   let where = null;
   try {
