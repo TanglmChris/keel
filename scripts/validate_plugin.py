@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.165.0"
-PROTOCOL_VERSION = "5.165.0"
+PACKAGE_VERSION = "5.166.0"
+PROTOCOL_VERSION = "5.166.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8251,20 +8251,35 @@ def validate_shift_cli_self_shift_scenario() -> int:
         base = Path(raw)
         rtl, verify, env, _ = shift_scratch(base)
         calls, agents, fail, norename = base / "claude-calls.jsonl", base / "agents.json", base / "fail-start", base / "no-rename"
+        stoplag = base / "stop-lag"
         fake = base / "fake-claude"
         # The fake answers with the shapes measured on Claude Code 2.1.303: a live row has `status` and `state`; a stopped one has `state: stopped` and no `status`.
+        # `stop` returns before the process exits (#395): with `stop-lag` holding n, the row stops n listings later, never with `never`;
+        # and a resume of a session still running starts a copy that takes the name, as measured.
         write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
-                   f"agents, fail, norename = {str(agents)!r}, {str(fail)!r}, {str(norename)!r}\n"
+                   f"agents, fail, norename, stoplag = {str(agents)!r}, {str(fail)!r}, {str(norename)!r}, {str(stoplag)!r}\n"
                    f"open({str(calls)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'claude_env': sorted(k for k in os.environ if k.startswith('CLAUDE'))}}) + '\\n')\n"
                    "argv = sys.argv[1:]\n"
-                   "if argv[:2] == ['agents', '--json']:\n    print(open(agents).read()); sys.exit(0)\n"
                    "rows = json.loads(open(agents).read())\n"
+                   "if argv[:2] == ['agents', '--json']:\n"
+                   "    for row in rows:\n        if '_stop_in' in row:\n            row['_stop_in'] -= 1\n"
+                   "            if row['_stop_in'] <= 0:\n                row.pop('_stop_in'); row.pop('status', None); row['state'] = 'stopped'\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print(json.dumps(rows)); sys.exit(0)\n"
                    "if argv[:1] == ['stop']:\n"
-                   "    for row in rows:\n        if row['id'] == argv[1]:\n            row.pop('status', None); row['state'] = 'stopped'\n"
+                   "    lag = open(stoplag).read().strip() if os.path.exists(stoplag) else '0'\n"
+                   "    for row in rows:\n        if row['id'] == argv[1] and 'status' in row:\n"
+                   "            if lag == '0':\n                row.pop('status', None); row['state'] = 'stopped'\n"
+                   "            else:\n                row['_stop_in'] = 10 ** 9 if lag == 'never' else int(lag)\n"
                    "    open(agents, 'w').write(json.dumps(rows)); print('stopped ' + argv[1]); sys.exit(0)\n"
                    "if argv[:2] == ['--bg', '--resume']:\n"
-                   "    for row in rows:\n        if row['sessionId'] == argv[2] and not os.path.exists(norename):\n            row['name'] = argv[3].split(None, 1)[1]\n"
-                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · ' + argv[2][:8]); sys.exit(0)\n"
+                   "    name = argv[3].split(None, 1)[1]\n"
+                   "    running = [row for row in rows if row['sessionId'] == argv[2] and 'status' in row]\n"
+                   "    if running:\n"
+                   "        rows.append({**running[0], 'sessionId': 'c0c0c0c0-0000-0000-0000-000000000000', 'id': 'c0c0c0c0', 'name': name, 'status': 'idle'})\n"
+                   "        rows[-1].pop('_stop_in', None)\n"
+                   "        print('note: session ' + argv[2][:8] + ' is already running in the background, so this started a copy as c0c0c0c0.')\n"
+                   "    for row in rows:\n        if row['sessionId'] == argv[2] and not running and not os.path.exists(norename):\n            row['name'] = name\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · ' + (rows[-1]['id'] if running else argv[2][:8])); sys.exit(0)\n"
                    "if argv[:1] == ['--bg'] and os.path.exists(fail):\n    print('Workspace not trusted.', file=sys.stderr); sys.exit(1)\n"
                    "if argv[:1] == ['--bg']:\n    print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
                    "print('stopped')\n")
@@ -8340,9 +8355,18 @@ def validate_shift_cli_self_shift_scenario() -> int:
         # Finished: idle, though its state still labels its last message `working` (#393, keel-maint's
         # ended turn). The waiter retires it and starts the next, with no tick.
         agents_row("idle", "working")
+        write_text(stoplag, "2")
         if not wait_for(lambda: len(starts()) >= 1):
             report(f"{label} the waiter did not hand over without a tick: {acted()!r}")
             return 1
+        listed = json.loads(agents.read_text())
+        if any(row["sessionId"] != OLD for row in listed):
+            report(f"{label} the rename resumed a session that was still running, starting a copy: {listed!r}")
+            return 1
+        if not re.match(r"^verify · shifted ", listed[0]["name"]):
+            report(f"{label} the old session did not take the shifted name: {listed!r}")
+            return 1
+        stoplag.unlink()
         order = acted()
         shifted = re.compile(r"^/rename verify · shifted \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
         if (order[0] != ["stop", OLD[:8]] or order[1][:3] != ["--bg", "--resume", OLD] or len(order[1]) != 4
@@ -8407,6 +8431,27 @@ def validate_shift_cli_self_shift_scenario() -> int:
             report(f"{label} shift status does not say the rename did not show: {text!r}")
             return 1
         norename.unlink()
+
+        # A session that never shows as stopped is not resumed for its rename (#395), and the new session still starts.
+        calls.write_text("")
+        agents_row("idle", "done")
+        write_text(stoplag, "never")
+        run_keel(verify, "shift", "ready", "--wake", "next: rerun R016", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
+        ticked = run_keel(verify, "tick", "--repo", str(rtl), env={**tick_only, "KEEL_SHIFT_STOP_WAIT_MS": "1000"})
+        text = status_text()
+        if any(argv[:2] == ["--bg", "--resume"] for argv in acted()):
+            report(f"{label} a session that never stopped was resumed for its rename: {acted()!r}")
+            return 1
+        if len(starts()) != 1:
+            report(f"{label} a session that never stopped kept the new session from starting: {acted()!r} {ticked.stderr!r}")
+            return 1
+        if "delivered" not in text:
+            report(f"{label} a session that never stopped kept the hand-off from being delivered: {text!r}")
+            return 1
+        if "rename not shown" not in text:
+            report(f"{label} shift status does not say a session that never stopped was not renamed: {text!r}")
+            return 1
+        stoplag.unlink()
 
         # A start that fails stays visible and is a patrol risk.
         calls.write_text("")
