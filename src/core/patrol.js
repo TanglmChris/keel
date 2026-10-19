@@ -497,6 +497,8 @@ function runPatrol(argv) {
     result.risks = [];
     const quota = quotaRisk(where, options);
     if (quota) result.risks.push(quota);
+    // A CLI hand-off that failed or hangs (#357 D4).
+    result.risks.push(...require("./shift").handOffRisks(where));
     // Near the limit nudges stop, since each wakes a large session (D3).
     const quiet = options.quota !== null && options.quota >= options.quotaQuietAt;
     if (options.nudge && quiet) result.paused = `nudges paused: quota at ${options.quota}%`;

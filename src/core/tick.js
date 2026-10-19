@@ -66,6 +66,7 @@ function tick(where, now = new Date()) {
   const result = { patrol: null, woken: [] };
   const wakeState = readState(where);
   result.woken = wakeEnded(where, wakeState);
+  result.handedOver = require("./shift").handOver(where);
   if (result.woken.length) store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken });
   const found = patrolWorktree(where);
   if (!found.worktree) {
@@ -103,7 +104,8 @@ function tick(where, now = new Date()) {
 
 function render(result) {
   const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
-  return [...woke, renderPatrol(result)].join("\n");
+  const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
+  return [...handed, ...woke, renderPatrol(result)].join("\n");
 }
 
 function renderPatrol(result) {

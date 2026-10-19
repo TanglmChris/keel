@@ -375,6 +375,14 @@ function desktopSession() {
   return process.env.CLAUDE_CODE_ENTRYPOINT === "claude-desktop" && id ? id : null;
 }
 
+// The Claude Code CLI session's id and process, or null elsewhere (#357 D1).
+function cliSession() {
+  const id = process.env.CLAUDE_CODE_SESSION_ID;
+  if (process.env.CLAUDE_CODE_ENTRYPOINT !== "cli" || !id) return null;
+  const pid = Number(process.env.CLAUDE_PID);
+  return { session: id, pid: Number.isInteger(pid) && pid > 1 ? pid : null };
+}
+
 // The desktop session's Claude process: the nearest ancestor whose command's
 // basename is `claude`. The app's clear stops it, which is what the wake
 // waits for (D1 of shift-desktop-wake-in-a-minute).
@@ -437,12 +445,15 @@ function ready(where, options) {
   const stamp = store.isoLocal(new Date());
   const desktop = desktopSession();
   const pid = desktop ? desktopProcess() : null;
+  const cli = desktop ? null : cliSession();
   const head = [
     `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
     `Written ${stamp} in ${result.worktree}.`,
     desktop ? `Desktop session: ${desktop}.` : "",
     desktop && pid ? `Desktop process: ${pid}.` : "",
+    cli ? `CLI session: ${cli.session}.` : "",
+    cli && cli.pid ? `CLI process: ${cli.pid}.` : "",
     // A shift the role started itself; the patrol may nudge it to resume (#307 D4).
     options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
     !role ? `Started by hand: ${options.forceReason}.` : "",
@@ -464,8 +475,83 @@ function ready(where, options) {
       store.writeRecord(where, { group: todo.group, kind: "done", from: role, target: todo.id });
     }
   }
-  const waiter = options.wake ? armWake(where, role, since) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, startedBy: role ? null : options.forceReason, desktop, pid, worktree: where.worktree };
+  // A CLI session cannot clear itself: `keel tick` stops it once idle and
+  // starts the next (#357 D1), so nothing waits for a clear.
+  const queued = options.wake && cli ? queueHandOff(where, role, cli) : null;
+  const waiter = options.wake && !queued ? armWake(where, role, since) : null;
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, queued, startedBy: role ? null : options.forceReason, desktop, pid, cli, worktree: where.worktree };
+}
+
+// --- the CLI hand-off queue (#357) --------------------------------------------------
+
+function queueFile(where, role) {
+  return path.join(shiftDir(where), "queue", `${role}.json`);
+}
+
+function queueHandOff(where, role, cli) {
+  const entry = { role, session: cli.session, pid: cli.pid, worktree: where.worktree, requested_at: store.isoLocal(new Date()), state: "pending" };
+  store.writeJsonAtomic(where, queueFile(where, role), entry);
+  return entry;
+}
+
+function handOffs(where) {
+  return safeList(path.join(shiftDir(where), "queue")).filter((name) => name.endsWith(".json")).sort()
+    .map((name) => store.readJsonFile(path.join(shiftDir(where), "queue", name))).filter((entry) => entry && entry.role);
+}
+
+const SHIFT_START_TEXT = (role) => `${role}: your new shift starts now. Run keel context, then keel shift resume.`;
+
+// One step of the waker (#357 D2): a busy old session waits; an idle or gone
+// one is stopped (kept: \`claude attach\` reopens it) and a new session starts.
+function handOver(where) {
+  const { readShiftDeclaration } = require("./config");
+  const claude = process.env.KEEL_CLAUDE || "claude";
+  const pending = handOffs(where).filter((entry) => entry.state === "pending");
+  if (!pending.length) return [];
+  const listed = spawnSync(claude, ["agents", "--json"], { encoding: "utf8" });
+  let sessions = [];
+  try {
+    sessions = JSON.parse(listed.stdout);
+  } catch {
+    sessions = [];
+  }
+  const done = [];
+  for (const entry of pending) {
+    const row = (Array.isArray(sessions) ? sessions : []).find((item) => item && item.sessionId === entry.session);
+    if (row && row.status === "busy") continue;
+    // `stop`, `attach` and `logs` take the 8-character job id, not the full
+    // session id (`No job matching`, measured 2026-10-19).
+    if (row) spawnSync(claude, ["stop", row.id || entry.session.slice(0, 8)], { encoding: "utf8" });
+    const mode = readShiftDeclaration(entry.worktree).permissionMode;
+    const started = spawnSync(claude, ["--bg", "-n", entry.role, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
+      cwd: entry.worktree, encoding: "utf8",
+    });
+    const output = `${started.stdout || ""}`;
+    if (!started.error && started.status === 0) {
+      const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
+      Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id });
+    } else {
+      const reason = started.error ? started.error.message : String(started.stderr || output).trim().split(/\r?\n/).pop();
+      Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
+    }
+    store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+    done.push(entry);
+  }
+  return done;
+}
+
+function describeHandOff(entry) {
+  const tail = entry.state === "delivered"
+    ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}`
+    : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}` : "pending: waits for the session to go idle";
+  return `- ${entry.role}: ${tail}; requested ${entry.requested_at}; old session kept, reopen it with \`claude attach ${entry.session.slice(0, 8)}\``;
+}
+
+// A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
+function handOffRisks(where, now = Date.now()) {
+  return handOffs(where).filter((entry) => entry.state === "failed"
+    || (entry.state === "pending" && now - Date.parse(entry.requested_at) > 15 * 60 * 1000))
+    .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}` : ` since ${entry.requested_at}`}; see \`keel shift status\``);
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------
@@ -908,6 +994,11 @@ const CLEAR_HINT = [
 // Who starts the new session (#293 D3): the coordinator that asked, nobody,
 // or — without a chat role — the person who opens it.
 function clearHint(result) {
+  if (result.queued) {
+    return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session is idle, "
+      + `\`keel tick\` stops it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
+      + `in ${result.worktree} that runs \`keel shift resume\`. \`keel shift status\` shows the hand-off.`;
+  }
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;
   else if (result.waiter && result.desktop) {
@@ -1073,7 +1164,10 @@ function runShift(argv) {
       }
       case "status": {
         const rows = status(where);
-        out({ roles: rows }, rows.length ? rows.map(describe).join("\n") : "No shift change recorded.");
+        const queue = handOffs(where);
+        const text = [rows.length ? rows.map(describe).join("\n") : "No shift change recorded.",
+          ...(queue.length ? ["", "Hand-offs (CLI, run by `keel tick`):", ...queue.map(describeHandOff)] : [])].join("\n");
+        out({ roles: rows, handOffs: queue }, text);
         return 0;
       }
       default:
@@ -1100,4 +1194,4 @@ function waitingFor(repo) {
 }
 
 module.exports = {
-  desktopProcess, foundTranscripts, check, describe, runShift, shiftStatus: status, waitingFor };
+  desktopProcess, foundTranscripts, handOver, handOffRisks, check, describe, runShift, shiftStatus: status, waitingFor };

@@ -965,6 +965,16 @@ function readPatrolDeclaration(repo) {
   return { declared: true, role: block.role, every: block.every, hostTask, model, message, cadence, runner };
 }
 
+// `shift: permission_mode:` for the session a CLI hand-off starts (#357 D5).
+const PERMISSION_MODES = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
+function readShiftDeclaration(repo) {
+  const block = configMap(repo, "shift");
+  const mode = block.permission_mode;
+  if (mode === undefined) return { permissionMode: "auto", message: null };
+  if (PERMISSION_MODES.includes(mode)) return { permissionMode: mode, message: null };
+  return { permissionMode: "auto", message: `keel/config.yaml shift: permission_mode \`${mode}\` is not one of ${PERMISSION_MODES.join(", ")}, so it is ignored.` };
+}
+
 function durationSeconds(value) {
   const match = String(value || "").match(/^(\d+)([smhd])$/);
   return match ? Number(match[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[match[2]] : null;
@@ -987,6 +997,7 @@ module.exports = {
   readOwnerLanguage,
   ownerLanguageRule,
   readPatrolDeclaration,
+  readShiftDeclaration,
   durationSeconds,
   patrolReminder,
   readIssueRoles,
