@@ -17,6 +17,8 @@ import tempfile
 import threading
 import time
 import ast
+import atexit
+import signal
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -49,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.166.0"
-PROTOCOL_VERSION = "5.166.0"
+PACKAGE_VERSION = "5.167.0"
+PROTOCOL_VERSION = "5.167.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8253,33 +8255,34 @@ def validate_shift_cli_self_shift_scenario() -> int:
         calls, agents, fail, norename = base / "claude-calls.jsonl", base / "agents.json", base / "fail-start", base / "no-rename"
         stoplag = base / "stop-lag"
         fake = base / "fake-claude"
-        # The fake answers with the shapes measured on Claude Code 2.1.303: a live row has `status` and `state`; a stopped one has `state: stopped` and no `status`.
-        # `stop` returns before the process exits (#395): with `stop-lag` holding n, the row stops n listings later, never with `never`;
-        # and a resume of a session still running starts a copy that takes the name, as measured.
-        write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
+        # The fake answers with the shapes measured on Claude Code 2.1.303: a live row has `status`, `state` and `pid`; a stopped one has `state: stopped` and neither.
+        # `stop` drops the row's status at once and ends its process later (#397: 0.83 s against 2.68 s measured): about a second
+        # later with `stop-lag` holding `late`, never with `never`, at once otherwise. A resume while the process runs starts a copy that takes the name.
+        write_text(fake, "#!/usr/bin/env python3\nimport json, os, subprocess, sys\n"
                    f"agents, fail, norename, stoplag = {str(agents)!r}, {str(fail)!r}, {str(norename)!r}, {str(stoplag)!r}\n"
                    f"open({str(calls)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'claude_env': sorted(k for k in os.environ if k.startswith('CLAUDE'))}}) + '\\n')\n"
                    "argv = sys.argv[1:]\n"
+                   "def running(pid):\n"
+                   "    try:\n        os.kill(pid, 0)\n    except OSError:\n        return False\n    return True\n"
                    "rows = json.loads(open(agents).read())\n"
                    "if argv[:2] == ['agents', '--json']:\n"
-                   "    for row in rows:\n        if '_stop_in' in row:\n            row['_stop_in'] -= 1\n"
-                   "            if row['_stop_in'] <= 0:\n                row.pop('_stop_in'); row.pop('status', None); row['state'] = 'stopped'\n"
-                   "    open(agents, 'w').write(json.dumps(rows)); print(json.dumps(rows)); sys.exit(0)\n"
+                   "    print(json.dumps([{k: v for k, v in row.items() if not k.startswith('_')} for row in rows])); sys.exit(0)\n"
                    "if argv[:1] == ['stop']:\n"
-                   "    lag = open(stoplag).read().strip() if os.path.exists(stoplag) else '0'\n"
+                   "    lag = open(stoplag).read().strip() if os.path.exists(stoplag) else 'now'\n"
                    "    for row in rows:\n        if row['id'] == argv[1] and 'status' in row:\n"
-                   "            if lag == '0':\n                row.pop('status', None); row['state'] = 'stopped'\n"
-                   "            else:\n                row['_stop_in'] = 10 ** 9 if lag == 'never' else int(lag)\n"
+                   "            pid = row.pop('pid', None); row.pop('status', None); row['state'] = 'stopped'; row['_pid'] = pid\n"
+                   "            if pid and lag == 'now':\n                os.kill(pid, 15)\n"
+                   "            elif pid and lag == 'late':\n                subprocess.Popen(['sh', '-c', f'sleep 1; kill {pid}'], start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
                    "    open(agents, 'w').write(json.dumps(rows)); print('stopped ' + argv[1]); sys.exit(0)\n"
                    "if argv[:2] == ['--bg', '--resume']:\n"
                    "    name = argv[3].split(None, 1)[1]\n"
-                   "    running = [row for row in rows if row['sessionId'] == argv[2] and 'status' in row]\n"
-                   "    if running:\n"
-                   "        rows.append({**running[0], 'sessionId': 'c0c0c0c0-0000-0000-0000-000000000000', 'id': 'c0c0c0c0', 'name': name, 'status': 'idle'})\n"
-                   "        rows[-1].pop('_stop_in', None)\n"
+                   "    live = [row for row in rows if row['sessionId'] == argv[2] and ('status' in row or (row.get('_pid') and running(row['_pid'])))]\n"
+                   "    if live:\n"
+                   "        copy = {k: v for k, v in live[0].items() if not k.startswith('_')}\n"
+                   "        rows.append({**copy, 'sessionId': 'c0c0c0c0-0000-0000-0000-000000000000', 'id': 'c0c0c0c0', 'name': name, 'status': 'idle', 'state': 'working'})\n"
                    "        print('note: session ' + argv[2][:8] + ' is already running in the background, so this started a copy as c0c0c0c0.')\n"
-                   "    for row in rows:\n        if row['sessionId'] == argv[2] and not running and not os.path.exists(norename):\n            row['name'] = name\n"
-                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · ' + (rows[-1]['id'] if running else argv[2][:8])); sys.exit(0)\n"
+                   "    for row in rows:\n        if row['sessionId'] == argv[2] and not live and not os.path.exists(norename):\n            row['name'] = name\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · ' + ('c0c0c0c0' if live else argv[2][:8])); sys.exit(0)\n"
                    "if argv[:1] == ['--bg'] and os.path.exists(fail):\n    print('Workspace not trusted.', file=sys.stderr); sys.exit(1)\n"
                    "if argv[:1] == ['--bg']:\n    print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
                    "print('stopped')\n")
@@ -8291,10 +8294,24 @@ def validate_shift_cli_self_shift_scenario() -> int:
         cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
         queue = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "queue"
 
+        children: list[int] = []
+
+        def end_children() -> None:
+            for pid in children:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGTERM)
+
+        atexit.register(end_children)
+
         def agents_row(status: str | None, state: str, name: str = "verify") -> None:
-            row = {"kind": "background", "name": name, "sessionId": OLD, "id": OLD[:8], "pid": os.getpid(), "state": state, "cwd": str(verify)}
+            row = {"kind": "background", "name": name, "sessionId": OLD, "id": OLD[:8], "state": state, "cwd": str(verify)}
             if status:
+                # The session's process: a real one, detached so that once killed it is reaped
+                # rather than left a zombie the hand-over would still see running.
+                started = subprocess.run(["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"], capture_output=True, text=True, check=True)
+                children.append(int(started.stdout.strip()))
                 row["status"] = status
+                row["pid"] = children[-1]
             if status == "waiting":
                 row["waitingFor"] = "input needed"
             agents.write_text(json.dumps([row]))
@@ -8354,8 +8371,8 @@ def validate_shift_cli_self_shift_scenario() -> int:
 
         # Finished: idle, though its state still labels its last message `working` (#393, keel-maint's
         # ended turn). The waiter retires it and starts the next, with no tick.
+        write_text(stoplag, "late")
         agents_row("idle", "working")
-        write_text(stoplag, "2")
         if not wait_for(lambda: len(starts()) >= 1):
             report(f"{label} the waiter did not hand over without a tick: {acted()!r}")
             return 1
@@ -8472,6 +8489,214 @@ def validate_shift_cli_self_shift_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-cli-self-shift scenario passed.")
+    return 0
+
+
+def validate_shift_cli_keeps_old_sessions_scenario() -> int:
+    """Issue #397 (owner, 2026-10-20): each CLI shift leaves a stopped session, and the list kept growing.
+
+    After a delivered hand-over, the newest `shift: keep_old_sessions:`
+    (default 3) stopped background sessions in the role's bound worktrees stay
+    listed; each older one is removed with `claude rm` once Keel's store holds
+    a copy of its transcript. One whose transcript is nowhere stays, and so do
+    another role's sessions and the new one.
+    """
+    label = "shift-cli-keeps-old-sessions:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-397-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        calls, agents = base / "claude-calls.jsonl", base / "agents.json"
+        config_dir = base / "claude-config"
+        kept_dir = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "transcripts" / "verify"
+        fake = base / "fake-claude"
+        # Shapes measured on Claude Code 2.1.303: a live row has `status` and `pid`, a stopped one neither (#397 F3);
+        # `rm` drops the row and leaves the transcript (F4). Each `rm` logs whether Keel's copy was there when it ran.
+        write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
+                   f"agents, kept = {str(agents)!r}, {str(kept_dir)!r}\n"
+                   "argv = sys.argv[1:]\n"
+                   "rows = json.loads(open(agents).read())\n"
+                   "record = {'argv': argv}\n"
+                   "if argv[:1] == ['rm']:\n"
+                   "    gone = [row for row in rows if row['id'] == argv[1]]\n"
+                   "    record['kept'] = bool(gone) and os.path.exists(os.path.join(kept, gone[0]['sessionId'] + '.jsonl.gz'))\n"
+                   "    rows = [row for row in rows if row['id'] != argv[1]]\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps(record) + '\\n')\n"
+                   "if argv[:2] == ['agents', '--json']:\n    print(json.dumps(rows)); sys.exit(0)\n"
+                   "if argv[:1] == ['stop']:\n"
+                   "    for row in rows:\n        if row['id'] == argv[1]:\n            row.pop('status', None); row.pop('pid', None); row['state'] = 'stopped'\n"
+                   "if argv[:1] == ['--bg'] and '--resume' not in argv:\n"
+                   "    rows.append({'kind': 'background', 'name': 'verify', 'sessionId': 'newsess1-0000-0000-0000-000000000000', 'id': 'newsess1',\n"
+                   "                 'status': 'busy', 'state': 'working', 'pid': os.getpid(), 'cwd': os.getcwd(), 'startedAt': 1792500000000})\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
+                   "open(agents, 'w').write(json.dumps(rows)); print('ok'); sys.exit(0)\n")
+        fake.chmod(0o755)
+        env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config_dir), "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1",
+               "KEEL_SHIFT_RENAME_WAIT_MS": "200", "KEEL_SHIFT_STOP_WAIT_MS": "200"}
+        cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        bound = {role: path for path, role in roles.items()}
+
+        def transcript(cwd: str, session: str, said: str) -> None:
+            project = config_dir / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd)
+            project.mkdir(parents=True, exist_ok=True)
+            (project / f"{session}.jsonl").write_text("\n".join(json.dumps(record) for record in (
+                {"type": "user", "timestamp": "2026-10-19T01:00:00.000Z", "cwd": cwd, "message": {"role": "user", "content": "carry on"}},
+                {"type": "assistant", "timestamp": "2026-10-19T01:00:05.000Z", "cwd": cwd,
+                 "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}},
+            )) + "\n", encoding="utf-8")
+
+        def old_row(n: int, cwd: str, with_transcript: bool = True) -> dict:
+            session = f"0{n}0{n}0{n}0{n}-0000-0000-0000-00000000000{n}"
+            if with_transcript:
+                transcript(cwd, session, f"old shift {n}")
+            return {"kind": "background", "name": "verify", "sessionId": session, "id": session[:8], "state": "stopped",
+                    "cwd": cwd, "startedAt": 1792400000000 + n * 1000}
+
+        def setup(keep: str | None, olds: list[dict]) -> None:
+            calls.write_text("")
+            config = verify / "keel" / "config.yaml"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(f"shift:\n  keep_old_sessions: {keep}\n" if keep is not None else "", encoding="utf-8")
+            subprocess.run(["git", "add", "keel/config.yaml"], cwd=verify, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", f"keep {keep}"], cwd=verify, check=True, capture_output=True)
+            subprocess.run(["git", "push", "-q", "origin", "HEAD"], cwd=verify, check=True, capture_output=True)
+            transcript(bound["verify"], OLD, "the shift handing over")
+            live = {"kind": "background", "name": "verify", "sessionId": OLD, "id": OLD[:8], "status": "idle", "state": "working",
+                    "cwd": bound["verify"], "startedAt": 1792490000000}
+            agents.write_text(json.dumps([*olds, live]))
+            readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R020", env=cli_env)
+            if readied.returncode != 0:
+                raise RuntimeError(f"ready --wake failed: {readied.stderr!r}")
+            run_keel(verify, "tick", "--repo", str(rtl), env=env)
+
+        def removed() -> list[dict]:
+            return [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
+
+        olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(3, bound["verify"], with_transcript=False),
+                old_row(4, bound["verify"]), old_row(5, bound["rtl"])]
+        setup("2", olds)
+        gone = removed()
+        if not gone:
+            report(f"{label} the hand-over removed no old session: {calls.read_text()!r}")
+            return 1
+        ids = sorted(r["argv"][1] for r in gone)
+        if ids != ["01010101", "02020202"]:
+            report(f"{label} with keep_old_sessions 2 the removed sessions are {ids!r}, not the two oldest with a transcript.")
+            return 1
+        if not all(r["kept"] for r in gone):
+            report(f"{label} a session was removed before Keel's store held its transcript: {gone!r}")
+            return 1
+        left = {row["id"] for row in json.loads(agents.read_text())}
+        for keep_id, why in (("03030303", "the session with no transcript"), ("05050505", "rtl's session"),
+                             ("newsess1", "the new session"), (OLD[:8], "the shift just handed over"), ("04040404", "the second newest old session")):
+            if keep_id not in left:
+                report(f"{label} {why} ({keep_id}) was removed: {sorted(left)!r}")
+                return 1
+        text = run_keel(rtl, "shift", "status", env=env).stdout
+        if "01010101" not in text or "02020202" not in text:
+            report(f"{label} shift status does not name the removed sessions: {text!r}")
+            return 1
+
+        # No declaration keeps three; a value that is not a whole number is named and three applies.
+        for keep in (None, "many"):
+            olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(4, bound["verify"])]
+            setup(keep, olds)
+            ids = sorted(r["argv"][1] for r in removed())
+            if ids != ["01010101"]:
+                report(f"{label} the default keeps the wrong number of old sessions (keep_old_sessions {keep!r}): removed {ids!r}")
+                return 1
+            if keep == "many" and "keep_old_sessions" not in run_keel(rtl, "shift", "status", env=env).stdout:
+                report(f"{label} an unreadable keep_old_sessions is not named: {run_keel(rtl, 'shift', 'status', env=env).stdout!r}")
+                return 1
+    if "shift-cli-keeps-old-sessions" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-cli-keeps-old-sessions scenario passed.")
+    return 0
+
+
+def validate_shift_history_show_scenario() -> int:
+    """Issue #397 (owner, 2026-10-20): a shift no longer in `claude agents` can be read in full.
+
+    `keel shift history <role> --show <id>` prints the whole conversation of the
+    segment whose transcript name starts with the id — prompts, replies, tool
+    calls and results, in order and in full — from the host's file or, once that
+    is gone, Keel's kept copy. An id that names no segment exits 1.
+    """
+    label = "shift-history-show:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-show-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        bound = next(path for path, role in roles.items() if role == "verify")
+        project = base / "claude-config" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", bound)
+        project.mkdir(parents=True)
+        env = {**env, "CLAUDE_CONFIG_DIR": str(base / "claude-config")}
+        session = "4162aee5-7549-4801-b52f-871d553bdb5a"
+        long_reply = "The arbiter keeps read priority over refresh. " * 12 + "End of the long reply."
+        records = (
+            {"type": "user", "timestamp": "2026-10-14T15:35:29.000Z", "cwd": bound, "message": {"role": "user", "content": "rerun R012 and report"}},
+            {"type": "assistant", "timestamp": "2026-10-14T15:35:40.000Z", "cwd": bound,
+             "message": {"role": "assistant", "content": [{"type": "text", "text": long_reply},
+                                                          {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "make sim R012"}}]}},
+            {"type": "user", "timestamp": "2026-10-14T15:36:02.000Z", "cwd": bound,
+             "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "R012 PASS 4096/4096 vectors"}]}},
+        )
+        old = project / f"{session}.jsonl"
+        old.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+        def hook(path: Path) -> None:
+            for event, name in (("session-start", "SessionStart"), ("user-prompt-submit", "UserPromptSubmit")):
+                subprocess.run(
+                    ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                    cwd=verify, env=env, text=True, capture_output=True, check=False,
+                    input=json.dumps({"cwd": str(verify), "hook_event_name": name, "session_id": "s1",
+                                      "prompt": "go", "source": "startup", "transcript_path": str(path)}),
+                )
+
+        # The next shift's segments make Keel keep the old transcript; then the host's file goes.
+        for name in ("a", "b"):
+            path = project / f"{name}.jsonl"
+            path.write_text(json.dumps({"type": "user", "timestamp": "2026-10-15T01:00:00.000Z", "cwd": bound,
+                                        "message": {"role": "user", "content": "carry on"}}) + "\n", encoding="utf-8")
+            hook(path)
+        old.unlink()
+        shown = run_keel(verify, "shift", "history", "verify", "--show", session[:8], env=env)
+        if shown.returncode != 0:
+            report(f"{label} --show of a kept shift exited {shown.returncode}: {shown.stdout!r} {shown.stderr!r}")
+            return 1
+        if "rerun R012 and report" not in shown.stdout:
+            report(f"{label} --show printed no conversation: {shown.stdout!r} {shown.stderr!r}")
+            return 1
+        if session not in shown.stdout or "2026-10-14" not in shown.stdout.splitlines()[0]:
+            report(f"{label} --show's header does not name the transcript and its time span: {shown.stdout.splitlines()[:2]!r}")
+            return 1
+        if long_reply not in shown.stdout:
+            report(f"{label} --show cut the assistant's reply short: {shown.stdout!r}")
+            return 1
+        order = [shown.stdout.find(text) for text in ("rerun R012 and report", long_reply, "make sim R012", "R012 PASS 4096/4096 vectors")]
+        if -1 in order:
+            report(f"{label} --show leaves out the prompt, reply, tool call or result: {order!r} {shown.stdout!r}")
+            return 1
+        if order != sorted(order):
+            report(f"{label} --show does not print the prompt, reply, tool call and result in order: {order!r} {shown.stdout!r}")
+            return 1
+        if "Bash" not in shown.stdout:
+            report(f"{label} --show does not name the tool called: {shown.stdout!r}")
+            return 1
+
+        unknown = run_keel(verify, "shift", "history", "verify", "--show", "00000000", env=env)
+        if unknown.returncode != 1:
+            report(f"{label} --show of an unknown id did not exit 1: {unknown.returncode} {unknown.stdout!r} {unknown.stderr!r}")
+            return 1
+        if "no segment" not in (unknown.stdout + unknown.stderr).lower():
+            report(f"{label} --show of an unknown id does not say no segment matches: {unknown.stdout!r} {unknown.stderr!r}")
+            return 1
+    if "shift-history-show" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-history-show scenario passed.")
     return 0
 
 
@@ -42968,9 +43193,11 @@ SCENARIOS: tuple = (
     ("shift-self", validate_shift_self_scenario),
     ("shift-self-wake", validate_shift_self_wake_scenario),
     ("shift-cli-self-shift", validate_shift_cli_self_shift_scenario),
+    ("shift-cli-keeps-old-sessions", validate_shift_cli_keeps_old_sessions_scenario),
     ("owner-language", validate_owner_language_scenario),
     ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
+    ("shift-history-show", validate_shift_history_show_scenario),
     ("shift-resume-checks-commits", validate_shift_resume_checks_commits_scenario),
     ("shift-keeps-transcripts", validate_shift_keeps_transcripts_scenario),
     ("shift-keeps-found-transcripts", validate_shift_keeps_found_transcripts_scenario),

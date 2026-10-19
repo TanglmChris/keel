@@ -1023,12 +1023,20 @@ function readPatrolDeclaration(repo) {
 
 // `shift: permission_mode:` for the session a CLI hand-off starts (#357 D5).
 const PERMISSION_MODES = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
+// `shift: keep_old_sessions:`, how many stopped old shift sessions a hand-over
+// leaves listed per role (#397 D2): a whole number, 3 when absent or unreadable.
 function readShiftDeclaration(repo) {
   const block = configMap(repo, "shift");
   const mode = block.permission_mode;
-  if (mode === undefined) return { permissionMode: "auto", message: null };
-  if (PERMISSION_MODES.includes(mode)) return { permissionMode: mode, message: null };
-  return { permissionMode: "auto", message: `keel/config.yaml shift: permission_mode \`${mode}\` is not one of ${PERMISSION_MODES.join(", ")}, so it is ignored.` };
+  const messages = [];
+  let permissionMode = "auto";
+  if (PERMISSION_MODES.includes(mode)) permissionMode = mode;
+  else if (mode !== undefined) messages.push(`keel/config.yaml shift: permission_mode \`${mode}\` is not one of ${PERMISSION_MODES.join(", ")}, so it is ignored.`);
+  const keep = block.keep_old_sessions;
+  let keepOldSessions = 3;
+  if (keep !== undefined && /^\d+$/.test(String(keep).trim())) keepOldSessions = Number(String(keep).trim());
+  else if (keep !== undefined) messages.push(`keel/config.yaml shift: keep_old_sessions \`${keep}\` is not a whole number, so 3 apply.`);
+  return { permissionMode, keepOldSessions, message: messages.length ? messages.join(" ") : null };
 }
 
 function durationSeconds(value) {
