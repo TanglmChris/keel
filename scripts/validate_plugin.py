@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.149.0"
-PROTOCOL_VERSION = "5.149.0"
+PACKAGE_VERSION = "5.150.0"
+PROTOCOL_VERSION = "5.150.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2858,7 +2858,7 @@ def validate_patrol_since_last_scenario() -> int:
         for args in (["commit", "-q", "--allow-empty", "-m", "landed"], ["push", "-q", "origin", "HEAD"]):
             subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
         second = patrol("--since-last", "--notify")
-        if second.returncode != 2:
+        if second.returncode != 3:
             report(f"{label} the run after a change exited {second.returncode}: {second.stdout!r} {second.stderr!r}")
             return 1
         changed = [line for line in second.stdout.splitlines() if line.startswith("changed:")]
@@ -2883,6 +2883,65 @@ def validate_patrol_since_last_scenario() -> int:
             report(f"{label} an unchanged run sent a notice.")
             return 1
     report("patrol-since-last scenario passed.")
+    return 0
+
+
+def validate_patrol_exit_says_who_acts_scenario() -> int:
+    """Issue #350: `keel patrol` exited 2 on pure state changes too.
+
+    A coordinator's schedule wakes its model on exit 2, so a run that only
+    moved state or told other roles cost a model turn for nothing. Exit 2 now
+    means the coordinator has something to act on — a risk, or its own wait
+    met — and exit 3 means patrol recorded or delivered something for others.
+    """
+    label = "patrol-exit-says-who-acts:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-350-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+
+        def patrol(*args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "patrol", *args, env=env)
+
+        def push() -> str:
+            for args in (["commit", "-q", "--allow-empty", "-m", "landed"], ["push", "-q", "origin", "HEAD"]):
+                subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+            return subprocess.run(["git", "rev-parse", "HEAD"], cwd=rtl, text=True, capture_output=True, check=True).stdout.strip()
+
+        if patrol("--since-last", "--notify").returncode != 0:
+            report(f"{label} the baseline run did not exit 0.")
+            return 1
+        push()
+        moved = patrol("--since-last", "--notify")
+        if moved.returncode != 3:
+            report(f"{label} a run whose only news is the remote tip exited {moved.returncode}, not 3: {moved.stdout!r}")
+            return 1
+        (rtl / "stray.txt").write_text("x\n")
+        risky = patrol("--since-last", "--notify")
+        if risky.returncode != 2:
+            report(f"{label} a run that found a risk exited {risky.returncode}, not 2: {risky.stdout!r}")
+            return 1
+        (rtl / "stray.txt").unlink()
+
+        sha = push()
+        run_keel(verify, "chat", "wait", "soc", "--commit", sha, "rerun when it lands", env=env)
+        theirs = patrol()
+        if theirs.returncode != 3:
+            report(f"{label} a run that met another role's wait exited {theirs.returncode}, not 3: {theirs.stdout!r}")
+            return 1
+        sha = push()
+        run_keel(rtl, "chat", "wait", "soc", "--commit", sha, "merge the next slice", env=env)
+        mine = patrol()
+        if mine.returncode != 2:
+            report(f"{label} a run that met the coordinator's own wait exited {mine.returncode}, not 2: {mine.stdout!r}")
+            return 1
+        helped = run_keel(rtl, "patrol", "--help", env=env)
+        if "3:" not in helped.stdout:
+            report(f"{label} --help does not document exit 3: {helped.stdout!r}")
+            return 1
+    if "patrol-exit-says-who-acts" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("patrol-exit-says-who-acts scenario passed.")
     return 0
 
 
@@ -2929,8 +2988,8 @@ def validate_patrol_nudge_scenario() -> int:
         if any(line.startswith("nudged lint") for line in nudged(first)):
             report(f"{label} lint was nudged before any task closed: {nudged(first)!r}")
             return 1
-        if first.returncode != 2:
-            report(f"{label} a run that nudged exited {first.returncode}.")
+        if first.returncode != 3:
+            report(f"{label} a run that nudged exited {first.returncode}, not 3.")
             return 1
         if run_keel(verify, "chat", "notice", "--check", env=env).returncode != 0:
             report(f"{label} the nudge does not wake verify.")
@@ -3168,8 +3227,8 @@ def validate_coordinator_patrol_scenario() -> int:
 
         subprocess.run(["git", "push", "-q", "origin", "feature"], cwd=rtl, check=True, capture_output=True)
         landed = patrol()
-        if landed.returncode != 2:
-            report(f"{label} patrol after the push exited {landed.returncode}, not 2: {landed.stdout} {landed.stderr}")
+        if landed.returncode != 3:
+            report(f"{label} patrol after the push exited {landed.returncode}, not 3: {landed.stdout} {landed.stderr}")
             return 1
         if chat_json(chat(rtl, "waits", "--json")).get("waits"):
             report(f"{label} the met wait is still listed.")
@@ -3198,8 +3257,8 @@ def validate_coordinator_patrol_scenario() -> int:
         issues = base / "issues.json"
         issues.write_text(json.dumps([{"number": 42, "title": "clock fix", "state": "CLOSED", "labels": [], "updatedAt": "2026-10-11T00:00:00Z"}]), encoding="utf-8")
         closed = patrol("--issues", str(issues))
-        if closed.returncode != 2:
-            report(f"{label} patrol with issue 42 closed exited {closed.returncode}, not 2: {closed.stdout} {closed.stderr}")
+        if closed.returncode != 3:
+            report(f"{label} patrol with issue 42 closed exited {closed.returncode}, not 3: {closed.stdout} {closed.stderr}")
             return 1
     report("coordinator-patrol scenario passed.")
     return 0
@@ -3229,8 +3288,8 @@ def validate_patrol_issue_routing_scenario() -> int:
             return [r.get("text", "") for r in chat_json(run_keel(verify, "chat", "unread", "--json", env=env)).get("unread", []) if "#157" in r.get("text", "")]
 
         first = patrol("2026-10-11T01:00:00Z")
-        if first.returncode != 2:
-            report(f"{label} the first patrol exited {first.returncode}, not 2: {first.stdout} {first.stderr}")
+        if first.returncode != 3:
+            report(f"{label} the first patrol exited {first.returncode}, not 3: {first.stdout} {first.stderr}")
             return 1
         if len(notices()) != 1:
             report(f"{label} verify has {len(notices())} notices about #157, not 1.")
@@ -3247,8 +3306,8 @@ def validate_patrol_issue_routing_scenario() -> int:
             report(f"{label} the same update was sent again.")
             return 1
         later = patrol("2026-10-11T02:00:00Z")
-        if later.returncode != 2:
-            report(f"{label} a later update exited {later.returncode}, not 2.")
+        if later.returncode != 3:
+            report(f"{label} a later update exited {later.returncode}, not 3.")
             return 1
         if len(notices()) != 2:
             report(f"{label} a later update left {len(notices())} notices, not 2.")
@@ -41845,6 +41904,7 @@ SCENARIOS: tuple = (
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
+    ("patrol-exit-says-who-acts", validate_patrol_exit_says_who_acts_scenario),
     ("patrol-nudge", validate_patrol_nudge_scenario),
     ("patrol-escalate", validate_patrol_escalate_scenario),
     ("patrol-quota", validate_patrol_quota_scenario),
