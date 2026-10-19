@@ -940,8 +940,28 @@ function readPatrolDeclaration(repo) {
     if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(block.model)) model = block.model;
     else ignored.push(`model \`${block.model}\` is not a model id`);
   }
+  // `cadence: adaptive` turns on the next-run rules (#356); each override is a
+  // flat key under `patrol:`, and one that does not read is ignored by name.
+  const cadence = { adaptive: block.cadence === "adaptive", risk: 1800, quota: 14400, busy: 3600, idle: 10800, quiet: null, min: null, max: null };
+  if (block.cadence !== undefined && block.cadence !== "adaptive") ignored.push(`cadence \`${block.cadence}\` is not adaptive`);
+  for (const key of ["risk", "quota", "busy", "idle", "min", "max"]) {
+    if (block[key] === undefined) continue;
+    const seconds = durationSeconds(block[key]);
+    if (seconds === null) ignored.push(`${key} \`${block[key]}\` is not a duration such as 30m`);
+    else cadence[key] = seconds;
+  }
+  if (block.quiet !== undefined) {
+    const window = String(block.quiet).match(/^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/);
+    if (window) cadence.quiet = { start: Number(window[1]) * 60 + Number(window[2]), end: Number(window[3]) * 60 + Number(window[4]) };
+    else ignored.push(`quiet \`${block.quiet}\` is not a window such as 23:00-08:30`);
+  }
   const message = ignored.length ? `keel/config.yaml patrol: ${ignored.join("; ")}, so it is ignored.` : null;
-  return { declared: true, role: block.role, every: block.every, hostTask, model, message };
+  return { declared: true, role: block.role, every: block.every, hostTask, model, message, cadence };
+}
+
+function durationSeconds(value) {
+  const match = String(value || "").match(/^(\d+)([smhd])$/);
+  return match ? Number(match[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[match[2]] : null;
 }
 
 function patrolReminder(patrol) {
@@ -957,6 +977,7 @@ module.exports = {
   readOwnerLanguage,
   ownerLanguageRule,
   readPatrolDeclaration,
+  durationSeconds,
   patrolReminder,
   readIssueRoles,
   readReadOnlyRoles,

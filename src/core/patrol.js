@@ -507,7 +507,11 @@ function runPatrol(argv) {
       // Only risks reach the coordinator (#307 part 3 D3).
       if (options.notify && result.risks.length) result.notified = notifyRisks(where, role, result.risks).id;
     }
-    process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : render(result)}\n`);
+    const next = recommendNext(where, role, result, options);
+    result.next_after_s = next.seconds;
+    result.next_rule = next.rule;
+    result.next_at = store.isoLocal(new Date(Date.now() + next.seconds * 1000));
+    process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : `${render(result)}\nnext: ${formatDuration(next.seconds)} (${next.rule})`}\n`);
     const changed = result.sinceLast && result.sinceLast.changes.length;
     const own = result.held.some((held) => held.from === role);
     const recorded = result.notices.length || result.held.length || changed || (result.nudges || []).length;
@@ -523,6 +527,56 @@ function runPatrol(argv) {
   }
 }
 
+// When to run next (#356): `every:` as a fixed cadence, or with
+// `cadence: adaptive` the first matching rule. The runner that re-arms on it
+// is the caller's; this only recommends.
+function recommendNext(where, role, result, options, now = new Date()) {
+  const { readPatrolDeclaration, durationSeconds } = require("./config");
+  const declaration = readPatrolDeclaration(where.worktree);
+  const cadence = declaration.cadence;
+  if (!cadence || !cadence.adaptive) {
+    const every = durationSeconds(declaration.every) || 3600;
+    return { seconds: every, rule: "fixed" };
+  }
+  const active = new Set(result.roles.filter((r) => !r.idle).map((r) => r.role));
+  const assigned = [
+    ...store.openTodos(where, {}).map((todo) => todo.assignee),
+    ...store.openWaits(where, role).map((waitRecord) => waitRecord.from),
+  ];
+  let pick;
+  if (result.risks.length) pick = { seconds: cadence.risk, rule: "risk" };
+  else if (options.quota !== null && options.quota >= 90) pick = { seconds: cadence.quota, rule: "quota" };
+  else if (cadence.quiet && inWindow(cadence.quiet, now)) {
+    return { seconds: untilWindowEnd(cadence.quiet, now), rule: "night" };
+  } else if ([...active].some((name) => name !== role) || assigned.some((name) => active.has(name))) pick = { seconds: cadence.busy, rule: "busy" };
+  else pick = { seconds: cadence.idle, rule: "idle" };
+  if (cadence.min !== null) pick.seconds = Math.max(pick.seconds, cadence.min);
+  if (cadence.max !== null) pick.seconds = Math.min(pick.seconds, cadence.max);
+  return pick;
+}
+
+function minuteOfDay(now) {
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function inWindow(window, now) {
+  const minute = minuteOfDay(now);
+  return window.start <= window.end
+    ? minute >= window.start && minute < window.end
+    : minute >= window.start || minute < window.end;
+}
+
+function untilWindowEnd(window, now) {
+  const minutes = (window.end - minuteOfDay(now) + 1440) % 1440 || 1440;
+  return minutes * 60 - now.getSeconds();
+}
+
+function formatDuration(seconds) {
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
 // One line per run, so a silent run can be audited (#307 part 3 D4).
 function appendRunLog(where, role, code, result) {
   try {
@@ -530,7 +584,8 @@ function appendRunLog(where, role, code, result) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const changes = result.sinceLast ? result.sinceLast.changes.length : 0;
     fs.appendFileSync(file, `${store.isoLocal(new Date())} exit=${code} changes=${changes} nudges=${(result.nudges || []).length} `
-      + `risks=${result.risks.length} notified=${result.notified ? "yes" : "no"}\n`);
+      + `risks=${result.risks.length} notified=${result.notified ? "yes" : "no"}`
+      + `${result.next_rule ? ` next=${formatDuration(result.next_after_s)} (${result.next_rule})` : ""}\n`);
   } catch {
     // The log is for audit; failing to write it never fails the patrol.
   }
