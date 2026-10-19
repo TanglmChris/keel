@@ -6110,6 +6110,70 @@ def shift_scratch(base: Path) -> tuple[Path, Path, dict, Path]:
     return rtl, verify, env, remote
 
 
+def validate_shift_resume_checks_commits_scenario() -> int:
+    """Issue #347: a shift note's commit ids go stale before the next shift reads it.
+
+    `keel shift resume` lists each commit id and `<branch> @ <sha>` the note
+    names, checked against the remote-tracking refs as of the last fetch:
+    already in the default branch, branch moved, branch gone, or not found.
+    It fetches nothing.
+    """
+    label = "shift-resume-checks-commits:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-347-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=rtl, text=True, capture_output=True, check=True).stdout.strip()
+
+        git("commit", "-q", "--allow-empty", "-m", "landed")
+        git("push", "-q", "origin", "HEAD")
+        landed = git("rev-parse", "HEAD")
+        default = git("rev-parse", "--abbrev-ref", "HEAD")
+        tree = git("rev-parse", "HEAD^{tree}")
+        old = git("commit-tree", tree, "-p", landed, "-m", "feat one")
+        git("push", "-q", "origin", f"{old}:refs/heads/feat")
+        new = git("commit-tree", tree, "-p", old, "-m", "feat two")
+        git("push", "-q", "origin", f"{new}:refs/heads/feat")
+        note = (f"A84 {landed[:8]} is waiting to be merged. feat @ {old[:8]} waits for the push window. "
+                f"gone-branch @ {landed[:8]} too. deadbee1 was the old base. Dated 20261018.")
+        readied = run_keel(verify, "shift", "ready", note, env=env)
+        if readied.returncode != 0:
+            report(f"{label} ready failed: {readied.stderr}")
+            return 1
+        resumed = run_keel(verify, "shift", "resume", env=env)
+        if resumed.returncode != 0:
+            report(f"{label} resume failed: {resumed.stderr}")
+            return 1
+        lines = resumed.stdout.splitlines()
+
+        def line_for(token: str) -> str:
+            return next((l for l in lines if l.lstrip().startswith(("- " + token, token))), "")
+
+        checks = (
+            (landed[:8], f"already in origin/{default}"),
+            (f"feat @ {old[:8]}", f"branch moved: now {new[:8]}"),
+            (f"gone-branch @ {landed[:8]}", "branch gone"),
+            ("deadbee1", "not found"),
+        )
+        for token, want in checks:
+            found = line_for(token)
+            if want not in found:
+                report(f"{label} {token!r} is not marked {want!r}: {found!r} in {resumed.stdout!r}")
+                return 1
+        if line_for("20261018"):
+            report(f"{label} a date was read as a commit id: {resumed.stdout!r}")
+            return 1
+        if "not fetched" not in resumed.stdout:
+            report(f"{label} the check does not say it did not fetch: {resumed.stdout!r}")
+            return 1
+    if "shift-resume-checks-commits" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-resume-checks-commits scenario passed.")
+    return 0
+
+
 def validate_shift_role_elsewhere_scenario() -> int:
     """Issues #290, #291: a note filed under the role from another worktree.
 
@@ -41961,6 +42025,7 @@ SCENARIOS: tuple = (
     ("owner-language", validate_owner_language_scenario),
     ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
+    ("shift-resume-checks-commits", validate_shift_resume_checks_commits_scenario),
     ("shift-keeps-transcripts", validate_shift_keeps_transcripts_scenario),
     ("shift-keeps-found-transcripts", validate_shift_keeps_found_transcripts_scenario),
     ("role-drift", validate_role_drift_scenario),

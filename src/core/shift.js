@@ -575,6 +575,65 @@ function resumeRole(where, named) {
   return named;
 }
 
+// Notes cite `<branch> @ <sha>` and bare commit ids, which go stale between
+// `ready` and `resume` (#347). Each is marked against the remote-tracking refs
+// as they are: Keel fetches nothing, and says when they were last fetched.
+const NOTE_PAIR = /([A-Za-z0-9][\w./-]*)\s*@\s*([0-9a-f]{7,40})\b/g;
+const NOTE_SHA = /(?<![\w@/-])([0-9a-f]{7,40})\b/g;
+const looksLikeSha = (token) => /[a-f]/.test(token) && /\d/.test(token);
+
+function remoteDefault(cwd) {
+  const head = git(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  if (head.ok && head.out) return head.out;
+  for (const name of ["origin/main", "origin/master"]) {
+    if (git(cwd, ["rev-parse", "--verify", "--quiet", `refs/remotes/${name}`]).ok) return name;
+  }
+  return null;
+}
+
+function noteCommits(cwd, text) {
+  const seen = new Set();
+  const named = [];
+  for (const match of String(text).matchAll(NOTE_PAIR)) {
+    if (!looksLikeSha(match[2])) continue;
+    named.push({ index: match.index, branch: match[1], sha: match[2], token: `${match[1]} @ ${match[2]}` });
+    seen.add(match.index + match[0].length - match[2].length);
+  }
+  for (const match of String(text).matchAll(NOTE_SHA)) {
+    if (!looksLikeSha(match[1]) || seen.has(match.index)) continue;
+    named.push({ index: match.index, branch: null, sha: match[1], token: match[1] });
+  }
+  named.sort((a, b) => a.index - b.index);
+  const listed = new Set();
+  const base = remoteDefault(cwd);
+  const commits = [];
+  for (const item of named) {
+    if (listed.has(item.token)) continue;
+    listed.add(item.token);
+    const marks = [];
+    const full = git(cwd, ["rev-parse", "--verify", "--quiet", `${item.sha}^{commit}`]);
+    if (!full.ok) marks.push("not found");
+    else if (base && git(cwd, ["merge-base", "--is-ancestor", full.out, base]).ok) marks.push(`already in ${base}`);
+    if (item.branch) {
+      const tip = git(cwd, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${item.branch}`]);
+      if (!tip.ok) marks.push("branch gone");
+      else if (!full.ok || tip.out !== full.out) marks.push(`branch moved: now ${tip.out.slice(0, 8)}`);
+    }
+    commits.push({ token: item.token, marks: marks.length ? marks : ["current"] });
+  }
+  return commits;
+}
+
+function lastFetch(cwd) {
+  const file = git(cwd, ["rev-parse", "--git-path", "FETCH_HEAD"]);
+  if (!file.ok) return null;
+  try {
+    return store.isoLocal(fs.statSync(path.resolve(cwd, file.out)).mtime);
+  } catch {
+    return null;
+  }
+}
+
 function resume(where, named = null) {
   const role = resumeRole(where, named);
   const note = waitingNote(where, role);
@@ -584,7 +643,7 @@ function resume(where, named = null) {
   const history = path.join(shiftDir(where), "history", `${role || path.basename(note, ".md")}-${stamp}.md`);
   fs.mkdirSync(path.dirname(history), { recursive: true });
   fs.renameSync(note, history);
-  if (!role) return { role: null, note: history, text, told: null };
+  if (!role) return { role: null, note: history, text, told: null, commits: noteCommits(where.worktree, text), fetched: lastFetch(where.worktree) };
   // The cold-start message has done its work once the note is read.
   for (const record of store.unread(where, role)) {
     if (isShift(record)) store.advanceCursor(where, role, record.group, record.id);
@@ -598,7 +657,7 @@ function resume(where, named = null) {
       ? store.post(where, { group, text, refs: [REF] })
       : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
-  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [] };
+  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text), fetched: lastFetch(where.worktree) };
 }
 
 function status(where) {
@@ -986,7 +1045,11 @@ function runShift(argv) {
             + "`set_remote_control(\"self\", true)`, and rename the session back with `set_session_title`. "
             + "Declaring `shift-restore` under authorize: in keel/config.yaml lets a woken session do this without asking."
           : "";
-        out(result, `${result.text.replace(/\s+$/, "")}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
+        const commits = (result.commits || []).length
+          ? `\n\nCommits the note names, against the remote-tracking refs (not fetched; last fetch ${result.fetched || "never"}):\n`
+            + result.commits.map((c) => `- ${c.token}: ${c.marks.join("; ")}`).join("\n")
+          : "";
+        out(result, `${result.text.replace(/\s+$/, "")}${commits}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;
       }
       case "history": {
