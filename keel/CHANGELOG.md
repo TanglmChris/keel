@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.159.0 - a chat role can be renamed
+
+Issue #376 (kaiwu-ip, 2026-10-19): nine roles were renamed with the project, and `keel chat role --set <new>` moved only the worktree binding. The old name stayed a member of every direct group and kept the cursors, the shift note and the patrol state, and it could not become an alias, because it was still a member.
+
+- `keel chat role --rename <old> <new>`, from a worktree bound to either name or as `owner`, records the rename in the chat store (`renames.json`). The log is not rewritten: every role field read from it — sender, member added or removed, assignee, mentions, and a direct group's members — reads `<old>` as `<new>`. So `<new>` is a member of `<old>`'s groups, its direct groups included, holds its open todos, and is mentioned and woken by `@<old>`.
+- The worktree bindings and per-role state move to `<new>`: read cursors (the later one wins), presence and session records, the parked flag, the shift note, history, segments, transcripts and hand-off queue, and the patrol snapshot, log and nudge state. Where `<new>` already has its own copy, that copy is kept and the rename says so.
+- `<old>` cannot be bound again, and `KEEL_CHAT_ROLE=<old>` acts as `<new>`. Lines of `keel/config.yaml` and `keel/chat.json` that still name `<old>` are listed for you to edit. Refused: an unknown role, a rename onto itself, a cycle, and a rename when both names are bound to worktrees.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.159.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.158.0 - two live sessions on one role are reported
 
 - Each session that writes a role's presence now also records itself under the role (`presence/<role>.sessions.json`: session id, Claude process, worktree, last activity), and entries whose process has ended are dropped.
