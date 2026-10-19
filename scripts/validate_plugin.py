@@ -49,8 +49,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.161.0"
-PROTOCOL_VERSION = "5.161.0"
+PACKAGE_VERSION = "5.162.0"
+PROTOCOL_VERSION = "5.162.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8077,49 +8077,84 @@ def validate_shift_start_desktop_scenario() -> int:
 
 
 def validate_shift_cli_self_shift_scenario() -> int:
-    """Issue #357 on the CLI (owner, 2026-10-19): stop the old session, start a new one.
+    """Issues #357 and #388 on the CLI (owner, 2026-10-19): hand over, promptly, and retire.
 
     A CLI session cannot clear itself. `keel shift ready --wake` there queues
-    the hand-off; `keel tick` waits until the old session is idle, stops it
-    (kept: `claude attach` reopens it), and starts a new session in the role's
-    worktree that runs `keel shift resume`. `keel shift status` shows the
-    queue, and a failed start is a patrol risk.
+    the hand-off and leaves a waiter that, once the old session has finished,
+    retires it (stop, rename by resuming it with `/rename`, stop) and starts a
+    new session in the role's worktree that runs `keel shift resume`. `keel
+    tick` carries out a queued hand-off too, and the two start one session. A
+    session that is busy, or blocked on a question (idle, but its job state is
+    still `working`), is left alone. `keel shift status` shows the queue, and a
+    failed start is a patrol risk.
     """
     label = "shift-cli-self-shift:"
     OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
     with tempfile.TemporaryDirectory(prefix="keel-shift-357-") as raw:
         base = Path(raw)
         rtl, verify, env, _ = shift_scratch(base)
-        calls, agents, fail = base / "claude-calls.jsonl", base / "agents.json", base / "fail-start"
+        calls, agents, fail, norename = base / "claude-calls.jsonl", base / "agents.json", base / "fail-start", base / "no-rename"
         fake = base / "fake-claude"
+        # The fake answers with the shapes measured on Claude Code 2.1.303: a live row has `status` and `state`; a stopped one has `state: stopped` and no `status`.
         write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
-                   f"open({str(calls)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd()}}) + '\\n')\n"
-                   f"if sys.argv[1:3] == ['agents', '--json']:\n    print(open({str(agents)!r}).read()); sys.exit(0)\n"
-                   f"if sys.argv[1:2] == ['--bg'] and os.path.exists({str(fail)!r}):\n    print('Workspace not trusted.', file=sys.stderr); sys.exit(1)\n"
-                   "if sys.argv[1:2] == ['--bg']:\n    print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
+                   f"agents, fail, norename = {str(agents)!r}, {str(fail)!r}, {str(norename)!r}\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'claude_env': sorted(k for k in os.environ if k.startswith('CLAUDE'))}}) + '\\n')\n"
+                   "argv = sys.argv[1:]\n"
+                   "if argv[:2] == ['agents', '--json']:\n    print(open(agents).read()); sys.exit(0)\n"
+                   "rows = json.loads(open(agents).read())\n"
+                   "if argv[:1] == ['stop']:\n"
+                   "    for row in rows:\n        if row['id'] == argv[1]:\n            row.pop('status', None); row['state'] = 'stopped'\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print('stopped ' + argv[1]); sys.exit(0)\n"
+                   "if argv[:2] == ['--bg', '--resume']:\n"
+                   "    for row in rows:\n        if row['sessionId'] == argv[2] and not os.path.exists(norename):\n            row['name'] = argv[3].split(None, 1)[1]\n"
+                   "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · ' + argv[2][:8]); sys.exit(0)\n"
+                   "if argv[:1] == ['--bg'] and os.path.exists(fail):\n    print('Workspace not trusted.', file=sys.stderr); sys.exit(1)\n"
+                   "if argv[:1] == ['--bg']:\n    print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
                    "print('stopped')\n")
         fake.chmod(0o755)
-        env = {**env, "KEEL_CLAUDE": str(fake)}
+        env = {**env, "KEEL_CLAUDE": str(fake), "KEEL_SHIFT_HANDOVER_POLL_MS": "200", "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "20000",
+               "KEEL_SHIFT_RENAME_WAIT_MS": "1500"}
+        # With the waiter given no time, a hand-over is the tick's alone.
+        tick_only = {**env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"}
         cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
+        queue = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "queue"
 
-        def agents_status(status: str) -> None:
-            # The measured shape: `sessionId` is the full id, `id` the job id `stop` and `attach` take.
-            agents.write_text(json.dumps([{"kind": "background", "name": "verify", "sessionId": OLD, "id": OLD[:8],
-                                           "pid": os.getpid(), "status": status, "cwd": str(verify)}]))
+        def agents_row(status: str | None, state: str, name: str = "verify") -> None:
+            row = {"kind": "background", "name": name, "sessionId": OLD, "id": OLD[:8], "pid": os.getpid(), "state": state, "cwd": str(verify)}
+            if status:
+                row["status"] = status
+            agents.write_text(json.dumps([row]))
 
-        def made(kind: str) -> list[dict]:
-            rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-            return [r for r in rows if (r["argv"][:1] == ["stop"] if kind == "stop" else r["argv"][:1] == ["--bg"])]
+        def rows() -> list[dict]:
+            return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
+        def acted() -> list[list[str]]:
+            return [r["argv"] for r in rows() if r["argv"][:2] != ["agents", "--json"]]
+
+        def starts() -> list[dict]:
+            return [r for r in rows() if r["argv"][:1] == ["--bg"] and "--resume" not in r["argv"]]
 
         def tick() -> subprocess.CompletedProcess[str]:
-            return run_keel(verify, "tick", "--repo", str(rtl), env=env)
+            return run_keel(verify, "tick", "--repo", str(rtl), env=tick_only)
 
+        def status_text() -> str:
+            return run_keel(rtl, "shift", "status", env=env).stdout
+
+        def wait_for(condition, seconds: float = 10.0) -> bool:
+            deadline = time.time() + seconds
+            while time.time() < deadline:
+                if condition():
+                    return True
+                time.sleep(0.2)
+            return condition()
+
+        agents_row("busy", "working")
         readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R012", env=cli_env)
         if readied.returncode != 0:
             report(f"{label} ready --wake in a CLI session failed: {readied.stdout!r} {readied.stderr!r}")
             return 1
-        if "keel tick" not in readied.stdout:
-            report(f"{label} ready --wake in a CLI session does not say keel tick will hand over: {readied.stdout!r}")
+        if "claude attach" not in readied.stdout or "--wake" in readied.stderr:
+            report(f"{label} ready --wake in a CLI session does not say how the old session is reopened: {readied.stdout!r}")
             return 1
         note = next((mailbox_common_dir(rtl) / "keel-chat" / "shift").glob("verify.md"), None)
         if not note:
@@ -8129,58 +8164,100 @@ def validate_shift_cli_self_shift_scenario() -> int:
             report(f"{label} the note does not record the CLI session.")
             return 1
 
-        agents_status("busy")
-        tick()
-        if made("stop"):
-            report(f"{label} a tick stopped the old session while it was busy: {made('stop')!r}")
+        # A busy session, and one blocked on a question, are left alone.
+        time.sleep(1.0)
+        if acted():
+            report(f"{label} the hand-over acted while the old session was busy: {acted()!r}")
             return 1
-        if made("start"):
-            report(f"{label} a tick started a session while the old one was busy: {made('start')!r}")
+        if "pending" not in status_text():
+            report(f"{label} shift status does not show the pending hand-off: {status_text()!r}")
             return 1
-        status = run_keel(rtl, "shift", "status", env=env).stdout
-        if "pending" not in status:
-            report(f"{label} shift status does not show the pending hand-off: {status!r}")
+        agents_row("idle", "working")
+        time.sleep(1.0)
+        if acted():
+            report(f"{label} the hand-over cut off a session blocked on a question (idle, state working): {acted()!r}")
             return 1
 
-        agents_status("idle")
-        tick()
-        stops, starts = made("stop"), made("start")
-        if [s["argv"] for s in stops] != [["stop", OLD[:8]]]:
-            report(f"{label} the idle old session was not stopped once: {stops!r}")
+        # Finished: the waiter retires it and starts the next, with no tick.
+        agents_row("idle", "done")
+        if not wait_for(lambda: len(starts()) >= 1):
+            report(f"{label} the waiter did not hand over without a tick: {acted()!r}")
             return 1
-        if len(starts) != 1:
-            report(f"{label} the new session was not started once: {starts!r}")
+        order = acted()
+        shifted = re.compile(r"^/rename verify · shifted \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+        if (order[0] != ["stop", OLD[:8]] or order[1][:3] != ["--bg", "--resume", OLD] or len(order[1]) != 4
+                or not shifted.match(order[1][3]) or order[2] != ["stop", OLD[:8]] or order[3][:5] != ["--bg", "-n", "verify", "--permission-mode", "auto"]
+                or len(order) != 4):
+            report(f"{label} the old session was not retired as stop, rename-by-resume, stop, then the new start: {order!r}")
             return 1
-        if starts[0]["argv"][:5] != ["--bg", "-n", "verify", "--permission-mode", "auto"]:
-            report(f"{label} the new session was not started as --bg -n verify --permission-mode auto: {starts!r}")
+        if "keel shift resume" not in order[3][-1] or "--resume" in order[3]:
+            report(f"{label} the new session does not start fresh with a keel shift resume prompt: {order[3]!r}")
             return 1
-        if "keel shift resume" not in starts[0]["argv"][-1]:
-            report(f"{label} the new session's prompt does not name keel shift resume: {starts[0]['argv']!r}")
+        if os.path.realpath(starts()[0]["cwd"]) != os.path.realpath(verify):
+            report(f"{label} the new session started in {starts()[0]['cwd']}, not verify's worktree.")
             return 1
-        if "--resume" in starts[0]["argv"]:
-            report(f"{label} the new session resumes an old one instead of starting fresh: {starts[0]['argv']!r}")
+        leaked = [r for r in rows() if r["claude_env"]]
+        if leaked:
+            report(f"{label} a claude the hand-over ran inherited the old session's {leaked[0]['claude_env']!r}.")
             return 1
-        if os.path.realpath(starts[0]["cwd"]) != os.path.realpath(verify):
-            report(f"{label} the new session started in {starts[0]['cwd']}, not verify's worktree.")
-            return 1
-        status = run_keel(rtl, "shift", "status", env=env).stdout
-        for needle in ("delivered", "newsess1", f"claude attach {OLD[:8]}"):
-            if needle not in status:
-                report(f"{label} shift status does not show {needle!r} for the delivered hand-off: {status!r}")
+        text = status_text()
+        for needle in ("delivered", "newsess1", f"claude attach {OLD[:8]}", "shifted"):
+            if needle not in text:
+                report(f"{label} shift status does not show {needle!r} for the delivered hand-off: {text!r}")
                 return 1
         tick()
-        if len(made("start")) != 1:
+        if len(starts()) != 1 or len(acted()) != 4:
+            report(f"{label} a tick after the hand-over acted again: {acted()!r}")
+            return 1
+
+        # The tick and the waiter start one session: a fresh lock holds the tick off.
+        calls.write_text("")
+        agents_row("idle", "done")
+        run_keel(verify, "shift", "ready", "--wake", "next: rerun R014", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
+        lock = queue / "verify.lock"
+        write_text(lock, "held")
+        tick()
+        if acted():
+            report(f"{label} a tick acted while another hand-over held the lock: {acted()!r}")
+            return 1
+        lock.unlink()
+        tick()
+        if len(starts()) != 1:
+            report(f"{label} the tick did not start one session once the lock was gone: {acted()!r}")
+            return 1
+        tick()
+        if len(starts()) != 1:
             report(f"{label} a second tick started another session.")
             return 1
 
+        # A rename that never shows is recorded, and the new session still starts.
+        calls.write_text("")
+        agents_row("idle", "done")
+        write_text(norename, "x")
+        run_keel(verify, "shift", "ready", "--wake", "next: rerun R015", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
+        ticked = tick()
+        text = status_text()
+        if len(starts()) != 1:
+            report(f"{label} a rename that did not show stopped the new session from starting: {acted()!r} {ticked.stderr!r}")
+            return 1
+        if "delivered" not in text:
+            report(f"{label} a rename that did not show kept the hand-off from being delivered: {text!r}")
+            return 1
+        if "rename not shown" not in text:
+            report(f"{label} shift status does not say the rename did not show: {text!r}")
+            return 1
+        norename.unlink()
+
         # A start that fails stays visible and is a patrol risk.
-        fail.write_text("x")
-        run_keel(verify, "shift", "ready", "--wake", "next: rerun R013", env=cli_env)
+        calls.write_text("")
+        agents_row("idle", "done")
+        write_text(fail, "x")
+        run_keel(verify, "shift", "ready", "--wake", "next: rerun R013", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
         tick()
-        status = run_keel(rtl, "shift", "status", env=env).stdout
+        text = status_text()
         for needle in ("failed", "Workspace not trusted"):
-            if needle not in status:
-                report(f"{label} a failed start does not show {needle!r}: {status!r}")
+            if needle not in text:
+                report(f"{label} a failed start does not show {needle!r}: {text!r}")
                 return 1
         patrolled = run_keel(rtl, "patrol", env=env).stdout
         if not re.search(r"risk: .*verify.*hand-off", patrolled):
