@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.151.0 - Chat posts carry Keel's time by default
+
+Issue #349 (rtl_ppa_prj coordinator, 2026-10-18): `--stamp` (#298) was opt-in, so replies written without it carried hand-typed times — one said "12:0x" at 12:50 — in a project that expects every message to carry a time.
+
+- `keel chat post` and `keel chat dm`, `--reply-to` included, stamp `[MM-DD HH:MM]` from Keel's clock unless `--no-stamp` is given; `--stamp` is still accepted, and both together are refused. A text that already opens with a stamp is left as it is.
+- A stamp does not change what a text means: a reply opening with a stamp and then `done` or ✅ still closes its todo — which a `--stamp`ed one never did before — and a text whose first line opens a Markdown block gets the stamp on its own line above it, so the block still renders.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.151.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.150.0 - A patrol's exit status says who must act
 
 Issue #350 (rtl_ppa_prj coordinator, 2026-10-18): `keel patrol` exited 2 whenever it sent a notice, marked a wait met, nudged, or reported a change, and a coordinator's schedule wakes its model on 2, so a moved remote tip or a notice already delivered to another role cost a large-context turn for nothing — 101 of 140 runs that day exited 2.
