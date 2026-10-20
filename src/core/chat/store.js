@@ -116,6 +116,21 @@ function checkName(name, what) {
   }
 }
 
+// A direct group is named for its two sorted roles, so its name can run to
+// 69 characters (#403); any other group name follows the role-name pattern.
+function validGroup(name) {
+  if (validName(name)) return true;
+  if (typeof name !== "string" || !isDirect(name)) return false;
+  const members = name.slice(3).split("--");
+  return members.length === 2 && members.every(validName) && members[0] < members[1];
+}
+
+function checkGroup(name) {
+  if (!validGroup(name)) {
+    throw new ChatError(`Group ${JSON.stringify(name)} is not a valid name: use ${NAME_PATTERN_TEXT}, or dm-<role>--<role> with the two roles sorted for a direct group.`);
+  }
+}
+
 // --- roles and aliases ------------------------------------------------------
 
 function readRoles(root) {
@@ -341,7 +356,7 @@ function groupDir(where, group) {
 
 function listGroupNames(where) {
   try {
-    return fs.readdirSync(path.join(where.root, "groups")).filter(validName).sort();
+    return fs.readdirSync(path.join(where.root, "groups")).filter(validGroup).sort();
   } catch {
     return [];
   }
@@ -513,7 +528,7 @@ function requireSpeaker(group, state, role) {
 }
 
 function createGroup(where, actor, group, members, { direct = false } = {}) {
-  checkName(group, "Group");
+  checkGroup(group);
   if (RESERVED_GROUPS.has(group)) {
     throw new ChatError(`Group name ${group} is a keel chat subcommand; choose another.`);
   }
@@ -620,7 +635,7 @@ function findRecord(where, id) {
 function post(where, options) {
   const from = requireRole(where);
   const group = options.group;
-  checkName(group, "Group");
+  checkGroup(group);
   const text = String(options.text || "");
   if (!text.trim()) throw new ChatError("A post needs text: give it after the group, or on stdin.");
   const { records, state } = loadGroup(where, group);
@@ -879,7 +894,7 @@ const WAIT_FORMS = "`--commit <sha> [--remote <name>]` or `--issue <n> --closed`
 function wait(where, options) {
   const from = requireRole(where);
   const group = options.group;
-  checkName(group, "Group");
+  checkGroup(group);
   const byCommit = options.commit !== null && options.commit !== undefined;
   const byIssue = options.issue !== null && options.issue !== undefined;
   if (byCommit === byIssue) {
@@ -1027,7 +1042,7 @@ function unread(where, role) {
 }
 
 function view(where, role, group, { peek = false } = {}) {
-  checkName(group, "Group");
+  checkGroup(group);
   const { records, state } = loadGroup(where, group);
   if (!peek && role && records.length) advanceCursor(where, role, group, records[records.length - 1].id);
   return { records, state };
@@ -1078,11 +1093,13 @@ module.exports = {
   changeMember,
   createGroup,
   currentRole,
+  checkGroup,
   directName,
   directPost,
   findRecord,
   groupState,
   isDirect,
+  validGroup,
   isoLocal,
   listGroups,
   listGroupNames,

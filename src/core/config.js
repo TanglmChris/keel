@@ -62,10 +62,11 @@ const OPTIONALLY_SCOPED_AUTHORIZATION_ACTIONS = new Set(["push"]);
 const AUTHORIZATION_SCOPE_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 // Each scoped action's form and shape. `chat-reply` names a chat group, whose
-// names follow the chat's own pattern (src/core/chat/store.js).
+// names follow the chat's own pattern (src/core/chat/store.js), a direct
+// group's included (#403).
 const AUTHORIZATION_SCOPES = {
   issue: { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
-  "chat-reply": { form: "<group>", pattern: /^[a-z0-9][a-z0-9-]{0,31}$/ },
+  "chat-reply": { form: "<group>", pattern: /^(?:[a-z0-9][a-z0-9-]{0,31}|dm-[a-z0-9][a-z0-9-]{0,31}--[a-z0-9][a-z0-9-]{0,31})$/ },
   "issue-close": { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
   cleanup: { form: "scratch", pattern: /^scratch$/ },
   // Branch-name characters and `*`; `*` matches within one `/` segment and
