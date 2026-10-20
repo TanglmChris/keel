@@ -142,7 +142,8 @@ RESIDENT_BLOCKS = [
             # Touch and a `bound…` word in one statement. The other prose
             # entries stay literal until one of them needs the same freedom.
             re.compile(r"Touch\b[^\n]*\bbound", re.IGNORECASE),
-            "read-only report/evidence",
+            # #414: subagents are the model's choice, treated as the main agent.
+            "treated as the main agent is",
             "native plugin",
             "keel --init",
             # Routing is the one durable rule with no gate behind it, so the
@@ -260,7 +261,7 @@ SKILL_DOC_REQUIREMENTS = [
         "required": [
             "Follow-ups are limited to directly observed blockers, risks, missing scope, or escalation needs",
             "Do not include roadmap suggestions, new feature suggestions, unrelated architecture critique, or opportunistic refactor suggestions",
-            "same failure at most 2 attempts",
+            "There is no fixed attempt count",
             "## Context to read",
             "## Standalone use",
             "candidate completion gate",
@@ -770,8 +771,8 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "Report",
             "Execution recommendation",
             "Autonomy boundary",
-            "current Keel agent remains task owner and executor",
-            "Keep task decisions in the current agent",
+            "A subagent is the model's choice and is treated as the main agent is",
+            "approved `tasks.md` in order",
             "Modify only files listed under Touch",
             "repository-wide read authority is read-only",
             "Out-of-scope Need",
@@ -10148,7 +10149,7 @@ def validate_expectation_completion_gates_scenario() -> int:
         "reason:",
     ]
     archive_overlay_snippets = [
-        "owns final sync/archive decisions",
+        "keel gate change-close --action archive",
         "critical expectation",
         "behavior evidence",
         "durable follow-up owner",
@@ -13928,10 +13929,9 @@ def validate_the_spec_names_the_managed_set_scenario() -> int:
     created. It is therefore the location most likely to drift and the one
     least likely to be noticed, which is why it is checked by name here.
 
-    Two named locations, not a scan. Three statements in the published specs
-    name a proper subset of the managed set and are correct — the doctor's
-    command-surface label, which excludes the authoring action on purpose;
-    `sync/archive decisions`, which names what the current agent owns; and
+    Two named locations, not a scan. Statements in the published specs name a
+    proper subset of the managed set and are correct — the doctor's
+    command-surface label, which excludes the authoring action on purpose, and
     `authoring/apply/archive/sync`, which spells `propose` as authoring. A
     check that refused those would cost more than the drift it catches.
     """
@@ -14055,11 +14055,14 @@ def validate_the_spec_names_the_managed_set_scenario() -> int:
                 "move with it rather than be dropped."
             )
             return 1
-    if "sync/archive decisions" not in published:
+    # `sync/archive decisions` left the overlay spec with the ownership
+    # requirements (#414); `authoring/apply/archive/sync` is the correct subset
+    # spelling that remains in it.
+    if "authoring/apply/archive/sync" not in published:
         report(
-            f"{label}: the overlay spec no longer carries `sync/archive "
-            "decisions`, the third correct subset spelling this check must "
-            "not refuse."
+            f"{label}: the overlay spec no longer carries "
+            "`authoring/apply/archive/sync`, the correct subset spelling this "
+            "check must not refuse."
         )
         return 1
 
@@ -23845,7 +23848,8 @@ SESSION_START_DISCLOSURE = "to the user in your first reply"
 RESIDENT_SESSION_START_REQUIRED = (
     SESSION_START_DISCLOSURE,
     "keel context",
-    "never infer continuity from native memory",
+    # #414: memory and transcripts may inform; `keel context` still decides.
+    "`keel context` decides the current task",
 )
 
 
