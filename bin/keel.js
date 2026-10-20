@@ -24,20 +24,6 @@ const {
   renderProjection,
 } = require("../src/core/projection");
 const {
-  compileGoalProjection,
-  renderGoalProjection,
-} = require("../src/core/goal");
-const {
-  compileHelperBrief,
-  captureHelperBaseline,
-  verifyHelperEvidence,
-  renderHelper,
-} = require("../src/core/helper");
-const {
-  compileTasksView,
-  renderTasksView,
-} = require("../src/core/tasksview");
-const {
   GuardInputError,
   clearGuard,
   guardStatus,
@@ -101,8 +87,7 @@ const HELP = `keel ${PACKAGE_JSON.version}
 Usage:
   keel context [repo] [--change name] [--task id] [--json] [--clear-handoff]
   keel capabilities [repo] [--target claude|codex|opencode] [--json]
-  keel project [repo] --target claude|codex|opencode --event startup|resume|compaction|goal|task-view|worktree|subagent-start|subagent-stop [--authorize goal|task-view|subagent] [--subagent-mode helper|implementation] [--expected-owner owner] [--native-complete] [--change name] [--task id] [--json]
-  keel project tasks [repo] --target claude [--change name] [--json]
+  keel project --target claude|codex|opencode --event startup|resume|compaction|worktree [--expected-owner owner] [--change name] [--task id] [--json]
   keel gate task-start|task-complete [repo] [--change name] [--task id] [--base git-ref] [--no-guard] [--record] [--keep-evidence M1,M3] [--json]
   keel gate change-close [repo] [--change name] --action sync|archive [--base git-ref] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
@@ -212,19 +197,8 @@ function parseArgs(argv) {
     openspecArgs: [],
     force: false,
     projectionEvent: null,
-    subagentMode: null,
-    authorizations: [],
     expectedOwner: null,
-    nativeComplete: false,
     projectSubcommand: null,
-    expectedFingerprint: null,
-    helperQuestion: null,
-    helperCommand: null,
-    helperReads: [],
-    helperExternal: [],
-    helperVerify: false,
-    helperCaptureBaseline: false,
-    helperBaseline: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -353,70 +327,14 @@ function parseArgs(argv) {
       parsed[key] = argv[index];
       continue;
     }
-    if (arg === "--event" || arg === "--authorize" || arg === "--expected-owner" || arg === "--subagent-mode") {
+    if (arg === "--event" || arg === "--expected-owner") {
       index += 1;
       if (index >= argv.length) {
         fail(`${arg} requires a value`);
       }
-      if (arg === "--authorize") {
-        if (!parsed.authorizations.includes(argv[index])) {
-          parsed.authorizations.push(argv[index]);
-        }
-      } else {
-        const key = arg === "--event" ? "projectionEvent"
-          : arg === "--subagent-mode" ? "subagentMode" : "expectedOwner";
-        if (parsed[key] !== null) fail(`${arg} was provided more than once`);
-        parsed[key] = argv[index];
-      }
-      continue;
-    }
-    if (arg === "--native-complete") {
-      parsed.nativeComplete = true;
-      continue;
-    }
-    if (arg === "--expected-fingerprint") {
-      index += 1;
-      if (index >= argv.length) {
-        fail("--expected-fingerprint requires a value");
-      }
-      if (parsed.expectedFingerprint !== null) {
-        fail("--expected-fingerprint was provided more than once");
-      }
-      parsed.expectedFingerprint = argv[index];
-      continue;
-    }
-    if (arg === "--brief" || arg === "--command" || arg === "--baseline") {
-      index += 1;
-      if (index >= argv.length) {
-        fail(`${arg} requires a value`);
-      }
-      const key =
-        arg === "--brief"
-          ? "helperQuestion"
-          : arg === "--command"
-            ? "helperCommand"
-            : "helperBaseline";
-      if (parsed[key] !== null) {
-        fail(`${arg} was provided more than once`);
-      }
+      const key = arg === "--event" ? "projectionEvent" : "expectedOwner";
+      if (parsed[key] !== null) fail(`${arg} was provided more than once`);
       parsed[key] = argv[index];
-      continue;
-    }
-    if (arg === "--read" || arg === "--external") {
-      index += 1;
-      if (index >= argv.length) {
-        fail(`${arg} requires a value`);
-      }
-      const key = arg === "--read" ? "helperReads" : "helperExternal";
-      parsed[key].push(argv[index]);
-      continue;
-    }
-    if (arg === "--verify") {
-      parsed.helperVerify = true;
-      continue;
-    }
-    if (arg === "--capture-baseline") {
-      parsed.helperCaptureBaseline = true;
       continue;
     }
     if (arg.startsWith("--change=") || arg.startsWith("--task=")) {
@@ -542,22 +460,13 @@ function parseArgs(argv) {
       || parsed.closeAction !== null
       || parsed.base !== null
       || parsed.projectionEvent !== null
-      || parsed.authorizations.length > 0
       || parsed.expectedOwner !== null
-      || parsed.nativeComplete
     )
   ) {
     fail("selection and JSON options apply only to keel context or keel gate");
   }
   if (parsed.action !== "context" && parsed.clearHandoff) {
     fail("--clear-handoff applies only to keel context");
-  }
-  if (parsed.subagentMode !== null && (
-    parsed.action !== "project" || parsed.projectSubcommand !== null
-    || !["subagent-start", "subagent-stop"].includes(parsed.projectionEvent)
-    || !["helper", "implementation"].includes(parsed.subagentMode)
-  )) {
-    fail("--subagent-mode helper|implementation applies only to subagent lifecycle projection");
   }
   if (
     parsed.action === "capabilities"
@@ -574,9 +483,7 @@ function parseArgs(argv) {
     parsed.action !== "project"
     && (
       parsed.projectionEvent !== null
-      || parsed.authorizations.length > 0
       || parsed.expectedOwner !== null
-      || parsed.nativeComplete
     )
   ) {
     fail("projection options apply only to keel project");
@@ -634,47 +541,13 @@ function parseArgs(argv) {
   if (parsed.record && parsed.action !== "gate") {
     fail("--record applies only to keel gate task-start");
   }
-  if (parsed.projectSubcommand !== "goal" && parsed.expectedFingerprint !== null) {
-    fail("--expected-fingerprint applies only to keel project goal");
-  }
+  // `keel project goal`, `helper`, and `tasks` were removed in 5.173.0 (#414):
+  // native goals, subagents, and task lists need no Keel projection. A word
+  // after `keel project` is refused by name rather than read as a repository.
   if (parsed.action === "project" && parsed.projectSubcommand !== null) {
-    if (!["goal", "helper", "tasks"].includes(parsed.projectSubcommand)) {
-      fail(
-        `unknown project subcommand: ${parsed.projectSubcommand}; `
-          + "only keel project goal, keel project helper, and keel project "
-          + "tasks are supported"
-      );
-    }
-    if (
-      parsed.projectionEvent !== null
-      || parsed.authorizations.length > 0
-      || parsed.nativeComplete
-    ) {
-      fail(
-        "keel project goal/helper/tasks do not take --event, --authorize, or "
-          + "--native-complete; those apply only to keel project without a "
-          + "subcommand"
-      );
-    }
-    if (parsed.projectSubcommand === "tasks" && parsed.task !== null) {
-      fail(
-        "keel project tasks projects a whole change checklist; "
-          + "--task is not supported"
-      );
-    }
-  }
-  const helperFlagsUsed =
-    parsed.helperQuestion !== null
-    || parsed.helperCommand !== null
-    || parsed.helperReads.length > 0
-    || parsed.helperExternal.length > 0
-    || parsed.helperVerify
-    || parsed.helperCaptureBaseline
-    || parsed.helperBaseline !== null;
-  if (helperFlagsUsed && parsed.projectSubcommand !== "helper") {
     fail(
-      "--brief, --command, --read, --external, --verify, --capture-baseline, "
-        + "and --baseline apply only to keel project helper"
+      `unknown project subcommand: ${parsed.projectSubcommand}; keel project `
+        + "takes only --event startup|resume|compaction|worktree"
     );
   }
 
@@ -2921,46 +2794,6 @@ function runAction(options) {
       fail("project requires --change when --task is provided");
     }
     const repo = path.resolve(options.repo || process.cwd());
-    if (options.projectSubcommand === "goal") {
-      const result = compileGoalProjection(repo, options);
-      process.stdout.write(
-        options.json
-          ? `${JSON.stringify(result, null, 2)}\n`
-          : renderGoalProjection(result)
-      );
-      return result.status === "ready" ? 0 : 3;
-    }
-    if (options.projectSubcommand === "tasks") {
-      const result = compileTasksView(repo, options);
-      process.stdout.write(
-        options.json
-          ? `${JSON.stringify(result, null, 2)}\n`
-          : renderTasksView(result)
-      );
-      return result.status === "ready" ? 0 : 3;
-    }
-    if (options.projectSubcommand === "helper") {
-      let result;
-      try {
-        if (options.helperCaptureBaseline) {
-          result = captureHelperBaseline(repo, options);
-        } else if (options.helperVerify) {
-          result = verifyHelperEvidence(repo, options);
-        } else {
-          result = compileHelperBrief(repo, options);
-        }
-      } catch (error) {
-        process.stderr.write(`keel: helper input error: ${error.message}\n`);
-        return 1;
-      }
-      process.stdout.write(
-        options.json
-          ? `${JSON.stringify(result, null, 2)}\n`
-          : renderHelper(result)
-      );
-      const okStates = ["ready", "verified", "captured"];
-      return okStates.includes(result.status) ? 0 : 3;
-    }
     let result;
     try {
       result = projectRuntime(repo, options);

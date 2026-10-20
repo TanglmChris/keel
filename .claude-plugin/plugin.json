@@ -17,9 +17,6 @@
   "skills": [
     "./plugins/keel/skills/"
   ],
-  "agents": [
-    "./plugins/keel/agents/keel-single-task-goal-claude.md"
-  ],
   "commands": [
     "./plugins/keel/commands/shift.md"
   ],

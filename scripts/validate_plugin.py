@@ -41451,6 +41451,65 @@ def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
     return 0
 
 
+def validate_native_projections_removed_scenario() -> int:
+    """Issue #414: Keel projects no goal, helper, task view, or subagent brief.
+
+    The owner removed the tooling built for the stance that subagents and native
+    goals had to be shaped by Keel. Each surface is checked from the outside: the
+    command a model would type, the doctor line it would read, and the plugin
+    files a host would load. `keel project --event startup` is the control —
+    a `keel project` that refused everything would pass the rest.
+    """
+    label = "native-projections-removed"
+    with tempfile.TemporaryDirectory(prefix="keel-414-", ignore_cleanup_errors=True) as raw:
+        repo = Path(raw)
+        init = run_keel(repo, "--init", "--target", "claude")
+        if init.returncode != 0:
+            report(f"{label}: keel --init failed: {(init.stderr or init.stdout).strip()}")
+            return 1
+        for args in (
+            ("project", "goal"),
+            ("project", "tasks"),
+            ("project", "helper"),
+            ("project", "--event", "subagent-start"),
+        ):
+            result = run_keel(repo, *args)
+            said = (result.stdout + result.stderr).lower()
+            if result.returncode == 0:
+                report(f"{label}: keel {' '.join(args)} exited 0.")
+                return 1
+            if "unknown" not in said and "unsupported" not in said:
+                report(f"{label}: keel {' '.join(args)} was not refused as unknown: {(result.stdout or result.stderr).strip()[:120]!r}")
+                return 1
+        control = run_keel(repo, "project", "--event", "startup", "--target", "claude")
+        if control.returncode != 0:
+            report(f"{label}: keel project --event startup no longer works: {(control.stderr or control.stdout).strip()}")
+            return 1
+        doctor = run_keel(repo, "--doctor", "--target", "claude")
+        for prefix in ("execution.goal", "execution.task-view", "delegation.", "helper "):
+            hit = [line for line in doctor.stdout.splitlines() if line.strip().startswith(prefix)]
+            if hit:
+                report(f"{label}: doctor still prints {hit[0].strip()!r}.")
+                return 1
+    for gone in (
+        ROOT / PLUGIN_ROOT / "skills/keel-run-single-task-goal",
+        ROOT / "src/skills/keel-run-single-task-goal",
+        ROOT / PLUGIN_ROOT / "agents",
+    ):
+        if gone.exists():
+            report(f"{label}: {gone.relative_to(ROOT)} still ships.")
+            return 1
+    for manifest in (ROOT / ".claude-plugin/plugin.json", ROOT / PLUGIN_ROOT / ".codex-plugin/plugin.json"):
+        if "agents" in json.loads(manifest.read_text(encoding="utf-8")):
+            report(f"{label}: {manifest.relative_to(ROOT)} still names agents.")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 NATIVE_CAPABILITY_SUPPRESSIONS = (
     "unbounded subagent",
     "bounded helpers return read-only",
@@ -43670,6 +43729,7 @@ SCENARIOS: tuple = (
     ),
     ("tdd-strategy-guide", validate_tdd_strategy_guide_scenario),
     ("native-capabilities-unrestricted", validate_native_capabilities_unrestricted_scenario),
+    ("native-projections-removed", validate_native_projections_removed_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,

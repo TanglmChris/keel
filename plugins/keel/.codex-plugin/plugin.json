@@ -16,7 +16,6 @@
   ],
   "skills": "./skills/",
   "hooks": "./hooks/codex.json",
-  "agents": "./agents/",
   "interface": {
     "displayName": "Keel",
     "shortDescription": "OpenSpec execution discipline for coding agents",
