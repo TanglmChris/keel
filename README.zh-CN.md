@@ -194,6 +194,9 @@ authorize:          # accepted names: commit, push, push:<branch glob>[@<role>],
 没有自己写 `Autonomy boundary:` 的 task 会继承这份声明，编译出的 capsule 会把 `keel/config.yaml`
 标为该条目的来源，这样继承来的授权永远不会被误当成 task 自己做的决定。自己写了边界的 task 保留自己的边界。
 
+下文的序数按名字计，不按上面注释里的写法计：`push` 和 `push:<branch glob>` 是同一个名字，所以词汇共 13 个名字，
+`continuation` 是第五个。
+
 `continuation`（第五个名字）会被接受，但什么都不改变。在你批准过 `tasks.md` 的同一个 change 里，
 从一个已持久完成的 task 转到下一个未勾选的 task，默认就不需要确认（#414）。下一个 task 照样通过
 `keel gate task-start` 启动、记录自己的 fingerprint；每个门禁、证据要求、语义 Review 和写入守卫都照常运行；
@@ -234,7 +237,7 @@ chat 角色与之匹配的会话。会话在 capsule、`keel context`、`keel --
 携带、不被强制执行：角色只决定由哪个会话读到它们。
 
 `shift-restore`（#319）涵盖 Claude 桌面应用上因换班而启动的会话在 `keel shift resume` 之后必须马上做的两件事：
-如果自己的 Remote Control 回来时是关着的，就把它重新打开；把自己的名字改回工作标题。那里的 clear 不保留标题。
+如果自己的 Remote Control 回来时是关着的，就把它重新打开；把自己的名字改回工作标题。桌面应用上被清空的会话不会保留原来的标题。
 没有这份声明时，被唤醒的会话会把这次恢复当成另一个会话的请求，停下来问你。它只作用于那个会话，所以不带范围；
 它不涵盖任何其他会话，不涵盖 clear 或 archive，也不涵盖任何仓库操作。
 
@@ -689,8 +692,8 @@ external_agents:
 
 ## 共享资源租约
 
-会话通过有期限的租约在各 worktree 之间协调共享资源。其他持有者会被拒绝并记为等待者；释放和被察觉的过期会通过
-私信通知他们。租约对 Git 或文件系统不做任何强制。换班检查会报告本 worktree 仍持有的租约。见
+会话通过有期限的租约在各 worktree 之间协调共享资源。其他持有者会被拒绝并记为等待者；持有者释放租约，或有人发现租约已过期时，
+等待者会收到私信通知。租约对 Git 或文件系统不做任何强制。换班检查会报告本 worktree 仍持有的租约。见
 [docs/resource-lock.md](docs/resource-lock.md)。
 
 ## worktree 总览
@@ -851,6 +854,8 @@ keel openspec <args>
 ```
 
 命令接受仓库路径，可以是位置参数，也可以是 `--repo <path>`；具体用哪种见 `keel --help`。
+每组命令都会打印自己的完整子命令列表：`keel chat help`、`keel mail help`、`keel shift --help`、
+`keel lock --help`、`keel patrol --help` 和 `keel agents --help`。
 
 退出码：`0` 通过 · `1` 输入错误 · `2` 用法错误（未知 flag，或命令拒绝的 flag） · `3` 策略失败 · `4` 缺少语义 review。`keel patrol` 用 `2` 和 `3` 表示它发现了什么；见「协调者巡查」。
 

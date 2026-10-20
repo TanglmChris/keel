@@ -226,6 +226,9 @@ A task that authors no `Autonomy boundary:` inherits the declaration, and the co
 names `keel/config.yaml` as that entry's source so an inherited authorization is never mistaken
 for one the task decided. A task that authors its own boundary keeps it.
 
+The ordinals below count names, not the forms in that comment: `push` and `push:<branch glob>` are
+one name, so the vocabulary is thirteen names long and `continuation` is the fifth.
+
 `continuation`, the fifth name, is accepted and changes nothing. Moving from a durably complete
 task to the next unchecked task of the same change, inside a change whose `tasks.md` you approved,
 needs no confirmation by default (#414). The next task still starts through `keel gate task-start`
@@ -238,7 +241,7 @@ nothing until corrected — fail-closed, never a silent grant.
 
 `issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
 one; `chat-reply:<group>`, the eighth, `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
-and tenth, and `push-protected:<branch glob>`, the eleventh, are the others that do. The other names act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+and tenth, and `push-protected:<branch glob>`, the eleventh, are the others that do. The other names, `push` included, act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
@@ -282,7 +285,7 @@ enforced: the role decides only which session reads them.
 
 `shift-restore` (#319) covers the two things a session started by a shift change on the Claude
 desktop app must do right after `keel shift resume`: turn its own Remote Control back on if it came
-back off, and rename itself back to its working title. A clear there keeps no title. Without the declaration, the woken
+back off, and rename itself back to its working title. On the desktop app a cleared session does not keep its title. Without the declaration, the woken
 session reads that restore as another session's request and stops to ask you. It reaches only that
 session, so it takes no scope, and it covers no other session, no clear or archive, and no repository
 action.
@@ -832,7 +835,7 @@ the brief, so `egress_deny` guards what is handed over, not what it can open.
 
 ## Shared resource leases
 
-Sessions coordinate shared resources across worktrees through bounded leases. Other holders are refused and recorded as waiters; release and noticed expiry tell them through direct chat messages. A lease enforces nothing on Git or the filesystem. The shift check reports those its worktree still holds. See [docs/resource-lock.md](docs/resource-lock.md).
+Sessions coordinate shared resources across worktrees through bounded leases. Other holders are refused and recorded as waiters; when a holder releases a lease, or a lease is found to have expired, the waiters are told through direct chat messages. A lease enforces nothing on Git or the filesystem. The shift check reports those its worktree still holds. See [docs/resource-lock.md](docs/resource-lock.md).
 
 ## Worktree overview
 
@@ -1008,6 +1011,8 @@ keel openspec <args>
 ```
 
 Commands take the repository as a positional path or as `--repo <path>`; `keel --help` shows which.
+Each group prints its full subcommand list: `keel chat help`, `keel mail help`, `keel shift --help`,
+`keel lock --help`, `keel patrol --help`, and `keel agents --help`.
 
 Exit codes: `0` pass · `1` input error · `2` usage error (an unknown flag or a flag the command refuses) · `3` policy failure · `4` missing semantic review. `keel patrol` uses `2` and `3` for what it found; see Coordinator patrol.
 

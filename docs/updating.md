@@ -13,7 +13,7 @@ It updates the global CLI, then the Keel plugin of each host it finds installed,
 | Component | Commands it runs | Takes effect |
 | --- | --- | --- |
 | CLI | `npm pack @christang/keel`, `npm install -g <tarball>` | the next command that runs `keel` |
-| Claude plugin | `claude plugin marketplace update keel-marketplace`, `claude plugin update keel@keel-marketplace` | a running session's next hook call; its skills and agents after `/reload-plugins` |
+| Claude plugin | `claude plugin marketplace update keel-marketplace`, `claude plugin update keel@keel-marketplace` | a running session's next hook call; its skills after `/reload-plugins` |
 | Codex plugin | `codex plugin marketplace upgrade keel-marketplace`, `codex plugin add keel@keel-marketplace` | a running session's next hook call |
 
 Each component prints one line, `keel update: <component>: <status> - <detail>`, where the status is one of:
@@ -21,6 +21,10 @@ Each component prints one line, `keel update: <component>: <status> - <detail>`,
 - `absent`: the host is not installed or has no Keel plugin — a `plugin list --json` query, allowed 30 s where the update commands get five minutes, that times out is retried once (#365), and one that times out twice, exits nonzero, or prints no JSON is reported `failed` instead, naming the command and why (#354);
 - `manual`: a step only you can take;
 - `failed`: the command that failed and why — its exit status and, when the host wrote any, its last line of error output (#359) — which also makes `keel --update` exit nonzero.
+
+When `codex plugin list --json` times out twice, `keel --update` no longer stops there (#412, 5.174.0): it reads Codex's own state — the `[marketplaces.keel-marketplace]` source in `$CODEX_HOME/config.toml` and the version under `$CODEX_HOME/plugins/cache/keel-marketplace/keel/` — and, when they show Keel installed from a Git marketplace, runs the upgrade and `plugin add` as usual. The Codex line says the list query did not answer and names the cache it read.
+
+Right after a release, the npm registry can take a while to serve the new version, and the Claude plugin line may read `failed` with `E404 No match found for version` (#421). Nothing is wrong with the install: run `keel --update` again a few minutes later.
 
 The Claude marketplace refresh is retried once when it fails, as the Codex one is: on a proxied link it has failed once and passed on a direct rerun (#359). A refresh that fails twice reads `failed` and says so.
 
@@ -45,7 +49,7 @@ The refresh brings the overlays of every target the project carries forward, not
 | Resume | A resumed session is a new process and loads the installed plugin (not separately probed). | A resumed thread's next hook runs the installed plugin, as the next row shows. |
 | Next hook call in a running session | From 5.89.0, each Keel hook hands the event to the newest installed copy of itself with the same major version. A session loaded before 5.89.0 keeps its loaded hooks. | Runs the installed plugin: Codex resolves the plugin root at every hook call [1]. |
 | Compact, clear | Fires SessionStart, which hands off as in the row above. Before 5.89.0 it ran the loaded version (#172). | Same as the next hook call. |
-| Skills and agents | Stay at the loaded version until `/reload-plugins` or a new session. After a hand-off, SessionStart says so in one line, and only when they changed. | Not probed. |
+| Skills | Stay at the loaded version until `/reload-plugins` or a new session. After a hand-off, SessionStart says so in one line, and only when they changed. | Not probed. |
 | Write guard during a task | Keeps the loaded guard while `keel/guard.json` exists, and hands off on the first check after it is cleared. | Switches at the next call, which the host decides. The decision depends only on the `keel-write-guard/v1` manifest, and an unknown schema fails closed. |
 | Old version directory | Kept, so a loaded session's scripts keep working. | Deleted on upgrade, which does not matter because hooks are resolved per call [1]. |
 

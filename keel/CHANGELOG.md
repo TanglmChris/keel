@@ -1,5 +1,31 @@
 # Keel Changelog
 
+## 5.177.0 - The configuration file and the docs follow their sources
+
+Issue #413, third and last part. 5.175.0 and 5.176.0 corrected the protocol surfaces and the two READMEs. This release corrects the rest of what a reader relies on.
+
+- **`keel/config.yaml`** now documents each declaration once, in the order `CONFIG_DECLARATIONS` gives:
+  - The two `patrol` blocks are merged.
+  - An `executor_tier` block is added.
+  - The scoped-name sentence names `push-protected`.
+  - The `continuation` paragraph says the name changes nothing since #414.
+
+  No declared value changed.
+- **`docs/updating.md`**:
+  - Claude reloads skills only, since 5.173.0 removed the agents.
+  - It documents the 5.174.0 fallback when `codex plugin list --json` hangs (#412).
+  - It documents the `E404` the npm registry can return right after a release, which a later rerun clears (#421).
+- **Both READMEs**:
+  - They say the authorization ordinals count names, and that `push` and `push:<branch glob>` are one name.
+  - "A clear there keeps no title" and "noticed expiry" are rewritten.
+  - The Commands block points to each command group's own help.
+- **Chinese docs**:
+  - `docs/shift-change.zh-CN.md` now has the English page's eight sections, including finding a previous shift's conversation, when to change shift, and the coordinator's own shift.
+  - `docs/chat-slack-setup.zh-CN.md` says edits and deletions carry over.
+- **Scenarios**: `config-documents-in-declaration-order` reads the order from the code. `docs-zh-match-english` checks every `docs/*.zh-CN.md` against its English page, so a Chinese page added later is held from the start.
+- With this release #413 is complete. The 5.175.0 and 5.176.0 sections that said "follows in the next part" record what was true at their release.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.177.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.176.0 - The English and Chinese READMEs state the CLI, section for section
 
 Issue #413, second part. On 2026-10-20 the owner asked that the two READMEs be revised together. The English README contradicted the CLI in several places, and the Chinese one ran 355 lines against 1000 with thirteen sections missing, while the English README called it the full reference.
