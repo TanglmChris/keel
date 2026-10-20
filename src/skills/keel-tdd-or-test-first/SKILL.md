@@ -37,7 +37,7 @@ A check's Evidence may read `artifact <path> sha256:<digest>` instead of retelli
 
 ## Domain lenses
 
-When the change's proposal/design/specs or the task's Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before finalizing the strategy and the first check, and load only that one. When no lens matches, load nothing.
+When the change's proposal/design/specs or the task's Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before finalizing the strategy and the first check. When no lens matches, load nothing.
 
 ## Coupled-task preflight
 

@@ -10809,22 +10809,20 @@ def assert_openspec_overlay(path: Path, action: str) -> str | None:
     if content.count(OPENSPEC_SURFACE_OVERLAY_END) != 1:
         return f"{path} must contain exactly one Keel overlay end marker"
 
+    # Since #414 the overlay says one neutral thing about subagents and assigns
+    # no ownership; apply continues through an approved task list.
     required = [
         "Keel rules below take precedence",
-        "Target-native subagent gate",
-        "current agent remains",
-        "return report/evidence only",
-        "Keel ownership",
+        "A subagent is the model's choice and is treated as the main agent is",
     ]
     if action == "apply":
         required.extend(
             [
-                "Keel task owner",
+                "approved `tasks.md` in order",
                 "Task Authoring Gate",
                 "Slice Start Gate",
                 "source expectations",
                 "Rough future slices",
-                "cannot mark tasks complete",
                 # A confirmation the owner already declared is routed to the
                 # declaration; one they did not declare is still asked for, and
                 # neither case touches the proof.
@@ -10836,12 +10834,12 @@ def assert_openspec_overlay(path: Path, action: str) -> str | None:
     else:
         required.extend(
             [
-                "owns final sync/archive decisions",
+                "keel gate change-close --action archive",
+                "keel-review-checklist",
                 "critical expectation",
                 "behavior evidence",
                 "durable follow-up owner",
                 "explicit discard reason",
-                "cannot archive, sync, change acceptance, or bypass completion gates",
                 "standing-authorizes `archive`",
                 "completion gate and follow-up ownership checks still run",
             ]
@@ -29686,14 +29684,14 @@ def validate_delegation_resident_text_scenario() -> int:
     def flat(path: Path) -> str:
         return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
 
-    # M1 — the resident protocol carries the condition and the model limit.
+    # M1 — the resident protocol carries the subagent rule and the model limit.
+    # Since #414 a subagent is the model's choice and is treated as the main
+    # agent is; the gates and the Touch guard are what bind it.
     agents = ROOT / "AGENTS.md"
     text = flat(agents)
     for needle in (
-        "implementation delegates use the selected task write authority inside",
-        "a guard manifest is active",
-        "re-runs each",
-        "check itself before recording Evidence",
+        "is the model's choice and is treated as the main agent is",
+        "the evidence rules apply to whoever runs a step",
         "never a model name",
         "declared rather than inferred from a task's size",
     ):
@@ -29701,18 +29699,19 @@ def validate_delegation_resident_text_scenario() -> int:
             report(f"delegation-resident-text: AGENTS.md omits: {needle}")
             return 1
 
-    # M1 — the consumer bootstrap deliberately does NOT carry the delegation
-    # clause. Its block has a byte budget (BOOTSTRAP_BLOCK_BYTE_BUDGET) with
-    # little headroom, and delegation is inert until declared, so an installing
-    # repository that declares nothing is fully served by the sentence already
-    # there. What the check enforces is that the sentence stays true by default,
-    # and that the budget is not quietly spent later — the budget moved once, in
-    # 5.63.0 for the routing rule (#131), with the argument recorded at the
-    # constant; a raise with no reason beside it is the drift this guards.
+    # M1 — the consumer bootstrap carries the subagent sentence, not the
+    # delegation clause. Its block has a byte budget (BOOTSTRAP_BLOCK_BYTE_BUDGET)
+    # with little headroom, and delegation is inert until declared, so an
+    # installing repository that declares nothing is fully served by the
+    # sentence already there. What the check enforces is that the sentence stays
+    # true by default, and that the budget is not quietly spent later — the
+    # budget moved once, in 5.63.0 for the routing rule (#131), with the argument
+    # recorded at the constant; a raise with no reason beside it is the drift
+    # this guards.
     bootstrap = ROOT / "assets/bootstrap/AGENTS.md"
     boot = flat(bootstrap)
-    if re.sub(r"\s+", " ", "One agent owns decisions") not in boot:
-        report("delegation-resident-text: the bootstrap lost its single-writer default.")
+    if re.sub(r"\s+", " ", "is the model's choice and is treated as the main agent is") not in boot:
+        report("delegation-resident-text: the bootstrap lost its subagent sentence.")
         return 1
     block = bootstrap.read_text(encoding="utf-8")
     body = block.split("<!-- keel:start", 1)[1].split("<!-- keel:end -->", 1)[0]
@@ -29796,16 +29795,13 @@ def validate_delegation_overlay_scenario() -> int:
             report(f"delegation-overlay: missing generated surface {path.relative_to(ROOT)}")
             return 1
 
-    # M1 — the gate states the delegate's condition, its boundary, and what
-    # its results are worth. Asserted on every generated copy, because the
-    # overlay is what a subagent on that surface actually reads.
+    # M1 — the surface says what binds a subagent and nothing else (#414): it
+    # is the model's choice and is treated as the main agent is. Asserted on
+    # every generated copy, because the overlay is what a subagent on that
+    # surface actually reads.
     needles = (
-        "using existing task write authority",
-        "a guard manifest is active",
-        "only inside `Touch`",
-        "re-runs each `M<n>` check itself before recording Evidence",
-        "Delegation is refused with no active guard manifest",
-        "may mark tasks complete",
+        "A subagent is the model's choice and is treated as the main agent is",
+        "the `Touch` write guard, and the evidence rules apply to whoever runs a step",
     )
     for path in generated:
         text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
@@ -29822,6 +29818,8 @@ def validate_delegation_overlay_scenario() -> int:
         for stale in (
             "Target-native subagents return report/evidence only; the current agent reviews the output before acting.",
             "Target-native subagents return report/evidence only; they cannot mark tasks complete",
+            "Delegation is refused with no active guard manifest",
+            "re-runs each `M<n>` check itself before recording Evidence",
         ):
             if re.sub(r"\s+", " ", stale) in text:
                 report(f"delegation-overlay: {path.relative_to(ROOT)} still carries an unconditional sentence: {stale[:60]}")
@@ -31613,9 +31611,11 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # Since #414 crossing the boundary needs no confirmation by default, and the
+    # README says so where it names the word.
     for needle in (
         "next unchecked task of the same change",
-        "the stop that re-asks for an approval already given",
+        "needs no confirmation by default",
     ):
         if needle not in readme:
             report(f"{label}: README.md lacks: {needle}")
@@ -31665,8 +31665,8 @@ def validate_continuation_docs_scenario() -> int:
         return 1
     section = parts[1].split("\n## ", 1)[0]
     for needle in (
-        "standing `continuation` authorization",
-        "next unchecked task of the same change",
+        "declared `continuation` is accepted and changes nothing",
+        "next unchecked task of the same approved change needs no confirmation",
         "its own recorded fingerprint",
     ):
         if needle not in section:
@@ -34823,7 +34823,7 @@ def validate_domain_execution_references_scenario() -> int:
             for needle in (
                 "keel/lenses/",
                 "Execution and review checks",
-                "load only that one",
+                "the lens whose `Applies when:` header matches",
                 "no lens matches",
             ):
                 if needle not in text:
@@ -41447,6 +41447,83 @@ def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
     return 0
 
 
+NATIVE_CAPABILITY_SUPPRESSIONS = (
+    "unbounded subagent",
+    "bounded helpers return read-only",
+    "Implementation delegation is refused",
+    "Delegation is refused with no active guard",
+    "Target-native subagent gate",
+    "One agent owns decisions",
+    "may help with bounded assessment",
+    "goal/task-view projection requires explicit authorization",
+    "small contiguous task group",
+    "in the current agent conversation",
+    "inside the current agent session",
+    "never infer continuity",
+    "never native memory",
+    "at most 2 attempts",
+    "Read only the documents needed",
+    "minimal read list",
+    "load only that one",
+    "do not load unrelated lenses",
+    "read only the returned paths",
+)
+NATIVE_SUBAGENT_SENTENCE = "the model's choice and is treated as the main agent is"
+NATIVE_CONTINUATION_SENTENCE = "approved `tasks.md` in order"
+
+
+def validate_native_capabilities_unrestricted_scenario() -> int:
+    """Issue #414: Keel neither suppresses nor steers the host's native capabilities.
+
+    The owner reviewed each sentence that told the model to stay in one session,
+    take one task, keep subagents to a read-only role, read a minimal list, or
+    stop after two attempts, and removed them. This holds every one of them out
+    of every model-facing surface, and requires the two sentences that replaced
+    the subagent and continuation rules where the agent reads them first.
+    """
+    label = "native-capabilities-unrestricted"
+    surfaces = [
+        ROOT / "AGENTS.md",
+        ROOT / "assets/bootstrap/AGENTS.md",
+        ROOT / "assets/openspec/schemas/keel-spec-driven/schema.yaml",
+        ROOT / "openspec/schemas/keel-spec-driven/schema.yaml",
+    ]
+    for action in ("apply", "archive", "sync", "propose"):
+        surfaces.append(ROOT / f".claude/commands/opsx/{action}.md")
+    for name in ("apply-change", "archive-change", "sync-specs", "propose"):
+        surfaces.append(ROOT / f".claude/skills/openspec-{name}/SKILL.md")
+        surfaces.append(ROOT / f".codex/skills/openspec-{name}/SKILL.md")
+    surfaces.extend(sorted((ROOT / "src/skills").glob("*/SKILL.md")))
+    surfaces.extend(sorted((ROOT / PLUGIN_ROOT / "skills").glob("*/SKILL.md")))
+    for surface in surfaces:
+        if not surface.is_file():
+            report(f"{label}: {surface.relative_to(ROOT)} is missing, so it cannot be checked.")
+            return 1
+        text = surface.read_text(encoding="utf-8")
+        for phrase in NATIVE_CAPABILITY_SUPPRESSIONS:
+            if phrase in text:
+                report(f"{label}: {surface.relative_to(ROOT)} still says {phrase!r}.")
+                return 1
+    for first_read in (
+        ROOT / "AGENTS.md",
+        ROOT / "assets/bootstrap/AGENTS.md",
+        ROOT / ".claude/commands/opsx/apply.md",
+        ROOT / ".codex/skills/openspec-apply-change/SKILL.md",
+    ):
+        text = first_read.read_text(encoding="utf-8")
+        if NATIVE_SUBAGENT_SENTENCE not in text:
+            report(f"{label}: {first_read.relative_to(ROOT)} does not say a subagent is {NATIVE_SUBAGENT_SENTENCE!r}.")
+            return 1
+        if NATIVE_CONTINUATION_SENTENCE not in text:
+            report(f"{label}: {first_read.relative_to(ROOT)} does not say the agent works through an {NATIVE_CONTINUATION_SENTENCE!r}.")
+            return 1
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_tdd_strategy_guide_scenario() -> int:
     """Issue #389: the skill an executor loads to plan its checks says how to choose.
 
@@ -43588,6 +43665,7 @@ SCENARIOS: tuple = (
         validate_guidance_is_referenced_and_carries_no_criterion_scenario,
     ),
     ("tdd-strategy-guide", validate_tdd_strategy_guide_scenario),
+    ("native-capabilities-unrestricted", validate_native_capabilities_unrestricted_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,

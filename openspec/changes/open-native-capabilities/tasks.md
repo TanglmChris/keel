@@ -1,0 +1,137 @@
+# Tasks
+
+## 1. Open the native capabilities
+
+- [ ] 1.1 Remove the wording that suppresses or steers native capabilities from every model-facing surface
+  - Covers:
+    - keel-openspec-surface-overlay / Apply surface binds work to the task contract / Apply overlay continues through an approved task list
+    - keel-openspec-surface-overlay / Archive surface binds archiving to its gate / Archive overlay names its gate
+    - keel-openspec-surface-overlay / Subagents are the model's choice and are treated as the main agent is / The neutral sentence is all the surfaces say
+    - keel-openspec-surface-overlay / The sync surface carries the overlay that governs it / The sync overlay names the gate and the delta consequence
+    - keel-standing-authorization / Continuing to the next approved task needs no authorization / The next task still starts through its own gate
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+    - D6
+    - D7
+  - Read:
+    - openspec/changes/open-native-capabilities/design.md
+    - AGENTS.md
+    - bin/keel.js
+  - Touch:
+    - AGENTS.md
+    - assets/bootstrap/AGENTS.md
+    - bin/keel.js
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/sync.md
+    - .claude/commands/opsx/propose.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - openspec/schemas/keel-spec-driven/schema.yaml
+    - src/skills/keel-debug-failure/SKILL.md
+    - src/skills/keel-review-checklist/SKILL.md
+    - src/skills/keel-tdd-or-test-first/SKILL.md
+    - src/skills/keel-align-expectations/SKILL.md
+    - src/skills/keel-handoff/SKILL.md
+    - plugins/keel/skills/keel-debug-failure/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-tdd-or-test-first/SKILL.md
+    - plugins/keel/skills/keel-align-expectations/SKILL.md
+    - plugins/keel/skills/keel-handoff/SKILL.md
+    - README.md
+    - README.zh-CN.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-capabilities-unrestricted`: none of the removed phrases (`unbounded subagent`, `bounded helpers return read-only`, `Implementation delegation is refused`, `Delegation is refused with no active guard`, `Target-native subagent gate`, `One agent owns decisions`, `may help with bounded assessment`, `goal/task-view projection requires explicit authorization`, `small contiguous task group`, `in the current agent conversation`, `inside the current agent session`, `never infer continuity`, `never native memory`, `at most 2 attempts`, `Read only the documents needed`, `minimal read list`, `load only that one`, `do not load unrelated lenses`, `read only the returned paths`) appears in `AGENTS.md`, the bootstrap, both schemas, the generated apply/archive/sync/propose surfaces under `.claude/` and `.codex/`, or any shipped skill; and the protocol, the bootstrap, and the generated apply surface each state that a subagent is the model's choice and is treated as the main agent is, and that the agent works through an approved `tasks.md` in order. Fails with: `native-capabilities-unrestricted:` Detects: `the bootstrap's subagent sentence restored to "One agent owns decisions"` -> `One agent owns decisions`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario delegation-resident-text` and `--scenario thin-native-install` pass, so the bootstrap stays inside its byte budget.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:508f95818deff3fb64c346dffb9f24e580d1c85766d7cb06d933e7fa0315dc06 (keel 5.171.0)
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M1.detects: pending
+    - M2: pending
+    - Review: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the specs
+  - Covers:
+    - E7
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+    - openspec/specs/keel-standing-authorization/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the deltas are promoted into `keel-openspec-surface-overlay` and `keel-standing-authorization`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Subagent use is the model's execution choice, subject to the host's policy." and "The current agent reviews returns, re-runs verification, and owns completion." — `README.md` and `README.zh-CN.md`. Updated by: 1.1.
+- I2: "A standing `continuation` authorization covers exactly the boundary between a durably complete task and the next unchecked task" — `README.md` (standing authorization section) and `AGENTS.md`. Updated by: 1.1.
+- I3: "Try the same failure at most 2 attempts" and "This skill owns the retry fuse" — `keel-debug-failure`. Updated by: 1.1.
+- I4: "Apply surface enforces Keel task ownership", "Archive surface enforces Keel archive ownership", "Target-native subagent gate is documented", "A continuation authorization covers one approved between-task boundary" — the published specs. Updated by: 2.1.
+- I5: "Helper projection cannot transfer Keel ownership" and "Subagent projection preserves Keel ownership" — `keel-native-runtime-projection` and `keel-authorized-delegation` describe the `keel project` commands, which this change leaves in place. Durable owner: https://github.com/TanglmChris/keel/issues/414
+
+## Expectation Coverage
+
+- E1: A subagent is the model's choice and is treated as the main agent is, on every model-facing surface (#414; D1). Covered by: 1.1
+- E2: Nothing reads as a rule against the native todo list (#414; D2). Covered by: 1.1
+- E3: The agent continues through an approved task list by default, each task through its own gates (#414; D3). Covered by: 1.1
+- E4: Memory, transcripts, and Git state may inform; `keel context` decides (#414; D4). Covered by: 1.1
+- E5: Debugging has no attempt cap (#414, #410; D5). Covered by: 1.1
+- E6: No reading restriction remains (#414; D6). Covered by: 1.1
+- E7: The release carries it. Covered by: 2.1

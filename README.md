@@ -174,14 +174,10 @@ successful update, Keel restores its overlays for every target installed in the
 repository. `keel --doctor` also reports overlay health for the other installed
 targets, so healthy Claude coverage cannot hide missing Codex overlays.
 
-Subagent use is the model's execution choice, subject to the host's policy.
-`keel project --event subagent-start --change <change> --task <id>` produces a
-read-only helper brief without extra activation. Add `--subagent-mode implementation`
-for a delegate inside the task's Touch boundary; it requires an implementation
-task and a matching active guard, while `delegation.tier` is optional metadata.
-The current agent reviews returns, re-runs verification, and owns completion.
-This CLI projects a brief; it does not spawn an agent or prove hook enforcement.
-Native goal activation still requires explicit authorization.
+A subagent is the model's choice and is treated as the main agent is: the gates, the
+`Touch` write guard, and the evidence rules apply to whoever runs a step. Keel asks for
+no brief, activation, or second agent's rerun before one acts, and does not nudge the
+model toward or away from using one (#414).
 
 Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`,
 `/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
@@ -219,13 +215,13 @@ A task that authors no `Autonomy boundary:` inherits the declaration, and the co
 names `keel/config.yaml` as that entry's source so an inherited authorization is never mistaken
 for one the task decided. A task that authors its own boundary keeps it.
 
-`continuation`, the fifth name, is the between-task one: it covers exactly the boundary between a
-durably complete task and the next unchecked task of the same change, inside a change whose
-`tasks.md` you approved — the stop that re-asks for an approval already given. It removes only that
-confirmation: the next task still starts through `keel gate task-start` with its own recorded
-fingerprint, every gate, evidence requirement, semantic Review, and the write guard run unchanged,
-and a stop with its own trigger — a blocker, fingerprint drift, an out-of-scope need, an unresolved
-question — still stops. It authorizes no repository action and schedules nothing. On an older Keel
+`continuation`, the fifth name, is accepted and changes nothing. Moving from a durably complete
+task to the next unchecked task of the same change, inside a change whose `tasks.md` you approved,
+needs no confirmation by default (#414). The next task still starts through `keel gate task-start`
+with its own recorded fingerprint, every gate, evidence requirement, semantic Review, and the write
+guard run unchanged, and a stop with its own trigger — a blocker, fingerprint drift, an out-of-scope
+need, an unresolved question — still stops. Continuing authorizes no repository action and
+schedules nothing. On an older Keel
 whose vocabulary predates the word, the entry is unrecognized and the whole declaration authorizes
 nothing until corrected — fail-closed, never a silent grant.
 

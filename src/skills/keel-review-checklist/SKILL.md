@@ -53,7 +53,7 @@ The Review remains in tasks.md. A user-facing Report summarizes delivery but is 
 
 ## Domain lenses
 
-When the change's artifacts or Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before concluding the review, and load only that one. When no lens matches, load nothing.
+When the change's artifacts or Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before concluding the review. When no lens matches, load nothing.
 
 ## Expectation and follow-up ownership
 

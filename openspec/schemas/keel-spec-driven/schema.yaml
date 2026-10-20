@@ -122,10 +122,9 @@ artifacts:
       required real-task evidence. Portable source authority and declared target
       projections must also be named when they affect Touch or Commands.
 
-      Execution recommendation and Rationale are advisory notes for the current
-      Keel agent. Keel-managed work executes in the current agent conversation;
-      retain task decisions in the current agent; bounded helpers and guarded
-      implementation delegates are model choices, subject to host policy.
+      Execution recommendation and Rationale are advisory notes for whoever
+      executes the task. A subagent is the model's choice and is treated as the
+      main agent is; the gates and the `Touch` write guard bind every step.
       Autonomy boundary defaults to hard-stop for every action the repository
       has not standing-authorized in `keel/config.yaml`; a declared action is
       inherited only by a task that authored no boundary of its own, and the
@@ -192,8 +191,8 @@ apply:
     4. Run the Slice Start Gate: every selected current slice must name source expectations and compile to a complete keel-task-capsule/v1 contract from its compact Covers, Touch, Verify, and Evidence fields plus any declared exceptional Mode, Read, Acceptance delta, Autonomy boundary, Coupling/Candidate Boundary, or Stop if clauses.
     5. If a selected task lacks an execution contract, source expectations, or accepted hidden-knowledge assumptions raised by risk-triggered deep alignment or a domain lens, update OpenSpec first instead of dispatching implementation.
     6. Rough future slices may remain non-executable drafts, but they cannot be selected for implementation or marked complete.
-    7. The current Keel agent remains task owner and executor. Treat any Execution recommendation as an advisory implementation note, not as a completion gate.
-    8. Keep task decisions in the current agent; model-chosen helpers are read-only and implementation delegates require task write authority and a matching active guard. Host policy remains authoritative. Keep task selection, implementation, verification, and failure recovery in the current agent conversation.
+    7. Treat any Execution recommendation as an advisory implementation note, not as a completion gate.
+    8. Work through the unchecked tasks of an approved `tasks.md` in order, each through its own `keel gate task-start` and `keel gate task-complete`; every stop trigger still halts. A subagent is the model's choice and is treated as the main agent is.
     9. Use the current checkout and selected task contract. Verification failure or context pressure preserves the checkout; continue from evidence, record a blocker, or explicitly roll back to last-green only when authorized.
     10. When `Coupling: required`, verify design.md contains a Coupled Iteration Contract and that the task defines a complete candidate, completion gate, and evidence. If not, update OpenSpec instead of execution.
     11. The current agent may read any repository file needed for the selected task, but repository-wide read authority is read-only and does not expand write authority.

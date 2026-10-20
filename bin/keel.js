@@ -89,6 +89,10 @@ const OPENSPEC_SURFACE_OVERLAY_START =
   `<!-- keel:openspec-surface-overlay version=${PACKAGE_JSON.version} -->`;
 const OPENSPEC_SURFACE_OVERLAY_END =
   "<!-- keel:openspec-surface-overlay:end -->";
+// The one thing a gated surface says about subagents (#414): neither a rule
+// nor a nudge, because the gates and the Touch guard already bind whoever runs.
+const SUBAGENT_SENTENCE =
+  "- A subagent is the model's choice and is treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step.";
 const OPENSPEC_SURFACE_OVERLAY_RE =
   /<!--\s*keel:openspec-surface-overlay(?:\s+[^>]*)?\s*-->[\s\S]*?<!--\s*keel:openspec-surface-overlay:end\s*-->/;
 
@@ -1745,18 +1749,17 @@ function keelOpenSpecOverlay(action) {
     ];
     return lines.join("\n");
   }
-  // Sync mirrors archive's structure and not its content: the two are gated and
-  // owned identically, so the ownership, subagent, and delegation-language
-  // rules are the same statements with `sync` in them. What differs is the
-  // artifact consequence — archive warns about re-applying a promoted delta,
-  // and sync is the thing that promotes it, so it says so from its own side. A
-  // reader who only ever sees one of the two surfaces still learns the pairing.
+  // Sync mirrors archive's structure and not its content: the two are gated
+  // identically, so the gate and the subagent sentence are the same statements
+  // with `sync` in them. What differs is the artifact consequence — archive
+  // warns about re-applying a promoted delta, and sync is the thing that
+  // promotes it, so it says so from its own side. A reader who only ever sees
+  // one of the two surfaces still learns the pairing.
   const syncBody = [
-    "- The current agent owns the sync decision and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
+    "- Verify task evidence, follow-up ownership, and completion gates before syncing.",
     "- Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.",
     "- Before syncing, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
-    "- Target-native subagents may help with bounded assessment or evidence production only; they cannot sync, change acceptance, or bypass completion gates.",
-    "- Do not treat generic OpenSpec sync delegation language as authority to transfer Keel ownership.",
+    SUBAGENT_SENTENCE,
     "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
     "- Syncing promotes the change's spec delta into `openspec/specs/`. A later archive of the same change must use `--skip-specs`, because archive is not idempotent over an already-promoted delta.",
   ];
@@ -1777,13 +1780,11 @@ function keelOpenSpecOverlay(action) {
   const actionBody =
     action === "apply"
       ? [
-          "- The current agent remains the Keel task owner and selects one unchecked task or a small contiguous task group from `tasks.md`.",
+          "- Work through the unchecked tasks of an approved `tasks.md` in order, each started by `keel gate task-start` and completed by `keel gate task-complete`; every stop trigger still halts.",
           "- Run the Task Authoring Gate: each relevant critical expectation must be covered by a slice, deferred to a durable owner, or explicitly discarded.",
           "- Run the Slice Start Gate: selected current slices must name source expectations and include Read, Touch, Acceptance, Commands, and Stop/Autonomy boundaries before implementation.",
           "- Rough future slices may remain drafts, but cannot be selected for implementation or marked complete.",
           "- Obey the selected task contract: Read is required starting context, Touch is the write boundary, Commands prove Acceptance, and the Autonomy boundary controls fallback decisions.",
-          "- A target-native helper returns report/evidence only, and a model-chosen guarded delegate may write inside `Touch`; both cannot mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance.",
-          "- The current agent reviews all subagent output, command evidence, and diffs before marking any task complete.",
           "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
           "- A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.",
           "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
@@ -1791,11 +1792,8 @@ function keelOpenSpecOverlay(action) {
           "- A standing authorization covers the action and never substitutes for a gate, evidence, or Review; it removes the confirmation, not the record, and it is not a trigger to perform the action.",
         ]
       : [
-          "- The current agent owns final sync/archive decisions and must verify task evidence, follow-up ownership, and completion gates before proceeding.",
+          "- Archive completion is gated by `keel gate change-close --action archive` plus `keel-review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.",
           "- Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
-          "- Target-native subagents may help with bounded assessment or evidence production only; they cannot archive, sync, change acceptance, or bypass completion gates.",
-          "- The current agent reviews any subagent report before running `openspec-sync-specs`, `/opsx:sync`, or `/opsx:archive`.",
-          "- Do not treat generic OpenSpec archive delegation language as authority to transfer Keel ownership.",
           "- Invoke OpenSpec through `keel openspec` (for example `keel openspec validate`); a bare `openspec` command may not be on PATH.",
           "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
           "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
@@ -1811,15 +1809,7 @@ function keelOpenSpecOverlay(action) {
     "",
     "- Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.",
     "",
-    "### Target-native subagent gate",
-    "",
-    "- The current agent remains responsible for Keel ownership, task/archive decisions, scope control, and final reporting.",
-    "- Use a target-native subagent when the current agent decides it is useful for a bounded helper step, or as a delegate implementing the selected task using existing task write authority when a guard manifest is active and matches the task, fingerprint and Touch; optional `delegation:` tiers are metadata.",
-    "- Target-native subagents acting as helpers return report/evidence only. A delegate may write, and only inside `Touch`; its reported command results are a claim, and the current agent re-runs each `M<n>` check itself before recording Evidence.",
-    "- Delegation is refused with no active guard manifest, because an absent manifest passes every write through silently and looks identical to a checked one.",
-    "- Neither may mark tasks complete, update OpenSpec state, commit, sync, archive, or change Acceptance; the current agent reviews all output before acting.",
-    "- The subagent brief must name the selected change/task, required read context, allowed write boundary or read-only diagnostic scope, expected commands/evidence, and prohibited actions. Compile it with `keel project --event subagent-start` for a read-only helper or add `--subagent-mode implementation` for a guarded delegate; no extra user activation is required. Host policy remains authoritative; Keel adds no separate carrier because the host already has one.",
-    "- Prohibited actions include scope expansion, Acceptance changes, completion marking, sync/archive decisions, commits, handoff changes, and cross-runtime delegation unless the selected task or user explicitly authorizes them.",
+    SUBAGENT_SENTENCE,
     ...actionBody,
     OPENSPEC_SURFACE_OVERLAY_END,
     "",
