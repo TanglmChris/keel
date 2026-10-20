@@ -79,6 +79,8 @@
   - Covers:
     - E3
   - Touch:
+    - README.md
+    - README.zh-CN.md
     - package.json
     - npm-shrinkwrap.json
     - .claude-plugin/marketplace.json
@@ -113,7 +115,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:7731e498e7a661779c18ac2b6b05fef15a700709ee111f58a070755e8cf67926 (keel 5.175.0)
+    - Contract: keel-task-capsule/v1 sha256:f6b9c928d586ba3835e094cdbde2d32a90d6a6d6b8c79ba2176646739eb9fea9 (keel 5.176.0)
     - M1:
     - M2:
     - M3:
@@ -123,7 +125,7 @@
       - Scope check:
       - Findings:
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-20 — README.md and README.zh-CN.md added to Touch after the first `npm test` (91f1e5e) failed six scenarios. Five of them pinned true content that only the old Chinese README carried and the rewrite dropped: the write-guard manifest, manual compaction reprojection, the plan-mode funnel, the dedicated-skill policy, and the parallel runner. The sixth, `continuation-docs`, pinned the false "eleven names". The content goes into both READMEs, and the scenarios check both.
 
 ## Invalidates
 

@@ -173,6 +173,13 @@ Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec an
 设置 `KEEL_SESSION_PANEL=1` 可改为画成带 Keel 标志的边框面板。它默认关闭，打开后只改变呈现方式——
 两种形式里的状态和下一条命令完全相同。
 
+宿主的 hook 没有报告的 compaction 之后，可以用 `keel project --target <t> --event compaction --json` 手动重新投影同样的状态。
+
+写入守卫是一份一次性 manifest：`keel/guard.json`。在 Claude 上，通过的 `task-start` 会写入它（`--no-guard` 退出）；
+`keel guard start` 显式写入，`keel guard clear` 删除。它记录 change 与 task、capsule 指纹、规范化后的 `Touch`
+和权威文件的哈希，并且失败即关闭：Keel 读不了的 manifest 会拒绝编辑，而不是放行。守卫检查文件编辑工具；
+`Bash` 命令造成的写入不检查，只有声明了 `push:` 范围时会检查 `git push`。
+
 ### 常设授权
 
 对于没有授权依据的仓库操作，Keel 会先问；下次会话还会再问，因为对话里给的许可熬不过上下文重置。
@@ -377,6 +384,9 @@ full_mode_paths:
 会是第一个破坏这一点的。Keel 也不对任何路由决定设门禁——路由决定的是 change 是否存在，所以门禁没有可以绑定的
 对象；Keel 做的是确保 agent 做决定时，规则和你的例外都摆在它面前。
 
+被接受的原生 plan mode 计划只是会话态。其中影响 scope、完成定义或执行边界的决定，要在实现之前写进
+proposal/design/specs/tasks；会话里的计划本身从来不是执行权威。
+
 ### agent 加载多少指导
 
 Keel 的技能承载两类内容，它们的价值朝相反方向变化。*怎么做*——如何拆分 task、按什么顺序做事——执行者越强，
@@ -410,7 +420,9 @@ executor_tier: high
   `CLAUDE.md` 引入）。它写明 agent 要遵守的规则：每次会话先跑 `keel context`、把工作路由到 Full 或 Lite、
   在任务边界处过门禁、只在任务声明的写入范围内改文件。这就是 agent 知道**何时**运行什么的来源。
 - **技能**：`keel-*` 执行技能和 `/opsx:*` 命令 overlay 带着 agent 走「对齐 → apply → review →
-  完成」，每一步调用门禁。
+  完成」，每一步调用门禁。新增或实质扩展的技能，要从 authoritative source 研究并记录出处与许可证，
+  用真实的 should-trigger 与 should-not-trigger 用例检验其 description，并至少通过一个 real task。
+  `src/skills/<name>/SKILL.md` 是唯一可移植权威，target metadata 只是附加，发现与激活由 target-native 运行时负责。
 - **hook**：SessionStart hook 在会话打开的那一刻自动跑连续性投影；PreToolUse hook 在每次编辑时
   执行写入守卫。两者都不需要任何提示。
 
@@ -851,7 +863,7 @@ target，后续每次 `--install` / `--check` / `--doctor` / `--uninstall` 都�
 （由校验强制）。
 
 ```bash
-npm test                  # baseline + 全部场景并行
+npm test                  # 一次 validate_plugin.py --all：baseline + 全部场景并行（--jobs N 控制并发）
 node scripts/bump_version.js <patch|minor|major>   # 一次改齐所有版本 pin
 ```
 

@@ -1126,7 +1126,7 @@ def validate_skill_portability_policy_scenario() -> int:
     validate_resident_blocks(policy_errors)
     validate_openspec_schema(policy_errors)
     validate_skill_docs(policy_errors)
-    for path in (ROOT / "AGENTS.md", ROOT / "README.zh-CN.md"):
+    for path in (ROOT / "AGENTS.md", ROOT / "README.md", ROOT / "README.zh-CN.md"):
         content = path.read_text(encoding="utf-8")
         for snippet in (
             "authoritative source",
@@ -30319,7 +30319,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The eleven names above are the whole vocabulary.",
+        "The thirteen names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -32512,10 +32512,11 @@ def validate_plan_funnel_guidance_scenario() -> int:
         )
         return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "plan mode" not in readme or "proposal/design/specs/tasks" not in readme:
-        report("plan-funnel-guidance: README lacks the plan-mode funnel rule.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        readme = (ROOT / name).read_text(encoding="utf-8")
+        if "plan mode" not in readme or "proposal/design/specs/tasks" not in readme:
+            report(f"plan-funnel-guidance: {name} lacks the plan-mode funnel rule.")
+            return 1
 
     if "plan-funnel-guidance" not in {name for name, _ in SCENARIOS}:
         report("plan-funnel-guidance: the scenario registry does not include it.")
@@ -32587,7 +32588,7 @@ def validate_domain_execution_references_scenario() -> int:
             )
             return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8") + (ROOT / "README.md").read_text(encoding="utf-8")
     if "Execution and review checks" not in readme:
         report(
             "domain-execution-references: README does not describe the "
@@ -32791,10 +32792,10 @@ def validate_precompact_probe_scenario() -> int:
             report("precompact-probe: rendered capabilities lack compaction lines.")
             return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "--event compaction" not in readme:
-        report("precompact-probe: README lacks the manual compaction command.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        if "--event compaction" not in (ROOT / name).read_text(encoding="utf-8"):
+            report(f"precompact-probe: {name} lacks the manual compaction command.")
+            return 1
     registered = {name for name, _ in SCENARIOS}
     for scenario in ("plugin-compaction-continuity", "precompact-probe"):
         if scenario not in registered:
@@ -32863,11 +32864,12 @@ def validate_touch_guard_surface_scenario() -> int:
                 )
                 return 1
 
-        readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        for needle in ("keel guard start", "keel guard clear", "guard.json", "Bash"):
-            if needle not in readme:
-                report(f"touch-guard-surface: README lacks guard guidance: {needle}.")
-                return 1
+        for name in ("README.md", "README.zh-CN.md"):
+            readme = (ROOT / name).read_text(encoding="utf-8")
+            for needle in ("keel guard start", "keel guard clear", "guard.json", "Bash"):
+                if needle not in readme:
+                    report(f"touch-guard-surface: {name} lacks guard guidance: {needle}.")
+                    return 1
         bootstrap = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
         # The bootstrap must tell a consumer the guard exists and how to opt out;
         # it no longer spends bytes naming `keel guard clear`, which `keel --help`
@@ -34674,10 +34676,11 @@ def validate_validation_runner_scenario() -> int:
             "invocation, not a per-scenario chain."
         )
         return 1
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "--all" not in readme or "--jobs" not in readme:
-        report("validation-runner: README does not document the parallel runner.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        readme = (ROOT / name).read_text(encoding="utf-8")
+        if "--all" not in readme or "--jobs" not in readme:
+            report(f"validation-runner: {name} does not document the parallel runner.")
+            return 1
 
     # The full gate must actually run somewhere other than one author's machine:
     # a workflow drives the same single entry point on push and pull request,

@@ -200,6 +200,16 @@ Set `KEEL_SESSION_PANEL=1` to draw it as a framed panel with the Keel mark inste
 default, and turning it on changes nothing but the presentation — the same status and the same
 next command are in both forms.
 
+After a compaction the host's hook did not report, `keel project --target <t> --event compaction --json`
+reprojects the same state by hand.
+
+The write guard is a disposable manifest, `keel/guard.json`. On Claude a passing `task-start` writes
+it (`--no-guard` opts out); `keel guard start` writes it explicitly and `keel guard clear` removes it.
+It records the change and task, the capsule fingerprint, the normalized `Touch`, and hashes of the
+authority files, and it fails closed: a manifest Keel cannot read refuses edits rather than allowing
+them. The guard checks the file-editing tools. A write made by a `Bash` command is not checked,
+except `git push` where a `push:` scope is declared.
+
 ### Standing authorization
 
 Keel asks before a repository action it has no authority for, and it asks again next session,
@@ -463,6 +473,10 @@ decision either — routing decides whether a change exists, so there is nothing
 to; what Keel does is make sure the rule and your exceptions are in front of the agent when it
 decides.
 
+An accepted native plan mode plan is session state. A decision in it that affects scope, completion,
+or execution boundaries goes into proposal/design/specs/tasks before implementation; the session
+plan itself is never execution authority.
+
 ### How much guidance the agent loads
 
 Keel's skills carry two kinds of content, and their value moves in opposite directions. *How to do it*
@@ -505,7 +519,11 @@ command at the right moment. Three things make that happen.
   and stay inside the task's declared write scope. That is how the agent knows *when* to run
   what.
 - **The skills.** The `keel-*` execution skills and the `/opsx:*` command overlays walk the
-  agent through align → apply → review → complete, invoking the gates at each step.
+  agent through align → apply → review → complete, invoking the gates at each step. A new or
+  materially expanded skill is researched from an authoritative source with its provenance and
+  license recorded, its description is tested with realistic should-trigger and should-not-trigger
+  cases, and it passes at least one real task. `src/skills/<name>/SKILL.md` is the portable
+  authority, target metadata is additive, and discovery and activation stay target-native.
 - **The hooks.** A SessionStart hook runs the continuity projection the moment a session
   opens; a PreToolUse hook enforces the write guard on every edit. Neither needs prompting.
 
@@ -1004,7 +1022,7 @@ distribution copies under `plugins/keel/skills/` must stay byte-identical (enfor
 validation).
 
 ```bash
-npm test                  # baseline + all scenarios in parallel
+npm test                  # one validate_plugin.py --all run: baseline + all scenarios in parallel (--jobs N sets concurrency)
 node scripts/bump_version.js <patch|minor|major>   # bump every version pin at once
 ```
 

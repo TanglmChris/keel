@@ -18,7 +18,14 @@ Issue #413, second part. On 2026-10-20 the owner asked that the two READMEs be r
   - the same commands, flags, names, and exit codes;
   - links to the Chinese docs where they exist.
 
-  Content only the old Chinese version carried is dropped where it had gone stale, such as a write-guard section without the push check and the single-lens rule.
+  Content only the old Chinese version carried is dropped where it had gone stale, such as a write-guard section without the push check and the single-lens rule. Where it was still true, it is now in both READMEs:
+  - the `keel/guard.json` manifest and what the guard checks;
+  - manual reprojection after a compaction;
+  - the plan-mode rule;
+  - the dedicated-skill policy;
+  - the parallel test runner.
+
+  The scenarios that pinned it read both READMEs.
 - **Two scenarios** hold this:
   - `readme-states-the-cli` reads its lists from `keel --help` and `src/core/config.js`, so a command, flag, or authorization name added later without its README line fails.
   - `readme-zh-matches-english` applies the same checks to the Chinese README and compares the heading counts.
