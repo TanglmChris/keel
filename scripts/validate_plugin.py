@@ -33278,7 +33278,7 @@ def validate_guard_status_stale_manifest_scenario() -> int:
 # operands (the gate did not fail the way the fixture requires, whichever half
 # was wrong), and every site prints the full problem payload alongside it, so
 # a reader is never left with only the sentence.
-OR_GUARDED_ASSERTION_SITES = 80
+OR_GUARDED_ASSERTION_SITES = 74
 
 
 def or_guarded_assertion_sites(source: str) -> list[int]:
