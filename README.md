@@ -491,8 +491,11 @@ the words Keel states criteria in, so a tier can only ever skip a file that deci
 what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
 the judgement a weak executor gets most wrong, and it would be answering it about itself.
 
-One skill is split today, `keel-run-single-task-goal`, and its body is 11% smaller for it. The other
-five are almost entirely criteria, so splitting them would move the half that has to stay.
+Two skills carry a guidance file today. `keel-run-single-task-goal` was split, and its body is 11%
+smaller for it. `keel-tdd-or-test-first` gained one rather than lost prose to it: a table that picks
+a Verify strategy by what would make the Acceptance false, with right and wrong choices and when each
+evidence form pays (#389). The other four are almost entirely criteria, so splitting them would move
+the half that has to stay.
 
 ## How the agent uses these
 
