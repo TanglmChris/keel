@@ -59,7 +59,7 @@
     - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code` reports `surfaces-agree-with-code scenario passed.` (exit 0): the compact task compiles with no `owner` and the four kept prohibitions; every listed surface carries none of the stale sentences and each corrected one; each regenerated apply, archive, and sync surface names `keel openspec …` once; `keel --help` names `keel patrol` and `keel tick`; `keel chat help` names `post-tool-use`; the published standing-authorization spec lists all 13 names read from `config.js`, and the lens and capsule specs no longer limit reading or name current-agent ownership.
     - M1.red: fail. Before the change: `surfaces-agree-with-code: a task that authors no Owner compiled to owner 'keel-agent'.` (exit 1).
     - M1.green: pass. With `owner` emitted only when authored, the three prohibitions removed, the schema, template, `AGENTS.md`, bootstrap (1395 of 1400 bytes, the projection sentence shortened), debug skill, overlay text, help lines, chat help, and config comment corrected, the surfaces regenerated with `node bin/keel.js --install --target claude .` and `--target codex .`, and the three deltas promoted, the scenario passed.
-    - M2: pass. `task-capsule` (its prohibition list now the four kept, and its expanded fixture no longer authoring `Owner: keel-agent`, since an authored owner is no longer the same as none), `contract-drift-diagnosis`, `native-capabilities-unrestricted`, `thin-native-install`, `delegation-resident-text`, `compact-task-authoring`, and `published-specs-validate-strictly` (33 specs) each report `scenario passed.`; the baseline reports `Keel v4.1.0 baseline validation passed.` (exit 0) after its pinned schema phrases moved to the new wording (`reading does not expand write authority`, `carry a disposition`, `` `Resolved here:` ``) and its overlay check to `Invoke the OpenSpec CLI as \`keel openspec`.
+    - M2: pass. `task-capsule` (its prohibition list now the four kept, and its expanded fixture no longer authoring `Owner: keel-agent`, since an authored owner is no longer the same as none), `contract-drift-diagnosis`, `native-capabilities-unrestricted`, `thin-native-install`, `delegation-resident-text`, `compact-task-authoring`, and `published-specs-validate-strictly` (33 specs) each report `scenario passed.`; the baseline reports `Keel v4.1.0 baseline validation passed.` (exit 0) after its pinned schema phrases moved to the new wording (`reading does not expand write authority`, `carry a disposition`, `` `Resolved here:` ``) and its overlay check to `Invoke the OpenSpec CLI as `keel openspec`.
     - Review:
       - Status: pass
       - Acceptance check: through `keel gate task-start` the capsule no longer bars continuing, completing, or handing work on and carries no default owner; each surface the model reads, and the help text, states what the code does, and the published specs agree with `config.js` and the skills.
@@ -70,7 +70,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release
+- [x] 2.1 Release
   - Covers:
     - E1
     - E3
@@ -109,14 +109,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:03a2f86f76c2425f53aeb129c26b2dcaf58842e4a9d25115d6fb23571ba7abe7 (keel 5.174.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.174.0 → 5.175.0; with the "The capsule and protocol surfaces say what the code does" section written, including the one-time `keel gate task-start --record` note, `version-alignment scenario passed.` (exit 0).
+    - M2: pass. `npm test` on commit a1ccc36 (clean tree), started 20:27 at load 8: `validation --all passed: baseline plus 294 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The first run, on 53ffabb, failed `assertion-shape-count` (one condition in the new scenario reported a missing requirement and a missing name with one message; split in two) and `task-body-ends-at-heading` (its pinned fixture fingerprints moved with the capsule, as D1 intends; re-pinned with the reason in a comment). Both fixes are in `scripts/validate_plugin.py`, under this task's Touch.
+    - M3: pass. In a scratch repository the installed `/opt/homebrew/bin/keel` (5.174.0) recorded `sha256:b023b48c…` and the commit was made; this tree's `node bin/keel.js gate task-complete` (5.175.0) refused it with the anchor's drift and `Cause: a compiler change. The task's sources as committed in 1133bb2534dd, the commit that recorded this anchor, compile to today's fingerprint under Keel 5.175.0, and the anchor was recorded by Keel 5.174.0, … Re-record with `keel gate task-start --record`; the evidence stands` (exit 3). Before the bump the same run printed no cause, because both versions read 5.174.0.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E1 — the one-time drift is diagnosed as a compiler change with the re-record instruction, measured across real versions; E3 — markers, the 5.175.0 section, and the full suite on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, `AGENTS.md`/`CLAUDE.md`/bootstrap markers, the regenerated surfaces, and `scripts/validate_plugin.py`, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
