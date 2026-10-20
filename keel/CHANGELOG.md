@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.171.0 - The test-first skill says how to choose a Verify strategy
+
+Issue #389 asked whether red-then-green is still worth it with stronger models. Keel never required every task to go red first, but `keel-tdd-or-test-first` listed its seven strategies without saying how to pick one and did not mention `Detects:` or `Measured:`. Across the 561 archived tasks, `equivalence` was never chosen, `Detects:` was declared on 10 and `Measured:` on 3.
+
+- The skill states the selection criterion: a strategy is chosen by what would make the Acceptance false, and the task's size, its apparent risk, the model running it, and the cost of a red do not choose it. Its body now states the `Detects:`, `Measured:`, and `(regression)` with `deferred to C<n>` contracts beside `Fails with:` and `artifact`.
+- A new `guidance.md` beside it holds a selection table for every strategy the parser accepts, right and wrong choices, when a red adds information, when each evidence form pays, and an abstract FIFO example. It is read unless `executor_tier: high`, and carries no criterion.
+- The `tdd-strategy-guide` scenario reads the strategy list from the parser, so a strategy added without a selection row fails the suite. No gate, CLI, configuration key, or strategy changes.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.171.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.170.0 - Long role names share direct groups, and a lease is freed even when its notice fails
 
 Issue #403 (kaiwu-ip, 2026-10-20): `kaiwu-design-iecc` could not release `cpu-heavy` while `kaiwu-pm-iecc` waited. The release notice went to `dm-kaiwu-design-iecc--kaiwu-pm-iecc`, which is 35 characters, and group names stopped at 32. The release, the expiry sweep, and `keel lock list` all failed, and the lease blocked everyone until it was cleared by hand.

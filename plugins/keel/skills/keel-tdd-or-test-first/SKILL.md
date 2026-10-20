@@ -14,7 +14,7 @@ Read the selected task's compiled capsule: resolved Acceptance, Verify strategy 
 
 ## Strategy selection
 
-`Verify` names one supported strategy chosen at authoring time as the least-cost proof of the resolved Acceptance:
+`Verify` names one supported strategy chosen at authoring time as the least-cost proof of the resolved Acceptance. Choose it by what would make the Acceptance false: the task's size, its apparent risk, the model executing it, and the cost of running a red do not choose it. Read `guidance.md` beside this file before choosing, unless `keel/config.yaml` declares `executor_tier: high` — it holds a selection table, right and wrong choices, and when each evidence form pays. Every criterion is here, so an absent or unreadable declaration costs a read and nothing else.
 
 - `vertical-tdd`: new independently testable deterministic behavior; one check red then green at a time.
 - `regression-first`: an observable defect; reproduce it through the public interface first, then prove the fix with the same check.
@@ -26,6 +26,12 @@ Read the selected task's compiled capsule: resolved Acceptance, Verify strategy 
 Red-green strategies (`vertical-tdd`, `regression-first`) must record concrete per-label `.red` and `.green` Evidence entries for the same check; `keel gate task-complete` rejects absent or pending entries.
 
 A check's `Fails with:` declares one literal its red must show. Declare one that every red of the check shares — the scenario or test label the check prints, a stable message prefix — rather than one exception type: a first red is often mixed, mostly one error with a few others, and a literal only some of them carry forces a re-record that predicts nothing new.
+
+A check's `Detects:` names, as two inline-code literals joined by `->`, a mutation that puts a defect in and the failure it must produce; `keel gate task-complete` requires that failure literal in the check's `.detects` Evidence. It answers what a red cannot — a red shows the feature was absent, not that the check notices it broken — and a `(regression)` check, which has no red, may carry one. Keel neither runs nor judges the mutation.
+
+A check's `Measured:` names one inline-code literal that `keel gate task-complete` requires in the check's own `M<n>` Evidence, binding a number to the output it came from. A number nobody declared is not checked.
+
+A `(regression)` check asserts that something already green stays green; it owes bare Evidence and no `.red`/`.green`, and a red-green strategy keeps at least one untagged check. Its Evidence may read `deferred to C<n>`, naming a check declared once under `## Change Verify` and recorded under `## Change Evidence` before the change closes.
 
 A check's Evidence may read `artifact <path> sha256:<digest>` instead of retelling the output. `keel gate task-complete` checks the file exists and the digest matches, and refuses a path outside the change's own directory — archiving moves that directory, so a pointer outside it breaks. Keel hashes the bytes and reads nothing inside them: the claim the artifact supports stays yours.
 
@@ -43,7 +49,7 @@ and design disagree, stop and report the gap; do not infer the missing decision.
 
 ## TASK boundary
 
-Align every test or check with the selected OpenSpec task's acceptance criteria or verification evidence. Prove behavior through the public interface: evidence that only shows build success or internal shape does not satisfy a behavioral Acceptance, and mocking your own modules invalidates the proof — mock only at true system boundaries.
+Align every test or check with the selected OpenSpec task's acceptance criteria or verification evidence. Prove behavior through the public interface: evidence that only shows build success or internal shape does not satisfy a behavioral Acceptance, and mocking your own modules invalidates the proof — mock only at true system boundaries. A green shows the code matches the check; whether the check matches the Acceptance stays Review's to judge, and a red-green pass does not stand in for timing, CDC, reset, or security evidence a domain lens names.
 
 ## Standalone use
 
