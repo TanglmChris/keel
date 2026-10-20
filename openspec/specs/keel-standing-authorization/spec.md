@@ -123,18 +123,19 @@ decision to proceed with a named action once its own checks have passed.
 - **AND THEN** no scheduler, backlog selection, or next-task inference is implied by the
   authorization
 
-### Requirement: A continuation authorization covers one approved between-task boundary
+### Requirement: Continuing to the next approved task needs no authorization
 
-A standing `continuation` authorization MUST cover exactly the boundary between a durably complete
-task and the next unchecked task of the same change, inside a change whose `tasks.md` the owner
-approved, and MUST cover nothing else. It removes only the between-task confirmation: each next
-task MUST still start through `keel gate task-start` with its own recorded fingerprint, and every
-gate, evidence requirement, semantic Review, and write-guard step MUST run unchanged. A stop with
-its own trigger — a blocker, fingerprint drift, an out-of-scope need, a material choice escalated
-by alignment, an unresolved `Q<n>`, a task's own Stop Rules — MUST halt exactly as it does without
-the declaration. A `continuation` authorization MUST NOT initiate work, MUST NOT select work
+Moving from a durably complete task to the next unchecked task of the same change, inside a change
+whose `tasks.md` the owner approved, MUST need no confirmation and no declaration. Each next task
+MUST still start through `keel gate task-start` with its own recorded fingerprint, and every gate,
+evidence requirement, semantic Review, and write-guard step MUST run unchanged. A stop with its own
+trigger — a blocker, fingerprint drift, an out-of-scope need, a material choice escalated by
+alignment, an unresolved `Q<n>`, a task's own Stop Rules — MUST halt. Continuing MUST NOT select work
 outside the change or outside the approved `tasks.md` order, and MUST NOT authorize any repository
 action — `commit`, `push`, `release`, and `archive` each still require their own name.
+
+A declared `continuation` MUST remain accepted, because repositories declare it today, and MUST change
+no behavior.
 
 #### Scenario: Continuation authorizes no repository action
 - **WHEN** `keel/config.yaml` declares `authorize:` listing only `continuation`
@@ -153,8 +154,8 @@ action — `commit`, `push`, `release`, and `archive` each still require their o
 - **AND THEN** `keel context` reports the same status and next action in both
 
 #### Scenario: The next task still starts through its own gate
-- **WHEN** a `continuation` authorization spans the boundary after a durably complete task
-- **THEN** the next unchecked task of the same change still starts through `keel gate task-start`
+- **WHEN** a task is durably complete and the next unchecked task belongs to the same approved change
+- **THEN** the next task starts through `keel gate task-start` without a confirmation
 - **AND THEN** its own fingerprint is recorded before implementation, exactly as an attended start
   records one
 
