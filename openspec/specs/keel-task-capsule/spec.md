@@ -8,8 +8,9 @@ Keel MUST accept a compact v4 task source and compile it with versioned defaults
 
 #### Scenario: Normal implementation task inherits defaults
 - **WHEN** a task declares resolvable `Covers`, concrete `Touch`, and `Verify` with a supported strategy and at least one `M<n>` check
-- **THEN** the capsule supplies default implementation mode, current-agent ownership, base Read context, hard-stop autonomy, no coupling, standard prohibitions, and derived Acceptance
+- **THEN** the capsule supplies default implementation mode, base Read context, hard-stop autonomy, no coupling, standard prohibitions, and derived Acceptance
 - **AND THEN** the source task is not required to repeat those defaults
+- **AND THEN** the standard prohibitions do not forbid continuing to the next task, marking a task complete, or handing work to another agent, because none of those is barred by the protocol
 
 #### Scenario: Repository-declared authorization replaces the hard-stop default
 - **WHEN** a task declares no `Autonomy boundary:` and `keel/config.yaml` standing-authorizes an action

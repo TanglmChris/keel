@@ -9,10 +9,11 @@ Define how a repository declares standing authorization for named repository act
 Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` naming repository
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
-`issue`, `protocol-refresh`, `chat-reply`, `issue-close`, `cleanup` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`issue`, `protocol-refresh`, `chat-reply`, `issue-close`, `cleanup`, `push-protected`,
+`shift-restore`, `self-shift` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
-resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, and `chat-reply` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
+resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, `chat-reply`, and `push-protected` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
 credentials that open one are account-wide, while `commit`, `push`, `release`, and `archive` are
 bounded by the checkout the declaration sits in, and so is `protocol-refresh`. Accepting a bare `issue` would make the narrow
 form optional and the wide one the default, so the bare entry MUST be reported with the required

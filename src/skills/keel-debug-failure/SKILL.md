@@ -21,8 +21,8 @@ When the change's artifacts or the failing surface signal a domain, consult the 
 There is no fixed attempt count: keep going while each attempt adds evidence, and stop when one does not. When you stop, report the original key error plus what changed during each attempt.
 
 For `Coupling: required`, an allowed provisional failure inside a candidate is
-not a failed attempt; what counts is the same final assertion failing at the
-candidate completion gate. Follow the task's immediate task-stop
+expected rather than a stop; the evidence that matters is the final assertion
+at the candidate completion gate. Follow the task's immediate task-stop
 rules for scope breach, missing design authority, non-reproducible evidence,
 or a baseline or acceptance change during a candidate.
 

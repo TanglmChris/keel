@@ -36,8 +36,9 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // (#319). It reaches that one session, so it takes no scope.
   "shift-restore",
   // A session's own four outgoing steps on the desktop app, after `keel shift
-  // ready --wake` stored its note: Remote Control off, the wake task, the
-  // rename, and the clear (#319). Never the decision to change shift.
+  // ready --wake` stored its note: the wake task, starting it, the rename,
+  // and the clear (#319; Remote Control stays on since #324). Never the
+  // decision to change shift.
   "self-shift",
 ];
 
