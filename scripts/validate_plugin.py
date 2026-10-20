@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.168.0"
-PROTOCOL_VERSION = "5.168.0"
+PACKAGE_VERSION = "5.169.0"
+PROTOCOL_VERSION = "5.169.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8454,8 +8454,9 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
     After a delivered hand-over, the newest `shift: keep_old_sessions:`
     (default 3) stopped background sessions in the role's bound worktrees stay
     listed; each older one is removed with `claude rm` once Keel's store holds
-    a copy of its transcript. One whose transcript is nowhere stays, and so do
-    another role's sessions and the new one.
+    a copy of its transcript. Only a session with a transcript, the host's or
+    Keel's copy, counts (#401): one whose transcript is nowhere takes no slot and
+    stays, and so do another role's sessions and the new one.
     """
     label = "shift-cli-keeps-old-sessions:"
     OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
@@ -8529,22 +8530,28 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
         def removed() -> list[dict]:
             return [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
 
-        olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(3, bound["verify"], with_transcript=False),
-                old_row(4, bound["verify"]), old_row(5, bound["rtl"])]
+        # #401: a session never given a prompt has no transcript and is not a shift, so it takes no kept slot even
+        # when it is newer than the others; one whose host transcript is gone but Keel holds a copy still counts.
+        copy_only = old_row(1, bound["verify"], with_transcript=False)
+        kept_dir.mkdir(parents=True, exist_ok=True)
+        (kept_dir / f"{copy_only['sessionId']}.jsonl.gz").write_bytes(gzip.compress(b'{"type": "user"}\n'))
+        olds = [copy_only, old_row(2, bound["verify"]), old_row(3, bound["verify"]), old_row(4, bound["verify"]),
+                old_row(6, bound["verify"], with_transcript=False), old_row(5, bound["rtl"])]
         setup("2", olds)
         gone = removed()
         if not gone:
             report(f"{label} the hand-over removed no old session: {calls.read_text()!r}")
             return 1
         ids = sorted(r["argv"][1] for r in gone)
-        if ids != ["01010101", "02020202"]:
-            report(f"{label} with keep_old_sessions 2 the removed sessions are {ids!r}, not the two oldest with a transcript.")
+        if ids != ["01010101", "02020202", "03030303"]:
+            report(f"{label} with keep_old_sessions 2 the removed sessions are {ids!r}, "
+                   "not the oldest beyond the two newest with a transcript.")
             return 1
         if not all(r["kept"] for r in gone):
             report(f"{label} a session was removed before Keel's store held its transcript: {gone!r}")
             return 1
         left = {row["id"] for row in json.loads(agents.read_text())}
-        for keep_id, why in (("03030303", "the session with no transcript"), ("05050505", "rtl's session"),
+        for keep_id, why in (("06060606", "the session with no transcript"), ("05050505", "rtl's session"),
                              ("newsess1", "the new session"), (OLD[:8], "the shift just handed over"), ("04040404", "the second newest old session")):
             if keep_id not in left:
                 report(f"{label} {why} ({keep_id}) was removed: {sorted(left)!r}")

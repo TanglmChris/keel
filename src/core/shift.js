@@ -563,21 +563,26 @@ function keptCopyOf(where, role, transcript) {
 
 // After a delivered hand-over, the newest `keep` stopped background sessions in
 // the role's bound worktrees stay listed; each older one is removed with
-// `claude rm` once Keel's store holds its transcript, and one whose transcript
-// is nowhere stays (#397 D2). `claude rm` leaves the host's transcript (F4).
+// `claude rm` once Keel's store holds its transcript (#397 D2). `claude rm`
+// leaves the host's transcript (F4). Only a session with a transcript, the
+// host's or Keel's copy, is a shift: one never given a prompt has neither, so
+// it takes no slot and stays (#401).
 function removeOldSessions(claude, where, entry, keep) {
   const bound = new Set(Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
     .filter(([, name]) => name === entry.role).map(([worktree]) => realpath(worktree)));
   const listed = listAgents(claude);
   if (!listed) return [];
+  const { keptFile } = require("./chat/notice");
   const old = listed
     .filter((row) => row && row.kind === "background" && !row.status && row.cwd && bound.has(realpath(row.cwd))
       && row.sessionId && row.id !== entry.new_session)
-    .sort((a, b) => (Number(b.startedAt) || 0) - (Number(a.startedAt) || 0));
+    .map((row) => ({ row, transcript: hostTranscript(row.cwd, row.sessionId),
+      kept: keptFile(where, entry.role, `${row.sessionId}.jsonl`) }))
+    .filter(({ transcript, kept }) => transcript || fs.existsSync(kept))
+    .sort((a, b) => (Number(b.row.startedAt) || 0) - (Number(a.row.startedAt) || 0));
   const removed = [];
-  for (const row of old.slice(keep)) {
-    const transcript = hostTranscript(row.cwd, row.sessionId);
-    if (!transcript || !keptCopyOf(where, entry.role, transcript)) continue;
+  for (const { row, transcript } of old.slice(keep)) {
+    if (transcript && !keptCopyOf(where, entry.role, transcript)) continue;
     const gone = spawnSync(claude, ["rm", row.id || row.sessionId.slice(0, 8)], { encoding: "utf8" });
     if (!gone.error && gone.status === 0) removed.push(row.id || row.sessionId.slice(0, 8));
   }
