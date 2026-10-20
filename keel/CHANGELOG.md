@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.174.0 - A hung Codex plugin query no longer stops the Codex update
+
+Issue #412. On 2026-10-20 `codex plugin list --json` hung for more than 90 seconds and `keel --update` reported the Codex plugin `failed` twice, while `codex plugin marketplace upgrade keel-marketplace` succeeded by hand in 35 seconds. Only the query was stuck, and Keel gave up the update with it.
+
+- When the query fails, `keel --update` reads Codex's own state: the `[marketplaces.keel-marketplace]` source in `$CODEX_HOME/config.toml` and the installed version under `$CODEX_HOME/plugins/cache/keel-marketplace/keel/`. If they show Keel installed from a Git marketplace, the upgrade and `plugin add` run as usual. The Codex line reports the versions read from the cache and says the list query did not answer.
+- A local marketplace on disk reads `manual`, as a listed one does. With no install on disk the line still reads `failed`, never `absent` (#354).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.174.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.173.0 - Keel no longer projects goals, helpers, task views, or subagent briefs
 
 Issue #414, second half. 5.172.0 removed the wording that suppressed or steered native capabilities; this release removes the tooling built for that stance. The owner chose to remove all of it: the host's native `/goal`, task list, and subagents need no Keel projection, and the gates, fingerprints, and the `Touch` write guard bind whoever runs a step.
