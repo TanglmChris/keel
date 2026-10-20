@@ -75,7 +75,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E3
   - Touch:
@@ -116,14 +116,16 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:f6b9c928d586ba3835e094cdbde2d32a90d6a6d6b8c79ba2176646739eb9fea9 (keel 5.176.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.175.0 → 5.176.0. With the "The English and Chinese READMEs state the CLI, section for section" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the ADDED requirement "Both READMEs state the CLI and carry the same sections" is promoted into `keel-native-plugin-package`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 2f57bf8 (clean tree), started 21:05 at load 7: `validation --all passed: baseline plus 296 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+      - The first run, on 91f1e5e, failed six scenarios. Five pinned true content that only the old Chinese README carried: `skill-portability-policy`, `touch-guard-surface`, `precompact-probe`, `plan-funnel-guidance`, and `validation-runner`. The sixth, `continuation-docs`, pinned "The eleven names".
+      - After the reauthorization recorded below, that content is in both READMEs, and those checks read both.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E3 is met. The version markers, the 5.176.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 and 1.2, the files are the version markers, `keel/CHANGELOG.md`, the published spec, `scripts/validate_plugin.py`, and the two READMEs. All are in Touch after the reauthorization.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: 2026-10-20 — README.md and README.zh-CN.md added to Touch after the first `npm test` (91f1e5e) failed six scenarios. Five of them pinned true content that only the old Chinese README carried and the rewrite dropped: the write-guard manifest, manual compaction reprojection, the plan-mode funnel, the dedicated-skill policy, and the parallel runner. The sixth, `continuation-docs`, pinned the false "eleven names". The content goes into both READMEs, and the scenarios check both.
 
