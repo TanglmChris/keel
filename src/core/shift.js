@@ -523,43 +523,18 @@ function listAgents(claude) {
   }
 }
 
-// Stop the old session, give it a name that says it shifted, stop it again. The
-// rename is a resume with `/rename` and no other flag, which keeps the session id
-// and shows in `claude agents` (measured 2026-10-19); it is best effort (#388 D4).
-// `claude stop` returns before the process exits, and a resume of a session still
-// running starts a copy of it (#395). The row loses its status before the process
-// exits too (0.83 s against 2.68 s, measured), so the resume waits for the process
-// the row showed before the stop (#397 D1); a row with no pid was already stopped.
+// Stop the old session; `claude stop` keeps its conversation. It is not resumed:
+// renaming it took a resume, and a session running with Remote Control writes
+// its claude.ai title back over a rename (#399 F1, F2). The new session carries
+// a name of its own instead.
 function retire(claude, entry, row) {
-  const id = row.id || entry.session.slice(0, 8);
-  const pause = new Int32Array(new SharedArrayBuffer(4));
-  const pid = Number.isInteger(row.pid) && row.pid > 1 ? row.pid : null;
-  if (row.state !== "stopped") spawnSync(claude, ["stop", id], { encoding: "utf8" });
-  const stopBy = Date.now() + envMs("KEEL_SHIFT_STOP_WAIT_MS", 30000);
-  for (;;) {
-    // A listing that failed says nothing about the session: keep waiting.
-    const listed = pid ? null : listAgents(claude);
-    const now = listed && listed.find((item) => item && item.sessionId === entry.session);
-    if (pid ? !alive(pid) : listed && (!now || !now.status)) break;
-    if (Date.now() >= stopBy) {
-      spawnSync(claude, ["stop", id], { encoding: "utf8" });
-      return null;
-    }
-    Atomics.wait(pause, 0, 0, 500);
-  }
-  const stamp = store.isoLocal(new Date()).slice(0, 16).replace("T", " ");
-  const name = `${entry.role} · shifted ${stamp}`;
-  spawnSync(claude, ["--bg", "--resume", entry.session, `/rename ${name}`], { encoding: "utf8", cwd: row.cwd || entry.worktree });
-  const deadline = Date.now() + envMs("KEEL_SHIFT_RENAME_WAIT_MS", 30000);
-  let shown = false;
-  for (;;) {
-    const now = (listAgents(claude) || []).find((item) => item && item.sessionId === entry.session);
-    shown = Boolean(now && now.name === name);
-    if (shown || Date.now() >= deadline) break;
-    Atomics.wait(pause, 0, 0, 500);
-  }
-  spawnSync(claude, ["stop", id], { encoding: "utf8" });
-  return shown ? name : null;
+  if (row.state !== "stopped") spawnSync(claude, ["stop", row.id || entry.session.slice(0, 8)], { encoding: "utf8" });
+}
+
+// The new session's name: the role and its local start time (#399 D1), which
+// reaches claude.ai at creation, so each shift has a name of its own.
+function sessionName(role, now = new Date()) {
+  return `${role} · ${store.isoLocal(now).slice(5, 16).replace("T", " ")}`;
 }
 
 // The host's transcript of a session in `cwd`, under either spelling of the path.
@@ -656,16 +631,17 @@ function handOver(where, only = null) {
       if (!finished(row)) return null;
       // `stop`, `attach` and `logs` take the 8-character job id, not the full
       // session id (`No job matching`, measured 2026-10-19).
-      if (row) entry.renamed = retire(claude, entry, row);
+      if (row) retire(claude, entry, row);
       const declared = readShiftDeclaration(entry.worktree);
       const mode = declared.permissionMode;
-      const started = spawnSync(claude, ["--bg", "-n", entry.role, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
+      const name = sessionName(entry.role);
+      const started = spawnSync(claude, ["--bg", "-n", name, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
         cwd: entry.worktree, encoding: "utf8",
       });
       const output = `${started.stdout || ""}`;
       if (!started.error && started.status === 0) {
         const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
-        Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id });
+        Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id, new_name: name });
         entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
         if (declared.message) entry.notice = declared.message;
       } else {
@@ -707,9 +683,10 @@ function waitForHandOver(where, role) {
 
 function describeHandOff(entry) {
   const tail = entry.state === "delivered"
-    ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}`
+    ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}`
     : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}` : "pending: waits for the session to go idle";
-  const renamed = entry.state === "delivered" ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
+  // An entry from before #399 recorded whether the old session's rename showed.
+  const renamed = entry.state === "delivered" && "renamed" in entry ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
   const removed = (entry.removed || []).length ? `; older sessions removed from \`claude agents\` (transcripts kept by Keel): ${entry.removed.join(", ")}` : "";
   const notice = entry.notice ? `; ${entry.notice}` : "";
   const own = entry.session.slice(0, 8);
@@ -1223,8 +1200,8 @@ const CLEAR_HINT = [
 function clearHint(result) {
   if (result.queued) {
     return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session has finished, "
-      + `a waiter stops it and renames it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
-      + `in ${result.worktree} that runs \`keel shift resume\`; \`keel tick\` does the same if the waiter is gone. \`keel shift status\` shows the hand-off.`;
+      + `a waiter stops it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
+      + `named for its start, \`${result.role} · <MM-DD HH:MM>\`, in ${result.worktree} that runs \`keel shift resume\`; \`keel tick\` does the same if the waiter is gone. \`keel shift status\` shows the hand-off.`;
   }
   let last;
   if (!result.role) last = `Without a chat role nothing wakes the new session; ${result.startedBy} — tell it to run \`keel shift resume\`.`;

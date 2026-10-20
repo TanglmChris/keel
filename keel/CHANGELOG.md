@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.168.0 - The CLI hand-over names the new session for its start
+
+Issue #399: after 5.167.0 the owner still saw several sessions named `keel-maint`. Every shift session runs with Remote Control, and when the hand-over woke the old session for its `/rename`, the bridge reconnected and wrote the claude.ai title back over the rename (measured on the real old session and on a probe).
+
+- The new session starts as `<role> · <MM-DD HH:MM>`, its local start time, so no two shifts share a name in `claude agents` or on claude.ai; `keel shift status` shows the name.
+- The old session is stopped and no longer woken for a rename, which makes the hand-over faster and keeps it from processing queued notifications on that wake. Sessions started before this release keep the bare role name until `keep_old_sessions` removes them.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.168.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.167.0 - CLI shifts keep a bounded number of old sessions, and any past shift can be read in full
 
 Issue #397, after the owner saw several `keel-maint` rows in `claude agents` on 2026-10-20.

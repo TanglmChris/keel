@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.167.0"
-PROTOCOL_VERSION = "5.167.0"
+PACKAGE_VERSION = "5.168.0"
+PROTOCOL_VERSION = "5.168.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8370,29 +8370,24 @@ def validate_shift_cli_self_shift_scenario() -> int:
             return 1
 
         # Finished: idle, though its state still labels its last message `working` (#393, keel-maint's
-        # ended turn). The waiter retires it and starts the next, with no tick.
-        write_text(stoplag, "late")
+        # ended turn). The waiter stops it and starts the next, named for its start, with no tick (#399).
         agents_row("idle", "working")
         if not wait_for(lambda: len(starts()) >= 1):
             report(f"{label} the waiter did not hand over without a tick: {acted()!r}")
             return 1
-        listed = json.loads(agents.read_text())
-        if any(row["sessionId"] != OLD for row in listed):
-            report(f"{label} the rename resumed a session that was still running, starting a copy: {listed!r}")
-            return 1
-        if not re.match(r"^verify · shifted ", listed[0]["name"]):
-            report(f"{label} the old session did not take the shifted name: {listed!r}")
-            return 1
-        stoplag.unlink()
         order = acted()
-        shifted = re.compile(r"^/rename verify · shifted \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
-        if (order[0] != ["stop", OLD[:8]] or order[1][:3] != ["--bg", "--resume", OLD] or len(order[1]) != 4
-                or not shifted.match(order[1][3]) or order[2] != ["stop", OLD[:8]] or order[3][:5] != ["--bg", "-n", "verify", "--permission-mode", "auto"]
-                or len(order) != 4):
-            report(f"{label} the old session was not retired as stop, rename-by-resume, stop, then the new start: {order!r}")
+        if any(argv[:2] == ["--bg", "--resume"] for argv in order):
+            report(f"{label} the hand-over woke the old session to rename it: {order!r}")
             return 1
-        if "keel shift resume" not in order[3][-1] or "--resume" in order[3]:
-            report(f"{label} the new session does not start fresh with a keel shift resume prompt: {order[3]!r}")
+        if order[:1] != [["stop", OLD[:8]]] or len(order) != 2:
+            report(f"{label} the old session was not retired as one stop before the new start: {order!r}")
+            return 1
+        named = re.compile(r"^verify · \d{2}-\d{2} \d{2}:\d{2}$")
+        if order[1][:2] != ["--bg", "-n"] or not named.match(order[1][2]) or order[1][3:5] != ["--permission-mode", "auto"]:
+            report(f"{label} the new session is not started as `verify · <MM-DD HH:MM>`: {order[1]!r}")
+            return 1
+        if "keel shift resume" not in order[1][-1] or "--resume" in order[1]:
+            report(f"{label} the new session does not start fresh with a keel shift resume prompt: {order[1]!r}")
             return 1
         if os.path.realpath(starts()[0]["cwd"]) != os.path.realpath(verify):
             report(f"{label} the new session started in {starts()[0]['cwd']}, not verify's worktree.")
@@ -8402,12 +8397,12 @@ def validate_shift_cli_self_shift_scenario() -> int:
             report(f"{label} a claude the hand-over ran inherited the old session's {leaked[0]['claude_env']!r}.")
             return 1
         text = status_text()
-        for needle in ("delivered", "newsess1", f"claude attach {OLD[:8]}", "shifted"):
+        for needle in ("delivered", "newsess1", f"claude attach {OLD[:8]}", order[1][2]):
             if needle not in text:
                 report(f"{label} shift status does not show {needle!r} for the delivered hand-off: {text!r}")
                 return 1
         tick()
-        if len(starts()) != 1 or len(acted()) != 4:
+        if len(starts()) != 1 or len(acted()) != 2:
             report(f"{label} a tick after the hand-over acted again: {acted()!r}")
             return 1
 
@@ -8430,45 +8425,6 @@ def validate_shift_cli_self_shift_scenario() -> int:
         if len(starts()) != 1:
             report(f"{label} a second tick started another session.")
             return 1
-
-        # A rename that never shows is recorded, and the new session still starts.
-        calls.write_text("")
-        agents_row("idle", "done")
-        write_text(norename, "x")
-        run_keel(verify, "shift", "ready", "--wake", "next: rerun R015", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
-        ticked = tick()
-        text = status_text()
-        if len(starts()) != 1:
-            report(f"{label} a rename that did not show stopped the new session from starting: {acted()!r} {ticked.stderr!r}")
-            return 1
-        if "delivered" not in text:
-            report(f"{label} a rename that did not show kept the hand-off from being delivered: {text!r}")
-            return 1
-        if "rename not shown" not in text:
-            report(f"{label} shift status does not say the rename did not show: {text!r}")
-            return 1
-        norename.unlink()
-
-        # A session that never shows as stopped is not resumed for its rename (#395), and the new session still starts.
-        calls.write_text("")
-        agents_row("idle", "done")
-        write_text(stoplag, "never")
-        run_keel(verify, "shift", "ready", "--wake", "next: rerun R016", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
-        ticked = run_keel(verify, "tick", "--repo", str(rtl), env={**tick_only, "KEEL_SHIFT_STOP_WAIT_MS": "1000"})
-        text = status_text()
-        if any(argv[:2] == ["--bg", "--resume"] for argv in acted()):
-            report(f"{label} a session that never stopped was resumed for its rename: {acted()!r}")
-            return 1
-        if len(starts()) != 1:
-            report(f"{label} a session that never stopped kept the new session from starting: {acted()!r} {ticked.stderr!r}")
-            return 1
-        if "delivered" not in text:
-            report(f"{label} a session that never stopped kept the hand-off from being delivered: {text!r}")
-            return 1
-        if "rename not shown" not in text:
-            report(f"{label} shift status does not say a session that never stopped was not renamed: {text!r}")
-            return 1
-        stoplag.unlink()
 
         # A start that fails stays visible and is a patrol risk.
         calls.write_text("")
