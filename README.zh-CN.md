@@ -220,7 +220,7 @@ keel agents codex                # 命令模板、沙箱、数据发往哪里、
 keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> --task <t>
 ```
 
-`keel agents brief` 编译的就是 `keel project --event subagent-start` 给出的那份任务说明，写成文件，
+`keel agents brief` 从选中任务的 capsule 编译任务说明，写成文件，
 再打印要跑的命令；这条命令会把 agent 的退出码写进结果旁边的 `.exit` 文件。**Keel 不启动任何进程**：命令由会话自己跑，对方交回的结果要由会话复跑每个检查后才算证据。
 以下情况会被拒绝：
 
@@ -273,7 +273,6 @@ keel guard status --json
 keel guard clear  --json
 
 # 一次性原生投影（只读视图，永不是权威）
-keel project tasks --target claude [--change <c>] [--json]
 keel project --target codex --event compaction --json
 
 # 会话之间的群聊（接 Slack 见 docs/chat-slack-setup.zh-CN.md）
@@ -312,9 +311,8 @@ Touch 是唯一写权限来源。通过的 `keel gate task-start` 默认写入�
 
 ### 一次性投影
 
-`keel project tasks --target claude` 把选中 change 的 tasks.md 编译成只读清单视图，由当前 agent
-自行决定是否手动镜像到宿主任务 UI，只读、不落盘、无同步循环。compaction 后可手动重注入：
-`keel project --target codex --event compaction --json`。
+compaction 后可手动重注入：`keel project --target codex --event compaction --json`。
+宿主自带的任务列表、/goal 和 subagent 由模型自己决定用不用，Keel 不再为它们生成投影（#414）。
 
 ## 对齐与技能纪律
 
