@@ -1481,7 +1481,7 @@ function compileTaskContract(repo, change, task, options = {}) {
       id: task.id,
       title: normalizeText(task.title),
     },
-    owner: normalizeText(field(task, "Owner")) || "keel-agent",
+    ...(normalizeText(field(task, "Owner")) ? { owner: normalizeText(field(task, "Owner")) } : {}),
     mode,
     authority,
     read,
@@ -1543,11 +1543,8 @@ function compileTaskContract(repo, change, task, options = {}) {
       // Whether the action it performed was the authorized one is a Review
       // judgment; what the capsule fixes is the write posture.
       ...(mode === "repo-action" ? [] : ["must not commit"]),
-      "must not continue to another task",
-      "must not mark tasks complete",
       "must not push",
       "must not sync or archive",
-      "must not transfer Keel ownership",
       ...(NO_WRITE_MODES.has(mode) ? ["must not write product files"] : []),
     ],
   };

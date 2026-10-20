@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.174.0"
-PROTOCOL_VERSION = "5.174.0"
+PACKAGE_VERSION = "5.175.0"
+PROTOCOL_VERSION = "5.175.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -755,7 +755,6 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "apply:",
             "/opsx:apply",
             "keel-review-checklist",
-            "Owner",
             "Mode",
             "Covers",
             "Read",
@@ -773,7 +772,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "A subagent is the model's choice and is treated as the main agent is",
             "approved `tasks.md` in order",
             "Modify only files listed under Touch",
-            "repository-wide read authority is read-only",
+            "reading does not expand write authority",
             "Out-of-scope Need",
             "unresolved follow-ups must be owned",
             "Task Authoring Gate",
@@ -787,7 +786,8 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "real-task evidence",
             "one of pass, passed, complete, completed, ok, or done.",
             "## Expectation Coverage",
-            "carry a durable owner",
+            "carry a disposition",
+            "`Resolved here:`",
         ):
             if required not in schema:
                 errors.append(f"OpenSpec schema.yaml missing required language: {required}")
@@ -15890,7 +15890,9 @@ def validate_task_contract_core_scenario() -> int:
 
 
 def task_capsule_expanded_fixture() -> str:
-    return task_contract_fixture().replace(
+    # No `Owner:`: since #413 the capsule carries an owner only when a task
+    # authors one, so writing the old default is no longer the same as omitting it.
+    return task_contract_fixture().replace("  - Owner: keel-agent\n", "", 1).replace(
         "E1: public behavior",
         "E1: Public behavior passes.",
     ).replace(
@@ -21625,11 +21627,8 @@ def validate_task_capsule_scenario() -> int:
             != [
                 "must not change Acceptance",
                 "must not commit",
-                "must not continue to another task",
-                "must not mark tasks complete",
                 "must not push",
                 "must not sync or archive",
-                "must not transfer Keel ownership",
             ]
         ):
             report("task-capsule omitted default or prohibition authority.")
@@ -39296,6 +39295,141 @@ def validate_native_capabilities_unrestricted_scenario() -> int:
     return 0
 
 
+# Sentences the surfaces said after the code stopped saying them (#413).
+STALE_SURFACE_SENTENCES = (
+    "Owner is the current Keel agent",
+    "retry counting",
+    "Keel Hook completion gate",
+    "unless Touch authorizes diagnostics",
+    "explicitly allows it",
+    "without explicit authorization",
+    "Commands prove Acceptance",
+    "Acceptance, Commands, and Stop/Autonomy",
+    "not a failed attempt",
+    "skills and agents after",
+    "Invoke OpenSpec through",
+    "Remote Control off, the wake task",
+)
+
+
+def validate_surfaces_agree_with_code_scenario() -> int:
+    """Issue #413: what the model reads states what the code does.
+
+    #414 removed the protocol's old stance and the capsule kept it: every
+    task-start still printed "must not continue to another task". The other
+    sentences here contradicted the code they describe — a diagnose-only task
+    the parser refuses unless its Touch is `none`, a completion hook no plugin
+    declares, an authorization list ten names long beside a code list of
+    thirteen. The names are read from `src/core/config.js`, so a name added
+    later without its spec line fails here.
+    """
+    label = "surfaces-agree-with-code:"
+    with tempfile.TemporaryDirectory(prefix="keel-surfaces-413-") as raw:
+        repo = Path(raw)
+        write_text(repo / "openspec/changes/demo/tasks.md", task_capsule_compact_fixture())
+        started = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--no-guard", "--json")
+        if started.returncode != 0:
+            report(f"{label} task-start refused the compact fixture.")
+            report((started.stderr or started.stdout).strip())
+            return 1
+        capsule = json.loads(started.stdout).get("contract", {}).get("capsule", {})
+        if "owner" in capsule:
+            report(f"{label} a task that authors no Owner compiled to owner {capsule['owner']!r}.")
+            return 1
+        kept = ["must not change Acceptance", "must not commit", "must not push", "must not sync or archive"]
+        if capsule.get("prohibitions") != kept:
+            report(f"{label} the capsule prohibits {capsule.get('prohibitions')!r}, not {kept!r}.")
+            return 1
+
+    overlays = []
+    for action in ("apply", "archive", "sync"):
+        overlays.append(ROOT / f".claude/commands/opsx/{action}.md")
+    for name in ("apply-change", "archive-change", "sync-specs"):
+        overlays.append(ROOT / f".claude/skills/openspec-{name}/SKILL.md")
+        overlays.append(ROOT / f".codex/skills/openspec-{name}/SKILL.md")
+    schemas = [
+        ROOT / "assets/openspec/schemas/keel-spec-driven",
+        ROOT / "openspec/schemas/keel-spec-driven",
+    ]
+    required = {
+        ROOT / "AGENTS.md": [
+            "with `Touch: none` and no worktree writes",
+            "a standing authorization in `keel/config.yaml` allows it",
+            "`Verify` checks MUST verify",
+        ],
+        ROOT / "assets/bootstrap/AGENTS.md": [
+            "No commit, push, sync, or archive unless the task, the owner, or `keel/config.yaml` authorizes it.",
+        ],
+        ROOT / "src/skills/keel-debug-failure/SKILL.md": ["expected rather than a stop"],
+        ROOT / PLUGIN_ROOT / "skills/keel-debug-failure/SKILL.md": ["expected rather than a stop"],
+        ROOT / "bin/keel.js": [],
+        ROOT / "src/core/config.js": [],
+    }
+    for schema in schemas:
+        required[schema / "schema.yaml"] = [
+            "equivalence (which also declares `Base:` and `Fields:`)",
+            "`Resolved here:`",
+            "No hook gates completion",
+        ]
+        required[schema / "templates/tasks.md"] = ["equivalence", '"Resolved here:"']
+    for overlay in overlays:
+        required[overlay] = ["Invoke the OpenSpec CLI as `keel openspec"]
+        if "apply" in overlay.as_posix():
+            required[overlay].append("Verify checks prove Acceptance")
+    for surface, sentences in required.items():
+        if not surface.is_file():
+            report(f"{label} {surface.relative_to(ROOT)} is missing, so it cannot be checked.")
+            return 1
+        text = surface.read_text(encoding="utf-8")
+        for phrase in STALE_SURFACE_SENTENCES:
+            if phrase in text:
+                report(f"{label} {surface.relative_to(ROOT)} still says {phrase!r}.")
+                return 1
+        for sentence in sentences:
+            if sentence not in text:
+                report(f"{label} {surface.relative_to(ROOT)} does not say {sentence!r}.")
+                return 1
+        if surface in overlays and text.count("keel openspec …") != 1:
+            report(f"{label} {surface.relative_to(ROOT)} tells the agent to use `keel openspec` {text.count('keel openspec …')} times, not once.")
+            return 1
+
+    help_text = run_keel(ROOT, "--help").stdout
+    for command in ("keel patrol", "keel tick"):
+        if command not in help_text:
+            report(f"{label} keel --help does not name {command!r}.")
+            return 1
+    chat_help = run_keel(ROOT, "chat", "help").stdout
+    if "post-tool-use" not in chat_help:
+        report(f"{label} keel chat help does not name the post-tool-use hook.")
+        return 1
+
+    config = (ROOT / "src/core/config.js").read_text(encoding="utf-8")
+    declared = re.search(r"const STANDING_AUTHORIZATION_ACTIONS = \[(.*?)\];", config, re.S)
+    names = re.findall(r'^\s*"([a-z-]+)",', declared.group(1), re.M) if declared else []
+    if len(names) < 13:
+        report(f"{label} read {len(names)} standing-authorization names from config.js; expected at least 13.")
+        return 1
+    standing = (ROOT / "openspec/specs/keel-standing-authorization/spec.md").read_text(encoding="utf-8")
+    vocabulary = re.search(r"(?s)### Requirement: A repository declares standing authorization in a closed vocabulary\n(.*?)\n#### ", standing)
+    for name in names:
+        if not vocabulary or f"`{name}`" not in vocabulary.group(1):
+            report(f"{label} keel-standing-authorization does not list `{name}` in its closed vocabulary.")
+            return 1
+    for spec, phrase in (
+        ("keel-domain-lenses", "reads only the lens"),
+        ("keel-domain-lenses", "no other lens is loaded"),
+        ("keel-task-capsule", "current-agent ownership"),
+    ):
+        if phrase in (ROOT / f"openspec/specs/{spec}/spec.md").read_text(encoding="utf-8"):
+            report(f"{label} {spec} still says {phrase!r}.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_tdd_strategy_guide_scenario() -> int:
     """Issue #389: the skill an executor loads to plan its checks says how to choose.
 
@@ -41414,6 +41548,7 @@ SCENARIOS: tuple = (
     ("tdd-strategy-guide", validate_tdd_strategy_guide_scenario),
     ("native-capabilities-unrestricted", validate_native_capabilities_unrestricted_scenario),
     ("native-projections-removed", validate_native_projections_removed_scenario),
+    ("surfaces-agree-with-code", validate_surfaces_agree_with_code_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,
@@ -41501,9 +41636,10 @@ def validate_openspec_invocable(errors: list[str]) -> None:
     cli = (ROOT / "bin/keel.js").read_text(encoding="utf-8")
     if 'options.action === "openspec"' not in cli:
         errors.append("bin/keel.js must implement the `keel openspec` passthrough.")
-    if cli.count("Invoke OpenSpec through") < 2:
+    # Once per overlay, in the header every action shares (#413).
+    if cli.count("Invoke the OpenSpec CLI as `keel openspec") < 2:
         errors.append(
-            "the apply and archive overlays must direct agents to `keel openspec` "
+            "the apply, archive, and sync overlays must direct agents to `keel openspec` "
             "in place of a bare openspec command."
         )
 

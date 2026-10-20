@@ -1,5 +1,29 @@
 # Keel Changelog
 
+## 5.175.0 - The capsule and protocol surfaces say what the code does
+
+Issue #413, first part. On 2026-10-20 three read-only audits compared what the model reads with each other and with the code. #414 had removed the old stance from the protocol, but the compiled capsule, printed by every `task-start` and `keel agents brief`, still said "must not continue to another task". Other sentences contradicted the code they describe.
+
+- **Capsule**: the prohibitions "must not continue to another task", "must not mark tasks complete", and "must not transfer Keel ownership" are gone. The kept four are: must not change Acceptance, commit, push, or sync or archive. `owner` now appears only when a task authors `Owner:`, and the `keel-agent` default is gone.
+- **One-time re-record.** The fingerprint of every task recorded before 5.175.0 moves once. The drift message names it a compiler change. Re-record with `keel gate task-start --record`; the evidence stands and no `--keep-evidence` is needed.
+- **Surfaces corrected to match the code**:
+  - The protocol says diagnose-only takes `Touch: none`, and calls `Verify` checks by that name instead of "Commands".
+  - The protocol, schema, and bootstrap let a standing authorization in `keel/config.yaml` cover commit and push, as the code always did. The bootstrap stays within its 1400-byte budget by shortening its projection sentence.
+  - The schema and tasks template list `equivalence` and the `Resolved here:` disposition, and no longer default the owner.
+  - The schema drops "retry counting" and the claim that a Claude hook gates completion. No hook does.
+  - The apply, archive, and sync surfaces state the `keel openspec` instruction once instead of twice.
+  - The `keel-debug-failure` skill no longer speaks of failed attempts, which 5.172.0 stopped counting.
+  - `keel --update` no longer tells Claude to reload "skills and agents", since 5.173.0 removed the agents.
+  - `keel --help` lists `keel patrol` and `keel tick`, and `keel chat help` lists the `post-tool-use` hook.
+  - The `self-shift` comment no longer says Remote Control is turned off (#324).
+- **Specs**:
+  - `keel-standing-authorization` lists all 13 names the code accepts, `push-protected`, `shift-restore`, and `self-shift` among them.
+  - `keel-domain-lenses` no longer limits reading to one lens.
+  - `keel-task-capsule` no longer names current-agent ownership.
+- The `surfaces-agree-with-code` scenario holds all of this. It reads the authorization names from `src/core/config.js`.
+- README and docs follow in the next part of #413.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.175.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.174.0 - A hung Codex plugin query no longer stops the Codex update
 
 Issue #412. On 2026-10-20 `codex plugin list --json` hung for more than 90 seconds and `keel --update` reported the Codex plugin `failed` twice, while `codex plugin marketplace upgrade keel-marketplace` succeeded by hand in 35 seconds. Only the query was stuck, and Keel gave up the update with it.

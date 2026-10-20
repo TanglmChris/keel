@@ -33,8 +33,8 @@ Keel MUST treat domain alignment knowledge as pluggable lenses authored by the u
 #### Scenario: Relevant lens loads on demand
 
 - **WHEN** alignment detects a domain signal for which a matching `keel/lenses/` lens exists
-- **THEN** it reads only the lens whose `Applies when` matches
-- **AND THEN** unrelated lenses do not enter context
+- **THEN** it reads the lens whose `Applies when` matches
+- **AND THEN** no rule keeps it from reading another lens it judges relevant
 
 #### Scenario: No lens is a valid state
 
@@ -44,13 +44,12 @@ Keel MUST treat domain alignment knowledge as pluggable lenses authored by the u
 
 ### Requirement: Domain lenses serve execution and review phases
 
-The execution and review skills (`keel-tdd-or-test-first`, `keel-debug-failure`, `keel-review-checklist`) MUST consult the single matching lens from `keel/lenses/` on demand when the change's artifacts or task scope signal that domain, and MUST NOT load any lens for changes without a matching signal.
+The execution and review skills (`keel-tdd-or-test-first`, `keel-debug-failure`, `keel-review-checklist`) MUST consult the matching lens from `keel/lenses/` on demand when the change's artifacts or task scope signal that domain, and MUST NOT load any lens for changes without a matching signal.
 
 #### Scenario: Domain-signaling change consults one lens
 
 - **WHEN** a task's change artifacts or Touch scope signal exactly one domain during execution or review, and a matching lens exists in `keel/lenses/`
-- **THEN** the consuming skill consults that one lens before finalizing strategy, diagnosis, or review conclusions
-- **AND THEN** no other lens is loaded
+- **THEN** the consuming skill consults that lens before finalizing strategy, diagnosis, or review conclusions
 
 #### Scenario: No signal loads nothing
 
@@ -120,4 +119,3 @@ Keel MUST provide a `keel lenses` command that lists shipped lens templates and 
 - **WHEN** `keel lenses add <name>` targets a path that already exists in `keel/lenses/`
 - **THEN** Keel refuses without an explicit force flag
 - **AND THEN** the existing user lens is left untouched
-

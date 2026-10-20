@@ -1,0 +1,141 @@
+# Tasks
+
+## 1. Make the protocol surfaces agree with each other and with the code
+
+- [x] 1.1 Drop the capsule's old-stance prohibitions and default owner, and correct every surface that contradicts the code
+  - Covers:
+    - keel-task-capsule / Keel compiles a compact task into a complete execution capsule
+    - keel-standing-authorization / A repository declares standing authorization in a closed vocabulary
+    - keel-domain-lenses / Keel supports pluggable domain lenses
+    - keel-domain-lenses / Domain lenses serve execution and review phases
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/consistency-protocol/design.md
+    - src/core/task-contract.js
+    - src/core/drift.js
+    - bin/keel.js
+  - Touch:
+    - src/core/task-contract.js
+    - src/core/config.js
+    - src/core/chat/cli.js
+    - bin/keel.js
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/schema.yaml
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - AGENTS.md
+    - assets/bootstrap/AGENTS.md
+    - src/skills/keel-debug-failure/SKILL.md
+    - plugins/keel/skills/keel-debug-failure/SKILL.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-task-capsule/spec.md
+    - openspec/specs/keel-standing-authorization/spec.md
+    - openspec/specs/keel-domain-lenses/spec.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`: `keel gate task-start --json` on a task with no `Owner:` returns a capsule with no `owner` and with prohibitions exactly `must not change Acceptance`, `must not commit`, `must not push`, `must not sync or archive`; the protocol, bootstrap, both schema and template copies, both debug-skill copies, and the regenerated apply, archive, and sync surfaces on Claude and Codex carry none of the stale sentences named in `## Invalidates` and carry the corrected ones; each regenerated overlay tells the agent to use `keel openspec` exactly once; `keel --help` names `keel patrol` and `keel tick`; `keel chat help` names `post-tool-use`; and the published `keel-standing-authorization` spec names every entry of `STANDING_AUTHORIZATION_ACTIONS` as read from `src/core/config.js`, while the published lens and capsule specs no longer limit reading to one lens or name current-agent ownership. Fails with: `surfaces-agree-with-code:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario task-capsule` (with its prohibition list updated to the four kept), `--scenario contract-drift-diagnosis`, `--scenario native-capabilities-unrestricted`, `--scenario thin-native-install`, `--scenario delegation-resident-text`, and `--scenario published-specs-validate-strictly` pass, and the baseline `node scripts/run_python.js scripts/validate_plugin.py` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:811178d41e44f9ce415e9d5dab2e706039da5ce457a809fd4d360439fe636534 (keel 5.174.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code` reports `surfaces-agree-with-code scenario passed.` (exit 0): the compact task compiles with no `owner` and the four kept prohibitions; every listed surface carries none of the stale sentences and each corrected one; each regenerated apply, archive, and sync surface names `keel openspec …` once; `keel --help` names `keel patrol` and `keel tick`; `keel chat help` names `post-tool-use`; the published standing-authorization spec lists all 13 names read from `config.js`, and the lens and capsule specs no longer limit reading or name current-agent ownership.
+    - M1.red: fail. Before the change: `surfaces-agree-with-code: a task that authors no Owner compiled to owner 'keel-agent'.` (exit 1).
+    - M1.green: pass. With `owner` emitted only when authored, the three prohibitions removed, the schema, template, `AGENTS.md`, bootstrap (1395 of 1400 bytes, the projection sentence shortened), debug skill, overlay text, help lines, chat help, and config comment corrected, the surfaces regenerated with `node bin/keel.js --install --target claude .` and `--target codex .`, and the three deltas promoted, the scenario passed.
+    - M2: pass. `task-capsule` (its prohibition list now the four kept, and its expanded fixture no longer authoring `Owner: keel-agent`, since an authored owner is no longer the same as none), `contract-drift-diagnosis`, `native-capabilities-unrestricted`, `thin-native-install`, `delegation-resident-text`, `compact-task-authoring`, and `published-specs-validate-strictly` (33 specs) each report `scenario passed.`; the baseline reports `Keel v4.1.0 baseline validation passed.` (exit 0) after its pinned schema phrases moved to the new wording (`reading does not expand write authority`, `carry a disposition`, `` `Resolved here:` ``) and its overlay check to `Invoke the OpenSpec CLI as \`keel openspec`.
+    - Review:
+      - Status: pass
+      - Acceptance check: through `keel gate task-start` the capsule no longer bars continuing, completing, or handing work on and carries no default owner; each surface the model reads, and the help text, states what the code does, and the published specs agree with `config.js` and the skills.
+      - Scope check: `git status --short` lists only files under Touch plus this change's directory; `.claude/commands/opsx/propose.md` and the propose skills regenerated unchanged.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: 2026-10-20 — M3 moved to task 2.1 before any Evidence was recorded: `src/core/drift.js` names a compiler change only when the anchor's Keel version differs from the running one, and this tree still reports 5.174.0 until the release bumps it, so the check can only be measured after the bump.
+
+## 2. Release
+
+- [ ] 2.1 Release
+  - Covers:
+    - E1
+    - E3
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers and a changelog entry; the behavior and the spec promotion are proven in 1.1, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written, including the one-time `--record` note for tasks recorded before this release.
+    - M2 (regression): `npm test` passes.
+    - M3 (regression): after the bump, in a scratch repository, a task recorded by the installed `keel` 5.174.0 (`keel gate task-start --record`) and committed, then checked by this tree's `node bin/keel.js gate task-complete`, is refused with a drift whose cause reads `a compiler change` and names `--record`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:03a2f86f76c2425f53aeb129c26b2dcaf58842e4a9d25115d6fb23571ba7abe7 (keel 5.174.0)
+    - M1:
+    - M2:
+    - M3:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "must not continue to another task", "must not mark tasks complete", "must not transfer Keel ownership", and the default owner "keel-agent" — the capsule compiled by `src/core/task-contract.js`. Updated by: 1.1.
+- I2: "Owner is the current Keel agent" and the strategy list ending "or evidence-first." — both schema and tasks-template copies. Updated by: 1.1.
+- I3: "retry counting" and "The Claude target's Keel Hook completion gate checks M-command evidence" — both schema copies. Updated by: 1.1.
+- I4: "without product writes unless Touch authorizes diagnostics" and "unless the selected task or human instruction explicitly allows it" — `AGENTS.md`. Updated by: 1.1.
+- I5: "No commit, sync, or archive without explicit authorization." — `assets/bootstrap/AGENTS.md`. Updated by: 1.1.
+- I6: "Commands prove Acceptance" and "Acceptance, Commands, and Stop/Autonomy boundaries" — the overlay text in `bin/keel.js` and the surfaces generated from it. Updated by: 1.1.
+- I7: "is\nnot a failed attempt; what counts is the same final assertion failing" — the `keel-debug-failure` skill. Updated by: 1.1.
+- I8: "Remote Control off, the wake task, the rename, and the clear" — the `self-shift` comment in `src/core/config.js`. Updated by: 1.1.
+- I9: "their skills and agents after /reload-plugins" — the `keel --update` line in `bin/keel.js`. Updated by: 1.1.
+- I10: "current-agent ownership" — `keel-task-capsule`; the ten-name list — `keel-standing-authorization`; "it reads only the lens whose `Applies when` matches" and "no other lens is loaded" — `keel-domain-lenses`. Updated by: 1.1.
+- I11: "its skills and agents after `/reload-plugins`" (`docs/updating.md`), "load only that one lens" and the eleven-name authorization list (`README.md`), and the Chinese README's missing sections. Durable owner: https://github.com/TanglmChris/keel/issues/413
+
+## Expectation Coverage
+
+- E1: The capsule no longer bars continuing, completing, or handing work to another agent, and has no default owner; the one-time drift this causes is diagnosed as a compiler change (#413; D1). Covered by: 1.1, 2.1
+- E2: The schema, template, protocol, bootstrap, overlays, debug skill, help text, config comment, and the three specs state what the code does (#413; D2, D3, D4, D5). Covered by: 1.1
+- E3: The release carries it, with the one-time re-record noted. Covered by: 2.1
