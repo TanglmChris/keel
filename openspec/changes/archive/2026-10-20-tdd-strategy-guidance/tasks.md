@@ -45,7 +45,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E3
   - Touch:
@@ -84,10 +84,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:f386f19cc2ba95b613b7c93c2c8cb503bf0fc116542c6e73404b903f3df6d9c9 (keel 5.170.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.170.0 → 5.171.0; with the "The test-first skill says how to choose a Verify strategy" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0). The worktree was reset by the desktop app's worktree pool at 13:58:49 (see M3); after the files were restored from unreachable blobs the bump was rerun from a clean 5.170.0 base, `validate_plugin.py` restored byte-identical to the staged blob, and `version-alignment scenario passed.` again.
+    - M2: the added requirement was appended to `openspec/specs/keel-verification-layering/spec.md`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` in `.claude/worktrees/keel-maint-cli` on commit 1af74ec plus this record: `validation --all passed: baseline plus 310 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0), with `tdd-strategy-guide scenario passed.` in the run. Two earlier runs do not count: the first failed only `the-tarball-is-the-repository` because the new plugin `guidance.md` was untracked; the second ran on the reset worktree (5.170.0, 309 scenarios) and proved nothing about this change.
+    - Review:
+      - Status: pass
+      - Acceptance check: E3 — version markers, the 5.171.0 changelog section and the published `keel-verification-layering` spec carry the change; the three scenarios and the full suite pass on the restored tree.
+      - Scope check: changed files beyond task 1.1 are the version markers, `keel/CHANGELOG.md` and `openspec/specs/keel-verification-layering/spec.md`, all in Touch.
+      - Findings: Discard reason: the worktree reset came from the Claude desktop app's worktree pool, which is host behaviour outside Keel; the session moved to a worktree it created itself (`.claude/worktrees/keel-maint-cli`), and the fact is kept in the maintainer's notes rather than tracked against Keel.
     - Blocker: none
     - Reauthorizations: none
 
