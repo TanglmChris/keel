@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.170.0 - Long role names share direct groups, and a lease is freed even when its notice fails
+
+Issue #403 (kaiwu-ip, 2026-10-20): `kaiwu-design-iecc` could not release `cpu-heavy` while `kaiwu-pm-iecc` waited. The release notice went to `dm-kaiwu-design-iecc--kaiwu-pm-iecc`, which is 35 characters, and group names stopped at 32. The release, the expiry sweep, and `keel lock list` all failed, and the lease blocked everyone until it was cleared by hand.
+
+- A direct group name is valid whenever it is `dm-<a>--<b>` of two different valid role names in sorted order, up to 69 characters. `keel chat dm`, posting, reading, listing, `keel chat wait`, `summary --group`, and `chat-reply:<group>` authorizations all accept it. Every other group name still follows the role-name pattern.
+- `keel lock release` and the expiry sweep free the lease before telling anyone. A message that cannot be posted is printed to stderr as `keel lock: warning: …`, naming the role, and the command still succeeds.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.170.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.169.0 - CLI retention counts only sessions with a conversation
 
 Issue #401: keel-maint's 5.168.0 hand-over removed a shift that `keep_old_sessions` 3 should have kept. The third slot went to a background session that was never given a prompt and has no transcript. It was counted as a shift, and because it has no transcript it could never be removed, so it would have held that slot for as long as it was listed.

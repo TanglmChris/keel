@@ -417,7 +417,7 @@ function dispatch(where, options) {
       const threshold = parseSince(options.since);
       if (threshold === null) throw new ChatError(`--since ${JSON.stringify(options.since)} is not a time; use 90s, 15m, 2h, 3d, or a date.`);
       const role = store.requireRole(where);
-      if (options.group !== null) store.checkName(options.group, "Group");
+      if (options.group !== null) store.checkGroup(options.group);
       const digest = store.summary(where, role, threshold, { group: options.group });
       const sinceText = store.isoLocal(new Date(threshold));
       if (options.json) out(JSON.stringify({ since: sinceText, ...digest }));

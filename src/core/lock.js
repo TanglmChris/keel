@@ -119,25 +119,36 @@ function withMutation(where, action) {
 
 // Posts from the running worktree's role to every other role among the
 // targets. The running role is not messaged: it is the one reading the output.
+// A message that cannot be posted is returned as a warning (#403): the lease
+// is already freed, and a failed notice must not undo that.
 function notify(where, targets, text) {
   const from = store.currentRole(where);
-  if (!from) return;
+  if (!from) return [];
+  const warnings = [];
   for (const role of new Set(targets.map((target) => target.role).filter(Boolean))) {
-    if (role !== from) store.directPost(where, role, text);
+    if (role === from) continue;
+    try {
+      store.directPost(where, role, text);
+    } catch (error) {
+      if (!(error instanceof store.ChatError)) throw error;
+      warnings.push("warning: could not tell " + role + " that " + text + ": " + error.message);
+    }
   }
+  return warnings;
 }
 
 // Every freed lease is printed, whether or not anyone was messaged (D4).
 function reap(where) {
   const freed = [];
+  const warnings = [];
   for (const lease of readLeases(where)) {
     if (Date.parse(lease.expires) > Date.now()) continue;
     const text = "lock " + lease.resource + " expired at " + lease.expires + " (held by " + lease.holder + ": " + lease.note + ")";
-    notify(where, [lease, ...lease.waiters], text);
-    freed.push(text);
     fs.unlinkSync(path.join(lockDir(where), lease.resource + ".json"));
+    freed.push(text);
+    warnings.push(...notify(where, [lease, ...lease.waiters], text));
   }
-  return freed;
+  return { freed, warnings };
 }
 
 function acquire(where, resource, expires, note) {
@@ -165,9 +176,8 @@ function release(where, resource) {
   const lease = readLeases(where).find((row) => row.resource === resource);
   if (!lease) throw new LockError("No live lease for " + resource + ".");
   if (lease.holder !== identity(where).holder) throw new LockError("Only " + lease.holder + " can release " + resource + " (" + lease.worktree + ").");
-  notify(where, lease.waiters, "lock " + resource + " released by " + lease.holder);
   fs.unlinkSync(path.join(lockDir(where), resource + ".json"));
-  return lease;
+  return { lease, warnings: notify(where, lease.waiters, "lock " + resource + " released by " + lease.holder) };
 }
 
 function runLock(argv) {
@@ -193,10 +203,12 @@ function runLock(argv) {
     }
     const where = store.requireLocation(options.repo);
     return withMutation(where, () => {
-      for (const text of reap(where)) {
+      const reaped = reap(where);
+      for (const text of reaped.freed) {
         // Keep --json parseable, including when a command is later refused.
         (options.json ? process.stderr : process.stdout).write(text + "\n");
       }
+      for (const warning of reaped.warnings) process.stderr.write("keel lock: " + warning + "\n");
       if (extra.length || (action === "list" && resource)) throw new LockError("Unexpected argument for " + action + ".");
       if (action !== "acquire" && (options.duration !== null || options.note !== null)) throw new LockError("--for and --note are only valid for acquire.");
       const out = (data, text) => process.stdout.write((options.json ? JSON.stringify(data, null, 2) : text) + "\n");
@@ -206,8 +218,9 @@ function runLock(argv) {
       } else {
         checkResource(resource);
         if (action === "release") {
-          const lease = release(where, resource);
+          const { lease, warnings } = release(where, resource);
           out({ released: lease }, "lock " + resource + " released by " + lease.holder);
+          for (const warning of warnings) process.stderr.write("keel lock: " + warning + "\n");
         } else {
           if (options.duration === null) throw new LockError("acquire requires --for <duration>.");
           if (!options.note || !options.note.trim()) throw new LockError("acquire requires a non-empty --note <why>.");

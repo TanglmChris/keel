@@ -31,7 +31,10 @@ holder and waiters with roles one expiry message per role. The sender is the
 running worktree's role, which is not messaged itself: every freed lease is
 printed to the command that freed it. With no sender role, nobody is messaged
 and the freed lease is only printed. With `--json`, those notices go to stderr
-to keep stdout valid JSON.
+to keep stdout valid JSON. A lease is freed before anyone is told: a message
+that cannot be posted, for example to an archived direct group, is printed to
+stderr as `keel lock: warning: …` naming the role, and the command still
+succeeds (#403).
 
 `keel lock list --json` prints an object with a leases array.
 `acquire --json` includes the lease and the coordination notice. All commands
