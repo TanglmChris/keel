@@ -1,0 +1,138 @@
+# Tasks
+
+## 1. Make both READMEs state the CLI
+
+- [x] 1.1 Correct the English README against the CLI and specs
+  - Covers:
+    - keel-native-plugin-package / Both READMEs state the CLI and carry the same sections / The English README states the CLI
+    - D1
+    - D3
+    - D4
+  - Read:
+    - openspec/changes/consistency-readme/design.md
+    - README.md
+    - bin/keel.js
+  - Touch:
+    - README.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario readme-states-the-cli`: `README.md` names every subcommand and every flag in the `keel --help` usage lines and every name in `STANDING_AUTHORIZATION_ACTIONS`, says "thirteen names" to match the count read from `src/core/config.js`, describes exit codes 0, 1, 2, 3, and 4, and no longer says "skills and agents follow", "The eleven names", "load only that one lens", "(pick one task)", "`keel --init` writes only", and no command line in it gives `--check` or `--doctor` a `--dry-run`. Fails with: `readme-states-the-cli:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py` (the baseline) passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:682b3c155279c0a51ff9d50348544dc674bc6894f88eb246ba7d973c5a0a2471 (keel 5.175.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario readme-states-the-cli` reports `readme-states-the-cli scenario passed.` (exit 0): README.md names all 16 subcommands and 34 flags of the `keel --help` usage lines and the 13 names of `STANDING_AUTHORIZATION_ACTIONS`, says "thirteen names", describes exit codes 0–4 on its "Exit codes" line, and carries none of the seven stale sentences.
+    - M1.red: fail. Before the change: `readme-states-the-cli: README.md does not name keel capabilities.` (exit 1).
+    - M1.green: pass. These changes made the scenario pass. Corrected: the host-surface sentence, the reload line, the loop diagram, the scoped-name list (now with `push-protected`), the vocabulary count, the `--install` instruction, and the lens sentence. The Commands block gained `context --clear-handoff`, `project`, `capabilities`, the gate and guard flags, `mail`, `shift`, `lock`, `worktrees`, the patrol flags, each install command's own flags, `--clear`, `--update --source`, and `openspec`. Exit code `2` is described as measured: `--bogus` and `--check --dry-run` exit 2, and a missing change exits 1. The closing line no longer calls the Chinese README the full reference.
+    - M2: pass. The baseline reports `Keel v4.1.0 baseline validation passed.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the scenario reads its lists from `keel --help` and `config.js`, so README.md now names what the CLI offers, and the stale statements the audit found are gone. Each corrected statement was checked against the CLI: the exit codes and `--dry-run` refusals were measured, `shift --help` was read, and `--clear` was read in `bin/keel.js`.
+      - Scope check: `git status --short` lists README.md, `scripts/validate_plugin.py`, and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Rewrite the Chinese README as the counterpart of the corrected English one
+  - Covers:
+    - keel-native-plugin-package / Both READMEs state the CLI and carry the same sections / The Chinese README matches the English one
+    - D2
+    - D3
+  - Read:
+    - openspec/changes/consistency-readme/design.md
+    - README.md
+    - README.zh-CN.md
+  - Touch:
+    - README.zh-CN.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario readme-zh-matches-english`: `README.zh-CN.md` names every subcommand, flag, and authorization name `readme-states-the-cli` requires of `README.md`, describes exit codes 0 through 4, and has as many `##` and as many `###` headings as `README.md`. Fails with: `readme-zh-matches-english:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario readme-states-the-cli` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f7e631a13e114845fdeecdd36f3426ff0520aaa3057fa1133db615c5e90abf73 (keel 5.175.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario readme-zh-matches-english` reports `readme-zh-matches-english scenario passed.` (exit 0). `README.zh-CN.md` (865 lines, up from 355) names every subcommand, flag, and authorization name, says `13 个名字`, describes exit codes 0–4 on its 退出码 line, and has 22 `##` and 7 `###` headings, as README.md does.
+    - M1.red: fail. Before the rewrite: `readme-zh-matches-english: README.zh-CN.md does not name keel capabilities.` (exit 1).
+    - M1.green: pass. The scenario passed after these changes:
+      - README.zh-CN.md was rewritten section by section from the corrected README.md. A subagent wrote it, and the current agent reran both scenarios and read the standing-authorization and command sections.
+      - The links point to the Chinese docs where they exist: chat-slack-setup, cli-team, and shift-change.
+      - Content found only in the old Chinese file was dropped as stale or already covered in the English sections, for example its write-guard section, which omitted the push check, and its lens rule "只加载匹配的那一份".
+      - The exit-code check now reads the line that lists the most codes, so the label may appear elsewhere in prose.
+    - M2: pass. `readme-states-the-cli scenario passed.`; `assertion-shape-count` holds at 74, and the baseline exits 0.
+    - Review:
+      - Status: pass
+      - Acceptance check: the Chinese README now carries the English sections in order and states the same commands, flags, names, and exit codes. The checks derive from `keel --help` and `config.js`.
+      - Scope check: `git status --short` lists README.zh-CN.md and `scripts/validate_plugin.py` beyond task 1.1's files and this change's directory.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/413 — three unclear README.md sentences found while translating: the ordinals beside the YAML list, "A clear there keeps no title", and "noticed expiry". Also the chat, patrol, and shift subcommands absent from the Commands block. Recorded in the issue's 2026-10-20 comment for the third change.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the spec
+  - Covers:
+    - E3
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-native-plugin-package/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1 and 1.2, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-native-plugin-package`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7731e498e7a661779c18ac2b6b05fef15a700709ee111f58a070755e8cf67926 (keel 5.175.0)
+    - M1:
+    - M2:
+    - M3:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "its skills and agents follow after `/reload-plugins`", "The eleven names above are the whole vocabulary", "load only that one lens", "`keel --init` whenever it tells you the repository is behind its install", "`keel --init` writes only a small host surface", "/opsx:apply (pick one task)", "`1` input error" as the only non-gate code, and "中文完整手册 … full command and workflow reference" — `README.md`. Updated by: 1.1.
+- I2: "装配时的 `keel --init`" as the only setup command, the write-guard section without the push check, and every section the English README has and the Chinese one lacks — `README.zh-CN.md`. Updated by: 1.2.
+- I3: "its skills and agents after `/reload-plugins`" (`docs/updating.md`), the Chinese `docs/*.zh-CN.md` pages that lag their English ones, and the `keel/config.yaml` comment blocks. Durable owner: https://github.com/TanglmChris/keel/issues/413
+
+## Expectation Coverage
+
+- E1: The English README states what the CLI does and names every command, flag, authorization name, and exit code (#413; D1, D3, D4). Covered by: 1.1
+- E2: The Chinese README is the English one's counterpart, section for section (#413; D2, D3). Covered by: 1.2
+- E3: The release carries both, with the spec promoted. Covered by: 2.1

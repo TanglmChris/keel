@@ -37,9 +37,10 @@ What Keel adds:
 
 Keel leans on native capabilities rather than reinventing them. The spec workflow is plain
 OpenSpec. The execution skills, the SessionStart continuity hook, and the write-guard hook
-ship as an ordinary Claude Code / Codex plugin. `keel --init` writes only a small host
-surface into your repo: an `AGENTS.md` bootstrap block, the OpenSpec schema, and the
-`/opsx:*` command overlay.
+ship as an ordinary Claude Code / Codex plugin. Besides running OpenSpec's own init,
+`keel --init` writes a small host surface into your repo: an `AGENTS.md` bootstrap block, the
+OpenSpec schema, the `/opsx:*` command overlay, and on Claude the plugin's auto-update entry in
+`.claude/settings.json`.
 
 ## Requirements
 
@@ -85,7 +86,7 @@ Updates arrive by themselves once a project is set up: `keel --init --target cla
 `keel --install`) declares auto-update for `keel-marketplace` in the project's
 `.claude/settings.json`, which Claude reads before its own default of off. A new release is fetched
 in the background after a session's first message. From 5.89.0 a running session's hooks use it at
-their next call; its skills and agents follow after `/reload-plugins` or at the next start.
+their next call; its skills follow after `/reload-plugins` or at the next start.
 
 To update everything on a machine at once — the global CLI and the Claude and Codex plugins — run
 `keel --update`. It prints one line per component saying what changed, when it takes effect, and
@@ -183,7 +184,7 @@ Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/
 `/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
 
 ```
-keel --init  →  keel context  →  /opsx:apply (pick one task)
+keel --init  →  keel context  →  /opsx:apply (tasks in order)
    →  task-start (+ write guard)  →  implement & verify
    →  task-complete  →  /opsx:sync · /opsx:archive
 ```
@@ -226,8 +227,8 @@ whose vocabulary predates the word, the entry is unrecognized and the whole decl
 nothing until corrected — fail-closed, never a silent grant.
 
 `issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
-one; `chat-reply:<group>`, the eighth, and `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
-and tenth, are the others that do. The other names act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+one; `chat-reply:<group>`, the eighth, `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
+and tenth, and `push-protected:<branch glob>`, the eleventh, are the others that do. The other names act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
@@ -311,7 +312,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The eleven names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The thirteen names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 
@@ -509,7 +510,7 @@ command at the right moment. Three things make that happen.
   opens; a PreToolUse hook enforces the write guard on every edit. Neither needs prompting.
 
 So in day-to-day use you run two commands: `keel --doctor` when you want to check the
-wiring, and `keel --init` whenever it tells you the repository is behind its install — the
+wiring, and `keel --install` whenever it tells you the repository is behind its install — the
 protocol version lives in your `AGENTS.md`, and updating the package does not move it.
 Everything below is the vocabulary the agent uses on your behalf.
 
@@ -654,8 +655,9 @@ which lives in
 **lenses** you author under `keel/lenses/*.md` in your repo. Each lens is self-describing: it
 opens with an `Applies when:` line stating the signals that trigger it (file extensions, artifact
 shapes) and carries an `Execution and review checks` section. When a change's artifacts or Touch
-match a lens, the alignment, test, debug, and review skills load only that one lens — and nothing
-when none match. Keel stays domain-agnostic; the knowledge is yours to own and edit.
+match a lens, the alignment, test, debug, and review skills read it before concluding — and
+nothing loads when none match. No rule keeps a skill from reading another lens it judges relevant.
+Keel stays domain-agnostic; the knowledge is yours to own and edit.
 
 Three lenses ship as opt-in templates (`web`, `hardware`, `hardware-dsl`) under `assets/lenses/`.
 They are never installed automatically:
@@ -928,14 +930,17 @@ owner_language: zh
 ```bash
 # Continuity — recompute what to do (stateless)
 keel context [--json] [--change <c> --task <t>]
+keel context --clear-handoff                       # remove keel/HANDOFF.md
+keel project --target <t> --event startup|resume|compaction|worktree [--expected-owner <owner>] --json
+keel capabilities [--target <t>] [--json]          # what each target's automation is verified to do
 
 # Deterministic gates → pass | fail | needs-review
-keel gate task-start    --change <c> --task <t> --json
+keel gate task-start    --change <c> --task <t> [--record] [--keep-evidence M1,M3] [--no-guard] --json
 keel gate task-complete --change <c> --task <t> [--base <git-ref>] --json
-keel gate change-close  --change <c> --action sync|archive --json
+keel gate change-close  --change <c> --action sync|archive [--base <git-ref>] --json
 
 # Write guard (Claude target)
-keel guard start --change <c> --task <t> --json
+keel guard start --change <c> --task <t> [--force] --json
 keel guard status --json
 keel guard clear  --json
 
@@ -953,13 +958,19 @@ keel chat unread | read | notice | search <text>
 keel chat bridge add | install | status | pause <2h> | stop | start | uninstall
 keel chat wake now <role>                          # resume a role's ended CLI session
 keel chat archive sync | pull
+keel mail role | send | list | read                # the 5.83 mailbox; works on direct groups
+
+# Shift change, shared resource leases, worktree overview
+keel shift request | check | ready [--wake] | start | resume | status
+keel lock acquire | release | list                 # see docs/resource-lock.md
+keel worktrees [--repo <path>] [--issues <file>] [--json]
 
 # Unattended triage — may this issue start work without asking?
 # Keel never fetches the issue; pass what gh returned. At least one of the two.
 keel triage [--labels <l1,l2>] [--issue <n>] [--json]
 
 # Coordinator patrol, and the model-free step a host scheduler calls (docs/cli-team.md)
-keel patrol [--since-last] [--notify] [--nudge] [--json]
+keel patrol [--issues <file>] [--idle <dur>] [--since-last] [--notify] [--nudge] [--json]
 keel tick [--json] | keel tick task                # one step; print the launchd job
 
 # External model CLIs — catalog, and the brief Keel compiles (it launches nothing)
@@ -967,12 +978,20 @@ keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # Install / maintenance
-keel --init | --install | --check | --doctor | --uninstall  [--target <t>] [--dry-run]
-keel --update [--dry-run]
+keel --init    [--target <t>] [--dry-run] [--force-template-update]
+keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
+keel --check | --doctor  [--target <t>]
+keel --uninstall | --clear  [--target <t>] [--dry-run]   # --clear is the same removal
+keel --update [--dry-run] [--source <npm package or git spec>]
 keel --version | --help
+
+# OpenSpec, through the CLI Keel bundles
+keel openspec <args>
 ```
 
-Exit codes: `0` pass · `3` policy failure · `4` missing semantic review · `1` input error.
+Commands take the repository as a positional path or as `--repo <path>`; `keel --help` shows which.
+
+Exit codes: `0` pass · `1` input error · `2` usage error (an unknown flag or a flag the command refuses) · `3` policy failure · `4` missing semantic review. `keel patrol` uses `2` and `3` for what it found; see Coordinator patrol.
 
 Targets are probed, not assumed by name: unverified runtime behavior is reported as `manual`,
 not `enforced`. Pick one target per repo and use it for every `--install` / `--check` /
@@ -996,5 +1015,4 @@ machine and what can leave it, including the bundled OpenSpec CLI's telemetry an
 
 ## License
 
-[MIT](LICENSE) © 2026 TanglmChris. See the **[中文完整手册](README.zh-CN.md)** for the full
-command and workflow reference.
+[MIT](LICENSE) © 2026 TanglmChris. The **[中文版](README.zh-CN.md)** carries the same sections.
