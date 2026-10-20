@@ -1,5 +1,27 @@
 # Keel Changelog
 
+## 5.172.0 - Keel leaves the agent's native capabilities alone
+
+Issue #414: on 2026-10-20 the owner noticed bare Claude Code reaches for subagents and the todo list far more often than a Keel session does. Measured that day over the owner's transcripts, subagent calls per 1000 tool calls were 0.00 in keel, 0.12 in kaiwu-ip, and 0.85 elsewhere. Keel mechanically blocks only Edit/Write outside `Touch` (with a guard manifest) and `git push` (with push grants). Everything else was wording the model reads. The owner reviewed each sentence and set the stance: Keel neither suppresses nor steers native capabilities.
+
+- **Subagents** are the model's choice and are treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step. The protocol, the consumer bootstrap, the schema, and the generated apply/archive/sync surfaces no longer:
+  - assign ownership to one agent;
+  - split helpers from delegates;
+  - require a brief or a guard manifest before a subagent acts;
+  - make another agent rerun its checks;
+  - limit archive or sync helpers to assessment.
+
+  External model CLIs keep their allowlist, egress, and worktree refusals.
+- **Continuing**: by default the agent works through the unchecked tasks of an approved `tasks.md` in order. Each task still passes its own `keel gate task-start` and `keel gate task-complete`, and every stop trigger still halts. A declared `continuation` is accepted and changes nothing.
+- **Memory, transcripts, and Git state** may inform the agent; `keel context` decides the current task.
+- **Retrying**: `keel-debug-failure` has no attempt cap. A stop still reports the original error and what changed in each attempt (#410).
+- **Reading**: "Read only the documents needed", "load only that one", and the other reading limits are gone. `keel context`'s read list is where to start, not a limit.
+- The todo-list wording ("goal/task-view projection requires explicit authorization") is removed with nothing added in its place.
+- The archive overlay now names `keel gate change-close --action archive` and `keel-review-checklist`.
+- The `native-capabilities-unrestricted` scenario keeps the removed phrases out of every model-facing surface.
+- The `/goal` customization is removed in a separate release.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.172.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.171.0 - The test-first skill says how to choose a Verify strategy
 
 Issue #389 asked whether red-then-green is still worth it with stronger models. Keel never required every task to go red first, but `keel-tdd-or-test-first` listed its seven strategies without saying how to pick one and did not mention `Detects:` or `Measured:`. Across the 561 archived tasks, `equivalence` was never chosen, `Detects:` was declared on 10 and `Measured:` on 3.

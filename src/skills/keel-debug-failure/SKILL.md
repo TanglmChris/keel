@@ -1,12 +1,12 @@
 ---
 name: keel-debug-failure
-description: Debug Keel agent command or validation failures under Keel's selected OpenSpec task contract. Use when `/opsx:apply` or a selected task reports failed commands, failing tests, validation errors, retry-fuse decisions, or needs an evidence-bound failure report.
+description: Debug Keel agent command or validation failures under Keel's selected OpenSpec task contract. Use when `/opsx:apply` or a selected task reports failed commands, failing tests, validation errors, stop decisions, or needs an evidence-bound failure report.
 ---
 
 # keel-debug-failure
 ## Purpose
 
-Use this skill when a command or validation path fails. Keep the investigation tied to the selected OpenSpec task. This skill owns the retry fuse, the task-contract binding, checkout preservation, and the failure-report shape; generic diagnosis mechanics (how to reproduce, minimise, or instrument) belong to the host runtime and are not restated here.
+Use this skill when a command or validation path fails. Keep the investigation tied to the selected OpenSpec task. This skill owns when to stop, the task-contract binding, checkout preservation, and the failure-report shape; generic diagnosis mechanics (how to reproduce, minimise, or instrument) belong to the host runtime and are not restated here.
 
 ## Context to read
 
@@ -14,15 +14,15 @@ Read the selected OpenSpec task's Commands, Acceptance, Coupling, Candidate Boun
 
 ## Domain lenses
 
-When the change's artifacts or the failing surface signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before locking a root-cause hypothesis, and load only that one. When no lens matches, load nothing.
+When the change's artifacts or the failing surface signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before locking a root-cause hypothesis. When no lens matches, load nothing.
 
-## Fuse
+## Stopping
 
-Try the same failure at most 2 attempts. If it still fails, stop and report the original key error plus what changed during each attempt.
+There is no fixed attempt count: keep going while each attempt adds evidence, and stop when one does not. When you stop, report the original key error plus what changed during each attempt.
 
-For `Coupling: required`, an allowed provisional failure inside a candidate does
-not count as an attempt. Count one attempt only when the same final assertion
-fails at the candidate completion gate. Follow the task's immediate task-stop
+For `Coupling: required`, an allowed provisional failure inside a candidate is
+not a failed attempt; what counts is the same final assertion failing at the
+candidate completion gate. Follow the task's immediate task-stop
 rules for scope breach, missing design authority, non-reproducible evidence,
 or a baseline or acceptance change during a candidate.
 
