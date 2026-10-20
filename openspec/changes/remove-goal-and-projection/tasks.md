@@ -2,7 +2,7 @@
 
 ## 1. Remove the goal, helper, task-view, and subagent projection tooling
 
-- [ ] 1.1 Remove the tooling and keep the external-agent brief working from the task capsule
+- [x] 1.1 Remove the tooling and keep the external-agent brief working from the task capsule
   - Covers:
     - keel-external-agents / The external agent brief is compiled from the task capsule, checked for egress / Implementation still needs the matching guard
     - keel-external-agents / The external agent brief is compiled from the task capsule, checked for egress / A clean helper brief is written and its command printed
@@ -55,15 +55,19 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:c9cbd2022f59ceb9925cf4e3bcf8951e1046ab12884a79407d6a52d0ef0732dc (keel 5.172.0)
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M1.detects: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-projections-removed` reports `native-projections-removed scenario passed.` (exit 0): in a fresh `keel --init` repository `keel project goal|tasks|helper` exit 2 with `unknown project subcommand`, `keel project --event subagent-start` exits 1 with `unsupported projection event`, `keel project --event startup` exits 0, doctor prints no `execution.goal`, `execution.task-view`, `delegation.`, or `helper ` line, neither skill copy nor `plugins/keel/agents` exists, and neither manifest names agents.
+    - M1.red: fail. Before the removal: `native-projections-removed: keel project goal was not refused as unknown: 'Keel native goal: blocked\nTarget: claude\nReason: Native goal activation requires one explicit --change and --task select'` (exit 1).
+    - M1.green: pass. With `goal.js`, `helper.js`, `tasksview.js`, the skill, and the agents deleted; `bin/keel.js` refusing any `keel project` subcommand and dropping `--authorize`, `--subagent-mode`, `--native-complete`, `--expected-fingerprint`, and the helper flags; `projection.js` keeping only startup/resume/compaction/worktree and exporting `selectTaskContract`; `agents.js` compiling its brief through a private `compileTaskBrief` with the matching-guard refusal; `capabilities.js` dropping the four capability keys, the helper dimensions, and the goal warning; `config.js` and `task-contract.js` dropping `delegation:`; and both manifests dropping `agents`, the scenario passed.
+    - M1.detects: with `bin/keel.js`, `goal.js`, `helper.js`, and `tasksview.js` restored from `origin/main` (the goal subcommand registered), the scenario failed with `native-projections-removed: keel project goal was not refused as unknown: 'Keel native goal: blocked…'` (exit 1); the files were restored and the scenario passed again.
+    - M2: pass. `external-agent-brief scenario passed.` Its unguarded-implementation check now expects `requires an active write guard` from the brief itself instead of comparing against the removed subagent projection.
+    - M3: pass. `native-runtime-projection` (goal, task-view, and subagent blocks and the `helperAuthority` projection field removed; the task-complete check kept), `guard-containment-is-resolved` (helper-baseline M4 removed), `target-surface` and `target-capability-adapters` (capability lists cut to the five remaining keys plus `execution.worktree`), all `scenario passed.`; `output-survives-the-pipe` now drives `gate task-start --json --no-guard` and on macOS reaches its F_SETPIPE_SZ skip after the fixture produced more than 4096 bytes, as it did before.
+    - Review:
+      - Status: pass
+      - Acceptance check: the removed forms are refused by name from the outside, doctor no longer reports them, the plugin ships neither the skill nor the agents, and `keel agents brief` still writes a helper brief and refuses an unguarded implementation; no recorded fingerprint moves because the capsule keeps `helperAuthority` and no live repository declares `delegation:`.
+      - Scope check: changed files are the Touch list plus this change's directory. The validator also lost 20 scenarios and their dead helpers, and seven more assertions moved: `delegation-resident-text` (template and header needles), `continuation-docs` (goal-skill step 7), `a-count-is-derived-from-what-it-counts` (`delegation`), and the skill lists.
+      - Findings: the tasks template still said "cross-task continuation stay unauthorized", which 5.172.0 had made false; fixed here with the template rewrite. Resolved here: scripts/validate_plugin.py — its `delegation-resident-text` scenario now fails if that phrase returns, and it passed on the rewritten templates.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: once, before any product write: M1's text was tightened to require the refusal to name the form as unknown or unsupported, and its `Detects:` failure literal moved from `keel project goal exited 0` to `keel project goal was not refused as unknown`, because in a fresh repository the old forms already exited nonzero with a `blocked` projection, so an exit-code check could not tell removal from absence of a task. Contract 5587093… → c9cbd202….
 
 ## 2. Release
 

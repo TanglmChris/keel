@@ -1,5 +1,25 @@
 # Keel Changelog
 
+## 5.173.0 - Keel no longer projects goals, helpers, task views, or subagent briefs
+
+Issue #414, second half. 5.172.0 removed the wording that suppressed or steered native capabilities; this release removes the tooling built for that stance. The owner chose to remove all of it: the host's native `/goal`, task list, and subagents need no Keel projection, and the gates, fingerprints, and the `Touch` write guard bind whoever runs a step.
+
+- **Removed**:
+  - the `keel-run-single-task-goal` skill and its two agents (`plugins/keel/agents/`, and the manifests' `agents` entries);
+  - `keel project goal`, `keel project helper` (including `--verify` and `--capture-baseline`), and `keel project tasks`;
+  - the `goal`, `task-view`, `subagent-start`, and `subagent-stop` events;
+  - `--authorize`, `--subagent-mode`, `--native-complete`, and `--expected-fingerprint`;
+  - the `delegation:` declaration and the task `Delegation:` field;
+  - the doctor's `execution.goal`, `execution.task-view`, `delegation.*`, and `helper` lines.
+
+  `keel project` now takes `--event startup|resume|compaction|worktree` only, and refuses any subcommand by name.
+- **Kept**: `keel agents brief` for external model CLIs. It compiles its brief from the selected task's capsule, keeps its refusals, and still refuses an implementation brief unless the write guard is active for that exact task. The host's guard never sees an external process, so this refusal is the only check its writes get.
+- **No fingerprint moves.** The capsule keeps its fixed `helperAuthority` field only for fingerprint stability; nothing reads it. No repository on this machine declared `delegation:`.
+- **Specs**: `keel-single-task-goal-execution` and `keel-authorized-delegation` are retired. Their goal, helper, task-view, and subagent requirements leave the projection, core-gate, diagnostics, continuity, capsule, guard, external-agent, and package specs. The coverage report `keel-surface-evolution-policy` asks for before retiring a projection surface is in the archived design.
+- The tasks template no longer says cross-task continuation needs authorization, which 5.172.0 had made false.
+- The `native-projections-removed` scenario refuses each removed form from the outside. 20 scenarios that exercised the removed tooling are gone.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.173.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.172.0 - Keel leaves the agent's native capabilities alone
 
 Issue #414: on 2026-10-20 the owner noticed bare Claude Code reaches for subagents and the todo list far more often than a Keel session does. Measured that day over the owner's transcripts, subagent calls per 1000 tool calls were 0.00 in keel, 0.12 in kaiwu-ip, and 0.85 elsewhere. Keel mechanically blocks only Edit/Write outside `Touch` (with a guard manifest) and `git push` (with push grants). Everything else was wording the model reads. The owner reviewed each sentence and set the stance: Keel neither suppresses nor steers native capabilities.

@@ -169,32 +169,6 @@ Keel MUST replace only its known managed full-protocol block with the minimal v4
 - **THEN** update preserves it and reports the path and manual resolution
 - **AND THEN** it does not append a conflicting second full protocol silently
 
-### Requirement: Single-task automation authorization is durable but not session state
-Keel MUST record explicit automation authorization and its start fingerprint in the selected OpenSpec task Evidence, and MUST NOT persist a Keel execution cursor, goal identifier, turn count, retry counter, or session identifier.
-
-#### Scenario: Another agent or session takes over
-- **WHEN** a current agent starts in a checkout containing one incomplete task with valid single-task authorization
-- **THEN** it recomputes that explicitly named task and fingerprint before continuing
-- **AND THEN** it does not depend on the previous transcript, native goal identifier, or Keel cache
-
-#### Scenario: Authorization does not match current authority
-- **WHEN** the recorded task or fingerprint differs from the recomputed capsule
-- **THEN** context reports a blocked automation continuation
-- **AND THEN** the current agent performs no product writes until the user reauthorizes the repaired task
-
-### Requirement: Continuity never chains tasks
-Keel MUST treat completion or invalidation of the authorized task as the end of that automation authorization.
-
-#### Scenario: Authorized task is complete
-- **WHEN** context observes that the authorized task is durably checked
-- **THEN** it reports the single-task run ended
-- **AND THEN** it does not infer authorization for the next incomplete task
-
-#### Scenario: Multiple active changes remain
-- **WHEN** other changes or tasks are actionable after the authorized task ends
-- **THEN** normal conservative context may report them as candidates
-- **AND THEN** no candidate is projected into a goal without new explicit authorization
-
 ### Requirement: The context projection names the Keel that produced it
 
 `keel context` MUST state the Keel version that produced its answer, on the surface the protocol already requires an agent to read. The resident protocol MUST ask the agent to report that version beside the protocol version the repository declares, so a disagreement reaches the human without depending on any runtime component being current.
