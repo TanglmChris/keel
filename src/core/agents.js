@@ -1,6 +1,6 @@
 "use strict";
 
-// External model CLIs as delegates (#219).
+// External model CLIs (#219).
 //
 // Keel describes an external agent and compiles the brief it is handed; it never
 // launches one. The session's own shell runs the command, which keeps Keel the
@@ -448,6 +448,61 @@ function renderBrief({ agent, mode, dir, projection, source, result, tmp }) {
   return lines.join("\n");
 }
 
+// The task an external CLI is handed, compiled from the capsule (#414 moved it
+// off the removed subagent projection). An implementation brief still needs the
+// write guard active for this exact task: the host's guard never sees an
+// external process, so this refusal is the only check its writes get before
+// they happen, and an absent manifest would pass every one of them silently.
+function compileTaskBrief(repo, options) {
+  const { selectTaskContract } = require("./projection");
+  const { guardStatus } = require("./guard");
+  const refused = (reason, warnings = []) => ({ status: "blocked", reasons: [reason], warnings });
+  const selected = selectTaskContract(repo, options);
+  if (selected.reason) return refused(selected.reason, selected.warnings);
+  const { change, taskId, contract, owner, warnings } = selected;
+  const capsule = contract.capsule;
+  if (options.mode === "implementation") {
+    if (capsule.mode !== "implementation" || capsule.touch.length === 0 || capsule.touch.includes("none")) {
+      return refused("An implementation brief requires an implementation task with a Touch write boundary.", warnings);
+    }
+    const guard = guardStatus(repo);
+    if (guard.status !== "active") {
+      return refused(
+        `An implementation brief requires an active write guard; status is ${guard.status}. `
+          + guard.problems.map((item) => item.message).join(" ")
+          + " Run `keel gate task-start` for the selected task first.",
+        warnings
+      );
+    }
+    const manifest = guard.manifest;
+    if (manifest.change !== change || manifest.task !== taskId
+      || manifest.fingerprint.value !== contract.fingerprint.value
+      || JSON.stringify([...manifest.touch].sort()) !== JSON.stringify([...capsule.touch].sort())) {
+      return refused("An implementation brief requires a write guard matching the selected task, fingerprint and Touch boundary.", warnings);
+    }
+  }
+  const prohibitions = [
+    ...capsule.prohibitions,
+    "must not update task execution records or contract authority: checkbox, Contract, Evidence, Review, Covers, Touch, Verify or Acceptance",
+    ...(options.mode === "helper" ? ["must not write product or task record files"] : []),
+  ];
+  return {
+    status: "ready",
+    source: { authority: "OpenSpec", owner, change, task: taskId },
+    projection: {
+      objective: capsule.task.title,
+      acceptance: capsule.acceptance,
+      read: capsule.read,
+      touch: capsule.touch,
+      evidenceContract: capsule.verification.commands.map((item) => `${item.label}: ${item.check}`),
+      fingerprint: contract.fingerprint,
+      prohibitions,
+    },
+    reasons: [],
+    warnings: [...warnings],
+  };
+}
+
 function compileBrief(repo, options) {
   const blocked = (reasons, warnings = []) => ({
     schemaVersion: 1, command: "agents brief", status: "blocked",
@@ -481,17 +536,7 @@ function compileBrief(repo, options) {
         + "Add one to agents.json under the Keel home directory.",
     ]);
   }
-  // The brief is the delegation brief: every refusal the projection applies,
-  // including the matching guard for implementation, applies here unchanged.
-  const { projectRuntime } = require("./projection");
-  const projected = projectRuntime(repo, {
-    projectionEvent: "subagent-start",
-    target: "claude",
-    subagentMode: options.mode,
-    change: options.change,
-    task: options.task,
-    authorizations: [],
-  });
+  const projected = compileTaskBrief(repo, options);
   if (projected.status !== "ready") return blocked(projected.reasons, projected.warnings);
   const projection = projected.projection;
   const hits = egressHits([...(projection.read || []), ...(projection.touch || [])],

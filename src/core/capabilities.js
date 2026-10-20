@@ -16,16 +16,8 @@ const CAPABILITY_COMMANDS = {
     "keel gate task-complete --change <change> --task <task> --json",
   "gate.change-close":
     "keel gate change-close --change <change> --action <sync|archive> --json",
-  "execution.goal":
-    "keel project --target <target> --event goal --authorize goal --json",
-  "execution.task-view":
-    "keel project --target <target> --event task-view --authorize task-view --json",
   "execution.worktree":
     "keel project --target <target> --event worktree --expected-owner <owner> --json",
-  "delegation.context":
-    "keel project --target <target> --event subagent-start --json",
-  "delegation.return":
-    "keel project --target <target> --event subagent-stop --json",
 };
 
 const SUPPORTED_TARGETS = new Set(["claude", "codex", "opencode"]);
@@ -143,52 +135,12 @@ function probeCapabilities(repo, target) {
     schemaVersion: 1,
     target,
     capabilities,
-    helper: helperDiagnostics(repo, target, observation),
     guard: guardDiagnostics(repo, target),
     compaction: compactionDiagnostics(target),
     warnings: [
       "No capability is promoted above manual without verifiable runtime "
         + "activation, trust, version, and behavior evidence.",
-      "Helper absence never disables current-agent goal execution; goal, "
-        + "gates, and the manual loop stay usable without any helper.",
     ],
-  };
-}
-
-function helperDiagnostics(repo, target, observation) {
-  // Each dimension is reported separately with its own enforced/advisory/manual
-  // level: byte-stability and nested-delegation prevention are enforced by Keel
-  // Core deterministically, native tool restriction and discovery stay advisory
-  // until runtime-probed, and actual native helper execution stays manual.
-  return {
-    discovery: {
-      level: "advisory",
-      evidence: observation,
-    },
-    toolRestriction: {
-      level: "advisory",
-      evidence:
-        "Native helper tool allowlists are runtime-configured and cannot be "
-          + "verified from Keel Core.",
-    },
-    nestedDelegationPrevention: {
-      level: "enforced",
-      evidence:
-        "keel project helper compiles a non-delegating brief and refuses "
-          + "nested helpers or spawned agents.",
-    },
-    byteStability: {
-      level: "enforced",
-      evidence:
-        "keel project helper --verify accepts a return only after before/after "
-          + "repository byte identity and never cleans up.",
-    },
-    execution: {
-      level: "manual",
-      evidence:
-        "Native bounded-helper execution stays manual until runtime activation, "
-          + "trust, and tool restriction are probed.",
-    },
   };
 }
 
@@ -284,11 +236,6 @@ function renderCapabilities(result) {
       `${key}: ${capability.level} - ${capability.evidence}; `
         + `command: ${capability.command}`
     );
-  }
-  if (result.helper) {
-    for (const [dimension, entry] of Object.entries(result.helper)) {
-      lines.push(`helper ${dimension}: ${entry.level} - ${entry.evidence}`);
-    }
   }
   if (result.guard) {
     for (const [dimension, entry] of Object.entries(result.guard)) {
