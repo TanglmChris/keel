@@ -89,7 +89,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E3
   - Touch:
@@ -128,14 +128,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:2a0535eedd478279884d117397a696ac382d73c8daa62986fab24e6059cacaea (keel 5.176.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.176.0 → 5.177.0. With the section "The configuration file and the docs follow their sources" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the ADDED requirement "The configuration file and the Chinese docs follow their sources" is promoted into `keel-native-plugin-package`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` ran on commit 3f9bb5a (clean tree), started 21:24 at load 5: `validation --all passed: baseline plus 298 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E3. The version markers, the 5.177.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 and 1.2, the only files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
