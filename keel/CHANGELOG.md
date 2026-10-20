@@ -1,5 +1,37 @@
 # Keel Changelog
 
+## 5.176.0 - The English and Chinese READMEs state the CLI, section for section
+
+Issue #413, second part. On 2026-10-20 the owner asked that the two READMEs be revised together. The English README contradicted the CLI in several places, and the Chinese one ran 355 lines against 1000 with thirteen sections missing, while the English README called it the full reference.
+
+- **`README.md`** now states what the CLI does:
+  - Claude reloads skills only, since 5.173.0 removed the agents.
+  - The authorization vocabulary has thirteen names, and `push-protected` is listed among the scoped ones.
+  - A lens skill is not limited to one lens.
+  - The loop works through `tasks.md` in order.
+  - A repository behind its install is fixed with `keel --install`.
+  - `--init` also declares the plugin's auto-update.
+  - The Commands block lists every command and flag in `keel --help`: `capabilities`, `project`, `mail`, `shift`, `lock`, `worktrees`, `openspec`, `--clear`, the gate, guard, install and update flags, and each install command's own flags. `--check` and `--doctor` no longer appear with a `--dry-run` they refuse.
+  - The exit codes include `2`, a usage error.
+- **`README.zh-CN.md`** is rewritten as the English one's counterpart:
+  - the same 22 `##` and 7 `###` sections in the same order;
+  - the same commands, flags, names, and exit codes;
+  - links to the Chinese docs where they exist.
+
+  Content only the old Chinese version carried is dropped where it had gone stale, such as a write-guard section without the push check and the single-lens rule. Where it was still true, it is now in both READMEs:
+  - the `keel/guard.json` manifest and what the guard checks;
+  - manual reprojection after a compaction;
+  - the plan-mode rule;
+  - the dedicated-skill policy;
+  - the parallel test runner.
+
+  The scenarios that pinned it read both READMEs.
+- **Two scenarios** hold this:
+  - `readme-states-the-cli` reads its lists from `keel --help` and `src/core/config.js`, so a command, flag, or authorization name added later without its README line fails.
+  - `readme-zh-matches-english` applies the same checks to the Chinese README and compares the heading counts.
+- The `docs/` pages, their Chinese counterparts, and the `keel/config.yaml` comments follow in the third part of #413.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.176.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.175.0 - The capsule and protocol surfaces say what the code does
 
 Issue #413, first part. On 2026-10-20 three read-only audits compared what the model reads with each other and with the code. #414 had removed the old stance from the protocol, but the compiled capsule, printed by every `task-start` and `keel agents brief`, still said "must not continue to another task". Other sentences contradicted the code they describe.

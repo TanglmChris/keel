@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.175.0"
-PROTOCOL_VERSION = "5.175.0"
+PACKAGE_VERSION = "5.176.0"
+PROTOCOL_VERSION = "5.176.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -1126,7 +1126,7 @@ def validate_skill_portability_policy_scenario() -> int:
     validate_resident_blocks(policy_errors)
     validate_openspec_schema(policy_errors)
     validate_skill_docs(policy_errors)
-    for path in (ROOT / "AGENTS.md", ROOT / "README.zh-CN.md"):
+    for path in (ROOT / "AGENTS.md", ROOT / "README.md", ROOT / "README.zh-CN.md"):
         content = path.read_text(encoding="utf-8")
         for snippet in (
             "authoritative source",
@@ -30319,7 +30319,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The eleven names above are the whole vocabulary.",
+        "The thirteen names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -32512,10 +32512,11 @@ def validate_plan_funnel_guidance_scenario() -> int:
         )
         return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "plan mode" not in readme or "proposal/design/specs/tasks" not in readme:
-        report("plan-funnel-guidance: README lacks the plan-mode funnel rule.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        readme = (ROOT / name).read_text(encoding="utf-8")
+        if "plan mode" not in readme or "proposal/design/specs/tasks" not in readme:
+            report(f"plan-funnel-guidance: {name} lacks the plan-mode funnel rule.")
+            return 1
 
     if "plan-funnel-guidance" not in {name for name, _ in SCENARIOS}:
         report("plan-funnel-guidance: the scenario registry does not include it.")
@@ -32587,7 +32588,7 @@ def validate_domain_execution_references_scenario() -> int:
             )
             return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8") + (ROOT / "README.md").read_text(encoding="utf-8")
     if "Execution and review checks" not in readme:
         report(
             "domain-execution-references: README does not describe the "
@@ -32791,10 +32792,10 @@ def validate_precompact_probe_scenario() -> int:
             report("precompact-probe: rendered capabilities lack compaction lines.")
             return 1
 
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "--event compaction" not in readme:
-        report("precompact-probe: README lacks the manual compaction command.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        if "--event compaction" not in (ROOT / name).read_text(encoding="utf-8"):
+            report(f"precompact-probe: {name} lacks the manual compaction command.")
+            return 1
     registered = {name for name, _ in SCENARIOS}
     for scenario in ("plugin-compaction-continuity", "precompact-probe"):
         if scenario not in registered:
@@ -32863,11 +32864,12 @@ def validate_touch_guard_surface_scenario() -> int:
                 )
                 return 1
 
-        readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        for needle in ("keel guard start", "keel guard clear", "guard.json", "Bash"):
-            if needle not in readme:
-                report(f"touch-guard-surface: README lacks guard guidance: {needle}.")
-                return 1
+        for name in ("README.md", "README.zh-CN.md"):
+            readme = (ROOT / name).read_text(encoding="utf-8")
+            for needle in ("keel guard start", "keel guard clear", "guard.json", "Bash"):
+                if needle not in readme:
+                    report(f"touch-guard-surface: {name} lacks guard guidance: {needle}.")
+                    return 1
         bootstrap = (ROOT / "assets/bootstrap/AGENTS.md").read_text(encoding="utf-8")
         # The bootstrap must tell a consumer the guard exists and how to opt out;
         # it no longer spends bytes naming `keel guard clear`, which `keel --help`
@@ -34674,10 +34676,11 @@ def validate_validation_runner_scenario() -> int:
             "invocation, not a per-scenario chain."
         )
         return 1
-    readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    if "--all" not in readme or "--jobs" not in readme:
-        report("validation-runner: README does not document the parallel runner.")
-        return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        readme = (ROOT / name).read_text(encoding="utf-8")
+        if "--all" not in readme or "--jobs" not in readme:
+            report(f"validation-runner: {name} does not document the parallel runner.")
+            return 1
 
     # The full gate must actually run somewhere other than one author's machine:
     # a workflow drives the same single entry point on push and pull request,
@@ -39439,6 +39442,114 @@ def validate_surfaces_agree_with_code_scenario() -> int:
     return 0
 
 
+COUNT_WORDS = {13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen"}
+
+
+def readme_cli_problem(readme: Path, exit_label: str, count_phrase) -> str | None:
+    """What a README fails to state about the CLI, or None (#413).
+
+    Every list is read from the CLI or the code, so a command, flag, or
+    authorization name added later without its README line fails here.
+    """
+    text = readme.read_text(encoding="utf-8")
+    usage = run_keel(ROOT, "--help").stdout.split("Usage:", 1)[-1].split("\n\n", 1)[0]
+    commands = sorted(set(re.findall(r"^\s*keel ([a-z][a-z-]*)", usage, re.M)))
+    flags = sorted(set(re.findall(r"(?<![\w-])(--[a-z][a-z-]*)", usage)))
+    if len(commands) < 16 or len(flags) < 30:
+        return f"read {len(commands)} commands and {len(flags)} flags from keel --help; expected at least 16 and 30."
+    for command in commands:
+        if f"keel {command}" not in text:
+            return f"{readme.name} does not name `keel {command}`."
+    for flag in flags:
+        if not re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", text):
+            return f"{readme.name} does not name `{flag}`."
+    config = (ROOT / "src/core/config.js").read_text(encoding="utf-8")
+    declared = re.search(r"const STANDING_AUTHORIZATION_ACTIONS = \[(.*?)\];", config, re.S)
+    names = re.findall(r'^\s*"([a-z-]+)",', declared.group(1), re.M) if declared else []
+    if len(names) < 13:
+        return f"read {len(names)} standing-authorization names from config.js; expected at least 13."
+    for name in names:
+        if not re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text):
+            return f"{readme.name} does not name the standing authorization `{name}`."
+    phrase = count_phrase(len(names))
+    if phrase not in text:
+        return f"{readme.name} does not say {phrase!r}, the count of names config.js accepts."
+    # The line that lists them, wherever else the word appears in prose.
+    exit_lines = [line for line in text.splitlines() if exit_label in line]
+    if not exit_lines:
+        return f"{readme.name} has no line containing {exit_label!r}."
+    listed = max(exit_lines, key=lambda line: sum(f"`{code}`" in line for code in range(5)))
+    for code in range(5):
+        if f"`{code}`" not in listed:
+            return f"{readme.name} does not describe exit code {code} on its {exit_label!r} line."
+    return None
+
+
+README_STALE_SENTENCES = (
+    "skills and agents follow",
+    "The eleven names",
+    "load only that one lens",
+    "(pick one task)",
+    "`keel --init` writes only",
+    "--doctor | --uninstall  [--target <t>] [--dry-run]",
+    "full command and workflow reference",
+)
+
+
+def validate_readme_states_the_cli_scenario() -> int:
+    """Issue #413: the English README states what the CLI does."""
+    label = "readme-states-the-cli:"
+    readme = ROOT / "README.md"
+    problem = readme_cli_problem(readme, "Exit codes", lambda n: f"{COUNT_WORDS.get(n, n)} names")
+    if problem:
+        report(f"{label} {problem}")
+        return 1
+    text = readme.read_text(encoding="utf-8")
+    for phrase in README_STALE_SENTENCES:
+        if phrase in text:
+            report(f"{label} README.md still says {phrase!r}.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_readme_zh_matches_english_scenario() -> int:
+    """Issue #413: the Chinese README is the English one's counterpart.
+
+    It was 355 lines against 1000 and lacked thirteen sections, while the
+    English README called it the full reference. The command and name checks
+    are the English ones; section parity is a heading count, the one
+    structural measure that needs no translation table.
+    """
+    label = "readme-zh-matches-english:"
+    zh = ROOT / "README.zh-CN.md"
+    problem = readme_cli_problem(zh, "退出码", lambda n: f"{n} 个名字")
+    if problem:
+        report(f"{label} {problem}")
+        return 1
+    english = (ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = zh.read_text(encoding="utf-8")
+    for level in ("## ", "### "):
+        counts = [
+            sum(1 for line in text.splitlines() if line.startswith(level))
+            for text in (english, chinese)
+        ]
+        if counts[0] != counts[1]:
+            report(f"{label} README.md has {counts[0]} `{level.strip()}` headings and README.zh-CN.md has {counts[1]}.")
+            return 1
+    if "装配时的 `keel --init`" in chinese:
+        report(f"{label} README.zh-CN.md still names `keel --init` as the one setup command.")
+        return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_tdd_strategy_guide_scenario() -> int:
     """Issue #389: the skill an executor loads to plan its checks says how to choose.
 
@@ -41558,6 +41669,8 @@ SCENARIOS: tuple = (
     ("native-capabilities-unrestricted", validate_native_capabilities_unrestricted_scenario),
     ("native-projections-removed", validate_native_projections_removed_scenario),
     ("surfaces-agree-with-code", validate_surfaces_agree_with_code_scenario),
+    ("readme-states-the-cli", validate_readme_states_the_cli_scenario),
+    ("readme-zh-matches-english", validate_readme_zh_matches_english_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,
