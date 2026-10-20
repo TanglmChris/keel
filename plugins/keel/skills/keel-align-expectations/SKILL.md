@@ -80,7 +80,7 @@ so the two surfaces cannot drift against each other.
 
 ## Domain lenses
 
-When the change signals a specific domain, look in `keel/lenses/` for a lens whose `Applies when:` header matches, and read only that lens before asking domain questions; do not load unrelated lenses. When no lens matches, or the repo defines none, proceed on the domain-agnostic path. Lenses are user-authored; scaffold the bundled starting points with `keel lenses add` (web, hardware, hardware-dsl).
+When the change signals a specific domain, look in `keel/lenses/` for a lens whose `Applies when:` header matches, and read it before asking domain questions. When no lens matches, or the repo defines none, proceed on the domain-agnostic path. Lenses are user-authored; scaffold the bundled starting points with `keel lenses add` (web, hardware, hardware-dsl).
 
 ## Boundaries
 

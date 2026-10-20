@@ -11,7 +11,7 @@ Use this skill only when `keel context` is ambiguous or blocked because human in
 
 ## Context to read
 
-Run `keel context --json`, then read only the returned paths and the intended durable OpenSpec owner under `openspec/changes/<change>/`.
+Run `keel context --json`, then read the returned paths and the intended durable OpenSpec owner under `openspec/changes/<change>/`.
 
 ## Override contract
 
