@@ -1090,10 +1090,83 @@ function updateClaudePlugin(options) {
   return true;
 }
 
+function compareVersions(a, b) {
+  const parts = (value) => value.split(/[.-]/).map((part) => (/^\d+$/.test(part) ? Number(part) : part));
+  const left = parts(a);
+  const right = parts(b);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const x = left[index] === undefined ? 0 : left[index];
+    const y = right[index] === undefined ? 0 : right[index];
+    if (x === y) continue;
+    if (typeof x === "number" && typeof y === "number") return x - y;
+    return String(x) < String(y) ? -1 : 1;
+  }
+  return 0;
+}
+
+function codexCacheVersion(cacheDir) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(cacheDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d/.test(entry.name))
+      .map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+  return entries.sort(compareVersions).pop() || null;
+}
+
+// What Codex's own files say when `plugin list --json` cannot (#412): the
+// marketplace's source type in config.toml and the installed version in the
+// plugin cache. Both, or nothing — a query failure is never read as an absent
+// host (#354), so with no install on disk the failure stands.
+function codexKeelFromDisk(codexHome, market) {
+  let config = "";
+  try {
+    config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
+  } catch {
+    return null;
+  }
+  const header = `[marketplaces.${market}]`;
+  const lines = config.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start < 0) return null;
+  const section = {};
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*\[/.test(line)) break;
+    const entry = line.match(/^\s*([A-Za-z_]+)\s*=\s*"([^"]*)"/);
+    if (entry) section[entry[1]] = entry[2];
+  }
+  const cacheDir = path.join(codexHome, "plugins", "cache", market, "keel");
+  const version = codexCacheVersion(cacheDir);
+  if (!section.source_type || !version) return null;
+  return {
+    id: `keel@${market}`,
+    market,
+    version,
+    sourceType: section.source_type,
+    source: section.source || "",
+    path: null,
+    cacheDir,
+  };
+}
+
 function updateCodexPlugin(options) {
   const component = "codex plugin";
   const executable = process.env.KEEL_UPDATE_CODEX || "codex";
-  const queried = codexKeel(executable);
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  let queried = codexKeel(executable);
+  // A query that failed and Codex's own state that can carry the update: the
+  // update runs from that state, and every later read comes from the cache,
+  // because a query that just hung would most likely hang again.
+  let listFailure = null;
+  if (queried && queried.failed && !options.dryRun) {
+    const fromDisk = codexKeelFromDisk(codexHome, "keel-marketplace");
+    if (fromDisk) {
+      listFailure = queried.failed;
+      queried = fromDisk;
+    }
+  }
   const installed = queried && !queried.failed ? queried : null;
   const id = installed ? installed.id : "keel@keel-marketplace";
   const market = installed ? installed.market : "keel-marketplace";
@@ -1138,28 +1211,40 @@ function updateCodexPlugin(options) {
   // Codex re-reads hook definitions at every call and trusts them by hash, so
   // a changed definition stops running until the owner reviews it. Compared
   // before `plugin add`, which deletes the old install's directory.
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const oldHooks = installed.version
     ? readOrNull(path.join(codexHome, "plugins", "cache", market, "keel", installed.version, "hooks", "codex.json"))
     : null;
-  const upgraded = codexKeel(executable);
-  if (upgraded && upgraded.failed) {
-    updateLine(component, "failed", `${upgraded.failed} after the marketplace refresh`);
-    return false;
+  let newHooks = null;
+  if (!listFailure) {
+    const upgraded = codexKeel(executable);
+    if (upgraded && upgraded.failed) {
+      updateLine(component, "failed", `${upgraded.failed} after the marketplace refresh`);
+      return false;
+    }
+    newHooks = upgraded && upgraded.path ? readOrNull(path.join(upgraded.path, "hooks", "codex.json")) : null;
   }
-  const newHooks = upgraded && upgraded.path ? readOrNull(path.join(upgraded.path, "hooks", "codex.json")) : null;
-  const hooksChanged = oldHooks && newHooks && !oldHooks.equals(newHooks);
   if (!runHostSteps(component, "codex", executable, [steps[1]])) return false;
-  const after = codexKeel(executable);
-  if (after && after.failed) {
-    updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
-    return false;
+  let after;
+  if (listFailure) {
+    const version = codexCacheVersion(installed.cacheDir);
+    after = version ? { version } : null;
+    if (version) newHooks = readOrNull(path.join(installed.cacheDir, version, "hooks", "codex.json"));
+  } else {
+    after = codexKeel(executable);
+    if (after && after.failed) {
+      updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
+      return false;
+    }
   }
+  const hooksChanged = oldHooks && newHooks && !oldHooks.equals(newHooks);
   updateLine(
     component,
     versionChange(installed.version, after && after.version),
     "running sessions use it at their next hook call"
       + (hooksChanged ? "; its hook definitions changed, so Codex will ask you to review them in /hooks before they run" : "")
+      + (listFailure
+        ? `; \`codex plugin list --json\` did not answer (${listFailure.replace(/^`codex plugin list --json` /, "")}), so versions were read from ${installed.cacheDir}`
+        : "")
   );
   return true;
 }

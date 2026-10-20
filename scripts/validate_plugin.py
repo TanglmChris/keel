@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.173.0"
-PROTOCOL_VERSION = "5.173.0"
+PACKAGE_VERSION = "5.174.0"
+PROTOCOL_VERSION = "5.174.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25283,6 +25283,16 @@ if (joined === "plugin list --json") {
 if (joined === "plugin update keel@keel-marketplace" || joined === "plugin add keel@keel-marketplace") {
   state[host] = "5.1.0";
   save();
+  // FAKE_CODEX_CACHE: `plugin add` installs into the plugin cache and deletes
+  // the previous version's directory, as Codex does (#412).
+  const cache = process.env.FAKE_CODEX_CACHE;
+  if (host === "codex" && cache) {
+    for (const entry of fs.existsSync(cache) ? fs.readdirSync(cache) : []) {
+      fs.rmSync(path.join(cache, entry), { recursive: true, force: true });
+    }
+    fs.mkdirSync(path.join(cache, "5.1.0", "hooks"), { recursive: true });
+    fs.writeFileSync(path.join(cache, "5.1.0", "hooks", "codex.json"), "{}\n");
+  }
 }
 process.exit(0);
 """
@@ -25529,6 +25539,95 @@ def validate_update_host_query_timeout_scenario() -> int:
             report(f"{label} --dry-run with a hung query exited {result.returncode}: {result.stdout!r}")
             return 1
     report("update-host-query-timeout scenario passed.")
+    return 0
+
+
+def validate_update_codex_from_disk_scenario() -> int:
+    """Issue #412: a hung `codex plugin list --json` stopped an update that worked.
+
+    On 2026-10-20 the query hung past 90 s while `codex plugin marketplace
+    upgrade` succeeded by hand in 35 s. Codex's own config and plugin cache say
+    what the query would have, so the update runs from them; with neither, the
+    failure stays a failure (#354), and a local source stays manual.
+    """
+    label = "update-codex-from-disk:"
+    upgrade = ["codex", "plugin", "marketplace", "upgrade", "keel-marketplace"]
+    add = ["codex", "plugin", "add", "keel@keel-marketplace"]
+    with tempfile.TemporaryDirectory(prefix="keel-update-412-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+
+        def update(source_type: str | None):
+            codex_home = tmp / f"codex-home-{source_type}"
+            if codex_home.exists():
+                shutil.rmtree(codex_home)
+            cache = codex_home / "plugins/cache/keel-marketplace/keel"
+            write_text(cache / "5.0.0/hooks/codex.json", "{}\n")
+            if source_type:
+                write_text(codex_home / "config.toml",
+                           "[features]\nx = true\n\n[marketplaces.keel-marketplace]\n"
+                           f'source_type = "{source_type}"\n'
+                           'source = "https://github.com/TanglmChris/keel.git"\n\n[other]\ny = 1\n')
+            log, state = tmp / "log.jsonl", tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "CODEX_HOME": str(codex_home),
+                "KEEL_UPDATE_QUERY_TIMEOUT_MS": "2000", "FAKE_LIST_SLEEP_CODEX": "15",
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state), "FAKE_CODEX_SOURCE": str(tmp / "codex-source"),
+                "FAKE_CODEX_CACHE": str(cache),
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=120)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            line = next((l for l in result.stdout.splitlines() if l.startswith("keel update: codex plugin:")), "")
+            return result, calls, line, cache
+
+        result, calls, line, cache = update("git")
+        for args in (upgrade, add):
+            runs = sum(1 for c in calls if c[:len(args)] == args)
+            if runs != 1:
+                report(f"{label} with a git marketplace on disk, {' '.join(args)} ran {runs} time(s), not 1: {line!r}")
+                return 1
+        for needle in ("5.0.0 -> 5.1.0", "did not answer", str(cache)):
+            if needle not in line:
+                report(f"{label} the Codex line does not name {needle!r}: {line!r}")
+                return 1
+        if result.returncode != 0:
+            report(f"{label} an update carried from disk exited {result.returncode}: {result.stdout!r}")
+            return 1
+
+        _, calls, line, _ = update("local")
+        if "manual" not in line:
+            report(f"{label} a local marketplace on disk does not read manual: {line!r}")
+            return 1
+        if any(c[:len(upgrade)] == upgrade for c in calls):
+            report(f"{label} a local marketplace on disk was upgraded: {calls!r}")
+            return 1
+
+        result, calls, line, _ = update(None)
+        if "failed" not in line or "absent" in line:
+            report(f"{label} with no config on disk the Codex line does not read failed: {line!r}")
+            return 1
+        if any(c[:2] == ["codex", "plugin"] and c[2:3] != ["list"] for c in calls):
+            report(f"{label} with no config on disk a Codex update command ran: {calls!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report("update-codex-from-disk scenario passed.")
     return 0
 
 
@@ -41101,6 +41200,7 @@ SCENARIOS: tuple = (
     ("update-host-query-retry", validate_update_host_query_retry_scenario),
     ("update-claude-refresh-retry", validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
+    ("update-codex-from-disk", validate_update_codex_from_disk_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
     ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),
