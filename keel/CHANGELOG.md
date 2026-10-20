@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.169.0 - CLI retention counts only sessions with a conversation
+
+Issue #401: keel-maint's 5.168.0 hand-over removed a shift that `keep_old_sessions` 3 should have kept. The third slot went to a background session that was never given a prompt and has no transcript. It was counted as a shift, and because it has no transcript it could never be removed, so it would have held that slot for as long as it was listed.
+
+- Only a session with a transcript, the host's or Keel's copy, counts toward `keep_old_sessions`. A session with neither takes no slot and stays listed.
+- A counted session whose host transcript is already gone but whose copy Keel holds can be removed. Before this release it stayed listed.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.169.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.168.0 - The CLI hand-over names the new session for its start
 
 Issue #399: after 5.167.0 the owner still saw several sessions named `keel-maint`. Every shift session runs with Remote Control, and when the hand-over woke the old session for its `/rename`, the bridge reconnected and wrote the claude.ai title back over the rename (measured on the real old session and on a probe).
