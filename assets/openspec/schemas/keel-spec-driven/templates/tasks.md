@@ -1,6 +1,6 @@
 <!-- Compact v4 task source (keel-task-capsule/v1, defaults version 1).
      Record only task-specific authority. Omitted fields inherit versioned
-     defaults: Owner is the current Keel agent, Mode is implementation, Read
+     defaults: Mode is implementation, Read
      is the change proposal/design/specs/tasks plus discovered repository
      context, Acceptance derives from Covers, Coupling defaults to none, and a
      subagent is the model's choice, treated as the main agent is. The next
@@ -23,7 +23,8 @@
   - Verify:
     <!-- verification discipline: Strategy is REQUIRED and is one of
          vertical-tdd, regression-first, characterization,
-         snapshot-characterization, rendered-behavior, or evidence-first.
+         snapshot-characterization, rendered-behavior, evidence-first, or
+         equivalence (which also declares Base: and Fields:).
          Nothing is supplied by default, because the value an omission
          would select is the one with no red-green requirement.
          evidence-first additionally carries a `Reason:` entry beside
@@ -50,7 +51,7 @@
     - M1: pending
     - Review:
       <!-- Status: one of pass, passed, complete, completed, ok, done -->
-      <!-- Findings: none, or carry a durable owner — a "Discard reason:"/"Discard rationale:" prefix, an absolute https://… reference, or any repo-relative path that exists (keel/archive/…, an openspec/changes/… artifact, or the repository's own ledger) named after "Durable owner:"; not keel/HANDOFF.md, which is a pointer override -->
+      <!-- Findings: none, or "Resolved here:" naming a check this task declares or a path that exists, or a durable owner — a "Discard reason:"/"Discard rationale:" prefix, an absolute https://… reference, or any repo-relative path that exists (keel/archive/…, an openspec/changes/… artifact, or the repository's own ledger) named after "Durable owner:"; not keel/HANDOFF.md, which is a pointer override -->
       - Status: pending
       - Acceptance check: pending
       - Scope check: pending
@@ -66,13 +67,13 @@
        sync, archive, or mark tasks complete
      - Read: additional required starting context beyond the base set
      - Acceptance: a task-specific observable delta the Covers authority does not express
-     - Execution recommendation / Rationale: advisory notes for the current agent
+     - Execution recommendation / Rationale: advisory notes for whoever executes the task
      - Autonomy boundary: a pre-authorized fallback with its exact reversible bound and required evidence
      - Coupling: required, with the design.md Coupled Iteration Contract, one
        complete candidate, Candidate Boundary, completion-gate final assertions,
        and candidate-level Stop Rules
      - Stop if: extra hard limits beyond the standard prohibitions
-     Requires modifying files outside Touch. always remains a stop condition. -->
+     `Requires modifying files outside Touch.` always remains a stop condition. -->
 
 ## 2. <!-- Task Group Name -->
 

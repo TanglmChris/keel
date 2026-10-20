@@ -48,7 +48,7 @@ const USAGE = [
   "keel chat bot add|remove <name> | list   (the Slack bots this machine holds Keychain tokens for, as bot:<name> and app:<name>)",
   "keel chat notice   (what is unread and addressed to you, for any host; always exits 0)",
   "keel chat notice --check   (for schedulers: no output; exit 0 only when something addressed to you is unread, else 1)",
-  "keel chat hook session-start|user-prompt-submit|file-changed|session-end   (Claude Code hook; JSON on stdin)",
+  "keel chat hook session-start|user-prompt-submit|post-tool-use|file-changed|session-end   (Claude Code hook; JSON on stdin)",
   "keel chat wake add [--host codex] [--thread <id>] [--max-per-hour <n>] [--compact-at <tokens>]   (this machine starts a Codex turn when something addressed to this worktree's role arrives)",
   "keel chat wake remove   (stop waking this worktree's role on this machine)",
   "keel chat wake status [--json]",
