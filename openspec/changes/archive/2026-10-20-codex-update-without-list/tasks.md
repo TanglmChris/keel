@@ -38,7 +38,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -77,10 +77,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:991e071d1663336262832e660089597e68657b2e3ee632d1610695e927b592bb (keel 5.172.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.173.0 → 5.174.0; with the "A hung Codex plugin query no longer stops the Codex update" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0).
+    - M2: the modified requirement replaced "One owner-run update covers every installed Keel component" in `keel-native-plugin-package`; `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit d9fdf9b (clean tree), started 19:46 at load 7: `validation --all passed: baseline plus 293 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: E2 — version markers, the 5.174.0 changelog section, and the published spec carry the change; the full suite passes on the committed tree.
+      - Scope check: files beyond task 1.1 are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
