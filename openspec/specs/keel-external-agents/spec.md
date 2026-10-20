@@ -49,9 +49,9 @@ Keel MUST read an optional `external_agents:` block in `keel/config.yaml` with a
 - **WHEN** `egress_deny:` holds an entry with no reason
 - **THEN** every brief is refused, naming the entry
 
-### Requirement: The external agent brief is the delegation brief, checked for egress
+### Requirement: The external agent brief is compiled from the task capsule, checked for egress
 
-`keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` MUST compile the same projection `keel project --event subagent-start` compiles for that mode and MUST apply every refusal it applies, including the matching-guard precondition for implementation. It MUST refuse when any Read or Touch path matches an `egress_deny` pattern, naming the path, the pattern, and the reason. On success it MUST write the brief, with the task, Read, Touch, checks, and prohibitions against commit, push, branch switch, issue changes, OpenSpec and Keel state, and writes outside `--dir`, to `--out`, MUST print the command line filled from the catalog template, where a template's `{tmp}` is filled with a `tmp` directory beside `--out` that the brief creates and names as the place for temporary files, run in a subshell whose exit status is written to a file beside the result and named in the output, and MUST state that Keel cannot observe what the agent reads beyond the brief. Keel MUST NOT launch the agent.
+`keel agents brief <name> --mode helper|implementation --dir <path> --out <file>` MUST compile its brief from the selected task's freshly compiled capsule and MUST refuse when that task is not ready, missing, or already complete. An implementation brief MUST be refused unless the write-guard manifest is active and names the same change, task, fingerprint, and Touch, because the host's guard never sees an external process. It MUST refuse when any Read or Touch path matches an `egress_deny` pattern, naming the path, the pattern, and the reason. On success it MUST write the brief, with the task, Read, Touch, checks, and prohibitions against commit, push, branch switch, issue changes, OpenSpec and Keel state, and writes outside `--dir`, to `--out`, MUST print the command line filled from the catalog template, where a template's `{tmp}` is filled with a `tmp` directory beside `--out` that the brief creates and names as the place for temporary files, run in a subshell whose exit status is written to a file beside the result and named in the output, and MUST state that Keel cannot observe what the agent reads beyond the brief. Keel MUST NOT launch the agent.
 
 #### Scenario: A clean helper brief is written and its command printed
 - **WHEN** a helper brief for an allowed `codex` names no denied path
@@ -74,7 +74,7 @@ Keel MUST read an optional `external_agents:` block in `keel/config.yaml` with a
 
 #### Scenario: Implementation still needs the matching guard
 - **WHEN** an implementation brief is asked for with no active guard for the task
-- **THEN** it is refused with the same reason `keel project --event subagent-start --subagent-mode implementation` gives
+- **THEN** it is refused, naming the missing or mismatched guard
 
 ### Requirement: The checkout is an external agent's write boundary
 

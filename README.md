@@ -487,11 +487,10 @@ the words Keel states criteria in, so a tier can only ever skip a file that deci
 what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
 the judgement a weak executor gets most wrong, and it would be answering it about itself.
 
-Two skills carry a guidance file today. `keel-run-single-task-goal` was split, and its body is 11%
-smaller for it. `keel-tdd-or-test-first` gained one rather than lost prose to it: a table that picks
-a Verify strategy by what would make the Acceptance false, with right and wrong choices and when each
-evidence form pays (#389). The other four are almost entirely criteria, so splitting them would move
-the half that has to stay.
+One skill carries a guidance file today: `keel-tdd-or-test-first`, a table that picks a Verify
+strategy by what would make the Acceptance false, with right and wrong choices and when each evidence
+form pays (#389). The other four are almost entirely criteria, so splitting them would move the half
+that has to stay.
 
 ## How the agent uses these
 
@@ -785,7 +784,7 @@ keel agents codex                # its template, sandboxes, where it sends data,
 keel agents brief codex --mode helper --dir . --out /tmp/brief.md --change <c> --task <t>
 ```
 
-`keel agents brief` compiles the same brief `keel project --event subagent-start` publishes, writes
+`keel agents brief` compiles a brief from the selected task's capsule, writes
 it to a file, and prints the command to run, which writes the agent's exit status to a `.exit` file
 beside its result. **Keel launches nothing**; the session runs it, and re-runs every check before
 anything counts as evidence. It refuses:

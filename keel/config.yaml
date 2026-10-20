@@ -1,12 +1,12 @@
 # Keel project configuration.
 #
-# Thirteen independent declarations live here: fast_check, which names a command;
+# Twelve independent declarations live here: fast_check, which names a command;
 # authorize, which names repository actions this project has decided may
 # proceed without being asked each time; precedents, which points at a
 # directory of decisions already made and the reasoning behind them; triage,
 # which names which work may start without being asked about at all;
-# delegation, which carries optional capability metadata; full_mode_paths, which names the
-# paths whose change always takes the complete flow; executor_tier, which
+# full_mode_paths, which names the paths whose change always takes the
+# complete flow; executor_tier, which
 # names how much stepwise guidance this project's skills should load;
 # merge, which names who merges into the default branch; and
 # external_agents, which names the external model CLIs this project allows and
@@ -211,22 +211,6 @@ patrol:
 triage:
   - auto
 
-# delegation (optional): capability metadata for implementation delegates.
-# Model choice does not need this block. An absent tier is not inferred and
-# does not forbid guarded implementation. Helpers are read-only and ignore
-# implementation metadata. A task-authored tier takes precedence.
-#
-#   delegation:
-#     tier: standard
-#
-# Accepted: routine, standard, deep. Invalid declared metadata refuses
-# implementation rather than silently substituting a tier. Keel neither
-# selects nor observes a concrete model. Task write authority and a matching
-# active guard remain required; the current agent re-runs each M<n> check and
-# owns Review and completion. Host policy remains authoritative.
-#
-# This repository declares no capability metadata.
-
 # full_mode_paths (optional): the paths whose change always routes Full,
 # whatever the diff size says. Routing is the first decision of a session, and
 # the size heuristic — roughly three files or a hundred lines — is a proxy for
@@ -297,8 +281,8 @@ merge: repository:full-gate
 #
 # What this does NOT do: Keel launches no agent and cannot observe what one
 # reads beyond the brief, so egress_deny guards what is handed over, not what
-# an agent can open in its directory. The delegation rules are unchanged: the
-# session stays the owner and re-runs every check before recording Evidence.
+# an agent can open in its directory. The session re-runs every check before
+# recording Evidence.
 #
 # Declared 2026-10-11 by the owner, who decided that issue #254's
 # implementation is handed to codex from a Claude session. No egress_deny:

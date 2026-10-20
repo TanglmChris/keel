@@ -147,14 +147,6 @@ function sessionChatRole(repo) {
   }
 }
 
-// The closed vocabulary of capability tiers a repository may declare for a
-// delegated task. The names describe the capability the work requires, never
-// the size of the work: a tier named for size would authorize the agent's guess
-// about difficulty, which is the judgement 5.7.0 refused for triage. Keel names
-// no concrete model — one is target-specific and expires at the next release,
-// and the declaration must still be correct after both.
-const DELEGATION_TIERS = ["routine", "standard", "deep"];
-
 // Every declaration this module reads, in the order the file documents them. One
 // list, so an assertion about the set can be derived from the set instead of
 // restating it: the header check used to pin an English numeral and had been
@@ -166,7 +158,6 @@ const CONFIG_DECLARATIONS = [
   "authorize",
   "precedents",
   "triage",
-  "delegation",
   "full_mode_paths",
   "executor_tier",
   "merge",
@@ -543,8 +534,8 @@ function fullModePathsUnreadableMessage(unreadable) {
     + "then recognise the sibling the list does not name.";
 }
 
-// A nested block of `name: value` entries under one top-level key. Delegation
-// needs a key with a value rather than a bare list, so it cannot reuse
+// A nested block of `name: value` entries under one top-level key. Patrol and
+// shift need a key with a value rather than a bare list, so they cannot reuse
 // configList; the reader stays line-oriented for the same reason the others do.
 function configMap(repo, key) {
   const configPath = path.join(repo, "keel", "config.yaml");
@@ -567,25 +558,6 @@ function configMap(repo, key) {
     entries[entry[1]] = entry[2];
   }
   return entries;
-}
-
-// Optional capability metadata; absence does not forbid model-chosen delegation.
-function readDelegationPolicy(repo) {
-  const block = configMap(repo, "delegation");
-  const tier = block.tier;
-  // The accepted set travels with every answer so a caller reporting a refusal
-  // can name the alternatives without importing the vocabulary itself. A copy,
-  // because a caller that sorted or spliced it in place would edit the closed
-  // set for everyone who read it afterward.
-  const accepted = [...DELEGATION_TIERS];
-  if (!tier) return { declared: false, tier: null, unknown: [], accepted };
-  // Fail closed, the same way an unrecognized `authorize:` action does: a
-  // declaration Keel cannot fully read authorizes nothing, because the author
-  // of a typo believes they declared what they typed.
-  if (!DELEGATION_TIERS.includes(tier)) {
-    return { declared: true, tier: null, unknown: [tier], accepted };
-  }
-  return { declared: true, tier, unknown: [], accepted };
 }
 
 // `external_agents:` — which external model CLIs this project allows, and the
@@ -672,10 +644,7 @@ function readExternalAgents(repo) {
 const EXECUTOR_TIERS = ["standard", "high"];
 const EXECUTOR_TIER_DEFAULT = "standard";
 
-// The tier reaches guidance and nothing else. It is a separate key from
-// `delegation:`'s tier on purpose: that one names who runs a *delegated* task,
-// and a repository may hand routine work to a weak delegate while its own
-// session is strong, so one field cannot answer both without lying about one.
+// The tier reaches guidance and nothing else.
 function readExecutorTier(repo) {
   const declared = configScalar(repo, "executor_tier");
   const accepted = [...EXECUTOR_TIERS];
@@ -687,7 +656,7 @@ function readExecutorTier(repo) {
       accepted,
     };
   }
-  // Fail closed, the same rule `delegation:` and `authorize:` follow — except
+  // Fail closed, the same rule `authorize:` follows — except
   // that closed here means *reading* the guidance rather than skipping it. A
   // misspelling must not silently buy the reduction it asked for.
   if (!EXECUTOR_TIERS.includes(declared)) {
@@ -1069,7 +1038,6 @@ module.exports = {
   readReadOnlyRoles,
   readExternalAgents,
   CONFIG_RELATIVE_PATH,
-  DELEGATION_TIERS,
   EXECUTOR_TIERS,
   EXECUTOR_TIER_DEFAULT,
   CONFIG_DECLARATIONS,
@@ -1077,7 +1045,6 @@ module.exports = {
   SCOPED_AUTHORIZATION_ACTIONS,
   readFullModePaths,
   fullModePathsUnreadableMessage,
-  readDelegationPolicy,
   readExecutorTier,
   readMergeDeclaration,
   executorTierUnreadableMessage,

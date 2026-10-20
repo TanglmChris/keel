@@ -415,24 +415,6 @@ declaration MUST NOT change what completion requires.
 - **WHEN** every evidence-first check has concrete observable evidence and semantic Review is pass
 - **THEN** structural completion may pass without invented red-green records
 
-### Requirement: Goal execution consumes gates without extending them
-Native goal execution MUST consume the shared read-only `task-start` and `task-complete` results and MUST NOT add target-specific task parsers, writable gates, or evaluator-owned completion rules.
-
-#### Scenario: Goal is prepared from task-start
-- **WHEN** the current agent requests a goal projection for one task
-- **THEN** Core returns the same capsule and fingerprint used by normal `task-start`
-- **AND THEN** the target adapter performs no independent Markdown parsing
-
-#### Scenario: Completion evidence is surfaced
-- **WHEN** `task-complete` passes for the selected task
-- **THEN** the current agent may surface its versioned status and selected fingerprint to the native evaluator
-- **AND THEN** the gate still performs no task checkbox, goal, Review, or Evidence write
-
-#### Scenario: Native evaluator disagrees with gate state
-- **WHEN** the native evaluator's completion judgment conflicts with Core gate state
-- **THEN** Core gate state and current-agent Review control Keel completion
-- **AND THEN** the disagreement is reported as native projection evidence
-
 ### Requirement: Gate execution is deterministic and write-bounded
 
 Core gates MUST run locally without network access or model calls. The only permitted project writes are the disposable `keel-write-guard/v1` manifest written by a passing `task-start` on the Claude target when `--no-guard` is absent, and the single-line replacement of the selected task's `- Contract:` Evidence anchor performed by a passing `task-start` when the caller explicitly passes `--record` and the anchor does not already hold the compiled fingerprint line. `task-complete`, `change-close`, and every failing or `needs-review` outcome MUST NOT write project state. Gates MUST return `pass`, `fail`, or `needs-review` through one versioned machine-readable result.
@@ -918,4 +900,3 @@ Keel MUST NOT judge whether a declared signature is an adequate one.
 
 - **WHEN** `keel gate task-start` reports the red-green obligation for a task
 - **THEN** it names which of the checks owing a red declared a failure signature and which did not
-

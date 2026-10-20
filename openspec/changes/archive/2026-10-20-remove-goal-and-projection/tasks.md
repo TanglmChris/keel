@@ -1,0 +1,148 @@
+# Tasks
+
+## 1. Remove the goal, helper, task-view, and subagent projection tooling
+
+- [x] 1.1 Remove the tooling and keep the external-agent brief working from the task capsule
+  - Covers:
+    - keel-external-agents / The external agent brief is compiled from the task capsule, checked for egress / Implementation still needs the matching guard
+    - keel-external-agents / The external agent brief is compiled from the task capsule, checked for egress / A clean helper brief is written and its command printed
+    - keel-native-plugin-package / The Claude plugin is the npm package / One package carries the plugin and its CLI
+    - keel-target-surface-diagnostics / Target adapters report behavior capabilities / Unverified automation is manual
+    - keel-native-runtime-projection / Native projections consume the fingerprinted task capsule / Projection includes executable boundaries
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/remove-goal-and-projection/design.md
+    - src/core/projection.js
+    - src/core/agents.js
+  - Touch:
+    - bin/keel.js
+    - src/core/goal.js
+    - src/core/helper.js
+    - src/core/tasksview.js
+    - src/core/projection.js
+    - src/core/capabilities.js
+    - src/core/config.js
+    - src/core/task-contract.js
+    - src/core/agents.js
+    - src/skills/keel-run-single-task-goal/SKILL.md
+    - src/skills/keel-run-single-task-goal/guidance.md
+    - plugins/keel/skills/keel-run-single-task-goal/SKILL.md
+    - plugins/keel/skills/keel-run-single-task-goal/guidance.md
+    - plugins/keel/agents/keel-single-task-goal-claude.md
+    - plugins/keel/agents/keel-single-task-goal-codex.md
+    - plugins/keel/.codex-plugin/plugin.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/scripts/session-start.js
+    - plugins/keel/scripts/pretooluse-guard.js
+    - assets/openspec/schemas/keel-spec-driven/templates/tasks.md
+    - openspec/schemas/keel-spec-driven/templates/tasks.md
+    - keel/config.yaml
+    - AGENTS.md
+    - README.md
+    - README.zh-CN.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario native-projections-removed`: `keel project goal`, `keel project tasks`, `keel project helper`, and `keel project --event subagent-start` each exit nonzero with a message naming the form as unknown or unsupported (today the first three print a `blocked` projection and the fourth exits 0); `keel --doctor --target claude` prints no `execution.goal`, `execution.task-view`, `delegation.`, or `helper ` line; `plugins/keel/skills/keel-run-single-task-goal` and `plugins/keel/agents` do not exist; neither plugin manifest names an agent; and `keel project --event startup` still exits 0. Fails with: `native-projections-removed:` Detects: `the goal subcommand left registered in bin/keel.js` -> `keel project goal was not refused as unknown`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario external-agent-brief` passes: a helper brief is written from the task capsule, and an implementation brief with no matching guard is refused naming the guard.
+    - M3 (regression): `--scenario native-runtime-projection`, `--scenario guard-containment-is-resolved`, `--scenario output-survives-the-pipe`, `--scenario target-surface`, and `--scenario target-capability-adapters` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c9cbd2022f59ceb9925cf4e3bcf8951e1046ab12884a79407d6a52d0ef0732dc (keel 5.172.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario native-projections-removed` reports `native-projections-removed scenario passed.` (exit 0): in a fresh `keel --init` repository `keel project goal|tasks|helper` exit 2 with `unknown project subcommand`, `keel project --event subagent-start` exits 1 with `unsupported projection event`, `keel project --event startup` exits 0, doctor prints no `execution.goal`, `execution.task-view`, `delegation.`, or `helper ` line, neither skill copy nor `plugins/keel/agents` exists, and neither manifest names agents.
+    - M1.red: fail. Before the removal: `native-projections-removed: keel project goal was not refused as unknown: 'Keel native goal: blocked\nTarget: claude\nReason: Native goal activation requires one explicit --change and --task select'` (exit 1).
+    - M1.green: pass. With `goal.js`, `helper.js`, `tasksview.js`, the skill, and the agents deleted; `bin/keel.js` refusing any `keel project` subcommand and dropping `--authorize`, `--subagent-mode`, `--native-complete`, `--expected-fingerprint`, and the helper flags; `projection.js` keeping only startup/resume/compaction/worktree and exporting `selectTaskContract`; `agents.js` compiling its brief through a private `compileTaskBrief` with the matching-guard refusal; `capabilities.js` dropping the four capability keys, the helper dimensions, and the goal warning; `config.js` and `task-contract.js` dropping `delegation:`; and both manifests dropping `agents`, the scenario passed.
+    - M1.detects: with `bin/keel.js`, `goal.js`, `helper.js`, and `tasksview.js` restored from `origin/main` (the goal subcommand registered), the scenario failed with `native-projections-removed: keel project goal was not refused as unknown: 'Keel native goal: blocked…'` (exit 1); the files were restored and the scenario passed again.
+    - M2: pass. `external-agent-brief scenario passed.` Its unguarded-implementation check now expects `requires an active write guard` from the brief itself instead of comparing against the removed subagent projection.
+    - M3: pass. `native-runtime-projection` (goal, task-view, and subagent blocks and the `helperAuthority` projection field removed; the task-complete check kept), `guard-containment-is-resolved` (helper-baseline M4 removed), `target-surface` and `target-capability-adapters` (capability lists cut to the five remaining keys plus `execution.worktree`), all `scenario passed.`; `output-survives-the-pipe` now drives `gate task-start --json --no-guard` and on macOS reaches its F_SETPIPE_SZ skip after the fixture produced more than 4096 bytes, as it did before.
+    - Review:
+      - Status: pass
+      - Acceptance check: the removed forms are refused by name from the outside, doctor no longer reports them, the plugin ships neither the skill nor the agents, and `keel agents brief` still writes a helper brief and refuses an unguarded implementation; no recorded fingerprint moves because the capsule keeps `helperAuthority` and no live repository declares `delegation:`.
+      - Scope check: changed files are the Touch list plus this change's directory. The validator also lost 20 scenarios and their dead helpers, and seven more assertions moved: `delegation-resident-text` (template and header needles), `continuation-docs` (goal-skill step 7), `a-count-is-derived-from-what-it-counts` (`delegation`), and the skill lists.
+      - Findings: the tasks template still said "cross-task continuation stay unauthorized", which 5.172.0 had made false; fixed here with the template rewrite. Resolved here: scripts/validate_plugin.py — its `delegation-resident-text` scenario now fails if that phrase returns, and it passed on the rewritten templates.
+    - Blocker: none
+    - Reauthorizations: once, before any product write: M1's text was tightened to require the refusal to name the form as unknown or unsupported, and its `Detects:` failure literal moved from `keel project goal exited 0` to `keel project goal was not refused as unknown`, because in a fresh repository the old forms already exited nonzero with a `blocked` projection, so an exit-code check could not tell removal from absence of a task. Contract 5587093… → c9cbd202….
+
+## 2. Release
+
+- [x] 2.1 Release and promote the specs
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-single-task-goal-execution/spec.md
+    - openspec/specs/keel-authorized-delegation/spec.md
+    - openspec/specs/keel-native-runtime-projection/spec.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-target-surface-diagnostics/spec.md
+    - openspec/specs/keel-task-capsule/spec.md
+    - openspec/specs/keel-external-agents/spec.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-stateless-continuity/spec.md
+    - openspec/specs/keel-native-plugin-package/spec.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/archive.md
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/sync.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the two retired specs are deleted, the other deltas are promoted, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5c86f59718a14eebf7c0c7ee2fe9eefe141f5a90b4eccaa1912d61a800910b8b (keel 5.172.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.172.0 → 5.173.0; with the "Keel no longer projects goals, helpers, task views, or subagent briefs" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0).
+    - M2: `openspec/specs/keel-single-task-goal-execution/` and `openspec/specs/keel-authorized-delegation/` were deleted; the other seven deltas were promoted (renames applied, modified blocks replaced, each removed requirement replaced in place by its added successor or dropped); `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0). No published spec, doc, or source file names either retired capability.
+    - M3: pass. `npm test` on commit 65c4721 (clean tree), started 19:31 at load 8: `validation --all passed: baseline plus 292 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The run before it failed only `assertion-shape-count`: `80 assertion sites are recorded but only 74 are present`, because the 20 removed scenarios took six or-guarded sites with them; `OR_GUARDED_ASSERTION_SITES` was lowered to 74.
+    - Review:
+      - Status: pass
+      - Acceptance check: E4 — version markers, the 5.173.0 changelog section, two retired specs, and seven promoted specs carry the change; the full suite passes on the committed tree.
+      - Scope check: files beyond task 1.1 are the version markers, `keel/CHANGELOG.md`, the published specs, and the one constant in `scripts/validate_plugin.py`, all in this task's Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Two skills carry a guidance file today. `keel-run-single-task-goal` was split" — `README.md`. Updated by: 1.1.
+- I2: "`keel agents brief` compiles the same brief `keel project --event subagent-start` publishes" — `README.md` and `README.zh-CN.md`. Updated by: 1.1.
+- I3: "`keel project tasks`" and the "一次性投影" paragraph — `README.zh-CN.md`. Updated by: 1.1.
+- I4: "delegation, which carries optional capability metadata" and "Thirteen independent declarations" — `keel/config.yaml` header. Updated by: 1.1.
+- I5: "Optional `delegation:` tiers carry metadata, not permission." — `AGENTS.md`. Updated by: 1.1.
+- I6: "The `/goal` customization is removed in a separate release." — `keel/CHANGELOG.md` 5.172.0. Discard reason: a released changelog entry is history; the 5.173.0 entry records the removal.
+- I7: "Single-task goal activation is explicit and fingerprinted", "Delegation requires an active write-guard manifest", "Helper projection cannot transfer Keel ownership", and "The external agent brief is the delegation brief" — the published specs. Updated by: 2.1.
+
+## Expectation Coverage
+
+- E1: No Keel goal, helper, task-view, or subagent projection remains to steer native capabilities (#414; D1, D4). Covered by: 1.1
+- E2: `keel agents brief` keeps its brief and refusals without the subagent projection (#414; D2). Covered by: 1.1
+- E3: No recorded fingerprint moves (owner decision; D3). Covered by: 1.1
+- E4: The release carries it. Covered by: 2.1

@@ -3,7 +3,7 @@
 Define Keel diagnostics for target-specific OpenSpec command, skill, completion-gate, and overlay health surfaces.
 ## Requirements
 ### Requirement: Keel doctor reports the target surface
-`keel --doctor --target <target>` MUST report Keel CLI/OpenSpec readiness, native plugin discovery and version, minimal bootstrap, canonical skill/reference inventory, applicable OpenSpec-generated action/command overlays, hook configuration/trust/activation/behavior, and continuity/gate/goal/helper capability levels. It MUST not require copied Keel skill/hook/adapter trees as v4 health evidence.
+`keel --doctor --target <target>` MUST report Keel CLI/OpenSpec readiness, native plugin discovery and version, minimal bootstrap, canonical skill/reference inventory, applicable OpenSpec-generated action/command overlays, hook configuration/trust/activation/behavior, and continuity/gate capability levels. It MUST not require copied Keel skill/hook/adapter trees as v4 health evidence.
 
 #### Scenario: Claude native surface is reported
 - **WHEN** doctor runs for Claude in a v4 repository
@@ -32,7 +32,7 @@ Define Keel diagnostics for target-specific OpenSpec command, skill, completion-
 
 ### Requirement: Target adapters report behavior capabilities
 
-Keel diagnostics MUST report behavior-oriented capabilities for continuity startup or reinjection, the `task-start`, `task-complete`, and `change-close` gates, optional goal/task view, worktree continuity, and bounded-subagent context or return as `enforced`, `advisory`, or `manual`.
+Keel diagnostics MUST report behavior-oriented capabilities for continuity startup or reinjection, the `task-start`, `task-complete`, and `change-close` gates, and worktree continuity as `enforced`, `advisory`, or `manual`.
 
 #### Scenario: Verified blocking automation is enforced
 - **WHEN** Keel can confirm that a target surface is installed, enabled, trusted, and reliably blocks a Core non-pass result
@@ -142,34 +142,6 @@ Keel MUST distinguish manifest presence, marketplace discovery, installation, en
 - **WHEN** doctor runs in a project that consumes Keel rather than in Keel's own source repository
 - **THEN** it does not report the plugin source manifest check, whose path `keel --init` never creates
 - **AND THEN** no remediation line directs the author to install a plugin that is already installed
-
-### Requirement: Doctor reports native single-task execution capability
-`keel --doctor --target <target>` MUST report goal discovery, explicit activation, continuation, resume, clear or stop behavior, transcript evidence limits, helper restriction enforcement, and observed fallback level separately.
-
-#### Scenario: Codex goal behavior is verified
-- **WHEN** isolated Codex probes demonstrate activation, continuation, pause or clear, resume, fingerprint drift stop, and one-task termination
-- **THEN** doctor may report goal execution as `enforced`
-- **AND THEN** the report includes the observed client and feature configuration
-
-#### Scenario: Claude goal behavior is verified
-- **WHEN** isolated Claude probes demonstrate trusted activation, transcript evidence, clear, resume, fingerprint drift stop, and one-task termination
-- **THEN** doctor may report goal execution as `enforced`
-- **AND THEN** hook trust and managed-policy evidence are reported separately
-
-#### Scenario: Goal exists but activation is not callable
-- **WHEN** the target supports `/goal` but Keel cannot safely activate it in the current surface
-- **THEN** doctor reports `advisory` and the exact explicit user action
-- **AND THEN** version presence alone does not report `enforced`
-
-#### Scenario: Helper restriction is incomplete
-- **WHEN** a target cannot prevent nested delegation or repository writes and byte-stability cannot be proven
-- **THEN** doctor reports helper execution as `manual`
-- **AND THEN** goal execution remains usable without helpers
-
-#### Scenario: OpenCode is inspected
-- **WHEN** doctor runs for OpenCode under v4
-- **THEN** it reports native goal and helper automation as unsupported manual compatibility
-- **AND THEN** it does not search for or recommend v4 OpenCode plugin artifacts
 
 ### Requirement: Doctor reports keel-* skills as a plugin surface
 

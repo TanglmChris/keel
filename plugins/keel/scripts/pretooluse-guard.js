@@ -146,10 +146,9 @@ function taskIsChecked(repo, manifest) {
 // nearest existing ancestor; when nothing resolves, the unresolved path is
 // what remains, which is exactly the comparison that shipped.
 //
-// `src/core/helper.js` answers the same question and must keep answering it
-// the same way. It is deliberately not shared as an import: this hook is a
-// standalone script the host executes, and depending on `src/core` would make
-// the guard fail wherever the package layout differs from this repository's.
+// It is deliberately not shared as an import: this hook is a standalone script
+// the host executes, and depending on `src/core` would make the guard fail
+// wherever the package layout differs from this repository's.
 function realPathOrNearest(target) {
   let current = path.resolve(target);
   const trailing = [];

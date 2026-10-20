@@ -1,6 +1,6 @@
-# Keel v5.172.0 Agent Protocol
+# Keel v5.173.0 Agent Protocol
 
-<!-- keel:start version=5.172.0 -->
+<!-- keel:start version=5.173.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result; its read list is where to start, not a limit.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -17,7 +17,7 @@
 - Use official OpenSpec OPSX for Full-mode proposal, design, specs, tasks, sync, and archive state under `openspec/`.
 - During OpenSpec authoring, align expectations with `keel-align-expectations` before specs and executable tasks finalize: quick path for complete low-risk work; risk-triggered deep path — the only question-loop entry — when proposal, design, tasks, domain lenses (user-authored `keel/lenses/*.md`), decision precedents (a user-authored store declared by `precedents:` in `keel/config.yaml`, consulted before escalating and recorded when the user decides something new), or high-risk changes expose hidden-knowledge risk. Inspect repository facts before user questions and keep inferred candidates unauthorized until accepted. Missing authority returns to OpenSpec authoring before implementation continues. New or materially expanded dedicated skills require authoritative source research, provenance/license review, realistic positive and negative trigger cases, and real-task evidence; keep portable `SKILL.md` authority canonical, target metadata additive, and runtime discovery target-native.
 - Use `/opsx:apply` as the implementation entry, and work through the unchecked tasks of an approved `tasks.md` in order, each started by `keel gate task-start` and completed by `keel gate task-complete`; every stop trigger still halts.
-- A subagent is the model's choice and is treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step. Optional `delegation:` tiers carry metadata, not permission.
+- A subagent is the model's choice and is treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step.
 - External model CLIs (codex, dsh, and others) run under the same gates, and the host's write guard does not reach them. `keel agents brief <name>` compiles their brief from the selected task and prints the command; it refuses an agent that `external_agents:` in `keel/config.yaml` does not allow, a Read or Touch path its `egress_deny` names, and any write-capable run in the session's own checkout. Keel launches nothing, and whether to call one stays the model's choice; `keel agents <name>` shows an agent's dated facts and pitfalls on demand.
 - Keel carries a declared capability tier and never a model name: it neither selects a model nor can observe which one ran, and a tier is declared rather than inferred from a task's size.
 - Keep the selected task capsule authoritative. Author tasks in the compact v4 form (Covers, Touch, Verify with Strategy plus M<n> checks, Evidence anchor) inheriting versioned `keel-task-capsule/v1` defaults; compatible expanded v3 tasks compile through the same parser, declaring `Commands` where a compact task declares `Verify`, and contradictory legacy fields fail with migration diagnostics; a task declaring neither form is reported as missing one field, and no field that resolves to a documented default is required. Read gives starting context, Touch is the write boundary, Verify checks prove Acceptance, and the autonomy boundary controls fallback decisions. A `Q<n>` blocks implementation only when it opens a Covers entry, so a resolved question can be cited beside the fact that closed it.
@@ -96,7 +96,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.172.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.173.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions

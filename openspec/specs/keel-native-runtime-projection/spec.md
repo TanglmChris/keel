@@ -29,23 +29,6 @@ Keel target adapters MUST use the strongest verified native behavior to project 
 - **THEN** the adapter projects the current context through a verified Claude lifecycle surface
 - **AND THEN** compaction does not make HANDOFF or transcript memory the durable owner
 
-### Requirement: Goal and task-view projection requires explicit activation
-
-Keel MUST require explicit user or selected-task authorization before it MAY project the selected task objective, Acceptance, and next action into native goal or task UI.
-
-#### Scenario: Authorized goal is derived from OpenSpec
-- **WHEN** native goal projection is explicitly enabled for a selected task
-- **THEN** the projected condition is derived from that task's objective, Acceptance, and Stop boundary
-- **AND THEN** goal evaluation remains advisory to Keel completion
-
-#### Scenario: Goal is not enabled implicitly
-- **WHEN** no user or task authorization enables a native goal loop
-- **THEN** Keel does not start or continue one automatically
-
-#### Scenario: Task UI remains a view
-- **WHEN** Keel projects OpenSpec work into native task or todo UI
-- **THEN** native updates do not change task checkboxes, Evidence, Review, Acceptance, or follow-up ownership
-
 ### Requirement: Worktree movement preserves durable ownership
 
 Keel MUST recompute context in the current checkout and preserve the same OpenSpec owner when a supported runtime resumes or hands work between worktrees of the same repository. Keel MUST NOT infer ownership from a stored checkout path.
@@ -59,30 +42,6 @@ Keel MUST recompute context in the current checkout and preserve the same OpenSp
 - **WHEN** the current worktree does not contain the selected durable owner or contains incompatible OpenSpec state
 - **THEN** projection is blocked or manual with a clear reason
 - **AND THEN** Keel does not copy hidden state from another checkout to make it appear valid
-
-### Requirement: Subagent projection preserves Keel ownership
-
-Keel MUST let the current agent choose bounded helper or implementation subagent posture without extra user activation for subagent use. Helper posture MUST be read-only/evidence-only and independent of delegation configuration. Implementation posture MUST require current task write authority and a valid matching active guard; optional tiers MUST remain metadata. The current agent MUST retain task, Acceptance, fallback and completion decisions. Goal and task-view activation MUST remain explicit. Legacy activation flags MAY remain compatible without being required.
-
-#### Scenario: Model chooses a helper
-- **WHEN** a task is selected without user subagent activation or a delegation declaration
-- **THEN** helper projection is ready and prohibits writes and durable-state decisions
-
-#### Scenario: Model chooses an implementation delegate
-- **WHEN** implementation posture is selected for an implementation task with Touch and matching active guard, without a tier declaration
-- **THEN** the brief carries the write boundary and fingerprint, requiring master re-verification
-
-#### Scenario: Invalid guard refuses implementation
-- **WHEN** a manifest is missing, invalid, drifted, or guards a different task
-- **THEN** implementation is refused with its cause, while a read-only helper needs no guard
-
-#### Scenario: Subagent return remains a claim
-- **WHEN** a subagent reports completion or passed checks
-- **THEN** current-agent Review, rerun verification and completion gates remain required
-
-#### Scenario: Host policy remains authoritative
-- **WHEN** host policy disallows a launch
-- **THEN** Keel does not bypass it and projection readiness is not reported as an actual launch
 
 ### Requirement: Native recovery and scheduling remain optional aids
 
@@ -102,16 +61,16 @@ Keel MUST remain correct when native memory, checkpoints, rewind/undo, transcrip
 - **THEN** Keel does not require or manage those surfaces as part of Core correctness
 
 ### Requirement: Native projections consume the fingerprinted task capsule
-Every authorized native goal, task view, worktree view, or helper brief MUST be derived from the same freshly compiled `keel-task-capsule/v1` used by Core gates and MUST include the contract fingerprint needed to detect stale views.
+Every native worktree view and every external-agent brief MUST be derived from the same freshly compiled `keel-task-capsule/v1` used by Core gates and MUST include the contract fingerprint needed to detect stale views.
 
 #### Scenario: Projection includes executable boundaries
-- **WHEN** an authorized projection is requested for a selected task
-- **THEN** it includes capsule schema, fingerprint, objective, resolved Acceptance, Read, Touch, verification strategy and checks, stop/autonomy boundary, current-agent owner, helper return authority, and prohibitions applicable to that projection
+- **WHEN** a projection is requested for a selected task
+- **THEN** it includes capsule schema, fingerprint, objective, resolved Acceptance, Read, Touch, verification strategy and checks, stop/autonomy boundary, and prohibitions applicable to that projection
 - **AND THEN** it does not independently parse task Markdown
 
 #### Scenario: Stale projection is rejected
-- **WHEN** the current capsule fingerprint differs from the task's recorded start fingerprint or the fingerprint supplied by a returning helper
-- **THEN** Keel rejects the projection or helper return as stale
+- **WHEN** the current capsule fingerprint differs from the task's recorded start fingerprint
+- **THEN** Keel rejects the projection as stale
 - **AND THEN** native completion cannot update durable OpenSpec state
 
 #### Scenario: OpenCode remains manual-compatible
@@ -158,59 +117,6 @@ The SessionStart script MUST return deterministic, bounded diagnostics for missi
 - **WHEN** Keel CLI cannot run or returns malformed/operational failure output
 - **THEN** the hook reports a concise manual fallback and exits according to non-blocking SessionStart policy
 - **AND THEN** the session remains usable
-
-### Requirement: Authorized goal projection has a disposable lifecycle
-Keel MUST create, resume, and retire a native goal only as a disposable view of one durably authorized task and fingerprint.
-
-#### Scenario: Authorized goal resumes with matching authority
-- **WHEN** a supported session resumes with an active goal
-- **AND WHEN** the durable task authorization, explicit selection, and recomputed fingerprint all match
-- **THEN** the current agent may continue the selected task
-- **AND THEN** native goal state is not used to infer a different owner or completion
-
-#### Scenario: Missing native goal is reconstructed
-- **WHEN** the authorized task is still incomplete after a supported resume or compaction
-- **AND WHEN** the same durable fingerprint and activation capability remain valid
-- **THEN** the current agent may reconstruct the disposable projection
-- **AND THEN** it does not create a new task authorization
-
-#### Scenario: Projection authority drifts
-- **WHEN** the task, referenced authority, checkout, or fingerprint no longer matches the authorization
-- **THEN** the projection is paused, cleared, or refused before product writes
-- **AND THEN** reauthorization is required after the durable task is repaired or reselected
-
-### Requirement: Helper projection cannot transfer Keel ownership
-Keel MUST project helper work as a bounded evidence request and MUST keep task implementation, acceptance, and completion in the current agent.
-
-#### Scenario: Helper report returns
-- **WHEN** a bounded helper completes its brief
-- **THEN** the current agent validates its scope and repository byte stability
-- **AND THEN** the report is accepted only as supporting evidence
-
-### Requirement: Change checklist projects as a disposable native tasks view
-
-On the Claude target, `keel project tasks` MUST compile a `keel-native-tasks/v1` payload from the selected change's tasks.md checklist — change name, ordered task ids, titles, checkbox state, and the default-selected task — for the current agent to mirror into host-native task tools. The payload MUST be compiled fresh from OpenSpec state on every invocation, MUST NOT be persisted, and MUST NOT introduce a scheduler, auto-advance, a second writer of OpenSpec state, or a session database.
-
-#### Scenario: View compiles from the checklist
-- **WHEN** `keel project tasks --target claude` runs against a change with a parseable tasks.md
-- **THEN** the payload lists every checklist task with id, title, and checked state plus the default-selected task
-- **AND THEN** nothing is written to the project
-
-#### Scenario: Mirroring is agent-owned
-- **WHEN** the payload is produced
-- **THEN** reflecting it into native task UI is the current agent's explicit step
-- **AND THEN** Keel starts no synchronization loop and updates no host state itself
-
-#### Scenario: Host disagreement never writes back
-- **WHEN** host-native task status disagrees with OpenSpec checkboxes or gate state
-- **THEN** OpenSpec artifacts and gate results remain the only authority
-- **AND THEN** the disagreement is at most recorded as projection evidence, never written into OpenSpec state
-
-#### Scenario: View dies with the change
-- **WHEN** the projected change is archived
-- **THEN** the view has no surviving artifact to refresh and any mirrored host tasks are abandoned or closed by the agent
-- **AND THEN** no Keel surface reports the stale view as authority
-
 
 ### Requirement: Projected session state is reported to the user
 
