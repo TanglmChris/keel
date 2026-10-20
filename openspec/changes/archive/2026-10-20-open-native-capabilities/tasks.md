@@ -75,7 +75,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E7
   - Touch:
@@ -114,11 +114,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:5ff9826ab1e5d6739c54f689c1172d06edcfa1433d8a02085b778a628149d93c (keel 5.171.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.171.0 → 5.172.0; with the "Keel leaves the agent's native capabilities alone" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0).
+    - M2: the overlay spec's three removed requirements were replaced in place by the three added ones, its sync requirement modified, and the standing-authorization continuation requirement renamed and modified in place; the overlay spec's Purpose line now names the neutral subagent sentence instead of the gate. `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 802d470 (clean tree), started at 18:51 with load 9: `validation --all passed: baseline plus 311 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The first full run (on the 5.172.0 bump) failed `baseline`, `expectation-completion-gates`, `skill-portability-policy`, `native-plugin-session-start`, `resident-topic-matching`, `the-spec-names-the-managed-set`, and `the-routing-rule-reaches-the-decision`, each on an assertion of the removed wording (`read-only report/evidence`, `current Keel agent remains task owner and executor`, `Keep task decisions in the current agent`, `same failure at most 2 attempts`, `owns final sync/archive decisions`, `never infer continuity from native memory`, `sync/archive decisions`); those assertions were moved to the new wording in `scripts/validate_plugin.py`, and each scenario then passed alone before this run.
+    - Review:
+      - Status: pass
+      - Acceptance check: E7 — version markers, the 5.172.0 changelog section, and both published specs carry the change; the full suite passes on the committed tree.
+      - Scope check: files beyond task 1.1 are the version markers, `keel/CHANGELOG.md`, the two published specs, and `scripts/validate_plugin.py`, all in this task's Touch. The seven moved assertions are 1.1's acceptance surfacing late; they changed only checks of wording this change removed.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
