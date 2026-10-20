@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.170.0"
-PROTOCOL_VERSION = "5.170.0"
+PACKAGE_VERSION = "5.171.0"
+PROTOCOL_VERSION = "5.171.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -41349,7 +41349,7 @@ def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
     skills_root = ROOT / "src/skills"
     guidance_files = sorted(skills_root.glob("*/guidance.md"))
 
-    # D4 splits exactly one skill today. An empty glob would satisfy every loop
+    # Two skills carry one today (#135, #389). An empty glob would satisfy every loop
     # below without reading anything, so the count is asserted first.
     if not guidance_files:
         report(
@@ -41440,6 +41440,70 @@ def validate_guidance_is_referenced_and_carries_no_criterion_scenario() -> int:
         )
         return 1
 
+    if label not in {name for name, _ in SCENARIOS}:
+        report(f"{label}: the scenario registry does not include it.")
+        return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_tdd_strategy_guide_scenario() -> int:
+    """Issue #389: the skill an executor loads to plan its checks says how to choose.
+
+    The strategy list is read from the parser, not repeated here, so a strategy
+    added later without a selection row fails this scenario instead of passing
+    a list that was never updated. The clauses are the ones the completion gate
+    enforces; before #389 the skill named two of them and `AGENTS.md` the rest.
+    """
+    label = "tdd-strategy-guide"
+    skill_dir = ROOT / "src/skills/keel-tdd-or-test-first"
+    plugin_dir = ROOT / PLUGIN_ROOT / "skills/keel-tdd-or-test-first"
+    guidance = skill_dir / "guidance.md"
+    if not guidance.is_file():
+        report(f"{label}: keel-tdd-or-test-first has no guidance.md beside its SKILL.md.")
+        return 1
+    contract = (ROOT / "src/core/task-contract.js").read_text(encoding="utf-8")
+    declared = re.search(
+        r"const SUPPORTED_VERIFICATION_STRATEGIES = \[(.*?)\];", contract, re.S
+    )
+    if not declared:
+        report(f"{label}: SUPPORTED_VERIFICATION_STRATEGIES not found in task-contract.js.")
+        return 1
+    strategies = re.findall(r'^\s*"([a-z-]+)",', declared.group(1), re.M)
+    if len(strategies) < 7:
+        report(f"{label}: read {len(strategies)} strategies from the parser; expected at least 7.")
+        return 1
+    rows = [
+        line for line in guidance.read_text(encoding="utf-8").splitlines()
+        if line.startswith("|")
+    ]
+    for strategy in strategies:
+        if not any(f"`{strategy}`" in row for row in rows):
+            report(f"{label}: no selection row for {strategy} in the guidance table.")
+            return 1
+    body = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    for clause in (
+        "Fails with:",
+        "Detects:",
+        "Measured:",
+        "(regression)",
+        "deferred to C",
+        "artifact",
+    ):
+        if clause not in body:
+            report(f"{label}: the skill body does not name {clause!r}.")
+            return 1
+    if "what would make" not in body:
+        report(f"{label}: the skill body does not say a strategy is chosen by what would make the Acceptance false.")
+        return 1
+    for name in ("SKILL.md", "guidance.md"):
+        shipped = plugin_dir / name
+        if not shipped.is_file():
+            report(f"{label}: the plugin has no keel-tdd-or-test-first/{name}.")
+            return 1
+        if shipped.read_bytes() != (skill_dir / name).read_bytes():
+            report(f"{label}: the plugin's keel-tdd-or-test-first/{name} diverges from the canonical source.")
+            return 1
     if label not in {name for name, _ in SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
         return 1
@@ -43523,6 +43587,7 @@ SCENARIOS: tuple = (
         "guidance-is-referenced-and-carries-no-criterion",
         validate_guidance_is_referenced_and_carries_no_criterion_scenario,
     ),
+    ("tdd-strategy-guide", validate_tdd_strategy_guide_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,
