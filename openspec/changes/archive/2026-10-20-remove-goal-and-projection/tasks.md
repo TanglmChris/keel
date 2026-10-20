@@ -71,7 +71,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E4
   - Touch:
@@ -118,11 +118,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
-    - Review: pending
+    - Contract: keel-task-capsule/v1 sha256:5c86f59718a14eebf7c0c7ee2fe9eefe141f5a90b4eccaa1912d61a800910b8b (keel 5.172.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.172.0 → 5.173.0; with the "Keel no longer projects goals, helpers, task views, or subagent briefs" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0).
+    - M2: `openspec/specs/keel-single-task-goal-execution/` and `openspec/specs/keel-authorized-delegation/` were deleted; the other seven deltas were promoted (renames applied, modified blocks replaced, each removed requirement replaced in place by its added successor or dropped); `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0). No published spec, doc, or source file names either retired capability.
+    - M3: pass. `npm test` on commit 65c4721 (clean tree), started 19:31 at load 8: `validation --all passed: baseline plus 292 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The run before it failed only `assertion-shape-count`: `80 assertion sites are recorded but only 74 are present`, because the 20 removed scenarios took six or-guarded sites with them; `OR_GUARDED_ASSERTION_SITES` was lowered to 74.
+    - Review:
+      - Status: pass
+      - Acceptance check: E4 — version markers, the 5.173.0 changelog section, two retired specs, and seven promoted specs carry the change; the full suite passes on the committed tree.
+      - Scope check: files beyond task 1.1 are the version markers, `keel/CHANGELOG.md`, the published specs, and the one constant in `scripts/validate_plugin.py`, all in this task's Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
