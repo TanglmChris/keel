@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.169.0"
-PROTOCOL_VERSION = "5.169.0"
+PACKAGE_VERSION = "5.170.0"
+PROTOCOL_VERSION = "5.170.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -9534,6 +9534,163 @@ def validate_chat_notice_check_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("chat-notice-check scenario passed.")
+    return 0
+
+
+def validate_chat_dm_long_role_names_scenario() -> int:
+    """Issue #403 (kaiwu-ip, 2026-10-20): two long role names could not share a direct group.
+
+    `dm-<a>--<b>` of two 32-character-at-most role names can be up to 69
+    characters, and the group-name check stopped at 32, so `keel chat dm`
+    between `kaiwu-design-iecc` and `kaiwu-pm-iecc` failed. A direct group's
+    name is valid when it is two different valid role names in sorted order,
+    wherever a group is named, listed or authorized; any other name still
+    follows the role-name pattern.
+    """
+    label = "chat-dm-long-role-names:"
+    group = "dm-kaiwu-design-iecc--kaiwu-pm-iecc"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-403-") as raw:
+        base = Path(raw)
+        design = mailbox_repository(base / "design")
+        pm = chat_worktree(design, base / "pm")
+        env = chat_environment()
+        for cwd, role in ((design, "kaiwu-design-iecc"), (pm, "kaiwu-pm-iecc")):
+            bound = run_keel(cwd, "chat", "role", "--set", role, env=env)
+            if bound.returncode != 0:
+                report(f"{label} could not bind {role}: {bound.stderr!r}")
+                return 1
+
+        def chat(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(cwd, "chat", *args, env=env)
+
+        sent = chat(design, "dm", "kaiwu-pm-iecc", "lease freed")
+        if sent.returncode != 0:
+            report(f"{label} a direct message between long role names failed: {sent.stderr.strip()!r}")
+            return 1
+        unread = chat(pm, "unread").stdout
+        if "lease freed" not in unread:
+            report(f"{label} kaiwu-pm-iecc does not have the message unread: {unread!r}")
+            return 1
+        peeked = chat(pm, group, "--peek")
+        if peeked.returncode != 0:
+            report(f"{label} `keel chat {group} --peek` failed: {peeked.stderr!r}")
+            return 1
+        if "lease freed" not in peeked.stdout:
+            report(f"{label} `keel chat {group} --peek` does not print the message: {peeked.stdout!r}")
+            return 1
+        listed = chat(pm, "group", "list", "--json")
+        groups = {row["name"]: row for row in json.loads(listed.stdout or "{}").get("groups", [])} if listed.returncode == 0 else {}
+        if not groups.get(group, {}).get("direct"):
+            report(f"{label} group list does not list {group} as direct: {listed.stdout!r} {listed.stderr!r}")
+            return 1
+        for cwd in (design, pm):
+            write_text(cwd / "keel" / "config.yaml", f"authorize:\n  - chat-reply:{group}\n")
+        doctor = run_keel(design, "--doctor", env=env).stdout or ""
+        if not re.search(r"chat-reply: authorized.*" + re.escape(group), doctor):
+            report(f"{label} doctor does not read chat-reply:{group}: {[l for l in doctor.splitlines() if 'chat-reply' in l or 'authoriz' in l]!r}")
+            return 1
+        for bad in ("dm-kaiwu-pm-iecc--kaiwu-design-iecc", "Not_A_Group", "x" * 33):
+            refused = chat(design, bad, "--peek")
+            if refused.returncode == 0:
+                report(f"{label} the group name {bad!r} was accepted: {refused.stdout!r}")
+                return 1
+            if "is not a valid name" not in refused.stderr:
+                report(f"{label} the group name {bad!r} was refused, but not as an invalid name: {refused.stderr!r}")
+                return 1
+    if "chat-dm-long-role-names" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-dm-long-role-names scenario passed.")
+    return 0
+
+
+def validate_lock_notice_best_effort_scenario() -> int:
+    """Issue #403 (kaiwu-ip, 2026-10-20): a lease could not be freed while its notice failed.
+
+    Release and the expiry sweep posted to the waiters before removing the
+    lease, so a notice that could not be posted failed the command and kept
+    the lease until a different role's command freed it. A lease is freed
+    first; a notice that cannot be posted is a warning naming the role.
+    """
+    label = "lock-notice-best-effort:"
+    with tempfile.TemporaryDirectory(prefix="keel-lock-403-") as raw:
+        base = Path(raw)
+        a, b, env = chat_scratch_group(base)
+        c = chat_worktree(a, base / "design")
+        d = chat_worktree(a, base / "pm")
+        for tree, role in ((a, "integ"), (b, "sweep"), (c, "kaiwu-design-iecc"), (d, "kaiwu-pm-iecc")):
+            bound = run_keel(tree, "chat", "role", "--set", role, env=env)
+            if bound.returncode != 0:
+                report(f"{label} could not bind {role}: {bound.stderr!r}")
+                return 1
+        lease_file = mailbox_common_dir(a) / "keel-chat" / "locks" / "main-checkout.json"
+
+        def lock(tree: Path, *args: str) -> subprocess.CompletedProcess[str]:
+            return run_keel(tree, "lock", *args, env=env)
+
+        def hold_with_waiter() -> None:
+            for tree, note in ((a, "integration run"), (b, "formal sweep")):
+                lock(tree, "acquire", "main-checkout", "--for", "2h", "--note", note)
+            if "sweep" not in lease_file.read_text():
+                raise RuntimeError(f"sweep was not recorded as a waiter: {lease_file.read_text()!r}")
+
+        # The holder–waiter direct group is archived, so no message can be posted to it.
+        run_keel(a, "chat", "dm", "sweep", "before the archive", env=env)
+        archived = run_keel(a, "chat", "group", "archive", "dm-integ--sweep", env=env)
+        if archived.returncode != 0:
+            report(f"{label} could not archive dm-integ--sweep: {archived.stderr!r}")
+            return 1
+        hold_with_waiter()
+        released = lock(a, "release", "main-checkout")
+        if released.returncode != 0 or lease_file.exists():
+            report(f"{label} a notice that could not be posted kept the lease: exit {released.returncode}, {released.stderr.strip()!r}")
+            return 1
+        if "warning" not in released.stderr or "sweep" not in released.stderr:
+            report(f"{label} release did not warn naming sweep: {released.stderr!r}")
+            return 1
+        listed = lock(b, "list")
+        if listed.returncode != 0:
+            report(f"{label} keel lock list after the release failed: {listed.stderr!r}")
+            return 1
+        if "main-checkout" in listed.stdout:
+            report(f"{label} keel lock list still shows the released lease: {listed.stdout!r}")
+            return 1
+
+        hold_with_waiter()
+        expired = json.loads(lease_file.read_text())
+        expired["expires"] = "2000-01-01T00:00:00+00:00"
+        lease_file.write_text(json.dumps(expired))
+        swept = lock(a, "list")
+        if swept.returncode != 0 or lease_file.exists():
+            report(f"{label} an expired lease whose notice could not be posted was kept: exit {swept.returncode}, {swept.stderr.strip()!r}")
+            return 1
+        if "warning" not in swept.stderr or "sweep" not in swept.stderr:
+            report(f"{label} the expiry sweep did not warn naming sweep: {swept.stderr!r}")
+            return 1
+
+        lock(c, "acquire", "cpu-heavy", "--for", "10m", "--note", "heavy run")
+        lock(d, "acquire", "cpu-heavy", "--for", "10m", "--note", "queued")
+        released = lock(c, "release", "cpu-heavy")
+        if released.returncode != 0:
+            report(f"{label} release between long role names failed: {released.stderr.strip()!r}")
+            return 1
+        if "warning" in released.stderr:
+            report(f"{label} release between long role names warned: {released.stderr.strip()!r}")
+            return 1
+        listed = lock(d, "list")
+        if listed.returncode != 0:
+            report(f"{label} keel lock list after the long-name release failed: {listed.stderr!r}")
+            return 1
+        if "cpu-heavy" in listed.stdout:
+            report(f"{label} keel lock list still shows cpu-heavy after its release: {listed.stdout!r}")
+            return 1
+        if len(chat_records_with(a, "dm-kaiwu-design-iecc--kaiwu-pm-iecc", "lock cpu-heavy released by kaiwu-design-iecc")) != 1:
+            report(f"{label} the waiter kaiwu-pm-iecc was not told of the release.")
+            return 1
+    if "lock-notice-best-effort" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("lock-notice-best-effort scenario passed.")
     return 0
 
 
@@ -43176,6 +43333,8 @@ SCENARIOS: tuple = (
     ("shift-restore-authorization", validate_shift_restore_authorization_scenario),
     ("self-shift-authorization", validate_self_shift_authorization_scenario),
     ("resource-lock", validate_resource_lock_scenario),
+    ("chat-dm-long-role-names", validate_chat_dm_long_role_names_scenario),
+    ("lock-notice-best-effort", validate_lock_notice_best_effort_scenario),
     ("chat-supersedes", validate_chat_supersedes_scenario),
     ("chat-mention-skips-code", validate_chat_mention_skips_code_scenario),
     ("two-live-sessions-on-one-role", validate_two_live_sessions_on_one_role_scenario),
