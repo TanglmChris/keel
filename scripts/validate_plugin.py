@@ -18919,9 +18919,15 @@ def validate_task_body_ends_at_heading_scenario() -> int:
         # one, and a vertical-tdd task compiles to the identical block and the
         # identical fingerprint before and after, measured both ways. So no
         # existing anchor drifted; this fixture is simply a different task now.
+        #
+        # Moved again, deliberately and for every anchor, in 5.175.0 (#413): the
+        # capsule dropped three prohibitions and its default owner. The drift
+        # diagnosis names that move a compiler change, measured with an anchor
+        # recorded by 5.174.0, and the changelog tells each repository to
+        # re-record once.
         pinned = {
-            "1.1": "11110c1cdde55df1008c6a2bd9f6bde2bffa286a34ae93addb9cf66fc1e5b90f",
-            "2.1": "62f7dfaec87e0614dae7e4935ce1749554f141a23518b094632eb8423e96d54c",
+            "1.1": "7149e77c287d08abd33aae1835e24ff4892771efdfb5d6755b791e2d78436319",
+            "2.1": "bc2d69bcf8718e5825af8f2fb5f318518f74051ea021a61d549691b449ad5929",
         }
         plain = (
             "# Tasks\n\n"
@@ -39411,8 +39417,11 @@ def validate_surfaces_agree_with_code_scenario() -> int:
         return 1
     standing = (ROOT / "openspec/specs/keel-standing-authorization/spec.md").read_text(encoding="utf-8")
     vocabulary = re.search(r"(?s)### Requirement: A repository declares standing authorization in a closed vocabulary\n(.*?)\n#### ", standing)
+    if not vocabulary:
+        report(f"{label} keel-standing-authorization has no closed-vocabulary requirement to read.")
+        return 1
     for name in names:
-        if not vocabulary or f"`{name}`" not in vocabulary.group(1):
+        if f"`{name}`" not in vocabulary.group(1):
             report(f"{label} keel-standing-authorization does not list `{name}` in its closed vocabulary.")
             return 1
     for spec, phrase in (
