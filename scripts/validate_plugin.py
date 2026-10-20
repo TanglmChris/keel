@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.176.0"
-PROTOCOL_VERSION = "5.176.0"
+PACKAGE_VERSION = "5.177.0"
+PROTOCOL_VERSION = "5.177.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -39550,6 +39550,93 @@ def validate_readme_zh_matches_english_scenario() -> int:
     return 0
 
 
+def validate_config_documents_in_declaration_order_scenario() -> int:
+    """Issue #413: the configuration file documents what it says it documents.
+
+    `CONFIG_DECLARATIONS` is "in the order the file documents them", and the
+    file had drifted: owner_language first, patrol twice, executor_tier never.
+    The order is read from the code, so a declaration added there without its
+    block, or a block written out of place, fails here.
+    """
+    label = "config-documents-in-declaration-order:"
+    source = (ROOT / "src/core/config.js").read_text(encoding="utf-8")
+    declared = re.search(r"const CONFIG_DECLARATIONS = \[(.*?)\];", source, re.S)
+    names = re.findall(r'^\s*"([a-z_]+)",', declared.group(1), re.M) if declared else []
+    if len(names) < 12:
+        report(f"{label} read {len(names)} declarations from config.js; expected at least 12.")
+        return 1
+    config = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
+    blocks = re.findall(r"^# ([a-z_]+) \(optional\):", config, re.M)
+    if blocks != names:
+        report(f"{label} keel/config.yaml documents {blocks}, not {names} in that order.")
+        return 1
+    if "`chat-reply`, and `push-protected` are the names" not in config:
+        report(f"{label} keel/config.yaml's scoped-name sentence does not name `push-protected`.")
+        return 1
+    updating = (ROOT / "docs/updating.md").read_text(encoding="utf-8")
+    if "skills and agents" in updating.lower():
+        report(f"{label} docs/updating.md still says Claude reloads skills and agents.")
+        return 1
+    for needle in ("config.toml", "E404"):
+        if needle not in updating:
+            report(f"{label} docs/updating.md does not mention {needle!r}.")
+            return 1
+    for name in ("README.md", "README.zh-CN.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        for phrase in ("A clear there keeps no title", "noticed expiry"):
+            if phrase in text:
+                report(f"{label} {name} still says {phrase!r}.")
+                return 1
+        if "keel chat help" not in text:
+            report(f"{label} {name} does not point to `keel chat help` for the full chat command list.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_docs_zh_match_english_scenario() -> int:
+    """Issue #413: each Chinese doc follows its English page.
+
+    `docs/shift-change.zh-CN.md` had five sections against eight and never
+    mentioned `keel patrol` or `keel tick`. Every Chinese page that exists is
+    checked, so a new one is held from the day it is written.
+    """
+    label = "docs-zh-match-english:"
+    pages = sorted((ROOT / "docs").glob("*.zh-CN.md"))
+    if not pages:
+        report(f"{label} found no docs/*.zh-CN.md to check.")
+        return 1
+    for zh_path in pages:
+        en_path = zh_path.with_name(zh_path.name.replace(".zh-CN.md", ".md"))
+        if not en_path.is_file():
+            report(f"{label} {zh_path.name} has no English page {en_path.name}.")
+            return 1
+        en = en_path.read_text(encoding="utf-8").splitlines()
+        zh = zh_path.read_text(encoding="utf-8").splitlines()
+        for what, prefix in (("headings", "#"), ("code fences", "```")):
+            counts = [sum(1 for line in lines if line.startswith(prefix)) for lines in (en, zh)]
+            if counts[0] != counts[1]:
+                report(f"{label} {en_path.name} has {counts[0]} {what} and {zh_path.name} has {counts[1]}.")
+                return 1
+        zh_text = "\n".join(zh)
+        for command in sorted(set(re.findall(r"keel [a-z][a-z-]*", "\n".join(en)))):
+            if command not in zh_text:
+                report(f"{label} {zh_path.name} does not name `{command}`, which {en_path.name} names.")
+                return 1
+    slack = (ROOT / "docs/chat-slack-setup.zh-CN.md").read_text(encoding="utf-8")
+    if "编辑和删除" not in slack:
+        report(f"{label} chat-slack-setup.zh-CN.md does not say edits and deletions carry over.")
+        return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_tdd_strategy_guide_scenario() -> int:
     """Issue #389: the skill an executor loads to plan its checks says how to choose.
 
@@ -41671,6 +41758,8 @@ SCENARIOS: tuple = (
     ("surfaces-agree-with-code", validate_surfaces_agree_with_code_scenario),
     ("readme-states-the-cli", validate_readme_states_the_cli_scenario),
     ("readme-zh-matches-english", validate_readme_zh_matches_english_scenario),
+    ("config-documents-in-declaration-order", validate_config_documents_in_declaration_order_scenario),
+    ("docs-zh-match-english", validate_docs_zh_match_english_scenario),
     (
         "a-tier-declares-what-is-skipped",
         validate_a_tier_declares_what_is_skipped_scenario,

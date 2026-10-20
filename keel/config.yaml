@@ -1,59 +1,21 @@
 # Keel project configuration.
 #
-# Twelve independent declarations live here: fast_check, which names a command;
-# authorize, which names repository actions this project has decided may
-# proceed without being asked each time; precedents, which points at a
-# directory of decisions already made and the reasoning behind them; triage,
-# which names which work may start without being asked about at all;
-# full_mode_paths, which names the paths whose change always takes the
-# complete flow; executor_tier, which
-# names how much stepwise guidance this project's skills should load;
-# merge, which names who merges into the default branch; and
-# external_agents, which names the external model CLIs this project allows and
-# the paths that must not be handed to one; read_only_roles, which names the
-# chat roles whose sessions own no change; and issue_roles, which names the
-# chat role each issue label routes to; patrol, which names the role that
-# runs `keel patrol` and how often; and owner_language, which names the
-# language every message to the owner is written in.
-#
-# owner_language (optional): a language tag such as zh or en (#305). Every
-# message to the owner — replies, summaries, reports, and the question and
-# options of a structured-choice prompt — is in that language, whatever the
-# work and its sources are in; `keel context`, the session-start note, and the
-# chat hook on every prompt restate it. A value that is not a tag is ignored.
-#
-# patrol (optional): the role whose sessions run `keel patrol` on a host
-# schedule, and its interval (#260). Keel schedules nothing; it reminds that
-# role's new sessions and `keel shift resume` to re-create the schedule, since
-# a session's schedule ends with the session. `host_task:` names a host
-# scheduled task that runs it instead, which outlives the session, and the
-# reminder then asks only to confirm it is enabled; `model:` is the model that
-# task declares, passed through and never chosen by Keel. `keel patrol task`
-# prints the task to install with the host's own tool (#295).
-#
-# Example:
-#   patrol:
-#     role: iecc-pm
-#     every: 30m
-#     host_task: rtl-ppa-pm-patrol
-#
-# issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
-# label names one direct message per update of an issue carrying it (#242).
-# One `<label>: <role>` per line; a label may contain a colon.
-#
-# Example:
-#   issue_roles:
-#     role:verify: verify
-#
-# read_only_roles (optional): chat roles whose sessions review, verify, or
-# coordinate and never own an OpenSpec change. In a worktree bound to one,
-# `keel context` reports one idle line naming the role, and the session note
-# stops asking it to select an owner; `keel context --change` still selects.
-#
-# Example:
-#   read_only_roles:
-#     - review
-#
+# Twelve independent declarations live here, each documented below in this
+# order: fast_check, which names a command; authorize, which names repository
+# actions this project has decided may proceed without being asked each time;
+# precedents, which points at a directory of decisions already made and the
+# reasoning behind them; triage, which names which work may start without being
+# asked about at all; full_mode_paths, which names the paths whose change always
+# takes the complete flow; executor_tier, which names how much stepwise
+# guidance this project's skills should load; merge, which names who merges
+# into the default branch; external_agents, which names the external model CLIs
+# this project allows and the paths that must not be handed to one;
+# read_only_roles, which names the chat roles whose sessions own no change;
+# issue_roles, which names the chat role each issue label routes to; patrol,
+# which names the role that runs `keel patrol` and how often; and
+# owner_language, which names the language every message to the owner is
+# written in.
+
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
 # `keel --install --with-git-hooks`) and during iteration. The full or slow
@@ -61,7 +23,7 @@
 #
 # Example:
 #   fast_check: npm test -- --fast
-#
+
 # authorize (optional): standing authorization for repository actions. The
 # accepted names are the whole vocabulary — commit, push, push:<branch glob>[@<role>],
 # release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,
@@ -72,7 +34,7 @@
 # block authorizes nothing, which is the default and leaves behavior exactly as
 # it was before the block existed.
 #
-# `issue`, `issue-close`, `cleanup`, and `chat-reply` are the names that carry
+# `issue`, `issue-close`, `cleanup`, `chat-reply`, and `push-protected` are the names that carry
 # the resource they reach, and each is refused without one. `push` may carry
 # branch globs (`push:claude/*`), and only that scope is enforced: the Claude
 # write guard refuses a `git push` to any other branch (#257), and one that also
@@ -106,9 +68,9 @@
 # covers the outgoing side: the four steps `keel shift ready --wake` prints
 # there once the note is stored. Neither decides that a shift happens.
 #
-# `continuation` is the between-task name: it covers exactly the boundary
-# between a durably complete task and the next unchecked task of the same
-# change, inside a change whose tasks.md the owner approved, and nothing else.
+# `continuation` is accepted and changes nothing: since #414, moving from a
+# durably complete task to the next unchecked task of the same change, inside a
+# change whose tasks.md the owner approved, needs no confirmation by default.
 # The next task still starts through its own gate with its own fingerprint,
 # and no repository action rides along with it.
 #
@@ -117,22 +79,6 @@
 # as they do without it — `keel gate task-complete` returns the same verdict
 # and the same failure text either way. It is also not a trigger: it authorizes
 # an action the workflow already reached, and schedules nothing.
-
-# precedents (optional): a path to a directory of precedent files — decisions
-# already made, each with the reasoning that produced it. Keel reads that
-# directory and nothing else: it never clones, pulls, or writes to a remote, so
-# the store is only as current as its working copy and the surfaces say so
-# rather than blocking on it. The path may sit outside this repository, which is
-# how one store serves several projects.
-#
-# A declared path that is not there behaves exactly as no declaration — the
-# state a fresh clone and CI land in when the store is private.
-#
-# What this does NOT do: a precedent informs a decision and never substitutes
-# for a proof. Gates, evidence, Review, and the write guard are untouched by
-# anything in the store. A precedent also never moves a decision out of the
-# categories that require asking; it answers a recurrence within one.
-
 authorize:
   - commit
   - push
@@ -150,6 +96,21 @@ authorize:
   # `change-close` asks an unresolved follow-up for a durable owner and accepts
   # an https reference, and until now nothing here could create one.
   - issue:TanglmChris/keel
+
+# precedents (optional): a path to a directory of precedent files — decisions
+# already made, each with the reasoning that produced it. Keel reads that
+# directory and nothing else: it never clones, pulls, or writes to a remote, so
+# the store is only as current as its working copy and the surfaces say so
+# rather than blocking on it. The path may sit outside this repository, which is
+# how one store serves several projects.
+#
+# A declared path that is not there behaves exactly as no declaration — the
+# state a fresh clone and CI land in when the store is private.
+#
+# What this does NOT do: a precedent informs a decision and never substitutes
+# for a proof. Gates, evidence, Review, and the write guard are untouched by
+# anything in the store. A precedent also never moves a decision out of the
+# categories that require asking; it answers a recurrence within one.
 
 # triage (optional): what admits work into an unattended run. Two sources,
 # either sufficient on its own — the labels an issue carries, and the issue
@@ -190,24 +151,10 @@ authorize:
 # grants the agent nothing.
 # Admission comes from this declaration and never from a precedent.
 #
-# patrol (optional): which role `keel patrol` runs as, and how often. Declared
-# 2026-10-19 by the owner's decision to install a resident `keel tick` for this
-# repository, so a keel-maint CLI session's `keel shift ready --wake` is carried
-# out (stop the old session, start the new one) and an ended session addressed
-# in the chat is resumed. launchd runs `keel tick` every 300 s (`keel tick
-# task` prints the job); the patrol itself runs when its recommended next run
-# has passed.
-patrol:
-  role: keel-maint
-  every: 1h
-  runner: tick
-  cadence: adaptive
-
 # Declared 2026-07-29 by the owner, and left in the bare-list form on purpose:
 # the repository that ships the compatibility is the one that demonstrates it.
 # `auto` is applied to an issue by hand, one issue at a time; nothing else
 # admits work here.
-
 triage:
   - auto
 
@@ -244,6 +191,21 @@ triage:
 # more scrutiny, and for this one more scrutiny is more Full mode.
 #
 # This repository declares none. Its risk does track diff size.
+
+# executor_tier (optional): `standard` or `high` (#135). A skill's stepwise
+# guidance lives in a `guidance.md` beside its `SKILL.md`; `high` skips reading
+# it, and `standard`, the default, reads it. An absent or misspelled value reads
+# it too, so the worst an unconfigured repository does is pay for a read.
+# `keel context` and `keel --doctor` report the tier.
+#
+# Example:
+#   executor_tier: high
+#
+# What this does NOT do: the tier reaches guidance and nothing else — no gate,
+# criterion, evidence requirement, or Review moves with it, and a guidance file
+# is checked to state no criterion.
+#
+# This repository declares none.
 
 # merge (optional): who merges into the default branch. `human`, or
 # `repository:<check>` when the repository merges on its own rule — GitHub
@@ -291,4 +253,60 @@ external_agents:
   allow:
     - codex
 
+# read_only_roles (optional): chat roles whose sessions review, verify, or
+# coordinate and never own an OpenSpec change. In a worktree bound to one,
+# `keel context` reports one idle line naming the role, and the session note
+# stops asking it to select an owner; `keel context --change` still selects.
+#
+# Example:
+#   read_only_roles:
+#     - review
+#
+# This repository declares none.
+
+# issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
+# label names one direct message per update of an issue carrying it (#242).
+# One `<label>: <role>` per line; a label may contain a colon.
+#
+# Example:
+#   issue_roles:
+#     role:verify: verify
+#
+# This repository declares none.
+
+# patrol (optional): the role whose sessions run `keel patrol` on a host
+# schedule, and its interval (#260). Keel schedules nothing; it reminds that
+# role's new sessions and `keel shift resume` to re-create the schedule, since
+# a session's schedule ends with the session. `host_task:` names a host
+# scheduled task that runs it instead, which outlives the session, and the
+# reminder then asks only to confirm it is enabled; `model:` is the model that
+# task declares, passed through and never chosen by Keel. `keel patrol task`
+# prints the task to install with the host's own tool (#295). Without the
+# desktop app, `runner: tick` lets launchd run `keel tick`, which runs the
+# patrol once its recommended next run has passed, and `cadence: adaptive` lets
+# the patrol choose that next run by what it saw (#356; docs/cli-team.md).
+#
+# Example:
+#   patrol:
+#     role: iecc-pm
+#     every: 30m
+#     host_task: rtl-ppa-pm-patrol
+#
+# Declared 2026-10-19 by the owner's decision to install a resident `keel tick`
+# for this repository, so a keel-maint CLI session's `keel shift ready --wake`
+# is carried out (stop the old session, start the new one) and an ended session
+# addressed in the chat is resumed. launchd runs `keel tick` every 300 s
+# (`keel tick task` prints the job); the patrol itself runs when its
+# recommended next run has passed.
+patrol:
+  role: keel-maint
+  every: 1h
+  runner: tick
+  cadence: adaptive
+
+# owner_language (optional): a language tag such as zh or en (#305). Every
+# message to the owner — replies, summaries, reports, and the question and
+# options of a structured-choice prompt — is in that language, whatever the
+# work and its sources are in; `keel context`, the session-start note, and the
+# chat hook on every prompt restate it. A value that is not a tag is ignored.
 owner_language: zh
