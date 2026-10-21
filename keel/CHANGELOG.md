@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.184.0 - The validation runner is split into modules, and one module's scenarios run alone
+
+Issue #409. `scripts/validate_plugin.py` had grown to about 43,000 lines holding 312 scenarios with their fixtures, helpers, registry, runner, and summary. Every session that added a scenario edited that one file, which is where parallel Keel sessions collided. On 2026-10-21 the owner chose genuinely separate modules with explicit imports, and a `--group` entry in the same change.
+
+- The scenarios moved, unchanged, into modules under `scripts/validation/` grouped by responsibility: `contract`, `install`, `hosts`, `guard`, `chat`, `shift`, `docs`, and `selfcheck`. The helpers they share and the constants live in `common.py`, the baseline checks in `baseline.py`, and the one ordered registry in `registry.py`. Each module imports what it uses from `validation.common` by name.
+- `scripts/validate_plugin.py` stays the entry point and keeps the runner. `--scenario`, `--all`, and `--jobs` behave as before, measured: `npm test` printed the same summary before and after (311 scenarios, 1 skipped). The registry lists the same names in the same order, and every top-level definition is AST-identical except the eight edited on purpose and the four helpers added to read the runner's source across modules.
+- New `--group <module>` runs one module's registered scenarios in registry order, with the same isolation, skip accounting, and summary as `--all` and without the baseline. An unknown group names the groups and exits 2.
+- The checks that read the runner's own source read every module: the unregistered-scenario check, the assertion-shape count (still 74 sites, now named as file:line), the scan for mutating commands and retired paths, and the standard-library import check. The standard-library check now accepts the local `validation` package and nothing else outside the standard library.
+- `scripts/bump_version.js` writes `PACKAGE_VERSION` and `PROTOCOL_VERSION` in `scripts/validation/common.py`.
+- A new scenario goes in its module and gets one line in `scripts/validation/registry.py`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.184.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.183.0 - The CLI hand-over and wake keep to the measured host contract
 
 Issue #408, approved by the owner on 2026-10-21. A CLI shift change and a wake rely on what `claude agents --json`, `claude stop`, `claude rm`, and `claude --bg --resume` report and do. This release re-measures those calls on Claude Code 2.1.304 with throwaway probe sessions and closes the gaps the measurement and an inventory of the code found.
