@@ -135,7 +135,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release
+- [x] 2.1 Release
   - Covers:
     - E5
   - Touch:
@@ -169,7 +169,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:fe6ed6a17ce948cee93c886c6199d9998391448a746cbb662ac02294d737dab3 (keel 5.190.0)
+    - M1: `node scripts/bump_version.js minor` printed "Bumping 5.190.0 -> 5.191.0" and updated every marker; the 5.191.0 section "Markdown with SVG exports to Word, on request" is written in `keel/CHANGELOG.md`; `--scenario version-alignment` PASS.
+    - M2: `openspec/specs/keel-md-docx-export/spec.md` published with a `## Purpose` and the three requirements; `--scenario published-specs-validate-strictly` PASS.
+    - M3: `npm test` exit 0 at load 3.42: "validation --all passed: baseline plus 321 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg."
+    - Review:
+      - Status: pass
+      - Acceptance check: the release markers, changelog, and published spec are in place and the whole suite passes; the one new skip is the provisioned-environment check the owner chose not to run.
+      - Scope check: only the release files in Touch changed.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 

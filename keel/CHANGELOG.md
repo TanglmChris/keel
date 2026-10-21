@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.191.0 - Markdown with SVG exports to Word, on request
+
+Issue #405, with the owner's constraints from its comments of 2026-10-20 and 2026-10-21. The prototype attached to #405 becomes an on-demand skill and a `keel docx` command. Nothing is added to SessionStart or to any OpenSpec task.
+
+- **New skill `keel-md-docx`** ships in the keel plugin with the prototype's converter, byte for byte: `md2word.py`, `runtime.mjs`, `fonts-macos.conf`, `requirements.txt`, and `package.json`. It loads only when asked to export Markdown with SVG to Word. Its `SKILL.md` lists the third-party packages with their licences and sizes. Provenance and the trigger evaluation are in `keel/archive/skill-evidence/keel-md-docx-v1.md`.
+- **`keel docx setup` lists before it installs.** Without `--yes` it prints the packages (python-docx, lxml, Pillow, marked, sharp), their licences and sizes, and the target directory, then installs nothing. With `--yes` it installs them only into `~/.keel/docx/`: a Python virtual environment and an npm prefix, never the system Python or Node. It downloads no font or runtime. `ready.json` is written last, so a failed step leaves the environment not ready. The skill asks the user before running it with `--yes`.
+- **`keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]` refuses rather than overwrites.** It refuses, and writes nothing, in these cases: the input is missing; the output is the input; the template is missing; the environment is not set up (it names `keel docx setup`); or the output already exists and `--replace` was not given. Otherwise it runs the shipped converter in the managed environment and returns its exit status. The converter writes to a temporary file and renames it, so a failed conversion leaves the previous output untouched. The skill states the output path first and asks before replacing.
+- **Checks.** `docx-skill-ships`, `docx-setup-asks-first`, and `docx-convert-refuses-first` run with stand-in executables and need no third-party package. `docx-converts-markdown-with-svg` carries the prototype's conversion checks. It runs only when `KEEL_DOCX_TEST_ENV` names a ready environment, and otherwise reports itself skipped.
+- **Unverified.** Per the owner's decision not to install test dependencies, these have not been run through this release: real conversion, the failure cases against the real converter, and a Chinese mixed-text example rendered page by page. Linux, Windows, Codex, and Microsoft Word itself are unverified as well.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.191.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.190.0 - A resumed -w session is bound to its own worktree, as measured
 
 Issue #441, approved by the owner on 2026-10-21. #415 (5.181.0) did not hold on the real host. A session started with `claude --bg -w` from the main checkout was resumed on 5.188.0 and was still bound to the main checkout's role. keel-maint-2's SessionStart printed `watchPaths: [".../signal/codex-issues", ...]`, so direct messages to keel-maint-2 never woke it.
