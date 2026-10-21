@@ -238,6 +238,9 @@ function resumeCli(entry) {
     cwd: entry.worktree || undefined, encoding: "utf8",
   });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+  if (result.error && result.error.code === "ENOENT") {
+    return { ok: false, output: "claude was not found; put it on PATH or name it with KEEL_CLAUDE" };
+  }
   return { ok: !result.error && result.status === 0, output: result.error ? result.error.message : output };
 }
 

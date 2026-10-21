@@ -57,7 +57,12 @@ function wakeEnded(where, state) {
     const newest = waiting[waiting.length - 1];
     if (!newest || (state.woken[role] && state.woken[role] >= newest)) continue;
     const resumed = notice.resumeCli(entry);
-    state.woken[role] = newest;
+    // Marked woken only once it worked, the session is gone, or three tries
+    // failed for this record (#408 D3); a newer record starts the count again.
+    const before = (state.wake_attempts || {})[role];
+    const count = before && before.record === newest ? before.count + 1 : 1;
+    state.wake_attempts = { ...(state.wake_attempts || {}), [role]: { record: newest, count } };
+    if (resumed.ok || resumed.removed || count >= 3) state.woken[role] = newest;
     woken.push({ role, session: entry.session, record: newest, ok: resumed.ok, output: resumed.output });
   }
   return woken;
@@ -68,7 +73,9 @@ function tick(where, now = new Date()) {
   const wakeState = readState(where);
   result.woken = wakeEnded(where, wakeState);
   result.handedOver = require("./shift").handOver(where);
-  if (result.woken.length) store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken });
+  if (result.woken.length) {
+    store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken, wake_attempts: wakeState.wake_attempts });
+  }
   const found = patrolWorktree(where);
   if (!found.worktree) {
     result.patrol = { ran: false, why: found.why };
