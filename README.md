@@ -508,8 +508,9 @@ the judgement a weak executor gets most wrong, and it would be answering it abou
 
 One skill carries a guidance file today: `keel-tdd-or-test-first`, a table that picks a Verify
 strategy by what would make the Acceptance false, with right and wrong choices and when each evidence
-form pays (#389). The other four are almost entirely criteria, so splitting them would move the half
-that has to stay.
+form pays (#389). Four of the others are almost entirely criteria, so splitting them would move the
+half that has to stay; the fifth, `keel-md-docx`, is a short export procedure loaded only when you ask
+to turn Markdown with SVG into Word (#405).
 
 ## How the agent uses these
 

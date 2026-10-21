@@ -2,7 +2,7 @@
 
 ## 1. Markdown with SVG to Word, on request
 
-- [ ] 1.1 Ship the `keel-md-docx` skill with the prototype's converter files
+- [x] 1.1 Ship the `keel-md-docx` skill with the prototype's converter files
   - Covers:
     - keel-md-docx-export / The export skill loads only when asked / The plugin carries the skill and its converter
     - D1
@@ -37,7 +37,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:c4bdf019b34fa8b66f78d35499b6182c08b23fcdf6a78564847e2609cc912151 (keel 5.190.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-skill-ships` reports `docx-skill-ships scenario passed.` (exit 0): the plugin ships `keel-md-docx/SKILL.md` and the five `scripts/` files byte-identical to `src/skills`; `md2word.py` and `runtime.mjs` hash to the sums #405 states; the description names Markdown, SVG, and Word; the body names `keel docx setup`, `--yes`, `--replace`, the five packages with their licences, and "unverified"; the evidence carries three positive cases, four negative controls, and a licence line per package.
+    - M1.red: fail. Before the skill existed: `docx-skill-ships: the plugin does not ship keel-md-docx/SKILL.md.` (exit 1).
+    - M1.green: pass. With the five prototype files copied unchanged (`shasum -a 256`: `md2word.py` `73331af5…`, `runtime.mjs` `7fa52c33…`), `SKILL.md` (steps: setup plan, ask, `--yes`, output path, ask, `--replace`, convert, report; forms, limits, a licence and size table, verification status), its mirror under `plugins/keel/skills/`, `keel-md-docx` added to `PLUGIN_SKILLS` and `KEEL_SKILLS`, and `keel/archive/skill-evidence/keel-md-docx-v1.md`, the scenario passed. The trigger cases there were judged by a fresh subagent given only the eleven skill descriptions and the raw prompts, with no tools and no intended answers: P1–P3 loaded `keel-md-docx`, N1–N4 (PDF, fixing an SVG, editing a `.docx`, HTML) loaded none, and the mixed request loaded `keel-align-expectations` first and named the export for later.
+    - M2: pass. `Keel v4.1.0 baseline validation passed.`; `skill-portability-policy`, `native-plugin-manifests`, `directory-tree-is-the-package-renamed`, `guidance-is-referenced-and-carries-no-criterion`, and `guidance-names-openspec-skills` each `PASS`, and `docs-zh-match-english`, `readme-zh-matches-english`, and `validation-runner` also `PASS` after the README pair's skill paragraph changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: the shipped skill, its converter, its consent and replacement steps, and its licence and verification statements are read from the plugin tree the package publishes, and the trigger boundary was judged from descriptions alone.
+      - Scope check: `git status --short` lists the skill in both trees, `keel/archive/skill-evidence/keel-md-docx-v1.md`, `scripts/validation/export.py`, `scripts/validation/registry.py`, `scripts/validation/hosts.py`, `bin/keel.js`, both READMEs, and this change's `tasks.md`.
+      - Findings: the skill names `keel docx setup` and `keel docx convert`, which tasks 1.2 and 1.3 of this change add; until then the steps would fail. Durable owner: https://github.com/TanglmChris/keel/issues/405
     - Blocker: none
     - Reauthorizations: none
 
@@ -146,8 +155,8 @@
 ## Invalidates
 
 - I1: "One skill carries a guidance file today" … "The other four are almost entirely criteria" — `README.md`, and "其他四个几乎全是准则" in `README.zh-CN.md`. Updated by: 1.1.
-- I2: the `keel` command list in `HELP` and in the README pair's command block, which names no `docx` command. Updated by: 1.2, 1.3.
-- I3: "No skill ships executable files" holds nowhere in the repository's text, but `PLUGIN_SKILLS` in `scripts/validation/hosts.py` and `KEEL_SKILLS` in `bin/keel.js` list five skills. Updated by: 1.1.
+- I2: "Each group prints its full subcommand list: `keel chat help`, `keel mail help`, `keel shift --help`," … "and `keel agents --help`." — `README.md`, and its line in `README.zh-CN.md`; `keel docx --help` joins them. Updated by: 1.2.
+- I3: "PLUGIN_SKILLS = (" in `scripts/validation/hosts.py` and "const KEEL_SKILLS = [" in `bin/keel.js`, each listing five skills. Updated by: 1.1.
 
 ## Expectation Coverage
 
