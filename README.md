@@ -508,8 +508,9 @@ the judgement a weak executor gets most wrong, and it would be answering it abou
 
 One skill carries a guidance file today: `keel-tdd-or-test-first`, a table that picks a Verify
 strategy by what would make the Acceptance false, with right and wrong choices and when each evidence
-form pays (#389). The other four are almost entirely criteria, so splitting them would move the half
-that has to stay.
+form pays (#389). Four of the others are almost entirely criteria, so splitting them would move the
+half that has to stay; the fifth, `keel-md-docx`, is a short export procedure loaded only when you ask
+to turn Markdown with SVG into Word (#405).
 
 ## How the agent uses these
 
@@ -999,6 +1000,10 @@ keel tick [--json] | keel tick task                # one step; print the launchd
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
+# Markdown with SVG to Word, on request (packages installed only with --yes, into ~/.keel/docx)
+keel docx setup [--yes]
+keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   # an existing output is kept without --replace
+
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -1013,7 +1018,7 @@ keel openspec <args>
 
 Commands take the repository as a positional path or as `--repo <path>`; `keel --help` shows which.
 Each group prints its full subcommand list: `keel chat help`, `keel mail help`, `keel shift --help`,
-`keel lock --help`, `keel patrol --help`, and `keel agents --help`.
+`keel lock --help`, `keel patrol --help`, `keel agents --help`, and `keel docx --help`.
 
 Exit codes: `0` pass · `1` input error · `2` usage error (an unknown flag or a flag the command refuses) · `3` policy failure · `4` missing semantic review. `keel patrol` uses `2` and `3` for what it found; see Coordinator patrol.
 

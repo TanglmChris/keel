@@ -411,8 +411,9 @@ executor_tier: high
 而它回答的还是关于它自己的问题。
 
 目前只有一个技能带指导文件：`keel-tdd-or-test-first`，一张按"什么会让 Acceptance 不成立"来挑选 Verify 策略的
-表，附带正确和错误的选择，以及每种证据形式何时划算（#389）。其他四个几乎全是准则，拆开它们只会把必须留下的
-那一半挪走。
+表，附带正确和错误的选择，以及每种证据形式何时划算（#389）。其余技能中有四个几乎全是准则，拆开它们只会把必须
+留下的那一半挪走；第五个 `keel-md-docx` 是一段简短的导出流程，只在你要求把含 SVG 的 Markdown 转成 Word 时
+才加载（#405）。
 
 ## 这些命令，agent 是怎么用起来的
 
@@ -841,6 +842,10 @@ keel tick [--json] | keel tick task                # 执行一步；打印 launc
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
+# 含 SVG 的 Markdown 导出 Word，按需使用（依赖只在加 --yes 时安装，装到 ~/.keel/docx）
+keel docx setup [--yes]
+keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   # 输出已存在时不加 --replace 就保留原文件
+
 # 安装 / 维护
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -855,7 +860,7 @@ keel openspec <args>
 
 命令接受仓库路径，可以是位置参数，也可以是 `--repo <path>`；具体用哪种见 `keel --help`。
 每组命令都会打印自己的完整子命令列表：`keel chat help`、`keel mail help`、`keel shift --help`、
-`keel lock --help`、`keel patrol --help` 和 `keel agents --help`。
+`keel lock --help`、`keel patrol --help`、`keel agents --help` 和 `keel docx --help`。
 
 退出码：`0` 通过 · `1` 输入错误 · `2` 用法错误（未知 flag，或命令拒绝的 flag） · `3` 策略失败 · `4` 缺少语义 review。`keel patrol` 用 `2` 和 `3` 表示它发现了什么；见「协调者巡查」。
 
