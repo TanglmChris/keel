@@ -63,8 +63,34 @@ function conditionHolds(where, condition, issues) {
   return { unchecked: true };
 }
 
+// What a patrolling role covers (#434 D3, D4, D9, D10): a scoped declaration
+// its group's members, the unscoped one the roles in no declared scope, and a
+// role `patrol:` does not declare every role. The repository-wide items belong
+// to the unscoped declaration, or to the first declared when all are scoped.
+function coverageOf(where, role) {
+  const { declarations } = require("./config").readPatrolDeclarations(where.worktree);
+  const own = declarations.find((declaration) => declaration.role === role);
+  if (!own) return { covers: (name) => name !== role, repositoryWide: true, warnings: [] };
+  const membersOf = (group) => store.groupState(store.readLog(where, group)).members;
+  const warnings = [];
+  let inside;
+  if (own.scope) {
+    const members = membersOf(own.scope);
+    if (!members.size) warnings.push(`patrol scope group:${own.scope} has no members, so ${role} covers no role.`);
+    inside = (name) => members.has(name);
+  } else {
+    const scoped = new Set(declarations.filter((declaration) => declaration.scope).flatMap((declaration) => [...membersOf(declaration.scope)]));
+    inside = (name) => !scoped.has(name);
+  }
+  const owner = declarations.find((declaration) => !declaration.scope) || declarations[0];
+  return { covers: (name) => name !== role && inside(name), repositoryWide: owner.role === role, warnings };
+}
+
 function patrol(where, role, options) {
   const result = { role, notices: [], held: [], unchecked: [], roles: [], warnings: [] };
+  if (!options.coverage) options = { ...options, coverage: coverageOf(where, role) };
+  const { coverage } = options;
+  result.warnings.push(...coverage.warnings);
   for (const waitRecord of store.openWaits(where, role)) {
     const check = conditionHolds(where, waitRecord.condition, options.issues);
     if (check.unchecked) {
@@ -83,10 +109,11 @@ function patrol(where, role, options) {
   const routed = routeIssues(where, role, options);
   result.notices.push(...routed.notices);
   result.warnings.push(...routed.warnings);
-  // D6: presence is reported, never acted on.
-  const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
+  // D6: presence is reported, never acted on, for the patroller and the roles it covers.
+  const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))]
+    .filter((name) => name === role || coverage.covers(name)).sort();
   // Bindings that drifted from where sessions run (#301 D2): reported, never acted on.
-  result.drift = require("./chat/drift").driftLines(require("./chat/drift").roleDrift(where));
+  result.drift = coverage.repositoryWide ? require("./chat/drift").driftLines(require("./chat/drift").roleDrift(where)) : [];
   const threshold = parseSince(options.idle);
   for (const name of roles) {
     const presence = notice.presenceOf(where, name);
@@ -114,6 +141,9 @@ function routeIssues(where, role, options) {
   );
   const notices = [];
   if (!options.issues || !routes.length) return { notices, warnings };
+  // A role covered by two coordinators hears of an update once (#434 D5).
+  const patrollers = [...new Set([role, ...require("./config").readPatrolDeclarations(where.worktree).declarations.map((d) => d.role)])];
+  const covers = options.coverage ? options.coverage.covers : () => true;
   for (const issue of options.issues) {
     const labels = new Set((issue.labels || []).map((entry) => (typeof entry === "string" ? entry : entry && entry.name)).filter(Boolean));
     const matching = routes.filter((route) => route.labels.every((name) => labels.has(name)));
@@ -122,10 +152,11 @@ function routeIssues(where, role, options) {
     );
     const targets = [...new Set(matching.filter((route) => !refined(route)).map((route) => route.role))];
     for (const target of targets) {
-      if (target === role) continue;
+      if (target === role || !covers(target)) continue;
       const ref = `issue:#${issue.number}@${issue.updatedAt || "unknown"}`;
-      const group = store.directName(role, target);
-      if (store.readLog(where, group).some((record) => (record.refs || []).includes(ref))) continue;
+      const sent = patrollers.filter((patroller) => patroller !== target)
+        .some((patroller) => store.readLog(where, store.directName(patroller, target)).some((record) => (record.refs || []).includes(ref)));
+      if (sent) continue;
       const when = issue.updatedAt ? ` at ${issue.updatedAt}` : "";
       const title = issue.title ? `: ${issue.title}` : "";
       const text = `Issue #${issue.number} changed${when}${title} (its label routes it to ${target}).`;
@@ -152,20 +183,23 @@ function primaryWorktree(where) {
 function currentSnapshot(where, role, result, options) {
   const shift = require("./shift");
   const entries = {};
-  for (const row of shift.shiftStatus(where)) entries[`shift ${row.role}`] = shift.describe(row);
-  const base = require("./worktrees").defaultBranch(where.worktree);
+  const coverage = options.coverage || { covers: () => true, repositoryWide: true };
+  for (const row of shift.shiftStatus(where)) {
+    if (row.role === role || coverage.covers(row.role)) entries[`shift ${row.role}`] = shift.describe(row);
+  }
+  const base = coverage.repositoryWide ? require("./worktrees").defaultBranch(where.worktree) : null;
   if (base) {
     const ref = `refs/remotes/origin/${base.replace(/^origin\//, "")}`;
     entries[`remote ${ref.replace(/^refs\/remotes\//, "")}`] = git(where.worktree, ["rev-parse", "--verify", "--quiet", ref]) || "none";
   }
-  const primary = primaryWorktree(where);
+  const primary = coverage.repositoryWide ? primaryWorktree(where) : null;
   if (primary) {
     const status = git(primary, ["status", "--porcelain"]);
     if (status !== null) entries[`checkout ${primary}`] = `${status ? status.split("\n").length : 0} uncommitted paths`;
   }
   for (const line of result.drift) entries[line.key] = line.text;
   // Free disk as the host measured it (#307 part 3 D1).
-  if (options.diskFreeGb !== null) entries.disk = options.diskFreeGb < options.diskMinGb ? "low" : "ok";
+  if (options.diskFreeGb !== null && coverage.repositoryWide) entries.disk = options.diskFreeGb < options.diskMinGb ? "low" : "ok";
   for (const row of result.roles) {
     entries[`role ${row.role}`] = `${row.parked ? "parked" : row.idle ? "idle" : "active"}, ${row.openTodos} open todo${row.openTodos === 1 ? "" : "s"}`;
   }
@@ -252,8 +286,9 @@ function nudgeRoles(where, patroller, options) {
   const idleBefore = parseSince(options.idle);
   const sent = [];
   const escalations = [];
+  const covers = options.coverage ? options.coverage.covers : (role) => role !== patroller;
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))]
-    .filter((role) => role !== patroller).sort();
+    .filter((role) => role !== patroller && covers(role)).sort();
   const closures = closedTodos(where);
   for (const role of roles) {
     // A role parked on purpose is left alone, its state kept (#316 D4).
@@ -517,12 +552,13 @@ function runPatrol(argv) {
     options.issues = readIssues(options.issues);
     const where = store.requireLocation(path.resolve(options.repo));
     const role = store.requireRole(where);
+    options.coverage = coverageOf(where, role);
     const result = patrol(where, role, options);
     result.risks = [];
-    const quota = quotaRisk(where, options);
+    const quota = options.coverage.repositoryWide ? quotaRisk(where, options) : null;
     if (quota) result.risks.push(quota);
-    // A CLI hand-off that failed or hangs (#357 D4).
-    result.risks.push(...require("./shift").handOffRisks(where));
+    // A CLI hand-off that failed or hangs (#357 D4), of the roles this patrol covers.
+    result.risks.push(...require("./shift").handOffRisks(where, Date.now(), (name) => name === role || options.coverage.covers(name)));
     // Near the limit nudges stop, since each wakes a large session (D3).
     const quiet = options.quota !== null && options.quota >= options.quotaQuietAt;
     if (options.nudge && quiet) result.paused = `nudges paused: quota at ${options.quota}%`;

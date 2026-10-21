@@ -54,7 +54,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Scope each declared role's nudges, routing, snapshot, and risks to the roles it covers
+- [x] 1.2 Scope each declared role's nudges, routing, snapshot, and risks to the roles it covers
   - Covers:
     - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / Each coordinator nudges and routes only the roles it covers
     - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / Repository-wide risks reach one coordinator
@@ -69,8 +69,10 @@
   - Read:
     - openspec/changes/patrol-scopes/design.md
     - src/core/patrol.js
+    - src/core/shift.js
   - Touch:
     - src/core/patrol.js
+    - src/core/shift.js
     - scripts/validation/shift.py
     - scripts/validation/registry.py
   - Verify:
@@ -82,9 +84,27 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:7bd5eef9df74c80e51eef94701a8e32615d0164538a67a407052fba4362fa8a8 (keel 5.192.0)
+    - M1: pass. `patrol-scopes-cover scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `patrol-scopes-cover: pm-a nudged ['dev-a', 'dev-b', 'flow', 'lead'], not ['dev-a', 'flow']` (exit 1).
+    - M1.green: pass. `coverageOf` derives each declared role's coverage and whether it owns the repository-wide items (D3, D4, D9, D10). `nudgeRoles`, the presence rows, `routeIssues`, the snapshot, and `handOffRisks` follow it (D5). An issue update already sent to a role by any patrolling role is not sent again.
+    - M1.detects: with `inside = (name) => members.has(name)` replaced by `inside = () => true` in `coverageOf`, the scenario failed: `patrol-scopes-cover: pm-a nudged ['dev-a', 'dev-b', 'flow', 'lead'], not ['dev-a', 'flow']` (exit 1). Restored, it passes (exit 0).
+    - M2: pass. `patrol-scopes-repository-wide scenario passed.` (exit 0).
+    - M2.red: fail. Before the change: `patrol-scopes-repository-wide: with chief unscoped the checkout risk reached {'pm-a': 1, 'pm-b': 1, 'chief': 1}, not chief alone.` (exit 1). The first red run read the wrong direct group name for chief (`dm-chief--keel-patrol` sorts first) and reported `chief: 0`. The fixture was fixed before any implementation.
+    - M2.green: pass. Only the owner of the repository-wide items snapshots the remote tip, the primary checkout, and disk, and only the owner reports drift and quota (D4).
+    - M3: pass. `validation --group shift passed: 52 scenarios.` (exit 0). `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel patrol`:
+        - each coordinator nudges exactly the roles its scope gives it;
+        - flow, in both teams, is nudged once and sent one message for issue 170;
+        - the checkout risk reaches chief alone while chief is unscoped, and pm-a alone once every declaration is scoped.
+
+        The single-mapping scenarios in the shift group (`patrol-nudge`, `patrol-since-last`, `patrol-issue-routing`, `coordinator-patrol`) are unchanged and pass.
+      - Scope check: `git status --short` lists `src/core/patrol.js`, `src/core/shift.js` (added by the recorded reauthorization), the two validation files, and this change's directory.
+      - Findings: none.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-21, before any implementation: `src/core/shift.js` added to Touch so `handOffRisks` can take the covered roles, rather than parsing role names back out of its sentences.
 
 - [ ] 1.3 Run each declared patrol from `keel tick` when it is due
   - Covers:

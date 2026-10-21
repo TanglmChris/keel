@@ -269,6 +269,85 @@ def validate_patrol_scopes_declared_scenario() -> int:
     return 0
 
 
+PATROL_CHIEF = "  - role: chief\n    every: 60m\n"
+PATROL_ISSUE_ROLES = "issue_roles:\n  flow: flow\n  dev: dev-b\n"
+
+
+def validate_patrol_scopes_cover_scenario() -> int:
+    """Issue #434 D3, D5: each coordinator nudges and routes only the roles it covers.
+
+    A scoped declaration covers its group, the unscoped one the roles in no
+    group; flow, in both teams, is nudged once and sent one message per
+    issue update.
+    """
+    label = "patrol-scopes-cover:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-cover-") as raw:
+        base = Path(raw)
+        _repo, env, wt = patrol_scopes_scratch(base, PATROL_SCOPES + PATROL_CHIEF + PATROL_ISSUE_ROLES)
+        for role in ("dev-a", "dev-b", "flow", "lead"):
+            run_keel(wt["chief"], "chat", "dm", role, f"{role}: please report status", env=env)
+        time.sleep(1.2)
+        expected = (("pm-a", ["dev-a", "flow"]), ("pm-b", ["dev-b"]), ("chief", ["lead"]))
+        for coordinator, want in expected:
+            run = run_keel(wt[coordinator], "patrol", "--nudge", "--idle", "1s", env=env)
+            got = sorted(line.split()[1].rstrip(":") for line in run.stdout.splitlines() if line.startswith("nudged "))
+            if got != want:
+                report(f"{label} {coordinator} nudged {got}, not {want}: {run.stdout!r} {run.stderr!r}")
+                return 1
+        issues = base / "issues.json"
+        issues.write_text(json.dumps([{"number": 170, "title": "shared flow step", "state": "OPEN",
+                                       "labels": [{"name": "flow"}, {"name": "dev"}], "updatedAt": "2026-10-21T01:00:00Z"}]),
+                          encoding="utf-8")
+        for coordinator, want in (("pm-a", {"flow": 1, "dev-b": 0}), ("pm-b", {"flow": 1, "dev-b": 1})):
+            run_keel(wt[coordinator], "patrol", "--issues", str(issues), env=env)
+            for role, count in want.items():
+                got = issue_notices(wt[role], env, 170)
+                if got != count:
+                    report(f"{label} after {coordinator}'s patrol {role} has {got} messages about #170, not {count}.")
+                    return 1
+    report("patrol-scopes-cover scenario passed.")
+    return 0
+
+
+def validate_patrol_scopes_repository_wide_scenario() -> int:
+    """Issue #434 D4: a repository-wide risk reaches one coordinator.
+
+    The unscoped declaration owns the shared checkout; with every declaration
+    scoped, the first declared does.
+    """
+    label = "patrol-scopes-repository-wide:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-wide-") as raw:
+        base = Path(raw)
+        repo, env, wt = patrol_scopes_scratch(base, PATROL_SCOPES + PATROL_CHIEF)
+
+        def told(role: str) -> int:
+            group = "dm-" + "--".join(sorted(("keel-patrol", role)))
+            return len(chat_records_with(repo, group, "shared checkout"))
+
+        def round_trip(roles: tuple[str, ...]) -> None:
+            for role in roles:
+                run_keel(wt[role], "patrol", "--since-last", "--notify", env=env)
+            write_text(repo / "scratch.txt", "left behind\n")
+            for role in roles:
+                run_keel(wt[role], "patrol", "--since-last", "--notify", env=env)
+
+        round_trip(("pm-a", "pm-b", "chief"))
+        got = {role: told(role) for role in ("pm-a", "pm-b", "chief")}
+        if got != {"pm-a": 0, "pm-b": 0, "chief": 1}:
+            report(f"{label} with chief unscoped the checkout risk reached {got}, not chief alone.")
+            return 1
+        (repo / "scratch.txt").unlink()
+        for role in ("pm-a", "pm-b", "chief"):
+            write_authorize_config(wt[role], PATROL_SCOPES)
+        round_trip(("pm-a", "pm-b"))
+        got = {role: told(role) for role in ("pm-a", "pm-b")}
+        if got != {"pm-a": 1, "pm-b": 0}:
+            report(f"{label} with every declaration scoped the checkout risk reached {got}, not pm-a alone.")
+            return 1
+    report("patrol-scopes-repository-wide scenario passed.")
+    return 0
+
+
 def validate_patrol_host_task_scenario() -> int:
     """Issue #295: `patrol:` names the host task; `keel patrol task` renders it.
 

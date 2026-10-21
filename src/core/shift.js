@@ -845,8 +845,9 @@ function retryNote(entry) {
 }
 
 // A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
-function handOffRisks(where, now = Date.now()) {
-  return handOffs(where).filter((entry) => entry.state === "failed"
+// `covers` limits them to the roles a scoped patrol coordinates (#434 D5).
+function handOffRisks(where, now = Date.now(), covers = () => true) {
+  return handOffs(where).filter((entry) => covers(entry.role)).filter((entry) => entry.state === "failed"
     || (entry.state === "pending" && now - Date.parse(entry.requested_at) > 15 * 60 * 1000))
     .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}; ${retryNote(entry)}` : ` since ${entry.requested_at}`}`
       + `${entry.waiting_on ? ` (${entry.waiting_on})` : ""}; see \`keel shift status\``);
