@@ -663,20 +663,94 @@ function withHandOverLock(where, role, fn) {
   }
 }
 
+// A failed start is tried again this many times in all (#408 D4).
+const HANDOVER_ATTEMPTS = 3;
+
+// A claimed hand-over whose runner is gone, or that has outlived the bounded
+// worst case of its host calls, is settled by another runner (#408 D2).
+function runnerGone(entry, now = Date.now()) {
+  return !processRunning(Number(entry.runner_pid)) || !(now - Date.parse(entry.starting_at) <= 10 * 60 * 1000);
+}
+
+function actionable(entry) {
+  return entry.state === "pending"
+    || (entry.state === "starting" && runnerGone(entry))
+    || (entry.state === "failed" && Number.isInteger(entry.attempts) && entry.attempts < HANDOVER_ATTEMPTS);
+}
+
+// The session a claimed hand-over already started, if the host lists one (#408
+// D3): named for the role, in its worktree, started since the claim.
+function startedFor(entry, sessions) {
+  const since = Date.parse(entry.starting_at) - 5000;
+  const home = realpath(entry.worktree);
+  return sessions.find((row) => row && typeof row.name === "string" && row.name.startsWith(`${entry.role} · `)
+    && row.sessionId !== entry.session && Number(row.startedAt) >= since && row.cwd && realpath(row.cwd) === home) || null;
+}
+
+function deliver(claude, where, entry, id, name, adopted) {
+  const { readShiftDeclaration } = require("./config");
+  const declared = readShiftDeclaration(entry.worktree);
+  Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id, new_name: name });
+  for (const key of ["error", "failed_at", "runner_pid"]) delete entry[key];
+  if (adopted) entry.adopted = true;
+  entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
+  if (declared.message) entry.notice = declared.message;
+  store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+  return entry;
+}
+
+// Under the role's lock, decide what one entry needs, and claim it as
+// `starting` before any host call, so the lock is held only for this (#408 D1):
+// a runner acts only on an entry nobody has claimed.
+function claim(where, queued, sessions) {
+  return withHandOverLock(where, queued.role, () => {
+    const entry = store.readJsonFile(queueFile(where, queued.role));
+    if (!entry || !actionable(entry)) return null;
+    const row = sessions.find((item) => item && item.sessionId === entry.session);
+    if (entry.waiting_on) {
+      delete entry.waiting_on;
+      store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+    }
+    if (entry.state === "starting") {
+      const started = startedFor(entry, sessions);
+      if (started) return { entry, adopt: started };
+      Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: "the hand-over runner stopped before the new session started" });
+      store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+      if (entry.attempts >= HANDOVER_ATTEMPTS) return null;
+    }
+    if (entry.state === "failed") {
+      // Someone resumed the old session: it is theirs now (#408 D4).
+      if (row && row.status) {
+        Object.assign(entry, { attempts: HANDOVER_ATTEMPTS, error: `${entry.error}; not retried: the old session is running again` });
+        store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+        return null;
+      }
+      const started = entry.starting_at && startedFor(entry, sessions);
+      if (started) return { entry, adopt: started };
+    } else if (!finished(row)) {
+      return null;
+    }
+    Object.assign(entry, { state: "starting", runner_pid: process.pid, starting_at: store.isoLocal(new Date()), attempts: (entry.attempts || 0) + 1 });
+    store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+    return { entry, row };
+  });
+}
+
 // One step of the waker (#357 D2): a busy or unfinished old session waits; a
-// finished or gone one is retired (kept: \`claude attach\` reopens it) and a new
-// session starts. `only` limits the step to one role (the waiter's).
+// finished or gone one is retired (stopped) and a new session starts. A claim
+// left by a runner that died is settled, and a failed start is tried again
+// (#408). `only` limits the step to one role (the waiter's).
 function handOver(where, only = null) {
   const { readShiftDeclaration } = require("./config");
   const claude = process.env.KEEL_CLAUDE || "claude";
-  const pending = handOffs(where).filter((entry) => entry.state === "pending" && (!only || entry.role === only));
-  if (!pending.length) return [];
+  const queuedEntries = handOffs(where).filter((entry) => actionable(entry) && (!only || entry.role === only));
+  if (!queuedEntries.length) return [];
   const queried = queryAgents(claude);
   const sessions = queried.rows;
   // A listing that failed says nothing about the old session: wait for the next
   // step, and say why on the entry, which status and the patrol show (#408 D2).
   if (!sessions) {
-    for (const queuedEntry of pending) {
+    for (const queuedEntry of queuedEntries) {
       const entry = store.readJsonFile(queueFile(where, queuedEntry.role));
       if (entry && entry.state === "pending" && entry.waiting_on !== queried.why) {
         store.writeJsonAtomic(where, queueFile(where, entry.role), { ...entry, waiting_on: queried.why });
@@ -685,39 +759,33 @@ function handOver(where, only = null) {
     return [];
   }
   const done = [];
-  for (const queued of pending) {
-    const ran = withHandOverLock(where, queued.role, () => {
-      const entry = store.readJsonFile(queueFile(where, queued.role));
-      if (!entry || entry.state !== "pending") return null;
-      const row = sessions.find((item) => item && item.sessionId === entry.session);
-      if (entry.waiting_on) {
-        delete entry.waiting_on;
-        store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
-      }
-      if (!finished(row)) return null;
-      // `stop`, `attach` and `logs` take the 8-character job id, not the full
-      // session id (`No job matching`, measured 2026-10-19).
-      if (row) retire(claude, entry, row);
-      const declared = readShiftDeclaration(entry.worktree);
-      const mode = declared.permissionMode;
-      const name = sessionName(entry.role);
-      const started = spawnSync(claude, ["--bg", "-n", name, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
-        cwd: entry.worktree, encoding: "utf8", timeout: hostTimeout(),
-      });
-      const output = `${started.stdout || ""}`;
-      if (!started.error && started.status === 0) {
-        const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
-        Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id, new_name: name });
-        entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
-        if (declared.message) entry.notice = declared.message;
-      } else {
-        const reason = started.error ? hostTrouble(started, "claude --bg") : String(started.stderr || output).trim().split(/\r?\n/).pop();
-        Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
-      }
-      store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
-      return entry;
+  for (const queued of queuedEntries) {
+    const claimed = claim(where, queued, sessions);
+    if (!claimed) continue;
+    const { entry, row, adopt } = claimed;
+    if (adopt) {
+      done.push(deliver(claude, where, entry, adopt.id || adopt.sessionId.slice(0, 8), adopt.name, true));
+      continue;
+    }
+    // `stop`, `attach` and `logs` take the 8-character job id, not the full
+    // session id (`No job matching`, measured 2026-10-19).
+    if (row) retire(claude, entry, row);
+    const mode = readShiftDeclaration(entry.worktree).permissionMode;
+    const name = sessionName(entry.role);
+    const started = spawnSync(claude, ["--bg", "-n", name, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
+      cwd: entry.worktree, encoding: "utf8", timeout: hostTimeout(),
     });
-    if (ran) done.push(ran);
+    const output = `${started.stdout || ""}`;
+    if (!started.error && started.status === 0) {
+      const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
+      done.push(deliver(claude, where, entry, id, name, false));
+    } else {
+      const reason = started.error ? hostTrouble(started, "claude --bg") : String(started.stderr || output).trim().split(/\r?\n/).pop();
+      Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
+      delete entry.runner_pid;
+      store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+      done.push(entry);
+    }
   }
   return done;
 }
@@ -750,7 +818,8 @@ function waitForHandOver(where, role) {
 function describeHandOff(entry) {
   const tail = entry.state === "delivered"
     ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}`
-    : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}`
+    : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}; ${retryNote(entry)}`
+      : entry.state === "starting" ? `starting since ${entry.starting_at} (attempt ${entry.attempts} of ${HANDOVER_ATTEMPTS})`
       : entry.waiting_on ? `pending: cannot ask the host — ${entry.waiting_on}` : "pending: waits for the session to go idle";
   // An entry from before #399 recorded whether the old session's rename showed.
   const renamed = entry.state === "delivered" && "renamed" in entry ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
@@ -763,11 +832,19 @@ function describeHandOff(entry) {
   return `- ${entry.role}: ${tail}${renamed}; requested ${entry.requested_at}; ${reopen}${removed}${notice}`;
 }
 
+// What follows a failed start: the tick's next attempt, or, once none is left,
+// the existing way to bring the role back (#408 D5).
+function retryNote(entry) {
+  return Number.isInteger(entry.attempts) && entry.attempts < HANDOVER_ATTEMPTS
+    ? `attempt ${entry.attempts} of ${HANDOVER_ATTEMPTS}, the tick tries again`
+    : `resume the old session with \`keel chat wake now ${entry.role}\``;
+}
+
 // A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
 function handOffRisks(where, now = Date.now()) {
   return handOffs(where).filter((entry) => entry.state === "failed"
     || (entry.state === "pending" && now - Date.parse(entry.requested_at) > 15 * 60 * 1000))
-    .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}` : ` since ${entry.requested_at}`}`
+    .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}; ${retryNote(entry)}` : ` since ${entry.requested_at}`}`
       + `${entry.waiting_on ? ` (${entry.waiting_on})` : ""}; see \`keel shift status\``);
 }
 
