@@ -222,6 +222,8 @@ MUTATING_KEEL_COMMANDS = (
     "--clear",
     "--update",
     "--with-git-hooks",
+    # Installs into, and writes from, the Keel-managed environment (#405).
+    "docx",
 )
 
 

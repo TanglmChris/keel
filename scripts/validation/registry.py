@@ -7,6 +7,7 @@ from validation import chat
 from validation import shift
 from validation import docs
 from validation import selfcheck
+from validation import export
 
 
 
@@ -639,4 +640,8 @@ SCENARIOS: tuple = (
         "a-count-is-derived-from-what-it-counts",
         docs.validate_a_count_is_derived_from_what_it_counts_scenario,
     ),
+    ("docx-skill-ships", export.validate_docx_skill_ships_scenario),
+    ("docx-setup-asks-first", export.validate_docx_setup_asks_first_scenario),
+    ("docx-convert-refuses-first", export.validate_docx_convert_refuses_first_scenario),
+    ("docx-converts-markdown-with-svg", export.validate_docx_converts_markdown_with_svg_scenario),
 )
