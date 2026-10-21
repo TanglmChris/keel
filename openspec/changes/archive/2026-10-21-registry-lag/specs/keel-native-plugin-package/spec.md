@@ -1,0 +1,91 @@
+## MODIFIED Requirements
+
+### Requirement: One owner-run update covers every installed Keel component
+
+`keel --update` MUST update the global CLI and then, for each of Claude Code and Codex whose executable resolves and whose `plugin list --json` reports `keel` installed, update that host's Keel plugin through the host's own documented commands. It MUST report exactly one status line per component — the CLI, the Claude plugin, and the Codex plugin — naming the version before and after, when the update takes effect, and any step the owner must still take. A host that is absent or has no Keel plugin MUST be reported `absent` and MUST NOT fail the command. Each `plugin list --json` query MUST be allowed at most 30 seconds, while the update commands keep their longer limit; a query that times out MUST be retried once with the same limit, and a query that times out twice, exits nonzero, or prints no JSON MUST report that component `failed`, naming the command and why — for a timeout, the limit — and MUST NOT report it `absent`, except that when the failed query is Codex's and Codex's own `config.toml` declares the Keel marketplace as a Git source and its plugin cache holds an installed Keel version, the update MUST run from that state and the Codex line MUST name the versions as read from the cache because the query did not answer. A Codex marketplace whose source is not a Git repository MUST be reported `manual`, naming its source and the command that would make it upgradable, and MUST NOT be re-pointed. The Claude marketplace refresh MUST be retried once when it fails, and when the retry also fails, the Claude line MUST read `failed` and say the refresh failed twice. A `failed` line for a host step that exited nonzero MUST name its exit status and, when the host wrote any, its last line of stderr. The Codex marketplace refresh MUST be retried once when it fails, and when the retry also fails, the Codex line MUST name the sparse marketplace paths `.agents/plugins` and `plugins/keel` as `sparse_paths` under `[marketplaces.keel-marketplace]` in the Codex config. The command that makes a marketplace upgradable MUST add it with `--sparse .agents/plugins --sparse plugins/keel`, and those paths MUST contain the Codex catalog and the plugin source it names. When Codex's hook definitions differ between the installed and the new plugin, the Codex line MUST say Codex will ask for review before those hooks run. When the source is the default registry package, the CLI line MUST name the version the npm registry served as its latest. When `claude plugin update` fails with `E404 No match found for version X` and `npm view @christang/keel version`, allowed the host-query limit, answers a version older than X, the Claude line MUST read `pending`, naming X, the registry's latest, and that `keel --update` should be rerun in a few minutes, and that line MUST NOT count as a failure; an E404 for a version the registry already serves, or an `npm view` that fails or answers nothing, MUST leave the line `failed`. The exit status MUST be nonzero only when a step that ran failed. `--dry-run` MUST print each planned command and run none. No hook or projection MAY invoke this behavior.
+
+#### Scenario: Both plugins are updated and each line says when it applies
+- **WHEN** `claude` and `codex` both report Keel installed at an older version, from a Git marketplace, and `keel --update` runs
+- **THEN** each host's documented update commands run once, in order, after the CLI update
+- **AND THEN** the output carries one line per component naming the old and new version, that the Claude plugin applies to running sessions at their next hook call with skills and agents after `/reload-plugins`, and that the Codex plugin applies at the next hook call
+
+#### Scenario: An absent host is not a failure
+- **WHEN** `codex` does not resolve, or reports no Keel plugin
+- **THEN** the Codex line reads `absent`, no Codex command runs, and the exit status reflects only the steps that ran
+
+#### Scenario: A local Codex marketplace is reported, not re-pointed
+- **WHEN** Codex reports the Keel marketplace with a non-Git source
+- **THEN** the Codex line reads `manual`, names the source path and `codex plugin marketplace add TanglmChris/keel --ref main --sparse .agents/plugins --sparse plugins/keel`, and no marketplace command runs
+
+#### Scenario: Changed Codex hook definitions are named
+- **WHEN** the new Codex plugin's `hooks/codex.json` differs from the installed one
+- **THEN** the Codex line says Codex will ask for review in `/hooks` before the changed hooks run
+
+#### Scenario: A failed host step fails the command and says which
+- **WHEN** a host update command exits nonzero
+- **THEN** that component's line reads `failed` with the command, the other components still report, and `keel --update` exits nonzero
+
+#### Scenario: A dry run runs nothing
+- **WHEN** `keel --update --dry-run` runs
+- **THEN** it prints the planned CLI and host commands and invokes no host command and no install
+
+#### Scenario: A failed Codex refresh is retried once
+- **WHEN** `codex plugin marketplace upgrade` fails once and then succeeds
+- **THEN** it runs twice, `codex plugin add` runs once, the Codex line reports the new version, and `keel --update` exits 0
+
+#### Scenario: A lasting Codex refresh failure names the sparse remedy
+- **WHEN** `codex plugin marketplace upgrade` fails on both attempts
+- **THEN** it runs twice, `codex plugin add` does not run, the Codex line reads `failed` and names `sparse_paths`, `.agents/plugins` and `plugins/keel`, and `keel --update` exits nonzero
+
+#### Scenario: A hung host query is a failure, not an absent host
+- **WHEN** `codex plugin list --json` does not return within the query limit and Codex's config and cache show no Keel install
+- **THEN** the Codex line reads `failed`, names `codex plugin list --json` and the limit, does not read `absent`, no Codex update command runs, the Claude line still reports, and `keel --update` exits nonzero
+
+#### Scenario: A hung query does not stop an update Codex's own state can carry
+- **WHEN** `codex plugin list --json` does not return within the query limit, Codex's `config.toml` declares `[marketplaces.keel-marketplace]` with `source_type = "git"`, and its plugin cache holds Keel 5.0.0
+- **THEN** `codex plugin marketplace upgrade keel-marketplace` and `codex plugin add keel@keel-marketplace` each run once, and the Codex line reports `5.0.0 -> 5.1.0` read from the plugin cache and says `codex plugin list --json` did not answer
+- **AND THEN** `keel --update` exits 0
+
+#### Scenario: A failed Claude refresh is retried once
+- **WHEN** `claude plugin marketplace update` fails once and then succeeds
+- **THEN** it runs twice, `claude plugin update` runs once, the Claude line reports the new version, and `keel --update` exits 0
+
+#### Scenario: A lasting Claude refresh failure says so with the host's error
+- **WHEN** `claude plugin marketplace update` fails on both attempts
+- **THEN** it runs twice, `claude plugin update` does not run, the Claude line reads `failed`, says it failed twice and carries the host's last stderr line, and `keel --update` exits nonzero
+
+#### Scenario: A failed host step names the host's error
+- **WHEN** `claude plugin update` exits 1 after writing to stderr
+- **THEN** it runs once and the Claude line reads `failed`, naming the command, `exited 1`, and the last stderr line
+
+#### Scenario: A query that times out once is retried
+- **WHEN** `codex plugin list --json` exceeds the query limit once and then answers
+- **THEN** the Codex plugin is updated, its line reports the new version, and `keel --update` exits 0
+- **AND THEN** a query that exceeds the limit on both attempts runs twice and the Codex line reads `failed`, saying it timed out twice and naming the limit
+
+#### Scenario: A version the registry does not serve yet is pending, not failed
+- **WHEN** `claude plugin update` exits 1 with `E404 No match found for version 5.2.0` and `npm view @christang/keel version` answers 5.1.0
+- **THEN** the Claude line reads `pending`, names 5.2.0 and 5.1.0, says to rerun `keel --update` in a few minutes, and does not read `failed`
+- **AND THEN** the CLI line names 5.1.0 as the npm registry's latest, the Codex line still reports, and `keel --update` exits 0
+
+#### Scenario: An E404 the registry cannot explain stays a failure
+- **WHEN** `claude plugin update` exits 1 with `E404 No match found for version 5.2.0` and `npm view @christang/keel version` answers 5.2.0, or exits nonzero
+- **THEN** the Claude line reads `failed` with the host's error, and `keel --update` exits nonzero
+
+## ADDED Requirements
+
+### Requirement: A release completes only once the registry serves its version
+
+The publish job MUST, after `npm publish` and before it tags and creates a release, wait until `npm view @christang/keel@<version> version` on registry.npmjs.org prints that version, polling at a fixed interval up to a time limit. A poll that exits nonzero MUST count as not yet served. When the limit passes first, the job MUST fail before the tag and the release are created, naming the version and the limit. The wait MUST be skipped exactly when the publish is skipped.
+
+#### Scenario: The wait ends when the registry serves the version
+- **WHEN** `scripts/await_registry.js @christang/keel 5.2.0` runs against an npm whose `npm view @christang/keel@5.2.0 version` fails twice with E404 and then prints 5.2.0
+- **THEN** it polls three times and exits 0
+
+#### Scenario: A version the registry never serves fails the wait
+- **WHEN** the same npm never prints the version within the time limit
+- **THEN** `scripts/await_registry.js` exits nonzero, naming the version and the limit
+
+#### Scenario: The release waits for the registry
+- **WHEN** `.github/workflows/publish.yml` is read
+- **THEN** a step running `scripts/await_registry.js` for the planned version sits after the `Publish` step and before `Tag and release the landed version`, under the same skip condition as `Publish`

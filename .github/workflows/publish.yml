@@ -166,6 +166,16 @@ jobs:
           fi
           exit 1
 
+      # The write side accepting the version is not the read side serving it:
+      # `npm install` and `claude plugin update` resolve against the read side,
+      # which has lagged by minutes (#421). Wait for it before announcing the
+      # release; a timeout fails here, before the tag, so a re-run waits again.
+      - name: Wait until the registry serves the version
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: node scripts/await_registry.js "$(node -p "require('./package.json').name")" "$VERSION"
+
       - name: Tag and release the landed version
         if: steps.plan.outputs.skip != 'true' && steps.plan.outputs.tag == 'true'
         env:

@@ -17,14 +17,15 @@ It updates the global CLI, then the Keel plugin of each host it finds installed,
 | Codex plugin | `codex plugin marketplace upgrade keel-marketplace`, `codex plugin add keel@keel-marketplace` | a running session's next hook call |
 
 Each component prints one line, `keel update: <component>: <status> - <detail>`, where the status is one of:
-- `updated A -> B` or `current B`;
+- `updated A -> B` or `current B`; from the default source, the CLI line also names the version the npm registry served as its latest, so `current B` right after a release says the registry you reach does not serve the new one yet (#421);
 - `absent`: the host is not installed or has no Keel plugin — a `plugin list --json` query, allowed 30 s where the update commands get five minutes, that times out is retried once (#365), and one that times out twice, exits nonzero, or prints no JSON is reported `failed` instead, naming the command and why (#354);
 - `manual`: a step only you can take;
+- `pending`: the Claude plugin update asked for a version the npm registry you reach does not serve yet — `claude plugin update` failed with `E404 No match found for version X` and `npm view @christang/keel version` answers an older one. The line names both versions and asks you to rerun `keel --update` in a few minutes; it does not fail the command (#421);
 - `failed`: the command that failed and why — its exit status and, when the host wrote any, its last line of error output (#359) — which also makes `keel --update` exit nonzero.
 
 When `codex plugin list --json` times out twice, `keel --update` no longer stops there (#412, 5.174.0): it reads Codex's own state — the `[marketplaces.keel-marketplace]` source in `$CODEX_HOME/config.toml` and the version under `$CODEX_HOME/plugins/cache/keel-marketplace/keel/` — and, when they show Keel installed from a Git marketplace, runs the upgrade and `plugin add` as usual. The Codex line says the list query did not answer and names the cache it read.
 
-Right after a release, the npm registry can take a while to serve the new version, and the Claude plugin line may read `failed` with `E404 No match found for version` (#421). Nothing is wrong with the install: run `keel --update` again a few minutes later.
+Right after a release, the npm registry you reach can take a few minutes to serve the new version (#421). A release is created only once registry.npmjs.org serves its version, but a proxy or mirror may still lag behind it. The Claude plugin line then reads `pending` rather than `failed`; run `keel --update` again a few minutes later. An E404 for a version the registry already serves, or one `npm view` cannot check, is still `failed`.
 
 The Claude marketplace refresh is retried once when it fails, as the Codex one is: on a proxied link it has failed once and passed on a direct rerun (#359). A refresh that fails twice reads `failed` and says so.
 

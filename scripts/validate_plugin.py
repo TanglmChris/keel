@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.178.0"
-PROTOCOL_VERSION = "5.178.0"
+PACKAGE_VERSION = "5.179.0"
+PROTOCOL_VERSION = "5.179.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -25267,7 +25267,10 @@ if (failOn && args.join(" ").includes(failOn)) {
   if (failed < failTimes) {
     state.failed = { ...(state.failed || {}), [host]: failed + 1 };
     save();
-    process.stderr.write(`fake ${host}: warming up\nfake ${host}: refused ${args.join(" ")}\n`);
+    // FAKE_FAIL_STDERR_<HOST> replaces the refusal's last line, as a host's own
+    // error text would read (#421).
+    const said = process.env[`FAKE_FAIL_STDERR_${host.toUpperCase()}`] || `fake ${host}: refused ${args.join(" ")}`;
+    process.stderr.write(`fake ${host}: warming up\n${said}\n`);
     process.exit(1);
   }
 }
@@ -25276,6 +25279,15 @@ if (host === "npm") {
     const dest = args[args.indexOf("--pack-destination") + 1];
     fs.writeFileSync(path.join(dest, "christang-keel-5.1.0.tgz"), "");
     process.stdout.write(JSON.stringify([{ filename: "christang-keel-5.1.0.tgz" }]));
+  }
+  // FAKE_NPM_LATEST is what `npm view <package> version` prints, and
+  // FAKE_NPM_VIEW_EXIT makes it exit with that status instead (#421).
+  if (args[0] === "view") {
+    if (process.env.FAKE_NPM_VIEW_EXIT) {
+      process.stderr.write("npm error code E404\n");
+      process.exit(Number(process.env.FAKE_NPM_VIEW_EXIT));
+    }
+    process.stdout.write(`${process.env.FAKE_NPM_LATEST || "5.1.0"}\n`);
   }
   process.exit(0);
 }
@@ -25452,6 +25464,101 @@ def validate_update_covers_installed_hosts_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("update-covers-installed-hosts scenario passed.")
+    return 0
+
+
+def validate_update_registry_lag_scenario() -> int:
+    """Issue #421: a version the registry does not serve yet is `pending`.
+
+    Right after a release, the Claude marketplace names the new version while
+    the npm registry the machine reaches still serves the old one, and
+    `claude plugin update` exits 1 with `E404 No match found for version`.
+    A rerun minutes later succeeds, so that is not a failure; any E404 the
+    registry's own answer does not explain still is.
+    """
+    label = "update-registry-lag:"
+    e404 = ('✘ Failed to update plugin "keel@keel-marketplace": Could not resolve @christang/keel@5.2.0 '
+            "from the npm registry: E404 No match found for version 5.2.0")
+    with tempfile.TemporaryDirectory(prefix="keel-update-421-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        launchers = {}
+        for host in ("npm", "claude", "codex"):
+            launcher = tmp / f"fake-{host}"
+            write_text(launcher, f'#!/bin/sh\nFAKE_HOST={host} exec node "{fake}" "$@"\n')
+            launcher.chmod(0o755)
+            launchers[host] = launcher
+        source = tmp / "codex-source"
+        write_text(source / "hooks/codex.json", "{}\n")
+
+        def update(env_extra: dict[str, str]):
+            log = tmp / "log.jsonl"
+            state = tmp / "state.json"
+            for stale in (log, state):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(launchers["npm"]),
+                "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]),
+                "CODEX_HOME": str(tmp / "codex-home"),
+                "FAKE_LOG": str(log), "FAKE_STATE": str(state),
+                "FAKE_CODEX_SOURCE": str(source),
+                "FAKE_FAIL_CLAUDE": "plugin update keel", "FAKE_FAIL_STDERR_CLAUDE": e404,
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            env.update(env_extra)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=60)
+            lines = {}
+            for component in ("cli", "claude plugin", "codex plugin"):
+                found = [l for l in result.stdout.splitlines() if l.startswith(f"keel update: {component}:")]
+                lines[component] = found[0] if len(found) == 1 else ""
+            return result, lines
+
+        result, lines = update({"FAKE_NPM_LATEST": "5.1.0"})
+        claude = lines["claude plugin"]
+        if not claude.startswith("keel update: claude plugin: pending"):
+            report(f"{label} a version the registry does not serve yet was not reported pending: {claude!r}")
+            return 1
+        for needle in ("5.2.0", "5.1.0", "rerun keel --update", "few minutes"):
+            if needle not in claude:
+                report(f"{label} the pending Claude line does not name {needle!r}: {claude!r}")
+                return 1
+        if "failed" in claude:
+            report(f"{label} the pending Claude line still reads failed: {claude!r}")
+            return 1
+        if "registry's latest here is 5.1.0" not in lines["cli"]:
+            report(f"{label} the CLI line does not name 5.1.0 as the registry's latest: {lines['cli']!r}")
+            return 1
+        if "5.0.0 -> 5.1.0" not in lines["codex plugin"]:
+            report(f"{label} the Codex line did not still update: {lines['codex plugin']!r}")
+            return 1
+        if result.returncode != 0:
+            report(f"{label} a pending Claude plugin failed the update: exit={result.returncode} {result.stdout!r}")
+            return 1
+
+        for case, env_extra in (("the registry serves 5.2.0", {"FAKE_NPM_LATEST": "5.2.0"}),
+                                ("npm view exits 1", {"FAKE_NPM_VIEW_EXIT": "1"})):
+            result, lines = update(env_extra)
+            claude = lines["claude plugin"]
+            if not claude.startswith("keel update: claude plugin: failed"):
+                report(f"{label} when {case}, the Claude line does not read failed: {claude!r}")
+                return 1
+            if "E404 No match found" not in claude:
+                report(f"{label} when {case}, the failed Claude line does not carry the host's E404: {claude!r}")
+                return 1
+            if result.returncode == 0:
+                report(f"{label} when {case}, the update exited 0: {result.stdout!r}")
+                return 1
+
+    if "update-registry-lag" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("update-registry-lag scenario passed.")
     return 0
 
 
@@ -40505,6 +40612,121 @@ def workflow_job_block(workflow: str, job: str) -> str:
     return match.group(1) if match else ""
 
 
+def registry_wait_problem(workflow: str) -> str | None:
+    """Return why `publish.yml` would release before the registry serves it, or None.
+
+    Takes text so a planted copy can prove the rule fires (#421).
+    """
+    publish = workflow_job_block(workflow, "publish")
+    steps = re.split(r"\n(?=      - name: )", publish)
+    names = [re.match(r"\s*- name: ([^\n]*)", step).group(1).strip() if re.match(r"\s*- name: ", step) else ""
+             for step in steps]
+    waits = [i for i, step in enumerate(steps) if "scripts/await_registry.js" in step]
+    if not waits:
+        return f"releases before the registry serves the version — {PUBLISH_WORKFLOW} never runs scripts/await_registry.js."
+    if "Publish" not in names or "Tag and release the landed version" not in names:
+        return f"{PUBLISH_WORKFLOW} has no `Publish` or no `Tag and release the landed version` step to order the wait between."
+    wait = waits[0]
+    if not names.index("Publish") < wait < names.index("Tag and release the landed version"):
+        return ("releases before the registry serves the version — the scripts/await_registry.js step is not "
+                "between `Publish` and `Tag and release the landed version`.")
+    condition = re.search(r"^\s*if: ([^\n]*)", steps[names.index("Publish")], re.M)
+    if not condition or f"if: {condition.group(1)}" not in steps[wait]:
+        return "the registry wait does not share the `Publish` step's skip condition."
+    if "steps.plan.outputs.version" not in steps[wait]:
+        return "the registry wait does not wait for the planned version."
+    return None
+
+
+AWAIT_NPM_FAKE = r"""const fs = require("fs");
+const count = process.env.FAKE_COUNT;
+const calls = (fs.existsSync(count) ? Number(fs.readFileSync(count, "utf8")) : 0) + 1;
+fs.writeFileSync(count, String(calls));
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify(process.argv.slice(2)) + "\n");
+const after = process.env.FAKE_SERVE_AFTER;
+if (after === "never" || calls <= Number(after)) {
+  process.stderr.write("npm error code E404\nnpm error 404 No match found for version 5.2.0\n");
+  process.exit(1);
+}
+process.stdout.write("5.2.0\n");
+"""
+
+
+def validate_publish_awaits_registry_scenario() -> int:
+    """Issue #421: a release is created only once the registry serves it.
+
+    The release used to announce a version the registry's read side would not
+    serve for minutes, and the first `keel --update` after it failed.
+    """
+    label = "publish-awaits-registry:"
+    script = ROOT / "scripts/await_registry.js"
+    if not script.is_file():
+        report(f"{label} scripts/await_registry.js is missing.")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="keel-await-421-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake-npm.js"
+        write_text(fake, AWAIT_NPM_FAKE)
+        launcher = tmp / "fake-npm"
+        write_text(launcher, f'#!/bin/sh\nexec node "{fake}" "$@"\n')
+        launcher.chmod(0o755)
+
+        def wait(serve_after: str, *extra: str):
+            count, log = tmp / "count", tmp / "log.jsonl"
+            for stale in (count, log):
+                if stale.exists():
+                    stale.unlink()
+            log.write_text("")
+            env = dict(os.environ)
+            env.update({"KEEL_AWAIT_NPM": str(launcher), "FAKE_COUNT": str(count), "FAKE_LOG": str(log),
+                        "FAKE_SERVE_AFTER": serve_after})
+            result = subprocess.run(["node", str(script), "@christang/keel", "5.2.0", "--interval-seconds", "0", *extra],
+                                    cwd=tmp, env=env, text=True, capture_output=True, check=False, timeout=60)
+            calls = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            return result, calls
+
+        result, calls = wait("2")
+        if result.returncode != 0 or len(calls) != 3:
+            report(f"{label} a version served on the third poll did not end the wait after 3 polls with exit 0: "
+                   f"exit={result.returncode} polls={len(calls)} {result.stdout!r} {result.stderr!r}")
+            return 1
+        if calls[0][:3] != ["view", "@christang/keel@5.2.0", "version"]:
+            report(f"{label} the wait did not ask npm for the exact version: {calls[0]!r}")
+            return 1
+
+        result, calls = wait("never", "--timeout-seconds", "1")
+        said = result.stdout + result.stderr
+        if result.returncode == 0:
+            report(f"{label} a version never served ended the wait with exit 0: {said!r}")
+            return 1
+        for needle in ("5.2.0", "1 s"):
+            if needle not in said:
+                report(f"{label} the timed-out wait does not name {needle!r}: {said!r}")
+                return 1
+
+    workflow = (ROOT / PUBLISH_WORKFLOW).read_text(encoding="utf-8")
+    problem = registry_wait_problem(workflow)
+    if problem:
+        report(f"{label} {problem}")
+        return 1
+    tag_step = workflow.find("      - name: Tag and release the landed version")
+    wait_start = workflow.rfind("      - name: ", 0, workflow.find("scripts/await_registry.js"))
+    wait_end = workflow.find("\n      - name: ", wait_start + 1) + 1
+    moved = workflow[:wait_start] + workflow[wait_end:] + workflow[wait_start:wait_end]
+    if tag_step < 0:
+        report(f"{label} {PUBLISH_WORKFLOW} has no `Tag and release the landed version` step to plant a copy against.")
+        return 1
+    if not registry_wait_problem(moved):
+        report(f"{label} a planted copy with the wait moved after the tag step was not refused.")
+        return 1
+
+    if "publish-awaits-registry" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("publish-awaits-registry scenario passed.")
+    return 0
+
+
 def landing_problem(workflow: str) -> str | None:
     """Return the problem the landing path in `publish.yml` has, or None.
 
@@ -41550,9 +41772,11 @@ SCENARIOS: tuple = (
     ("update-claude-refresh-retry", validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
     ("update-codex-from-disk", validate_update_codex_from_disk_scenario),
+    ("update-registry-lag", validate_update_registry_lag_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
     ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),
+    ("publish-awaits-registry", validate_publish_awaits_registry_scenario),
     ("directory-tree-is-the-package-renamed", validate_directory_tree_is_the_package_renamed_scenario),
     ("init-declares-plugin-auto-update", validate_init_declares_plugin_auto_update_scenario),
     ("context-names-the-protocol-refresh", validate_context_names_the_protocol_refresh_scenario),
