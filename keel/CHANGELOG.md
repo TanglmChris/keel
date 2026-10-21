@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.192.0 - An issue route may name a set of labels
+
+Issue #433, approved by the owner on 2026-10-21. `issue_roles:` mapped one label to one role, so a repository running several teams of the same shape could not route the labels they share. In kaiwu-ip, the second IP team's issues carry `design` + `dmc_rmw`, and every update went to `kaiwu-design-iecc`, the first team's role.
+
+- **A key may join labels with ` + `.** `design + dmc_rmw: kaiwu-design-rmw` matches an issue that carries both labels. The separator needs whitespace on both sides, so `c++` stays one label. A quoted key is one label and is not split. Single-label lines work unchanged.
+- **The most specific route wins.** When one matching route's labels are a strict subset of another matching route's, only the larger set's role is sent the update. With `design: kaiwu-design-iecc` beside `design + dmc_rmw: kaiwu-design-rmw`, an RMW issue reaches only `kaiwu-design-rmw`. Routes that are not nested both still send, as `flow` beside `design` does.
+- **A set with an empty or repeated label is reported and routes nothing**, like any other unreadable line. The warning names both shapes.
+- **Checks.** `patrol-issue-label-sets` and `patrol-issue-label-set-unreadable` drive the real `keel patrol --issues`.
+- **Follow-up #444.** `validate_plugin.py` runs only the baseline, and exits 0, when given more than one `--scenario`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.192.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.191.0 - Markdown with SVG exports to Word, on request
 
 Issue #405, with the owner's constraints from its comments of 2026-10-20 and 2026-10-21. The prototype attached to #405 becomes an on-demand skill and a `keel docx` command. Nothing is added to SessionStart or to any OpenSpec task.
