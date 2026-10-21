@@ -1,5 +1,24 @@
 # Keel Changelog
 
+## 5.190.0 - A resumed -w session is bound to its own worktree, as measured
+
+Issue #441, approved by the owner on 2026-10-21. #415 (5.181.0) did not hold on the real host. A session started with `claude --bg -w` from the main checkout was resumed on 5.188.0 and was still bound to the main checkout's role. keel-maint-2's SessionStart printed `watchPaths: [".../signal/codex-issues", ...]`, so direct messages to keel-maint-2 never woke it.
+
+What the host sends on resume, measured on Claude Code 2.1.304 with a throwaway probe started by `-w` from the main checkout and given a payload-capturing SessionStart hook:
+
+- `cwd` and `transcript_path` both name the launch directory.
+- That `transcript_path` names a file that does not exist. The session keeps writing `<id>.jsonl` in its worktree's project directory.
+
+#415 trusted `transcript_path`, and its scenario fed an assumed payload, so the measurement had never been made.
+
+Fixes:
+
+- **The chat hook uses the transcript that exists.** When the reported `transcript_path` does not exist, it finds `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<session_id>.jsonl` and takes the worktree from that file's project directory. The role's shift segment records the same file.
+- **`chat-hook-follows-session-worktree` replays the measured payload shape.**
+- **The `docs/host-contract.md` row records the measurement.**
+- **A session already resumed with the wrong watch list picks the fix up at its next resume.**
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.190.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.189.0 - The review checklist reads its conditional checks only when they apply
 
 Issue #411, rows 7 and 8 of the disposition table the owner approved on 2026-10-21.
