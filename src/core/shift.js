@@ -513,14 +513,55 @@ function finished(row) {
   return row.status === "idle";
 }
 
-function listAgents(claude) {
-  const listed = spawnSync(claude, ["agents", "--json", "--all"], { encoding: "utf8" });
+// Every host call in the hand-over is bounded (#408 D2): a hung `claude` must
+// not hold the waiter or the tick.
+function hostTimeout() {
+  return envMs("KEEL_SHIFT_HOST_TIMEOUT_MS", 60 * 1000);
+}
+
+// Why a host call did not answer, in words the owner can act on.
+function hostTrouble(result, what) {
+  if (result.error && result.error.code === "ENOENT") return "claude was not found; put it on PATH or name it with KEEL_CLAUDE";
+  if (result.error && result.error.code === "ETIMEDOUT") return `\`${what}\` timed out after ${hostTimeout() / 1000} s`;
+  if (result.error) return `\`${what}\` failed: ${result.error.message}`;
+  return `\`${what}\` printed no session list (exit ${result.status})`;
+}
+
+function queryAgents(claude) {
+  const listed = spawnSync(claude, ["agents", "--json", "--all"], { encoding: "utf8", timeout: hostTimeout() });
   try {
     const parsed = JSON.parse(listed.stdout);
-    return listed.status === 0 && Array.isArray(parsed) ? parsed : null;
+    if (!listed.error && listed.status === 0 && Array.isArray(parsed)) return { rows: parsed, why: null };
   } catch {
-    return null;
+    // not a list
   }
+  return { rows: null, why: hostTrouble(listed, "claude agents --json --all") };
+}
+
+function listAgents(claude) {
+  return queryAgents(claude).rows;
+}
+
+function processRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+// `claude stop` returns before the process exits (#395; on 2.1.304 the row
+// loses its status at 0.32 s, stop returns at 0.98 s, the process exits at
+// about 3.2 s), so a removal waits for the process the note recorded.
+function waitForExit(pid, limitMs) {
+  const deadline = Date.now() + limitMs;
+  while (processRunning(pid)) {
+    if (Date.now() >= deadline) return false;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  return true;
 }
 
 // Stop the old session; `claude stop` keeps its conversation. It is not resumed:
@@ -528,7 +569,7 @@ function listAgents(claude) {
 // its claude.ai title back over a rename (#399 F1, F2). The new session carries
 // a name of its own instead.
 function retire(claude, entry, row) {
-  if (row.state !== "stopped") spawnSync(claude, ["stop", row.id || entry.session.slice(0, 8)], { encoding: "utf8" });
+  if (row.state !== "stopped") spawnSync(claude, ["stop", row.id || entry.session.slice(0, 8)], { encoding: "utf8", timeout: hostTimeout() });
 }
 
 // The new session's name: the role and its local start time (#399 D1), which
@@ -582,8 +623,14 @@ function removeOldSessions(claude, where, entry, keep) {
     .sort((a, b) => (Number(b.row.startedAt) || 0) - (Number(a.row.startedAt) || 0));
   const removed = [];
   for (const { row, transcript } of old.slice(keep)) {
+    // Never a session whose process still runs (#408 D1): the one just handed
+    // over gets a bounded wait for the process its note recorded; any other
+    // still running is left for the next hand-over.
+    const handedOver = row.sessionId === entry.session;
+    const pid = Number(handedOver ? entry.pid : row.pid);
+    if (handedOver ? !waitForExit(pid, envMs("KEEL_SHIFT_EXIT_WAIT_MS", 15 * 1000)) : processRunning(pid)) continue;
     if (transcript && !keptCopyOf(where, entry.role, transcript)) continue;
-    const gone = spawnSync(claude, ["rm", row.id || row.sessionId.slice(0, 8)], { encoding: "utf8" });
+    const gone = spawnSync(claude, ["rm", row.id || row.sessionId.slice(0, 8)], { encoding: "utf8", timeout: hostTimeout() });
     if (!gone.error && gone.status === 0) removed.push(row.id || row.sessionId.slice(0, 8));
   }
   return removed;
@@ -624,15 +671,29 @@ function handOver(where, only = null) {
   const claude = process.env.KEEL_CLAUDE || "claude";
   const pending = handOffs(where).filter((entry) => entry.state === "pending" && (!only || entry.role === only));
   if (!pending.length) return [];
-  const sessions = listAgents(claude);
-  // A listing that failed says nothing about the old session: wait for the next step.
-  if (!sessions) return [];
+  const queried = queryAgents(claude);
+  const sessions = queried.rows;
+  // A listing that failed says nothing about the old session: wait for the next
+  // step, and say why on the entry, which status and the patrol show (#408 D2).
+  if (!sessions) {
+    for (const queuedEntry of pending) {
+      const entry = store.readJsonFile(queueFile(where, queuedEntry.role));
+      if (entry && entry.state === "pending" && entry.waiting_on !== queried.why) {
+        store.writeJsonAtomic(where, queueFile(where, entry.role), { ...entry, waiting_on: queried.why });
+      }
+    }
+    return [];
+  }
   const done = [];
   for (const queued of pending) {
     const ran = withHandOverLock(where, queued.role, () => {
       const entry = store.readJsonFile(queueFile(where, queued.role));
       if (!entry || entry.state !== "pending") return null;
       const row = sessions.find((item) => item && item.sessionId === entry.session);
+      if (entry.waiting_on) {
+        delete entry.waiting_on;
+        store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
+      }
       if (!finished(row)) return null;
       // `stop`, `attach` and `logs` take the 8-character job id, not the full
       // session id (`No job matching`, measured 2026-10-19).
@@ -641,7 +702,7 @@ function handOver(where, only = null) {
       const mode = declared.permissionMode;
       const name = sessionName(entry.role);
       const started = spawnSync(claude, ["--bg", "-n", name, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
-        cwd: entry.worktree, encoding: "utf8",
+        cwd: entry.worktree, encoding: "utf8", timeout: hostTimeout(),
       });
       const output = `${started.stdout || ""}`;
       if (!started.error && started.status === 0) {
@@ -650,7 +711,7 @@ function handOver(where, only = null) {
         entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
         if (declared.message) entry.notice = declared.message;
       } else {
-        const reason = started.error ? started.error.message : String(started.stderr || output).trim().split(/\r?\n/).pop();
+        const reason = started.error ? hostTrouble(started, "claude --bg") : String(started.stderr || output).trim().split(/\r?\n/).pop();
         Object.assign(entry, { state: "failed", failed_at: store.isoLocal(new Date()), error: reason || `exited ${started.status}` });
       }
       store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
@@ -689,7 +750,8 @@ function waitForHandOver(where, role) {
 function describeHandOff(entry) {
   const tail = entry.state === "delivered"
     ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}`
-    : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}` : "pending: waits for the session to go idle";
+    : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}`
+      : entry.waiting_on ? `pending: cannot ask the host — ${entry.waiting_on}` : "pending: waits for the session to go idle";
   // An entry from before #399 recorded whether the old session's rename showed.
   const renamed = entry.state === "delivered" && "renamed" in entry ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
   const removed = (entry.removed || []).length ? `; older sessions removed from \`claude agents\` (transcripts kept by Keel): ${entry.removed.join(", ")}` : "";
@@ -705,7 +767,8 @@ function describeHandOff(entry) {
 function handOffRisks(where, now = Date.now()) {
   return handOffs(where).filter((entry) => entry.state === "failed"
     || (entry.state === "pending" && now - Date.parse(entry.requested_at) > 15 * 60 * 1000))
-    .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}` : ` since ${entry.requested_at}`}; see \`keel shift status\``);
+    .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}` : ` since ${entry.requested_at}`}`
+      + `${entry.waiting_on ? ` (${entry.waiting_on})` : ""}; see \`keel shift status\``);
 }
 
 // --- the one-shot wake (#293) -------------------------------------------------------

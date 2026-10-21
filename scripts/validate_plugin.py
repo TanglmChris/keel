@@ -8420,6 +8420,191 @@ def validate_shift_start_desktop_scenario() -> int:
     return 0
 
 
+# A claude for the hand-over's host contract (#408): `agents --json` from a rows
+# file, `stop` that drops the row's status and pid at once and ends the process
+# a second later (`late`) or never (`never`), as measured on 2.1.304 (row 0.32 s,
+# return 0.98 s, exit 3.2 s), `rm` that logs whether that process was still
+# running, and a new session for `--bg`.
+HANDOVER_CONTRACT_FAKE = """#!/usr/bin/env python3
+import json, os, subprocess, sys
+agents, calls, mode = os.environ['FAKE_AGENTS'], os.environ['FAKE_CALLS'], os.environ.get('FAKE_STOP_MODE', 'late')
+argv = sys.argv[1:]
+def running(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+rows = json.loads(open(agents).read())
+record = {'argv': argv}
+if argv[:1] == ['rm']:
+    gone = [row for row in rows if row['id'] == argv[1]]
+    record['alive'] = bool(gone) and bool(gone[0].get('_pid')) and running(gone[0]['_pid'])
+    rows = [row for row in rows if row['id'] != argv[1]]
+open(calls, 'a').write(json.dumps(record) + '\\n')
+if argv[:2] == ['agents', '--json']:
+    print(json.dumps([{k: v for k, v in row.items() if not k.startswith('_')} for row in rows])); sys.exit(0)
+if argv[:1] == ['stop']:
+    for row in rows:
+        if row['id'] == argv[1] and 'status' in row:
+            pid = row.pop('pid', None); row.pop('status', None); row['state'] = 'stopped'; row['_pid'] = pid
+            if pid and mode == 'late':
+                subprocess.Popen(['sh', '-c', f'sleep 1; kill {pid}'], start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    open(agents, 'w').write(json.dumps(rows)); print('stopped ' + argv[1]); sys.exit(0)
+if argv[:1] == ['--bg']:
+    rows.append({'kind': 'background', 'name': 'verify', 'sessionId': 'newsess1-0000-0000-0000-000000000000', 'id': 'newsess1',
+                 'status': 'busy', 'state': 'working', 'pid': os.getpid(), 'cwd': os.getcwd(), 'startedAt': 1792600000000})
+    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · newsess1 · verify'); sys.exit(0)
+open(agents, 'w').write(json.dumps(rows)); print('ok')
+"""
+
+
+def detached_sleeper() -> int:
+    """A process that is not this one's child, so a kill reaps it instead of leaving a zombie."""
+    return int(subprocess.run(["sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!"], text=True,
+                              capture_output=True, check=True).stdout.strip())
+
+
+def validate_shift_cli_removes_after_exit_scenario() -> int:
+    """Issue #408: a hand-over never removes a session whose process still runs.
+
+    Measured on Claude Code 2.1.304 (2026-10-21): after `claude stop` the row
+    loses `status` and `pid` at 0.32 s, the command returns at 0.98 s, and the
+    process exits about 3.2 s in. Since #418 the session just handed over is
+    removed by default, so the removal waits for the process the note recorded.
+    """
+    label = "shift-cli-removes-after-exit:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    for mode in ("late", "never"):
+        with tempfile.TemporaryDirectory(prefix="keel-shift-408a-") as raw:
+            base = Path(raw)
+            rtl, verify, env, _ = shift_scratch(base)
+            agents, calls, fake, config = base / "agents.json", base / "calls.jsonl", base / "fake-claude", base / "claude"
+            write_text(fake, HANDOVER_CONTRACT_FAKE)
+            fake.chmod(0o755)
+            write_text(config / "projects" / host_project_name(verify) / f"{OLD}.jsonl",
+                       json.dumps({"type": "user", "message": {"role": "user", "content": "carry on"}}) + "\n")
+            process = detached_sleeper()
+            try:
+                agents.write_text(json.dumps([{"kind": "background", "name": "verify", "sessionId": OLD, "id": OLD[:8],
+                                               "status": "idle", "state": "done", "pid": process, "cwd": str(verify),
+                                               "startedAt": 1792500000000}]))
+                calls.write_text("")
+                env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config), "FAKE_AGENTS": str(agents),
+                       "FAKE_CALLS": str(calls), "FAKE_STOP_MODE": mode, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1",
+                       "KEEL_SHIFT_EXIT_WAIT_MS": "5000" if mode == "late" else "1500"}
+                cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(process)}
+                readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R030", env=cli_env)
+                if readied.returncode != 0:
+                    report(f"{label} ready --wake failed: {readied.stderr!r}")
+                    return 1
+                run_keel(verify, "tick", "--repo", str(rtl), env=env)
+                removals = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
+                status = run_keel(rtl, "shift", "status", env=env).stdout
+                if mode == "late":
+                    if [r["argv"][1] for r in removals] != [OLD[:8]]:
+                        report(f"{label} the hand-over did not remove the session just handed over once its process exited: {removals!r}")
+                        return 1
+                    if removals[0]["alive"]:
+                        report(f"{label} `claude rm` of the session just handed over ran while its process was still running.")
+                        return 1
+                else:
+                    if removals:
+                        report(f"{label} a session whose process never exited was removed: {removals!r}")
+                        return 1
+                    if f"claude attach {OLD[:8]}" not in status:
+                        report(f"{label} shift status does not say the old session is kept for `claude attach`: {status!r}")
+                        return 1
+            finally:
+                with contextlib.suppress(OSError):
+                    os.kill(process, signal.SIGKILL)
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_cli_names_host_failure_scenario() -> int:
+    """Issue #408: a hand-off the host cannot be asked about says why it waits."""
+    label = "shift-cli-names-host-failure:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    for case, needle in (("missing", "claude was not found"), ("garbled", "agents --json")):
+        with tempfile.TemporaryDirectory(prefix="keel-shift-408b-") as raw:
+            base = Path(raw)
+            rtl, verify, env, _ = shift_scratch(base)
+            claude = base / "no-claude"
+            if case == "garbled":
+                write_text(claude, "#!/bin/sh\necho 'not a list'\n")
+                claude.chmod(0o755)
+            env = {**env, "KEEL_CLAUDE": str(claude), "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"}
+            cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
+            readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R031", env=cli_env)
+            if readied.returncode != 0:
+                report(f"{label} ready --wake failed ({case}): {readied.stderr!r}")
+                return 1
+            run_keel(verify, "tick", "--repo", str(rtl), env=env)
+            status = run_keel(rtl, "shift", "status", env=env).stdout
+            if "pending" not in status:
+                report(f"{label} the hand-off is no longer pending ({case}): {status!r}")
+                return 1
+            if needle not in status:
+                report(f"{label} shift status does not name why the hand-off waits ({case}, expected {needle!r}): {status!r}")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_tick_retries_failed_wake_scenario() -> int:
+    """Issue #408: a tick retries a failed wake a bounded number of times.
+
+    A tick marked the role woken whether or not the resume worked, so one
+    failure was never retried; a removed session is not tried again either.
+    """
+    label = "tick-retries-failed-wake:"
+    for case in ("failing", "removed"):
+        with tempfile.TemporaryDirectory(prefix="keel-tick-408c-") as raw:
+            base = Path(raw)
+            rtl, verify, env, _ = shift_scratch(base)
+            calls = base / "calls.jsonl"
+            fake = base / "fake-claude"
+            listed = "['sess-verify-1']" if case == "failing" else "['other-0000']"
+            write_text(fake, "#!/usr/bin/env python3\nimport json, sys\n"
+                       f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                       "if sys.argv[1:3] == ['agents', '--json']:\n"
+                       f"    print(json.dumps([{{'kind': 'background', 'sessionId': s, 'id': s[:8]}} for s in {listed}])); sys.exit(0)\n"
+                       "if sys.argv[1:2] == ['--bg']:\n    print('Workspace not trusted.', file=sys.stderr); sys.exit(1)\n")
+            fake.chmod(0o755)
+            env = {**env, "KEEL_CLAUDE": str(fake)}
+            dead = subprocess.Popen(["true"])
+            dead.wait()
+            chat_session_start(verify, env, "sess-verify-1", dead.pid)
+            run_keel(rtl, "chat", "dm", "verify", "rerun R032", env=env)
+            for _ in range(4):
+                run_keel(verify, "tick", "--repo", str(rtl), env=env)
+            made = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            resumes = [call for call in made if call[:2] == ["--bg", "--resume"]]
+            lookups = [call for call in made if call[:2] == ["agents", "--json"]]
+            if case == "failing" and len(resumes) != 3:
+                report(f"{label} four ticks tried a failing resume {len(resumes)} times, not 3.")
+                return 1
+            if case == "removed" and resumes:
+                report(f"{label} a removed session was resumed: {resumes!r}")
+                return 1
+            if case == "removed" and len(lookups) != 1:
+                report(f"{label} four ticks looked up a removed session {len(lookups)} times, not once.")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_shift_cli_self_shift_scenario() -> int:
     """Issues #357 and #388 on the CLI (owner, 2026-10-19): hand over, promptly, and retire.
 
@@ -8472,8 +8657,7 @@ def validate_shift_cli_self_shift_scenario() -> int:
                    "if argv[:1] == ['--bg']:\n    print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
                    "print('stopped')\n")
         fake.chmod(0o755)
-        env = {**env, "KEEL_CLAUDE": str(fake), "KEEL_SHIFT_HANDOVER_POLL_MS": "200", "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "20000",
-               "KEEL_SHIFT_RENAME_WAIT_MS": "1500"}
+        env = {**env, "KEEL_CLAUDE": str(fake), "KEEL_SHIFT_HANDOVER_POLL_MS": "200", "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "20000"}
         # With the waiter given no time, a hand-over is the tick's alone.
         tick_only = {**env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"}
         cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
@@ -8674,9 +8858,12 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
                    "    open(agents, 'w').write(json.dumps(rows)); print('backgrounded · newsess1 · verify'); sys.exit(0)\n"
                    "open(agents, 'w').write(json.dumps(rows)); print('ok'); sys.exit(0)\n")
         fake.chmod(0o755)
-        env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config_dir), "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1",
-               "KEEL_SHIFT_RENAME_WAIT_MS": "200", "KEEL_SHIFT_STOP_WAIT_MS": "200"}
-        cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(os.getpid())}
+        env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config_dir), "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"}
+        # The process the note records has exited by the time the hand-over removes the session,
+        # as on the host; #408 makes the removal wait for it.
+        exited = subprocess.Popen(["true"])
+        exited.wait()
+        cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(exited.pid)}
         roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
         bound = {role: path for path, role in roles.items()}
 
@@ -42136,6 +42323,9 @@ SCENARIOS: tuple = (
     ("shift-self-wake", validate_shift_self_wake_scenario),
     ("shift-cli-self-shift", validate_shift_cli_self_shift_scenario),
     ("shift-cli-keeps-old-sessions", validate_shift_cli_keeps_old_sessions_scenario),
+    ("shift-cli-removes-after-exit", validate_shift_cli_removes_after_exit_scenario),
+    ("shift-cli-names-host-failure", validate_shift_cli_names_host_failure_scenario),
+    ("tick-retries-failed-wake", validate_tick_retries_failed_wake_scenario),
     ("owner-language", validate_owner_language_scenario),
     ("owner-language-after-tools", validate_owner_language_after_tools_scenario),
     ("shift-history", validate_shift_history_scenario),
