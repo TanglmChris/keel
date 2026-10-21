@@ -52,7 +52,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -91,14 +91,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:72a6b3d3421d0d4b42bad60f70169eab4aa860a5ef73d2d155d050dc029fc7ca (keel 5.177.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.177.0 → 5.178.0. With the "An old CLI shift leaves the session list after its hand-over" section written, `version-alignment scenario passed.` (exit 0).
+    - M2: the modified requirement replaced "A CLI session changes its own shift and the next one is named for its start" in `keel-shift-change`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 979a6c3d (clean tree), started 08:33 at load 4: `validation --all passed: baseline plus 298 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.178.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
