@@ -65,7 +65,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -100,14 +100,18 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:1351ad8f5f080c25be0187c5866ed6e2415cce2d1fc029ce75aadc3648328700 (keel 5.182.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. This branch merged origin/main at 5.182.0 (b7379c83). `node scripts/bump_version.js minor` then moved every marker to 5.183.0, and the changelog section "5.183.0 - The CLI hand-over and wake keep to the measured host contract" replaced the `TODO` stub, keeping the stub's Version alignment line. Result: `version-alignment scenario passed.`
+    - M2: pass. The ADDED requirement "The CLI hand-over and wake keep to the measured host contract" was promoted into `openspec/specs/keel-shift-change/spec.md`. Result: `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass. `npm test` ran on commit 71b08c82 with a clean tree. It started at 10:21:22 with load 5 and printed `validation --all passed: baseline plus 311 scenarios, 1 skipped: output-survives-the-pipe.` (rc=0).
     - Review:
-      - Status:
+      - Status: pass
       - Acceptance check:
+        - M1 and M2 run the scenarios that check the version markers and the published specs.
+        - M3 is the whole suite on the release commit. It includes the three new #408 scenarios and the merged #406 work.
       - Scope check:
-      - Findings:
+        - The bump touched only the Touch files listed above, plus this change's record.
+        - Before task-start, the four `.claude/commands/opsx/*.md` entries were removed from Touch because #406 (5.182.0) deleted those files. This was an authoring edit, made before the fingerprint was recorded.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
