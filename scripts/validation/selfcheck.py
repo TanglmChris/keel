@@ -15,6 +15,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import types
 import ast
 import atexit
 import signal
@@ -221,6 +222,69 @@ def validate_runner_skip_accounting_scenario() -> int:
         report(f"{label}: the scenario registry does not include it.")
         return 1
     report(f"{label} scenario passed.")
+    return 0
+
+
+def validate_self_checks_read_every_module_scenario() -> int:
+    """Issue #409: a check that reads the runner's code reads every module of it.
+
+    After the split, a scan that still read `scripts/*.py` alone would pass
+    over every scenario that moved into `scripts/validation/` and report
+    nothing, which reads exactly like having nothing to report.
+    """
+    label = "self-checks-read-every-module:"
+    baseline = importlib.import_module("validation.baseline")
+    with tempfile.TemporaryDirectory(prefix="keel-409-self-checks-") as raw:
+        scratch = Path(raw)
+        write_text(scratch / "scripts/validate_plugin.py", (ROOT / "scripts/validate_plugin.py").read_text(encoding="utf-8"))
+        write_text(scratch / "scripts/validation/__init__.py", "")
+        write_text(
+            scratch / "scripts/validation/planted.py",
+            "from validation.common import ROOT, run_keel\n"
+            "import requests\n\n\n"
+            "def validate_planted_scenario() -> int:\n"
+            "    run_keel(ROOT, \"--install\", \"--target\", \"claude\")\n"
+            "    return 0\n",
+        )
+        saved = baseline.ROOT
+        baseline.ROOT = scratch
+        try:
+            path_errors: list[str] = []
+            baseline.validate_paths(path_errors)
+            import_errors: list[str] = []
+            baseline.validate_scripts_use_stdlib(import_errors)
+        finally:
+            baseline.ROOT = saved
+
+    planted = [e for e in path_errors if "scripts/validation/planted.py" in e]
+    if not any("scripts/validation/planted.py:6:" in e and "mutating Keel command" in e for e in planted):
+        report(f"{label} the path scan did not report the planted `run_keel(ROOT, \"--install\")` by module and line: {planted!r}")
+        return 1
+    planted = [e for e in import_errors if "scripts/validation/planted.py" in e]
+    if not any("requests" in e for e in planted):
+        report(f"{label} the standard-library check did not report the planted `import requests`: {import_errors!r}")
+        return 1
+    if any("validation" in e.split("modules:")[-1] for e in planted):
+        report(f"{label} the standard-library check refused the runner's own `validation` package: {planted!r}")
+        return 1
+
+    # The unregistered-scenario check reads modules, not one namespace.
+    module = types.ModuleType("validation.planted")
+
+    def validate_planted_scenario() -> int:
+        return 0
+
+    validate_planted_scenario.__module__ = module.__name__
+    module.validate_planted_scenario = validate_planted_scenario
+    orphans = unregistered_scenario_functions([module], registry.SCENARIOS)
+    if orphans != ["validation.planted.validate_planted_scenario"]:
+        report(f"{label} the unregistered-scenario check did not name the planted scenario: {orphans!r}")
+        return 1
+
+    if "self-checks-read-every-module" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report("self-checks-read-every-module scenario passed.")
     return 0
 
 

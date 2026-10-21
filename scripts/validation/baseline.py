@@ -233,6 +233,11 @@ RETIRED_PATH_EXPRESSIONS = (
 )
 
 
+def runner_sources() -> list[Path]:
+    """The runner's files under this module's ROOT: the entry point and every module (#409)."""
+    return [ROOT / "scripts/validate_plugin.py", *sorted((ROOT / "scripts/validation").glob("*.py"))]
+
+
 def validate_paths(errors: list[str]) -> None:
     for directory in REQUIRED_DIRECTORIES:
         if not (ROOT / directory).is_dir():
@@ -266,28 +271,33 @@ def validate_paths(errors: list[str]) -> None:
                 f"retired custom distribution path must be removed: {retired}"
             )
 
-    validator_source = (ROOT / "scripts" / "validate_plugin.py").read_text(
-        encoding="utf-8"
-    )
+    # Every file of the runner — the entry point and each module under
+    # scripts/validation/ — since a scan of one file would pass over whatever
+    # moved out of it (#409).
+    validator_sources = [
+        (path.relative_to(ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for path in runner_sources()
+    ]
 
     # A scenario that writes to the repository it validates can satisfy the very
     # condition another check asserts, and a check whose input its own run
     # produces cannot fail. Reads against ROOT are fine and common; writes are
     # not. Keyed on the mutating subcommand rather than on ROOT itself, so
     # `--version`, `--doctor`, and the gates stay legal.
-    for line_number, line in enumerate(validator_source.splitlines(), start=1):
-        invocation = re.search(r"run_(?:keel|install)\(\s*ROOT\s*,([^)]*)", line)
-        if not invocation:
-            continue
-        if any(
-            re.search(rf'"{command}"', invocation.group(1))
-            for command in MUTATING_KEEL_COMMANDS
-        ):
-            errors.append(
-                "a scenario must not run a mutating Keel command against the "
-                "repository it validates; build a fixture instead: "
-                f"scripts/validate_plugin.py:{line_number}: {line.strip()}"
-            )
+    for relative, validator_source in validator_sources:
+        for line_number, line in enumerate(validator_source.splitlines(), start=1):
+            invocation = re.search(r"run_(?:keel|install)\(\s*ROOT\s*,([^)]*)", line)
+            if not invocation:
+                continue
+            if any(
+                re.search(rf'"{command}"', invocation.group(1))
+                for command in MUTATING_KEEL_COMMANDS
+            ):
+                errors.append(
+                    "a scenario must not run a mutating Keel command against the "
+                    "repository it validates; build a fixture instead: "
+                    f"{relative}:{line_number}: {line.strip()}"
+                )
 
     # Every Keel marker that carries a version is a shipped claim about which
     # version this is. Derive the set from the markers that exist rather than a
@@ -315,13 +325,14 @@ def validate_paths(errors: list[str]) -> None:
     # directory yields no error, so the check reports success forever. Naming a
     # retired tree in a string literal is fine — that is how the checks above
     # state what must not exist; building a Path into one is not.
-    for line_number, line in enumerate(validator_source.splitlines(), start=1):
-        if any(re.search(pattern, line) for pattern in RETIRED_PATH_EXPRESSIONS):
-            errors.append(
-                "validator resolves a path under a retired distribution tree, "
-                "so the check it feeds can only iterate nothing: "
-                f"scripts/validate_plugin.py:{line_number}: {line.strip()}"
-            )
+    for relative, validator_source in validator_sources:
+        for line_number, line in enumerate(validator_source.splitlines(), start=1):
+            if any(re.search(pattern, line) for pattern in RETIRED_PATH_EXPRESSIONS):
+                errors.append(
+                    "validator resolves a path under a retired distribution tree, "
+                    "so the check it feeds can only iterate nothing: "
+                    f"{relative}:{line_number}: {line.strip()}"
+                )
 
 
 def validate_templates(errors: list[str]) -> None:
@@ -402,7 +413,8 @@ def validate_scripts_use_stdlib(errors: list[str]) -> None:
     # `validation` is the runner's own package under scripts/ (#409).
     allowed = stdlib_modules | {"__future__", "validation"}
 
-    for script in sorted((ROOT / "scripts").glob("*.py")):
+    # The runner's modules under scripts/validation/ are scripts too (#409).
+    for script in sorted({*(ROOT / "scripts").glob("*.py"), *runner_sources()}):
         tree = ast.parse(script.read_text(encoding="utf-8"), filename=str(script))
         imports: set[str] = set()
         for node in ast.walk(tree):
