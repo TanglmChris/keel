@@ -85,7 +85,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.3 Drop this repository's own OpenSpec command files
+- [x] 1.3 Drop this repository's own OpenSpec command files
   - Covers:
     - D6
   - Read:
@@ -101,6 +101,7 @@
     - .claude/skills/openspec-apply-change/SKILL.md
     - .claude/skills/openspec-sync-specs/SKILL.md
     - .claude/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
     - scripts/validate_plugin.py
   - Verify:
     - Strategy: regression-first
@@ -110,9 +111,18 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:517fefcd6db2a5cbe22f59ea13b11b04b99a0a6008af6c6039551c2dbbb43776 (keel 5.181.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario own-surface-is-skills-only` reports `own-surface-is-skills-only scenario passed.` (exit 0): no `.claude/commands/opsx/` here, no `/opsx:` in `.claude/skills/openspec-*/SKILL.md`, and `node bin/keel.js --doctor --target claude` here reads both the OpenSpec commands line and the Keel overlay line `ok`.
+    - M1.red: fail. Before the change: `own-surface-is-skills-only: this repository still holds OpenSpec command files: ['apply.md', 'archive.md', 'explore.md', 'propose.md', 'sync.md']` (exit 1).
+    - M1.green: pass. `git rm` of the five `.claude/commands/opsx/*.md`; `node bin/keel.js --install --target claude` here refreshed the archive overlay in `.claude/skills/openspec-archive-change/SKILL.md` and `.codex/skills/openspec-archive-change/SKILL.md` to 1.2's wording (`refreshed=1 current=3` for each); and `/opsx:apply` (apply, propose ×2) and `/opsx:explore` were rewritten to `/openspec-apply-change` and `/openspec-explore` with OpenSpec 1.14's `COMMAND_TO_SKILL_NAME` mapping. The scenario passed.
+    - M2: pass. `delegation-overlay`, `native-capabilities-unrestricted`, `surfaces-agree-with-code`, and `version-alignment` each `PASS`, after the three that listed this repository's command files read the skills instead.
+    - Review:
+      - Status: pass
+      - Acceptance check: this checkout carries the surface the change makes Keel generate, proven by reading it and by doctor run against it.
+      - Scope check: `git status --short` lists the five deleted command files, four `.claude/skills/openspec-*` files, `.codex/skills/openspec-archive-change/SKILL.md`, `scripts/validate_plugin.py`, and this change's `tasks.md`, all in Touch after the reauthorization below.
+      - Findings: this repository's OpenSpec skills remain the 1.6.0-generated bodies, and `.codex/skills` is the legacy Codex layout. Discard reason: regenerating them under 1.14 rewrites every body and moves Codex to `.agents/skills`, a separate migration of this repository's own surfaces outside #406 (D6).
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-21 — added `.codex/skills/openspec-archive-change/SKILL.md` to Touch before any product write beyond the test and the `git rm`: refreshing this repository's overlays to 1.2's archive wording also rewrites the Codex archive skill's overlay block. Re-recorded with `keel gate task-start --record` (fingerprint 6571527c… → 517fefcd…).
 
 ## 2. Release
 

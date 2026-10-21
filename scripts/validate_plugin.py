@@ -11528,6 +11528,40 @@ def validate_guidance_names_openspec_skills_scenario() -> int:
     return 0
 
 
+def validate_own_surface_is_skills_only_scenario() -> int:
+    """Issue #406: this repository carries the surface Keel now generates.
+
+    Keel's own checkout held `.claude/commands/opsx/*` beside the skills, from
+    OpenSpec 1.6 under `delivery: both`.
+    """
+    label = "own-surface-is-skills-only:"
+    commands = ROOT / ".claude/commands/opsx"
+    held = sorted(p.name for p in commands.glob("*")) if commands.is_dir() else []
+    if held:
+        report(f"{label} this repository still holds OpenSpec command files: {held!r}")
+        return 1
+    naming = [str(p.relative_to(ROOT)) for p in sorted((ROOT / ".claude/skills").glob("openspec-*/SKILL.md"))
+              if "/opsx:" in p.read_text(encoding="utf-8")]
+    if naming:
+        report(f"{label} this repository's Claude skills still name `/opsx:` commands: {naming!r}")
+        return 1
+    doctor = run_keel(ROOT, "--doctor", "--target", "claude")
+    lines = doctor.stdout.splitlines()
+    commands_line = next((l for l in lines if l.startswith("OpenSpec commands:")), "")
+    overlay_line = next((l for l in lines if l.startswith("Keel apply/archive/sync overlay:")), "")
+    if not commands_line.startswith("OpenSpec commands: ok"):
+        report(f"{label} doctor here does not read the commands line ok: {commands_line!r}")
+        return 1
+    if not overlay_line.startswith("Keel apply/archive/sync overlay: ok"):
+        report(f"{label} doctor here does not read the overlay line ok: {overlay_line!r}")
+        return 1
+    if "own-surface-is-skills-only" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("own-surface-is-skills-only scenario passed.")
+    return 0
+
+
 def validate_openspec_surface_overlay_scenario() -> int:
     with tempfile.TemporaryDirectory(prefix="keel-overlay-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -29659,8 +29693,6 @@ def validate_delegation_overlay_scenario() -> int:
     """
 
     generated = [
-        ROOT / ".claude/commands/opsx/apply.md",
-        ROOT / ".claude/commands/opsx/archive.md",
         ROOT / ".claude/skills/openspec-apply-change/SKILL.md",
         ROOT / ".claude/skills/openspec-archive-change/SKILL.md",
         ROOT / ".codex/skills/openspec-apply-change/SKILL.md",
@@ -39728,8 +39760,6 @@ def validate_native_capabilities_unrestricted_scenario() -> int:
         ROOT / "assets/openspec/schemas/keel-spec-driven/schema.yaml",
         ROOT / "openspec/schemas/keel-spec-driven/schema.yaml",
     ]
-    for action in ("apply", "archive", "sync", "propose"):
-        surfaces.append(ROOT / f".claude/commands/opsx/{action}.md")
     for name in ("apply-change", "archive-change", "sync-specs", "propose"):
         surfaces.append(ROOT / f".claude/skills/openspec-{name}/SKILL.md")
         surfaces.append(ROOT / f".codex/skills/openspec-{name}/SKILL.md")
@@ -39747,7 +39777,7 @@ def validate_native_capabilities_unrestricted_scenario() -> int:
     for first_read in (
         ROOT / "AGENTS.md",
         ROOT / "assets/bootstrap/AGENTS.md",
-        ROOT / ".claude/commands/opsx/apply.md",
+        ROOT / ".claude/skills/openspec-apply-change/SKILL.md",
         ROOT / ".codex/skills/openspec-apply-change/SKILL.md",
     ):
         text = first_read.read_text(encoding="utf-8")
@@ -39811,8 +39841,6 @@ def validate_surfaces_agree_with_code_scenario() -> int:
             return 1
 
     overlays = []
-    for action in ("apply", "archive", "sync"):
-        overlays.append(ROOT / f".claude/commands/opsx/{action}.md")
     for name in ("apply-change", "archive-change", "sync-specs"):
         overlays.append(ROOT / f".claude/skills/openspec-{name}/SKILL.md")
         overlays.append(ROOT / f".codex/skills/openspec-{name}/SKILL.md")
@@ -41901,6 +41929,7 @@ SCENARIOS: tuple = (
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("openspec-skills-only", validate_openspec_skills_only_scenario),
     ("guidance-names-openspec-skills", validate_guidance_names_openspec_skills_scenario),
+    ("own-surface-is-skills-only", validate_own_surface_is_skills_only_scenario),
     ("update-restores-overlays", validate_update_restores_overlays_scenario),
     ("uninstall", validate_uninstall_scenario),
     (
