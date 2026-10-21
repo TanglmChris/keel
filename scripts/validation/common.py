@@ -35,10 +35,10 @@ os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite
 os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 
-PACKAGE_VERSION = "5.188.0"
+PACKAGE_VERSION = "5.189.0"
 
 
-PROTOCOL_VERSION = "5.188.0"
+PROTOCOL_VERSION = "5.189.0"
 
 
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
@@ -213,6 +213,17 @@ SKILL_DOC_REQUIREMENTS = [
             "behavior evidence",
             "explicit discard reason",
             "evidence details",
+            "## Conditional checks",
+            "conditional-checks.md",
+        ],
+    },
+    {
+        # #411: criteria that apply only under a condition, read on demand.
+        "name": "review-checklist conditional checks",
+        "path": "src/skills/keel-review-checklist/conditional-checks.md",
+        "required": [
+            "Coupling: required",
+            "## Domain lenses",
             "## Skill change review",
             "authoritative sources",
             "provenance and license",
@@ -220,6 +231,7 @@ SKILL_DOC_REQUIREMENTS = [
             "real-task evidence",
             "portable `SKILL.md`",
             "target-native discovery",
+            "## Planning artifact funnel",
         ],
     },
     {
@@ -243,6 +255,8 @@ SKILL_DOC_REQUIREMENTS = [
             "byte-for-byte",
             "keel context --clear-handoff",
             "## Standalone use",
+            # #411: the override is not the shift note.
+            "keel shift ready",
         ],
     },
     {

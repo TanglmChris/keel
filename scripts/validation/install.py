@@ -3173,6 +3173,10 @@ def validate_domain_execution_references_scenario() -> int:
     for root in roots:
         for skill in consuming_skills:
             text = (root / skill / "SKILL.md").read_text(encoding="utf-8")
+            # A skill may keep the step among its conditional checks (#411).
+            conditional = root / skill / "conditional-checks.md"
+            if conditional.is_file():
+                text += "\n" + conditional.read_text(encoding="utf-8")
             for needle in (
                 "keel/lenses/",
                 "Execution and review checks",

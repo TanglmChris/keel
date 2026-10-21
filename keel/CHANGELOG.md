@@ -1,5 +1,20 @@
 # Keel Changelog
 
+## 5.189.0 - The review checklist reads its conditional checks only when they apply
+
+Issue #411, rows 7 and 8 of the disposition table the owner approved on 2026-10-21.
+
+- **The review checklist keeps its base list in `SKILL.md`, now 79 lines instead of 96.** Four checks apply only under a condition:
+  - a `Coupling: required` task;
+  - a matching domain lens;
+  - a new or materially expanded skill;
+  - an accepted plan-mode artifact.
+
+  They moved verbatim to `conditional-checks.md` beside it. `SKILL.md` names the four conditions and says to read the file only when one holds. They are criteria, so they do not go in a `guidance.md`, which states none.
+- **The handoff skill tells its override apart from the shift note.** The shift note that `keel shift ready` stores hands working context to the role's next session and selects no task. HANDOFF overrides which task `keel context` selects. Neither holds task state; OpenSpec does.
+- **`native-plugin-manifests` compares every file of each skill directory with its plugin copy.** It checks the file set and then the bytes. Before, it compared only `SKILL.md` and `guidance.md`, so a file split out of a skill could drift unseen.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.189.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.188.0 - Evidence counts a stand-in only where a scenario sets one
 
 This corrects 5.186.0 (#408). That release counted a scenario as run against a stand-in host wherever its reachable code mentioned a host marker. `chat_environment` names the host's `CLAUDE_*` variables in order to remove them (#415), so every scenario built on it counted as stand-in host. On 5.187.0, `--group shift` reported `2 deterministic, 45 against a stand-in host`.
