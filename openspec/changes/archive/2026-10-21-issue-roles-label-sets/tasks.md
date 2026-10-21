@@ -2,7 +2,7 @@
 
 ## 1. Route by a set of labels
 
-- [ ] 1.1 Read label sets in `issue_roles:`, let the most specific matching route win, and document the form
+- [x] 1.1 Read label sets in `issue_roles:`, let the most specific matching route win, and document the form
   - Covers:
     - keel-coordinator-patrol / Issue labels route issue updates to roles / A set of labels routes to the team that carries them all
     - keel-coordinator-patrol / Issue labels route issue updates to roles / A set that cannot be read routes nothing
@@ -56,7 +56,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -91,14 +91,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:3165013edd371c33e7cbd7d9ab7c43c5e77c0642dd5e8ad489935ce29394d12f (keel 5.191.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.191.0 → 5.192.0. With the section "An issue route may name a set of labels" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the modified requirement "Issue labels route issue updates to roles" is promoted into `keel-coordinator-patrol`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 62683190 (clean tree), started 22:13 at load 2.96: `validation --all passed: baseline plus 323 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.192.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
