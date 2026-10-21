@@ -224,6 +224,98 @@ def validate_runner_skip_accounting_scenario() -> int:
     return 0
 
 
+def validate_runner_runs_one_group_scenario() -> int:
+    """Issue #409: one module's scenarios run alone, with the full run's accounting.
+
+    Driven like runner-skip-accounting: the entry point's source runs with a
+    registry of synthetic scenarios from two modules and a stubbed process
+    runner, so the selection, its order, and the summary are what is tested.
+    """
+    label = "runner-runs-one-group:"
+    runner = str(ROOT / "scripts/validate_plugin.py")
+
+    def run_group(results: str) -> subprocess.CompletedProcess[str]:
+        program = (
+            "import sys\n"
+            f"src = open({runner!r}, encoding='utf-8').read()\n"
+            "ns = {'__name__': 'v', '__file__': %r}\n" % runner
+            + "exec(compile(src, %r, 'exec'), ns)\n" % runner
+            + f"results = dict((n, (c, o)) for n, c, o in {results})\n"
+            "def make(name, module):\n"
+            "    def scenario():\n"
+            "        return 0\n"
+            "    scenario.__module__ = module\n"
+            "    return (name, scenario)\n"
+            "ns['SCENARIOS'] = (make('a-one', 'validation.alpha'), make('b-one', 'validation.beta'),\n"
+            "                   make('a-two', 'validation.alpha'), make('a-three', 'validation.alpha'))\n"
+            "def baseline():\n"
+            "    raise SystemExit('the baseline ran')\n"
+            "ns['run_baseline'] = baseline\n"
+            "def processes(names, jobs):\n"
+            "    print('handed: ' + ','.join(names))\n"
+            "    return [(n, *results[n]) for n in names]\n"
+            "ns['run_scenario_processes'] = processes\n"
+            f"sys.argv = [{runner!r}, '--group', 'alpha', '--jobs', '2']\n"
+            "sys.exit(ns['main']())\n"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", program],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(ROOT),
+        )
+
+    passing = run_group(
+        "[('a-one', 0, 'a-one scenario passed.\\n'),"
+        " ('a-two', 3, 'a-two scenario skipped: the frob CLI\\n'),"
+        " ('a-three', 0, 'a-three scenario passed.\\n')]"
+    )
+    out = (passing.stdout or "") + (passing.stderr or "")
+    if "handed: a-one,a-two,a-three" not in out:
+        report(f"{label} --group alpha did not hand the runner exactly alpha's scenarios in registry order: {out!r}")
+        return 1
+    if "the baseline ran" in out:
+        report(f"{label} --group ran the baseline: {out!r}")
+        return 1
+    if passing.returncode != 0:
+        report(f"{label} a passing group exited {passing.returncode}: {out!r}")
+        return 1
+    if "validation --group alpha passed: 2 scenarios, 1 skipped: a-two" not in out:
+        report(f"{label} the group's summary does not name the group, its verified count, and its skip: {out!r}")
+        return 1
+
+    failing = run_group(
+        "[('a-one', 0, 'a-one scenario passed.\\n'),"
+        " ('a-two', 1, 'a-two scenario failed.\\n'),"
+        " ('a-three', 0, 'a-three scenario passed.\\n')]"
+    )
+    out = (failing.stdout or "") + (failing.stderr or "")
+    if failing.returncode != 1:
+        report(f"{label} a group with a failure exited {failing.returncode}, not 1: {out!r}")
+        return 1
+    if "validation --group alpha failed for: a-two" not in out:
+        report(f"{label} a group with a failure does not name it: {out!r}")
+        return 1
+
+    unknown = subprocess.run(
+        [sys.executable, runner, "--group", "no-such-group"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(ROOT),
+    )
+    out = (unknown.stdout or "") + (unknown.stderr or "")
+    if unknown.returncode != 2:
+        report(f"{label} an unknown group exited {unknown.returncode}, not 2: {out!r}")
+        return 1
+    for group in ("contract", "selfcheck"):
+        if group not in out:
+            report(f"{label} an unknown group's message does not name the group {group!r}: {out!r}")
+            return 1
+
+    if "runner-runs-one-group" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report("runner-runs-one-group scenario passed.")
+    return 0
+
+
 def validate_resident_topic_matching_scenario() -> int:
     """Issue #15 item 1: required entries were named topics, matched as prose.
 

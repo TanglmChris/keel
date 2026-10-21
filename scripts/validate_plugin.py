@@ -107,6 +107,40 @@ def run_all(jobs: int) -> int:
     return 0
 
 
+def run_group(group: str, jobs: int) -> int:
+    """Run one module's registered scenarios, accounted as --all accounts them (#409).
+
+    The group is the module under scripts/validation/ that defines the scenario
+    function. The baseline is not part of any group.
+    """
+    module = f"validation.{group}"
+    names = [name for name, func in SCENARIOS if func.__module__ == module]
+    if not names:
+        groups = sorted({func.__module__.split(".")[-1] for _, func in SCENARIOS})
+        report(f"unknown validation group: {group}; the groups are {', '.join(groups)}")
+        return 2
+    failures = []
+    skipped = []
+    for name, code, output in run_scenario_processes(names, jobs):
+        sys.stdout.write(output)
+        if code == SKIPPED:
+            skipped.append(name)
+        elif code != 0:
+            failures.append(name)
+    if failures:
+        report(f"validation --group {group} failed for: {', '.join(failures)}")
+        return 1
+    verified = len(names) - len(skipped)
+    summary = (
+        f"validation --group {group} passed: {verified} "
+        f"scenario{'' if verified == 1 else 's'}"
+    )
+    if skipped:
+        summary += f", {len(skipped)} skipped: {', '.join(skipped)}"
+    report(f"{summary}.")
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--scenario":
         registry = dict(SCENARIOS)
@@ -125,6 +159,16 @@ def main() -> int:
             report(f"usage: validate_plugin.py --all [--jobs N], got: {' '.join(rest)}")
             return 2
         return run_all(jobs)
+
+    if len(sys.argv) >= 3 and sys.argv[1] == "--group":
+        jobs = os.cpu_count() or 2
+        rest = sys.argv[3:]
+        if rest and rest[0] == "--jobs" and len(rest) == 2 and rest[1].isdigit():
+            jobs = int(rest[1])
+        elif rest:
+            report(f"usage: validate_plugin.py --group NAME [--jobs N], got: {' '.join(rest)}")
+            return 2
+        return run_group(sys.argv[2], jobs)
 
     return run_baseline()
 

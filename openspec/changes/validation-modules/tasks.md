@@ -55,7 +55,7 @@
     - Blocker: none
     - Reauthorizations: 2026-10-21 — M1 now allows additions as well as edits made on purpose ("none added or changed except…"), because reading the runner's source across modules needed four new helpers; M2 drops `authored-scenario-names-are-registered`, which checks the scenario names this change's own tasks.md cites and fails until 1.2 and 1.3 add them, and adds `a-declared-dependency-is-resolved`, the scenario that actually reads `compact-task-authoring`'s text (the task named the wrong one). Re-recorded with `keel gate task-start --record` (ac054b21… → 3976220a…) before task-complete.
 
-- [ ] 1.2 Run one module's scenarios with `--group`
+- [x] 1.2 Run one module's scenarios with `--group`
   - Covers:
     - keel-validation-runner / One group of scenarios runs alone / A group runs only its own scenarios
     - keel-validation-runner / One group of scenarios runs alone / An unknown group fails loudly
@@ -71,15 +71,24 @@
     - README.zh-CN.md
   - Verify:
     - Strategy: vertical-tdd
-    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario runner-runs-one-group`: `validate_plugin.py --group selfcheck --jobs 2` exits 0, its output carries the pass line of every registered scenario defined in `scripts/validation/selfcheck.py` except itself and of no scenario defined elsewhere, and its summary reads `validation --group selfcheck passed:` with that count; `--group no-such-group` exits 2 and names `contract` and `selfcheck` among the groups. Fails with: `runner-runs-one-group:`
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario runner-runs-one-group`: executing `validate_plugin.py`'s source with a registry of synthetic scenarios defined in two modules, `alpha` and `beta`, and a stubbed process runner, `--group alpha --jobs 2` hands the runner exactly alpha's scenario names in registry order, prints `validation --group alpha passed: 2 scenarios, 1 skipped: <name>` and exits 0, and with one alpha scenario failing names it and exits 1, never running the baseline; and through the real CLI `--group no-such-group` exits 2 naming `contract` and `selfcheck` among the groups. Fails with: `runner-runs-one-group:`
     - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario validation-runner` and `--scenario runner-skip-accounting` pass.
   - Autonomy boundary:
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:ab18611332ee323f446e6a8a5d4c5eb608129a7e6046486b618a4b33a5af2d3e (keel 5.183.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario runner-runs-one-group` reports `runner-runs-one-group scenario passed.` (exit 0): with synthetic `a-one`, `b-one`, `a-two`, `a-three` from `validation.alpha` and `validation.beta`, `--group alpha --jobs 2` handed the stubbed runner `a-one,a-two,a-three`, never called the baseline, printed `validation --group alpha passed: 2 scenarios, 1 skipped: a-two`, and exited 0; with `a-two` failing it printed `validation --group alpha failed for: a-two` and exited 1; the real CLI's `--group no-such-group` exited 2 naming the groups, `contract` and `selfcheck` among them. Real smoke: `node scripts/run_python.js scripts/validate_plugin.py --group docs --jobs 4` printed `validation --group docs passed: 22 scenarios.` in 10.3 s.
+    - M1.red: fail. Before `run_group`: `runner-runs-one-group: --group alpha did not hand the runner exactly alpha's scenarios in registry order: 'the baseline ran\n'` (exit 1) — `main` fell through to the baseline.
+    - M1.green: pass. With `run_group(group, jobs)` in `scripts/validate_plugin.py` (selects registered scenarios by `func.__module__ == "validation.<group>"`, runs them through `run_scenario_processes`, accounts skips and failures as `run_all` does, no baseline; an unknown group names the groups and returns 2) and a `--group NAME [--jobs N]` branch in `main`, the scenario passed. The README pair names `--scenario` and `--group` beside `npm test` and lists the modules.
+    - M2: pass. `validation-runner` and `runner-skip-accounting` each `PASS`; `readme-states-the-cli` and `readme-zh-matches-english` also `PASS` after the README lines.
+    - Review:
+      - Status: pass
+      - Acceptance check: the group's selection, order, accounting, failure naming, and its exclusion of the baseline are exercised through `main` with only the process fan-out stubbed, the unknown-group exit through the real CLI, and a real group run as smoke.
+      - Scope check: `git status --short` lists `scripts/validate_plugin.py`, `scripts/validation/selfcheck.py`, `scripts/validation/registry.py`, `README.md`, `README.zh-CN.md`, and this change's `tasks.md`.
+      - Findings: none.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-21 — M1 replaced, before any code was written, a real `--group selfcheck` run with a synthetic registry and stubbed runner: the scenario is itself in `selfcheck`, so the real run would recurse into it, and that group also holds a scenario that always skips here and one that fails until task 1.3 registers its scenario. Re-recorded with `keel gate task-start --record` (843c9c3a… → ab186113…).
 
 - [ ] 1.3 Have the path scan and the standard-library check read every module
   - Covers:

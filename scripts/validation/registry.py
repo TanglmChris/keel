@@ -475,6 +475,7 @@ SCENARIOS: tuple = (
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),
     ("repo-action-mode", guard.validate_repo_action_mode_scenario),
     ("runner-skip-accounting", selfcheck.validate_runner_skip_accounting_scenario),
+    ("runner-runs-one-group", selfcheck.validate_runner_runs_one_group_scenario),
     ("resident-topic-matching", selfcheck.validate_resident_topic_matching_scenario),
     ("task-start-invalidation", contract.validate_task_start_invalidation_scenario),
     ("regression-check-tag", contract.validate_regression_check_tag_scenario),
