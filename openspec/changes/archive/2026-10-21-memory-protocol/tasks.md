@@ -65,7 +65,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -102,14 +102,17 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:5fae2a6c7ccb8eb78fa110639dc94c4cf1f862154b9126b4e45f2ea67743a22c (keel 5.187.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.187.0, and the changelog section "5.187.0 - The protocol says what memory may hold and when to recheck it" replaced the `TODO` stub and kept its Version alignment line. `version-alignment scenario passed.`
+    - M2: pass. Both ADDED requirements were promoted, into `keel-stateless-continuity` and `keel-shift-change`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass, on the second run.
+      - The first `npm test`, on commit cad31000, failed only `assertion-shape-count` (75 against 74). The condition was split under the recorded reauthorization.
+      - The second run, on commit bff4cd7f with a clean tree, started 14:32:19 at load 9 and exited rc=0. It printed `validation --all passed: baseline plus 317 scenarios, 1 skipped: output-survives-the-pipe.` and `evidence: 180 deterministic, 137 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
+      - Status: pass
+      - Acceptance check: M1 and M2 run the marker and published-spec scenarios on the written release. M3 runs the whole suite on the release commit.
+      - Scope check: the bump touched listed Touch files. `scripts/validation/shift.py` changed only to split the flagged condition, and it was added to Touch by the reauthorization. This change's record also changed.
       - Findings:
+        - 1.1's M2 did not run `assertion-shape-count`, so the full gate caught the new two-failure condition, not the task. Resolved here: M3
     - Blocker: none
     - Reauthorizations: 2026-10-21 14:50, before any Evidence was recorded. The first `npm test` on commit cad31000 failed only `assertion-shape-count` (75 sites against 74 recorded). 1.1's new scenario guards two failures behind one message at `scripts/validation/shift.py`: a non-zero exit, and a missing ready line. `scripts/validation/shift.py` joins this task's Touch so the condition can be split. 1.1's M2 had not listed `assertion-shape-count`.
 
