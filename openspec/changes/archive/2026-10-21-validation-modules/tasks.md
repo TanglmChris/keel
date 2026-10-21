@@ -126,7 +126,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E4
   - Touch:
@@ -161,14 +161,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:2438dcd2341d2a25765ca085672f4b118b8b07ae85e2e25f977afb010dac1dc2 (keel 5.183.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` printed `Bumping 5.183.0 -> 5.184.0` and `updated scripts/validation/common.py` (both constants now `5.184.0`); with the "The validation runner is split into modules, and one module's scenarios run alone" section written into the stub, `version-alignment scenario passed.` (exit 0).
+    - M2: the two modified requirements were replaced and the two added appended in `keel-validation-runner`; `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 15f5768 (clean tree), started 12:00 at load 4.45: `validation --all passed: baseline plus 313 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0) — the base's 311 plus `runner-runs-one-group` and `self-checks-read-every-module`.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E4 — version markers (the constants in their new home among them), the 5.184.0 changelog section, and the published spec carry the change; I1 and I2 are updated by the promotion; the full suite passes on the committed tree.
+      - Scope check: files beyond tasks 1.1–1.3 are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
@@ -183,7 +183,7 @@
 
 ## Expectation Coverage
 
-- E1: The scenarios live in modules by responsibility with one registry, and every result, name, order, and definition is what it was before the split (#409; D1, D2, D3, D4, D5, D8). Covered by: 1.1
+- E1: The scenarios live in modules by responsibility with one registry, and every result, name, order, and definition is what it was before the split (#409; D2, D3, D4, D5, D8). Covered by: 1.1
 - E2: One module's scenarios run alone with the same accounting as the full run (#409 owner decision; D7). Covered by: 1.2
 - E3: No self-check silently stops reading code that moved out of the entry file (D6). Covered by: 1.3
 - E4: The release carries it. Covered by: 2.1
