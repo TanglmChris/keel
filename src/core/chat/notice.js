@@ -215,6 +215,25 @@ const CLI_WAKE_PROMPT = "You have unread keel chat records; run keel context, th
 // and the prompt: any other flag starts a copy with a new session id.
 function resumeCli(entry) {
   const claude = process.env.KEEL_CLAUDE || "claude";
+  // A session `claude rm` removed is gone for good (#415 D4): when the host's
+  // list can be read and lacks it, nothing is resumed. An unreadable list
+  // resumes as before, since Keel cannot tell.
+  const listed = require("child_process").spawnSync(claude, ["agents", "--json", "--all"], {
+    encoding: "utf8", timeout: 30 * 1000,
+  });
+  try {
+    const rows = JSON.parse(listed.stdout);
+    if (!listed.error && listed.status === 0 && Array.isArray(rows)
+      && !rows.some((row) => row && row.sessionId === entry.session)) {
+      return {
+        ok: false,
+        removed: true,
+        output: `session ${entry.session} was removed: \`claude agents\` no longer lists it, so a new session must be started for the role in ${entry.worktree || "its worktree"}`,
+      };
+    }
+  } catch {
+    // Not a list: fall through and resume.
+  }
   const result = require("child_process").spawnSync(claude, ["--bg", "--resume", entry.session, CLI_WAKE_PROMPT], {
     cwd: entry.worktree || undefined, encoding: "utf8",
   });
@@ -506,6 +525,87 @@ function languageAfterTools(where, payload) {
   return { code: 0 };
 }
 
+function realpathOf(file) {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
+
+// The host's project directory name for a working directory.
+function hostProjectName(directory) {
+  return directory.replace(/[^A-Za-z0-9]/g, "-");
+}
+
+// Where a hook's session runs (#415 D1). A resumed `claude --bg -w` session's
+// SessionStart names the directory it was launched from as `cwd` (measured
+// 2026-10-21, Claude Code 2.1.304), while its transcript stays in the host
+// project directory of the worktree it runs in. When that names another
+// worktree of this repository, the session is that worktree's.
+function hookLocation(payload) {
+  const where = store.locate(payload.cwd || process.cwd());
+  const transcript = typeof payload.transcript_path === "string" ? payload.transcript_path : "";
+  if (!where || !path.isAbsolute(transcript)) return where;
+  const project = path.basename(path.dirname(transcript));
+  const named = (dir) => [dir, realpathOf(dir)].some((candidate) => hostProjectName(candidate) === project);
+  if (named(where.worktree)) return where;
+  const listed = require("child_process").spawnSync("git", ["worktree", "list", "--porcelain"], {
+    cwd: where.worktree, encoding: "utf8",
+  });
+  if (listed.error || listed.status !== 0) return where;
+  const match = String(listed.stdout).split("\n").filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length)).find(named);
+  return (match && store.locate(match)) || where;
+}
+
+// A keel command touches the presence of the role bound to its worktree (#415
+// D2). Only that role's own session — one whose record names the role — records
+// itself there; a visiting session, or a caller with no Claude session, marks
+// the role active and leaves its recorded session and session list as they are.
+function commandPresence(where, role) {
+  const id = process.env.CLAUDE_CODE_SESSION_ID;
+  const file = id && /^[A-Za-z0-9._-]{1,128}$/.test(id) ? path.join(where.root, "sessions", `${id}.json`) : null;
+  if (file && fs.existsSync(file) && store.readJsonFile(file).role === role) {
+    touchPresence(where, role);
+    return;
+  }
+  const previous = store.readJsonFile(presenceFile(where, role));
+  if (!Object.keys(previous).length) return;
+  try {
+    store.writeJsonAtomic(where, presenceFile(where, role), { ...previous, state: "online", last_active: store.isoLocal(new Date()) });
+  } catch {
+    // Presence is a convenience: failing to record it must not fail a command.
+  }
+}
+
+// `keel chat role --set` inside a Claude Code session makes that session the
+// role's (#415 D3): its record names the role, presence names it, and its
+// transcript starts the role's current segment. Its hooks keep the watch list
+// they were given at start. Returns a sentence for the user, or null.
+function recordBinding(where, role) {
+  const id = process.env.CLAUDE_CODE_SESSION_ID;
+  if (!id || !/^[A-Za-z0-9._-]{1,128}$/.test(id)) return null;
+  // Only a session running in this worktree: its transcript is in this
+  // worktree's host project directory. A session binding the role from
+  // another worktree on someone's behalf is not recorded (#415 step 1).
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(require("os").homedir(), ".claude");
+  const transcript = [where.worktree, realpathOf(where.worktree)]
+    .map((dir) => path.join(config, "projects", hostProjectName(dir), `${id}.jsonl`))
+    .find((candidate) => fs.existsSync(candidate));
+  if (!transcript) return null;
+  const file = path.join(where.root, "sessions", `${id}.json`);
+  try {
+    rememberSession(where, role, file);
+    store.writeJsonAtomic(where, file, { ...store.readJsonFile(file), decided: true, host_run: false });
+  } catch {
+    return null;
+  }
+  touchPresence(where, role, "online", "claude-code", { source: "role-set" });
+  recordSegment(where, role, transcript);
+  return `Recorded this session (${id.slice(0, 8)}) as ${role}'s, so \`keel chat wake now ${role}\` resumes it.`;
+}
+
 function hook(event, input, { mail = false } = {}) {
   if (!(event in HOST_EVENTS)) return { code: 0 };
   let payload = {};
@@ -517,7 +617,7 @@ function hook(event, input, { mail = false } = {}) {
   let where = null;
   let role = null;
   try {
-    where = store.locate(payload.cwd || process.cwd());
+    where = hookLocation(payload);
     role = where ? store.currentRole(where) : null;
   } catch {
     role = null;
@@ -616,4 +716,6 @@ module.exports = {
   presenceOf,
   signalPath,
   touchPresence,
+  commandPresence,
+  recordBinding,
 };

@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.180.0"
-PROTOCOL_VERSION = "5.180.0"
+PACKAGE_VERSION = "5.181.0"
+PROTOCOL_VERSION = "5.181.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -2201,7 +2201,7 @@ def mailbox_common_dir(repo: Path) -> Path:
 CHAT_ROLE_VARIABLES = ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE")
 # The desktop app's session markers (#319 D5): a run inside it must not change
 # what shift scenarios see.
-DESKTOP_HOST_VARIABLES = ("CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_HOST_SESSION_ID")
+DESKTOP_HOST_VARIABLES = ("CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID")
 
 
 def chat_environment(**extra: str) -> dict[str, str]:
@@ -2498,6 +2498,195 @@ def validate_chat_mention_skips_code_scenario() -> int:
     return 0
 
 
+def host_project_name(directory: Path) -> str:
+    """The host's project directory name for a working directory (Claude Code's sanitizing)."""
+    return re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(directory))
+
+
+def chat_session_start(cwd: Path, env: dict, session: str, pid: int, source: str = "startup",
+                       transcript: Path | None = None) -> subprocess.CompletedProcess:
+    payload = {"cwd": str(cwd), "hook_event_name": "SessionStart", "session_id": session, "source": source}
+    if transcript is not None:
+        payload["transcript_path"] = str(transcript)
+    return subprocess.run(["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"], cwd=cwd, text=True,
+                          capture_output=True, check=False, input=json.dumps(payload),
+                          env={**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": session, "CLAUDE_PID": str(pid)})
+
+
+def chat_presence(rtl: Path, role: str) -> dict:
+    path = mailbox_common_dir(rtl) / "keel-chat" / "presence" / f"{role}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def chat_session_list(rtl: Path, role: str) -> dict:
+    path = mailbox_common_dir(rtl) / "keel-chat" / "presence" / f"{role}.sessions.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def chat_session_record(rtl: Path, session: str) -> dict:
+    path = mailbox_common_dir(rtl) / "keel-chat" / "sessions" / f"{session}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def validate_chat_hook_follows_session_worktree_scenario() -> int:
+    """Issue #415 (measured 2026-10-21): a resumed `claude --bg -w` session's
+    SessionStart reports the directory it was launched from as `cwd`.
+
+    keel-maint-2, launched from the main checkout, was recorded as the main
+    checkout's role (codex-issues) and watched its signal, so a message to
+    keel-maint-2 did not wake it. The transcript stays in the host project
+    directory of the worktree the session really runs in; the hook follows it.
+    """
+    label = "chat-hook-follows-session-worktree:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-415a-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_session_start(rtl, env, "sess-r", os.getpid())
+        transcript = base / "claude" / "projects" / host_project_name(verify) / "sess-v.jsonl"
+        started = chat_session_start(rtl, env, "sess-v", os.getpid(), source="resume", transcript=transcript)
+        try:
+            watched = json.loads(started.stdout)["hookSpecificOutput"]["watchPaths"]
+        except (ValueError, KeyError, TypeError):
+            report(f"{label} the resumed session's SessionStart printed no watch paths: {started.stdout!r} {started.stderr!r}")
+            return 1
+        if not any(path.endswith("/signal/verify") for path in watched) or any(path.endswith("/signal/rtl") for path in watched):
+            report(f"{label} a session whose transcript is verify's watches {watched!r}, not verify's signal alone.")
+            return 1
+        verify_presence = chat_presence(rtl, "verify")
+        if verify_presence.get("cli_session") != "sess-v" or os.path.realpath(verify_presence.get("cli_worktree") or "") != os.path.realpath(verify):
+            report(f"{label} verify's presence does not record the resumed session in verify's worktree: {verify_presence!r}")
+            return 1
+        if chat_session_record(rtl, "sess-v").get("role") != "verify":
+            report(f"{label} the resumed session's record names {chat_session_record(rtl, 'sess-v').get('role')!r}, not verify.")
+            return 1
+        if chat_presence(rtl, "rtl").get("cli_session") != "sess-r":
+            report(f"{label} rtl's presence took the resumed session: {chat_presence(rtl, 'rtl')!r}")
+            return 1
+        if "sess-v" in chat_session_list(rtl, "rtl"):
+            report(f"{label} rtl's session list took the resumed session: {chat_session_list(rtl, 'rtl')!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_chat_visitor_not_recorded_scenario() -> int:
+    """Issue #415: a session that runs a keel command in another role's worktree
+    is not that role's session, and a caller with no Claude session clears nothing."""
+    label = "chat-visitor-not-recorded:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-415b-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        chat_session_start(rtl, env, "sess-r", os.getpid())
+        chat_session_start(verify, env, "sess-v", os.getpid())
+        visitor = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": "sess-r", "CLAUDE_PID": str(os.getpid())}
+        run_keel(verify, "chat", "unread", env=visitor)
+        bare = {key: value for key, value in env.items() if not key.startswith("CLAUDE")}
+        run_keel(verify, "chat", "unread", env=bare)
+        # A session binding verify's worktree from elsewhere, on someone's behalf: its
+        # transcript lies under rtl's project directory, so it is not recorded.
+        config = base / "claude"
+        write_text(config / "projects" / host_project_name(rtl) / "sess-r.jsonl", "{}\n")
+        run_keel(verify, "chat", "role", "--set", "verify", env={**visitor, "CLAUDE_CONFIG_DIR": str(config)})
+        presence = chat_presence(rtl, "verify")
+        if presence.get("cli_session") != "sess-v" or os.path.realpath(presence.get("cli_worktree") or "") != os.path.realpath(verify):
+            report(f"{label} a visiting or session-less keel command replaced verify's recorded session: {presence!r}")
+            return 1
+        if set(chat_session_list(rtl, "verify")) != {"sess-v"}:
+            report(f"{label} verify's session list is {sorted(chat_session_list(rtl, 'verify'))!r}, not its own session alone.")
+            return 1
+        own = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": "sess-v", "CLAUDE_PID": str(os.getpid())}
+        before = chat_presence(rtl, "verify").get("last_active")
+        time.sleep(1.1)
+        run_keel(verify, "chat", "unread", env=own)
+        if chat_presence(rtl, "verify").get("last_active") == before:
+            report(f"{label} verify's own session running a keel command no longer marks it active.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_chat_role_set_records_session_scenario() -> int:
+    """Issue #415: `keel chat role --set` in the live session makes it the role's session.
+
+    keel-maint-2 bound its role after starting, and `keel chat wake now
+    keel-maint-2` then found no session to resume.
+    """
+    label = "chat-role-set-records-session:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-415c-") as raw:
+        base = Path(raw)
+        rtl, _verify, env = chat_scratch_group(base)
+        lane = chat_worktree(rtl, base / "lane")
+        config = base / "claude"
+        transcript = config / "projects" / host_project_name(lane) / "sess-3.jsonl"
+        write_text(transcript, json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n")
+        env = {**env, "CLAUDE_CONFIG_DIR": str(config)}
+        chat_session_start(lane, env, "sess-3", os.getpid(), transcript=transcript)
+        bound = run_keel(lane, "chat", "role", "--set", "verify2",
+                         env={**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": "sess-3", "CLAUDE_PID": str(os.getpid())})
+        if bound.returncode != 0:
+            report(f"{label} role --set failed: {bound.stdout!r} {bound.stderr!r}")
+            return 1
+        presence = chat_presence(rtl, "verify2")
+        if presence.get("cli_session") != "sess-3" or os.path.realpath(presence.get("cli_worktree") or "") != os.path.realpath(lane):
+            report(f"{label} binding a role did not record the session that bound it: {presence!r}")
+            return 1
+        if chat_session_record(rtl, "sess-3").get("role") != "verify2":
+            report(f"{label} the binding session's record names {chat_session_record(rtl, 'sess-3').get('role')!r}, not verify2.")
+            return 1
+        segments_file = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "segments" / "verify2.json"
+        segments = json.loads(segments_file.read_text(encoding="utf-8")).get("segments", []) if segments_file.exists() else []
+        if not segments or os.path.realpath(segments[-1].get("transcript", "")) != os.path.realpath(transcript):
+            report(f"{label} verify2's current segment is not the binding session's transcript: {segments!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_chat_wake_skips_removed_session_scenario() -> int:
+    """Issue #415: a role's recorded session that `claude rm` removed is not resumed."""
+    label = "chat-wake-skips-removed-session:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-415d-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        calls = base / "claude-calls.jsonl"
+        fake = base / "fake-claude"
+        write_text(fake, "#!/usr/bin/env python3\nimport json, sys\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                   "if sys.argv[1:3] == ['agents', '--json']:\n"
+                   "    print(json.dumps([{'kind': 'background', 'sessionId': 'other-0000', 'id': 'other-00', 'cwd': '/tmp'}]))\n"
+                   "else:\n    print('backgrounded · fake')\n")
+        fake.chmod(0o755)
+        env = {**env, "KEEL_CLAUDE": str(fake)}
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        chat_session_start(verify, env, "sess-verify-1", dead.pid)
+        woke = run_keel(rtl, "chat", "wake", "now", "verify", env=env)
+        made = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+        if any(call[:1] == ["--bg"] for call in made):
+            report(f"{label} wake now resumed a session claude agents no longer lists: {made!r}")
+            return 1
+        if woke.returncode == 0:
+            report(f"{label} wake now exits 0 for a session it could not resume: {woke.stdout!r}")
+            return 1
+        if "removed" not in (woke.stdout + woke.stderr):
+            report(f"{label} wake now does not say the recorded session was removed: {woke.stdout!r} {woke.stderr!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_chat_wake_now_cli_scenario() -> int:
     """Issue #348 on the CLI (owner's CLI waker, 2026-10-19): one step wakes a role.
 
@@ -2528,7 +2717,9 @@ def validate_chat_wake_now_cli_scenario() -> int:
                            input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "session_id": "sess-verify-1", "source": "startup"}))
 
         def made() -> list[dict]:
-            return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            # The resumes only: since #415 a wake first reads `claude agents --json --all`.
+            calls_made = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            return [call for call in calls_made if call["argv"][:1] == ["--bg"]]
 
         start(dead.pid)
         posted = run_keel(rtl, "chat", "dm", "verify", "rerun R009", env=env)
@@ -41971,6 +42162,10 @@ SCENARIOS: tuple = (
     ("two-live-sessions-on-one-role", validate_two_live_sessions_on_one_role_scenario),
     ("chat-role-rename", validate_chat_role_rename_scenario),
     ("chat-wake-now-cli", validate_chat_wake_now_cli_scenario),
+    ("chat-hook-follows-session-worktree", validate_chat_hook_follows_session_worktree_scenario),
+    ("chat-visitor-not-recorded", validate_chat_visitor_not_recorded_scenario),
+    ("chat-role-set-records-session", validate_chat_role_set_records_session_scenario),
+    ("chat-wake-skips-removed-session", validate_chat_wake_skips_removed_session_scenario),
     ("chat-ack", validate_chat_ack_scenario),
     ("coordinator-patrol", validate_coordinator_patrol_scenario),
     ("patrol-since-last", validate_patrol_since_last_scenario),
