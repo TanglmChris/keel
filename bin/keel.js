@@ -106,7 +106,7 @@ Usage:
   keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
   keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
   keel --uninstall [repo] [--target claude|codex|opencode] [--dry-run]
-  keel --update [--dry-run] [--source npm-package-or-git-spec]
+  keel --update [--dry-run] [--source npm-package-or-git-spec] [--adopt]
   keel --check [repo] [--target claude|codex|opencode]
   keel --doctor [repo] [--target claude|codex|opencode]
   keel --version
@@ -179,6 +179,7 @@ function parseArgs(argv) {
     forceTemplateUpdate: false,
     withGitHooks: false,
     updateSource: null,
+    adopt: false,
     help: false,
     version: false,
     change: null,
@@ -353,6 +354,10 @@ function parseArgs(argv) {
     }
     if (arg === "--with-git-hooks") {
       parsed.withGitHooks = true;
+      continue;
+    }
+    if (arg === "--adopt") {
+      parsed.adopt = true;
       continue;
     }
     if (arg === "--target") {
@@ -987,7 +992,12 @@ function claudeKeel(executable) {
   const entry = (Array.isArray(listed) ? listed : [])
     .find((item) => item && typeof item.id === "string" && item.id.startsWith("keel@"));
   if (!entry) return null;
-  return { id: entry.id, market: entry.id.slice("keel@".length), version: entry.version || null };
+  return {
+    id: entry.id,
+    market: entry.id.slice("keel@".length),
+    version: entry.version || null,
+    lastUpdated: entry.lastUpdated || null,
+  };
 }
 
 // The Codex marketplace needs only its catalog and the plugin it names; a
@@ -1378,9 +1388,104 @@ function runGlobalUpdate(options) {
   const results = [
     updateGlobalCli(options, npm, source),
     updateClaudePlugin(options, npm),
+    adoptClaudeSessions(options),
     updateCodexPlugin(options),
   ];
   return results.every(Boolean) ? 0 : 1;
+}
+
+function waitForExit(pid, limitMs) {
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  const deadline = Date.now() + limitMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    if (Date.now() >= deadline) return false;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  }
+}
+
+// A Claude background session keeps the plugin it loaded (#424). A hand-over
+// adopts the update, because it starts a new process; a session that does not
+// change shift stays on the old one. Each running background session started
+// before the installed plugin's `lastUpdated` is named, and with --adopt each
+// idle one is restarted: `claude stop`, a wait for its process to exit (a
+// resume before that starts a copy, #395), then `claude --bg --resume <id>`
+// with no prompt and no flag, which keeps its id and runs no turn (measured
+// 2026-10-21, Claude Code 2.1.304). A busy or waiting session, one under a
+// task's write guard, and the session running this are left.
+function adoptClaudeSessions(options) {
+  const component = "claude sessions";
+  const executable = process.env.KEEL_UPDATE_CLAUDE || "claude";
+  if (options.dryRun) {
+    if (options.adopt) {
+      process.stdout.write("keel: would restart each idle background session started before the installed plugin: "
+        + "claude stop <id>, then claude --bg --resume <session id>\n");
+    }
+    return true;
+  }
+  const plugin = claudeKeel(executable);
+  const updatedAt = Date.parse((plugin && plugin.lastUpdated) || "");
+  if (!plugin || plugin.failed || !Number.isFinite(updatedAt)) return true;
+  const listed = hostQuery(executable, ["agents", "--json"]);
+  const rows = !listed.failed && Array.isArray(listed.json) ? listed.json : null;
+  if (!rows) {
+    if (!options.adopt) return true;
+    updateLine(component, "failed", `\`claude agents --json\` ${listed.failed || "listed no sessions"}, so none was adopted`);
+    return false;
+  }
+  const own = process.env.CLAUDE_CODE_SESSION_ID || "";
+  const older = rows.filter((row) => row && row.kind === "background" && row.status && row.sessionId
+    && row.sessionId !== own && Number(row.startedAt) < updatedAt);
+  if (older.length === 0) return true;
+  const named = (row) => `${row.name || row.sessionId.slice(0, 8)} (${row.id || row.sessionId.slice(0, 8)})`;
+  if (!options.adopt) {
+    updateLine(component, "manual", `${older.length} started before the plugin was installed and still run the skills they loaded: `
+      + `${older.map(named).join(", ")}; \`keel --update --adopt\` restarts the idle ones, and a shift change starts its new session on the installed plugin`);
+    return true;
+  }
+  const adopted = [];
+  const left = [];
+  const failed = [];
+  for (const row of older) {
+    if (row.status !== "idle") {
+      left.push(`${named(row)}, ${row.status}`);
+      continue;
+    }
+    if (row.cwd && fs.existsSync(path.join(row.cwd, "keel", "guard.json"))) {
+      left.push(`${named(row)}, under a task's write guard`);
+      continue;
+    }
+    const stopped = hostRun(executable, ["stop", row.id || row.sessionId.slice(0, 8)]);
+    if (stopped.error || stopped.status !== 0) {
+      failed.push(`${named(row)}: \`claude stop\` ${hostFailure(stopped)}`);
+      continue;
+    }
+    if (!waitForExit(Number(row.pid), 15 * 1000)) {
+      failed.push(`${named(row)}: its process ${row.pid} was still running 15 s after \`claude stop\``);
+      continue;
+    }
+    const resumed = spawnSync(executable, ["--bg", "--resume", row.sessionId], {
+      encoding: "utf8",
+      cwd: row.cwd && fs.existsSync(row.cwd) ? row.cwd : undefined,
+      shell: process.platform === "win32",
+      timeout: 60 * 1000,
+    });
+    if (resumed.error || resumed.status !== 0) {
+      failed.push(`${named(row)}: \`claude --bg --resume\` ${hostFailure(resumed)}; \`claude attach ${row.id || row.sessionId.slice(0, 8)}\` reopens it`);
+      continue;
+    }
+    adopted.push(named(row));
+  }
+  const parts = [];
+  if (adopted.length) parts.push(`adopted ${adopted.join(", ")} — restarted on the installed plugin, same session, no turn run`);
+  if (left.length) parts.push(`left ${left.join("; ")} — each adopts at its next shift change or another --adopt`);
+  if (failed.length) parts.push(`could not adopt ${failed.join("; ")}`);
+  updateLine(component, failed.length ? "failed" : "updated", parts.join("; "));
+  return failed.length === 0;
 }
 
 function runPython(script, args) {
@@ -2758,6 +2863,9 @@ function runAction(options) {
   if (options.withGitHooks && options.action !== "install") {
     fail("--with-git-hooks only applies to --install");
   }
+  if (options.adopt && options.action !== "update") {
+    fail("--adopt only applies to --update");
+  }
 
   if (options.action === "openspec") {
     const openspec = findOpenSpecCommand();
@@ -3040,6 +3148,9 @@ function main() {
     return require("../src/core/agents").runAgents(process.argv.slice(3));
   }
   const options = parseArgs(process.argv.slice(2));
+  if (options.adopt && options.action !== "update") {
+    fail("--adopt only applies to --update");
+  }
   if (options.help || (!options.action && !options.version)) {
     printHelp();
     return 0;

@@ -36,6 +36,15 @@ Three cases need you:
 - **A Codex marketplace refresh that keeps failing.** Codex clones a Git marketplace with a fixed 30-second limit, and a slow or proxied link may not clone the whole repository in time (#329). `keel --update` retries the refresh once; if it fails again, the Codex line reads `failed` and names the remedy: add `sparse_paths = [".agents/plugins", "plugins/keel"]` under `[marketplaces.keel-marketplace]` in the Codex `config.toml`, so the refresh fetches only the plugin. A marketplace added with `--sparse .agents/plugins --sparse plugins/keel` already has it.
 - **Changed Codex hook definitions.** Codex trusts each hook by the hash of its definition. When a release changes `hooks/codex.json`, the Codex line says so, and those hooks do not run until you review them in `/hooks`.
 
+## Background sessions that are already running
+
+A Claude background session keeps the skills of the plugin it loaded, and nobody should have to type `/reload-plugins` into each one (#424). Two things bring it the update:
+
+- **A shift change.** A CLI hand-over stops the old session and starts a new process, which loads the installed plugin. Measured on 2026-10-21: kaiwu-lead `0e12b6cb`, started on 5.170.0, listed the retired `keel:keel-run-single-task-goal`; `ef20932c`, started by a hand-over after 5.175.0 was installed, did not.
+- **`keel --update --adopt`.** After the update, it restarts each idle background session started before the installed plugin's `lastUpdated`. It runs `claude stop`, waits for the process to exit, then `claude --bg --resume <session id>` with no prompt. The session keeps its id, worktree, chat role, and conversation; no turn runs, and the next message reaches a process on the new plugin. It leaves alone, and names, a busy or waiting session, one whose worktree has an active write guard (`keel/guard.json`, #204), and the session running the command. A resumed session's Remote Control reconnects under a new address, which is why this is opt-in.
+
+Without `--adopt`, `keel --update` prints one `claude sessions` line naming the background sessions started before the update, when there are any.
+
 ## Projects catch up on their own
 
 `keel --update` writes into no repository. When a session starts in a project whose protocol block is older than the running CLI, `keel context` prints a `Protocol:` line naming the refresh. A project that standing-authorizes `protocol-refresh` in `keel/config.yaml` lets that session run it, and otherwise the session asks.
@@ -50,7 +59,7 @@ The refresh brings the overlays of every target the project carries forward, not
 | Resume | A resumed session is a new process and loads the installed plugin (not separately probed). | A resumed thread's next hook runs the installed plugin, as the next row shows. |
 | Next hook call in a running session | From 5.89.0, each Keel hook hands the event to the newest installed copy of itself with the same major version. A session loaded before 5.89.0 keeps its loaded hooks. | Runs the installed plugin: Codex resolves the plugin root at every hook call [1]. |
 | Compact, clear | Fires SessionStart, which hands off as in the row above. Before 5.89.0 it ran the loaded version (#172). | Same as the next hook call. |
-| Skills | Stay at the loaded version until `/reload-plugins` or a new session. After a hand-off, SessionStart says so in one line, and only when they changed. | Not probed. |
+| Skills | Stay at the loaded version until `/reload-plugins`, a new session, or a restart (see below). After a hand-off, SessionStart says so in one line, and only when they changed. | Not probed. |
 | Write guard during a task | Keeps the loaded guard while `keel/guard.json` exists, and hands off on the first check after it is cleared. | Switches at the next call, which the host decides. The decision depends only on the `keel-write-guard/v1` manifest, and an unknown schema fails closed. |
 | Old version directory | Kept, so a loaded session's scripts keep working. | Deleted on upgrade, which does not matter because hooks are resolved per call [1]. |
 
