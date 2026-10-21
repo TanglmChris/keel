@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.188.0 - Evidence counts a stand-in only where a scenario sets one
+
+This corrects 5.186.0 (#408). That release counted a scenario as run against a stand-in host wherever its reachable code mentioned a host marker. `chat_environment` names the host's `CLAUDE_*` variables in order to remove them (#415), so every scenario built on it counted as stand-in host. On 5.187.0, `--group shift` reported `2 deterministic, 45 against a stand-in host`.
+
+- **A marker counts only where the code sets it.** The forms that count are a dict key, an item assignment, `NAME=`, or an attribute assignment. This applies to derived variables and to a hook payload's `hook_event_name`. Reading or removing a variable no longer counts. A file named for a host program still counts wherever it is written.
+- **The full registry now classifies as 218 deterministic and 100 stand-in host.** It was 181 and 137. 37 scenarios moved, among them `chat-core`, `shift-self` and the patrol scenarios. Every scenario that sets `KEEL_CLAUDE`, `CLAUDE_CONFIG_DIR`, a hook payload or a fake program stays stand-in host.
+- **`release-evidence-classes` now also asserts that `chat-core` is deterministic.**
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.188.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.187.0 - The protocol says what memory may hold and when to recheck it
 
 Issue #416. On 2026-10-20 the owner said "感觉啥都会进 mem". On 2026-10-21 the owner put memory hygiene into the Keel protocol for every repository that uses Keel. This is an explicit exception to the #414 stance that Keel leaves native capabilities alone: it governs what memory holds, not whether memory is used. Keel still reads and writes no memory. A `keel memory audit` tool was not chosen.

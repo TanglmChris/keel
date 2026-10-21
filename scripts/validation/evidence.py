@@ -6,8 +6,8 @@ directory, a hook payload — and none of it against a real one. Every
 registered scenario is classified as deterministic or stand-in host, from
 markers derived from Keel's own sources, through the validation helpers and
 scripts it reaches. The classification is static and over-approximates: a
-scenario that only mentions a marker counts as stand-in host, which claims
-less real evidence, never more.
+scenario that sets a marker counts as stand-in host even when the value is
+never used, which claims less real evidence, never more.
 """
 from __future__ import annotations
 
@@ -76,16 +76,25 @@ def reached_text(function: str, found: dict[str, tuple[set[str], str]]) -> tuple
     return text, seen
 
 
+def sets(mark: str) -> re.Pattern:
+    """Where code sets a marker rather than names it: a dict key, an item
+    assignment, `NAME=` in shell or keyword form, or an attribute assignment.
+    Naming a variable to remove or read it is not a stand-in (5.188.0)."""
+    name = re.escape(mark)
+    return re.compile(r"[\"']" + name + r"[\"']\s*:|\[\s*[\"']" + name + r"[\"']\s*\]\s*=|\b" + name + r"=|\." + name + r"\s*=")
+
+
 def classify(scenarios) -> dict:
     """{"markers", "stand-in host", "deterministic", "can skip"} for the registered scenarios, in registry order."""
     marks = markers()
+    setters = [sets(mark) for mark in marks]
     found = definitions()
     standin, deterministic, skippable = [], [], []
     for name, function in scenarios:
         defined = getattr(function, "__name__", None)
         text, seen = reached_text(defined, found) if defined in found else ("", set())
         # A scenario whose code cannot be read cannot be shown deterministic.
-        if defined not in found or any(mark in text for mark in marks) or SHADOWED_PROGRAM.search(text):
+        if defined not in found or any(setter.search(text) for setter in setters) or SHADOWED_PROGRAM.search(text):
             standin.append(name)
         else:
             deterministic.append(name)
