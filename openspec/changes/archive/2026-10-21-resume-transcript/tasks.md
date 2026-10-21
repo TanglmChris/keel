@@ -48,7 +48,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -83,14 +83,16 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:3d4c583f9fd91d9b65979119d49618f1eeae13f5933ed51c60d54b1b02fc27eb (keel 5.189.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.190.0. The changelog section "5.190.0 - A resumed -w session is bound to its own worktree, as measured" replaced the `TODO` stub and kept its Version alignment line. Result: `version-alignment scenario passed.`
+    - M2: pass. The MODIFIED requirement was promoted into `keel-cross-host-mailbox`. Result: `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass. `npm test` ran on commit 83d40acb with a clean tree. It started at 15:33:04 at load 6 and exited rc=0, printing:
+      - `validation --all passed: baseline plus 318 scenarios, 1 skipped: output-survives-the-pipe.`
+      - `evidence: 218 deterministic, 100 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: M1 and M2 run the marker and published-spec scenarios on the written release. M3 runs the whole suite on the release commit.
+      - Scope check: the bump touched only the listed Touch files, plus this change's record.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
