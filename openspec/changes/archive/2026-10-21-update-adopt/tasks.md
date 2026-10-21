@@ -56,7 +56,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -95,14 +95,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:01bd0a5f60264f78f58f5ec8f27ce6d085e1585b48bdc262f5196b487abeca9a (keel 5.179.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.179.0 → 5.180.0, after merging 5.179.0 into the branch. With the section "keel --update --adopt restarts the idle sessions still on an older plugin" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "An update names the sessions on an older plugin and adopts the idle ones on request" is promoted into `keel-native-plugin-package`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 46491482 (clean tree), started 09:04 at load 6: `validation --all passed: baseline plus 301 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.180.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
