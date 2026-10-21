@@ -1,0 +1,164 @@
+# Tasks
+
+## 1. Several patrolling roles
+
+- [x] 1.1 Read `patrol:` as a list with `scope:`, and give each declared role its own reminder, host task, and cadence
+  - Covers:
+    - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / Each coordinator is reminded of its own declaration
+    - keel-coordinator-patrol / The patrol's host task is declared and rendered, never installed by Keel / The host task is rendered from the declaration
+    - D1
+    - D2
+    - D6
+    - D8
+  - Read:
+    - openspec/changes/patrol-scopes/design.md
+    - src/core/config.js
+    - src/core/context.js
+    - src/core/shift.js
+    - src/core/patrol.js
+  - Touch:
+    - src/core/config.js
+    - src/core/context.js
+    - src/core/shift.js
+    - src/core/patrol.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - keel/config.yaml
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-scopes-declared`: with `patrol:` listing `pm-a` (`every: 30m`, `scope: group:team-a`), `pm-b` (`every: 45m`, `host_task: team-b-patrol`, `scope: group:team-b`), and an item whose `every:` is `soon`, the real `keel context --json` gives pm-a `{role: pm-a, every: 30m}`, pm-b `every: 45m` and `hostTask: team-b-patrol`, and dev-a no `patrol`, with the broken item in warnings; `keel shift resume` in pm-b's worktree ends with a reminder naming `team-b-patrol`; `keel patrol task` renders `team-b-patrol` in pm-b's worktree, is refused in dev-a's naming `pm-a`, `pm-b`, and `--role`, and with `--role pm-a` renders `keel-patrol-pm-a` with pm-a's worktree and `*/30 * * * *`. Fails with: `patrol-scopes-declared:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, and so does each of `--scenario readme-zh-matches-english`, `--scenario config-documents-in-declaration-order`, `--scenario surfaces-agree-with-code`, `--scenario delegation-resident-text`, and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:e228de43f5154bfa5bc016c855670e8f1af6bfe2178aa219cb26589a6f3dd8bd (keel 5.192.0)
+    - M1: pass. `patrol-scopes-declared scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `patrol-scopes-declared: pm-a's context carries patrol None.` (exit 1).
+    - M1.green: pass. Code changes:
+      - `readPatrolDeclarations` reads the list form, and `patrolItem` validates each item plus `scope:` (D1, D2). The single mapping keeps its exact messages.
+      - `readPatrolDeclaration(repo, { role })` gives `keel context` and `keel shift resume` the bound role's own declaration (D6).
+      - `chooseDeclaration` picks the declaration `keel patrol task` renders, from `--role`, the calling worktree's role, or the only declaration, and refuses otherwise (D6).
+      - `recommendNext` reads the running role's cadence (D8).
+    - M2: pass.
+      - `validation --group shift passed: 50 scenarios.` (exit 0).
+      - `readme-zh-matches-english`, `config-documents-in-declaration-order`, `surfaces-agree-with-code`, and `delegation-resident-text` each passed on its own.
+      - `assertion-shape-count` first failed at 75 sites: the new scenario had two compound conditions. After they were split, it passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: the real `keel context`, `keel shift resume`, and `keel patrol task` give each declared role its own reminder and task. They refuse to guess between two declarations, and they report a broken item while the other items apply. `patrol-rearm` and `patrol-host-task` show the single mapping unchanged.
+      - Scope check: `git status --short` lists the nine Touch files and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 Scope each declared role's nudges, routing, snapshot, and risks to the roles it covers
+  - Covers:
+    - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / Each coordinator nudges and routes only the roles it covers
+    - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / Repository-wide risks reach one coordinator
+    - keel-coordinator-patrol / The patrol nudges idle roles directly / Roles are nudged once each, and parked notes are left alone
+    - keel-coordinator-patrol / A patrol run reports only what changed since the last one / Only risks reach the coordinator, and every run is logged
+    - keel-coordinator-patrol / Issue labels route issue updates to roles / A labelled issue reaches its role once per update
+    - D3
+    - D4
+    - D5
+    - D9
+    - D10
+  - Read:
+    - openspec/changes/patrol-scopes/design.md
+    - src/core/patrol.js
+  - Touch:
+    - src/core/patrol.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-scopes-cover`: with groups `team-a` (pm-a, dev-a, flow) and `team-b` (pm-b, dev-b, flow), `patrol:` listing scoped pm-a and pm-b and an unscoped `chief`, and dev-a, dev-b, flow, and lead each holding an addressed message older than `--idle 1s`, the real `keel patrol --nudge` nudges exactly dev-a and flow as pm-a, exactly dev-b as pm-b, and exactly lead as chief; with `issue_roles:` routing `flow` to flow and `dev` to dev-b, pm-a's `--issues` over issue 170 labelled both leaves flow one unread message naming #170 and dev-b none, and pm-b's then leaves dev-b one and flow still one. Fails with: `patrol-scopes-cover:` Detects: `make the scoped coverage return every role` -> `pm-a nudged`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-scopes-repository-wide`: when the primary checkout gains an uncommitted file between two `--since-last --notify` runs of each declared role, only chief is sent a `keel-patrol` message naming the checkout while chief is declared unscoped, and only pm-a after chief is removed from `patrol:`. Fails with: `patrol-scopes-repository-wide:`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, and so does `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.3 Run each declared patrol from `keel tick` when it is due
+  - Covers:
+    - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / The tick runs each declared patrol when due
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / The patrol runs only when due
+    - D7
+  - Read:
+    - openspec/changes/patrol-scopes/design.md
+    - src/core/tick.js
+  - Touch:
+    - src/core/tick.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-runs-each-patrol`: with `patrol:` listing pm-a and pm-b, both `runner: tick` and bound, the real `keel tick` adds one line to each role's patrol run log, a second tick adds none and prints `not due` for both, and after pm-b's recorded `next_at` is moved into the past a third tick adds a line to pm-b's log only. Fails with: `tick-runs-each-patrol:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, and so does `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1–1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-coordinator-patrol`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "the role whose sessions run `keel patrol` on a host schedule, and its interval" — the `patrol` comment in `keel/config.yaml`. Updated by: 1.1.
+- I2: "Declare which role patrols and how often" — `README.md`, and "声明由哪个角色巡查、多久一次" in `README.zh-CN.md`. Updated by: 1.1.
+- I3: "`keel patrol --nudge` MUST consider every bound role other than the patrolling role" and "when `patrol:` declares a role bound to a worktree" — `openspec/specs/keel-coordinator-patrol/spec.md`. Updated by: 2.1.
+- I4: "`patrol:` — which role runs `keel patrol`, and how often (#260)" — the `readPatrolDeclaration` comment in `src/core/config.js`. Updated by: 1.1.
+- I5: "The patrol runs in the worktree bound to its role, whichever worktree called." — `src/core/tick.js`. Updated by: 1.3.
+
+## Expectation Coverage
+
+- E1: Several coordinators may patrol one repository. Each is reminded of its own declaration and renders its own host task (D1, D2, D6, D8), covers only the roles its scope gives it, and sends repository-wide risks to one coordinator (D3, D4, D5, D9, D10). `keel tick` runs each one when it is due (D7). A single `patrol:` mapping behaves as before. Covered by: 1.1, 1.2, 1.3
+- E2: The release carries it. Covered by: 2.1

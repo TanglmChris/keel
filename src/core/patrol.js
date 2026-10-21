@@ -12,7 +12,7 @@ const store = require("./chat/store");
 const notice = require("./chat/notice");
 const { parseSince } = require("./chat/view");
 
-const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]\n       keel patrol task [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
+const USAGE = "keel patrol [--issues <file>] [--idle <90s|15m|2h|3d>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]\n       keel patrol task [--role <role>] [--json] [--repo <path>]   print the host scheduled task for `patrol:`";
 const NOTIFY_SENDER = "keel-patrol";
 // 2 asks the coordinator to act — a risk, or a wait of its own now met — and
 // 3 says patrol recorded or delivered something only other roles need: a
@@ -394,12 +394,28 @@ function shellPath(file) {
   return /[\s"'$`\\]/.test(file) ? JSON.stringify(file) : file;
 }
 
-function hostTask(where) {
-  const config = require("./config");
-  const declaration = config.readPatrolDeclaration(where.worktree);
-  if (!declaration.role) {
-    throw new PatrolError(declaration.message || "keel/config.yaml declares no `patrol:` with role and every, so there is no patrol task to render.");
+// Whose task (#434 D6): `--role`'s, else the calling worktree's role's, else
+// the only declaration; between several it refuses rather than guess.
+function chooseDeclaration(where, requested) {
+  const all = require("./config").readPatrolDeclarations(where.worktree);
+  const { declarations } = all;
+  if (!declarations.length) {
+    throw new PatrolError(all.messages.join(" ") || "keel/config.yaml declares no `patrol:` with role and every, so there is no patrol task to render.");
   }
+  if (requested) {
+    const named = declarations.find((declaration) => declaration.role === requested);
+    if (!named) throw new PatrolError(`keel/config.yaml patrol: declares no role ${requested}; it declares ${declarations.map((d) => d.role).join(", ")}.`);
+    return named;
+  }
+  const own = declarations.find((declaration) => declaration.role === store.currentRole(where));
+  if (own) return own;
+  if (declarations.length === 1) return declarations[0];
+  throw new PatrolError(`keel/config.yaml patrol: declares ${declarations.map((d) => d.role).join(", ")}, and this worktree's role is none of them; `
+    + "name one with `--role <role>`.");
+}
+
+function hostTask(where, requested = null) {
+  const declaration = chooseDeclaration(where, requested);
   const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
     .filter(([, role]) => role === declaration.role).map(([worktree]) => worktree).sort();
   if (!bound.length) {
@@ -450,9 +466,11 @@ function runPatrol(argv) {
   if (argv[0] === "task") {
     const json = argv.includes("--json");
     const at = argv.indexOf("--repo");
+    const roleAt = argv.indexOf("--role");
     try {
+      if (roleAt >= 0 && !argv[roleAt + 1]) throw new PatrolError("--role needs a role name.");
       const where = store.requireLocation(path.resolve(at >= 0 ? argv[at + 1] || "" : process.cwd()));
-      const task = hostTask(where);
+      const task = hostTask(where, roleAt >= 0 ? argv[roleAt + 1] : null);
       process.stdout.write(`${json ? JSON.stringify(task, null, 2) : renderTask(task)}\n`);
       return EXIT_QUIET;
     } catch (error) {
@@ -544,7 +562,7 @@ function runPatrol(argv) {
 // is the caller's; this only recommends.
 function recommendNext(where, role, result, options, now = new Date()) {
   const { readPatrolDeclaration, durationSeconds } = require("./config");
-  const declaration = readPatrolDeclaration(where.worktree);
+  const declaration = readPatrolDeclaration(where.worktree, { role });
   const cadence = declaration.cadence;
   if (!cadence || !cadence.adaptive) {
     const every = durationSeconds(declaration.every) || 3600;

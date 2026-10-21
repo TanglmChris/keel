@@ -462,6 +462,7 @@ SCENARIOS: tuple = (
     ("patrol-escalate", shift.validate_patrol_escalate_scenario),
     ("patrol-quota", shift.validate_patrol_quota_scenario),
     ("patrol-host-task", shift.validate_patrol_host_task_scenario),
+    ("patrol-scopes-declared", shift.validate_patrol_scopes_declared_scenario),
     ("patrol-rearm", shift.validate_patrol_rearm_scenario),
     ("patrol-issue-routing", shift.validate_patrol_issue_routing_scenario),
     ("patrol-issue-label-sets", shift.validate_patrol_issue_label_sets_scenario),

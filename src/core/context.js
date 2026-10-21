@@ -877,10 +877,11 @@ function resolveContext(repo, options) {
     const twins = chatWhere ? require("./chat/notice").twinWarning(chatWhere, context.role) : null;
     if (twins) context.warnings.push(twins);
   }
-  // The patrolling role is reminded to re-arm its schedule (#260).
-  const patrol = readPatrolDeclaration(repo);
+  // The patrolling role is reminded to re-arm its schedule (#260), each
+  // declared role of its own declaration (#434 D6).
+  const patrol = readPatrolDeclaration(repo, { role: context.role || null });
   if (patrol.message) context.warnings.push(patrol.message);
-  if (patrol.role && context.role === patrol.role) {
+  if (patrol.role) {
     context.patrol = { role: patrol.role, every: patrol.every };
     if (patrol.hostTask) context.patrol.hostTask = patrol.hostTask;
     if (patrol.runner) context.patrol.runner = patrol.runner;

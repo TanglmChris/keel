@@ -1489,8 +1489,8 @@ function runShift(argv) {
         }
         // A new shift of the patrolling role re-creates its schedule (#260).
         const { readPatrolDeclaration, patrolReminder } = require("./config");
-        const patrol = readPatrolDeclaration(where.worktree);
-        const remind = patrol.role && result.role === patrol.role;
+        const patrol = readPatrolDeclaration(where.worktree, { role: result.role || null });
+        const remind = Boolean(patrol.role);
         if (remind) result.patrol = { role: patrol.role, every: patrol.every, ...(patrol.hostTask ? { hostTask: patrol.hostTask } : {}), ...(patrol.runner ? { runner: patrol.runner } : {}) };
         // A new coordinator learns whom its previous shift left unstarted (#289 D2).
         const waiting = (result.waiting || []).map((w) => w.role);
