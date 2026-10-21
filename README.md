@@ -1028,7 +1028,8 @@ distribution copies under `plugins/keel/skills/` must stay byte-identical (enfor
 validation).
 
 ```bash
-npm test                  # one validate_plugin.py --all run: baseline + all scenarios in parallel (--jobs N sets concurrency)
+npm test                  # one validate_plugin.py --all run: baseline + all scenarios in parallel (--jobs N sets concurrency), ending with an evidence: line
+node scripts/run_python.js scripts/validate_plugin.py --evidence           # which scenarios are deterministic and which run against a stand-in host; --markdown for release notes
 node scripts/run_python.js scripts/validate_plugin.py --scenario <name>   # one scenario
 node scripts/run_python.js scripts/validate_plugin.py --group <module>    # one module's scenarios, e.g. --group chat
 node scripts/bump_version.js <patch|minor|major>   # bump every version pin at once

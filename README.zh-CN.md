@@ -868,7 +868,8 @@ target，后续每次 `--install` / `--check` / `--doctor` / `--uninstall` 都�
 （由校验强制）。
 
 ```bash
-npm test                  # 一次 validate_plugin.py --all：baseline + 全部场景并行（--jobs N 控制并发）
+npm test                  # 一次 validate_plugin.py --all：baseline + 全部场景并行（--jobs N 控制并发），最后一行是 evidence: 证据分类
+node scripts/run_python.js scripts/validate_plugin.py --evidence           # 哪些场景是确定性的、哪些对着替身宿主跑；--markdown 给发布说明用
 node scripts/run_python.js scripts/validate_plugin.py --scenario <name>   # 单个场景
 node scripts/run_python.js scripts/validate_plugin.py --group <module>    # 一个模块的场景，例如 --group chat
 node scripts/bump_version.js <patch|minor|major>   # 一次改齐所有版本 pin
