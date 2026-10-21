@@ -1,0 +1,156 @@
+# Tasks
+
+## 1. Split the runner into modules
+
+- [ ] 1.1 Move every scenario and helper, unchanged, into modules under `scripts/validation/`
+  - Covers:
+    - keel-validation-runner / One scenario registry drives all validation entry points / Adding a scenario registers once
+    - keel-validation-runner / One scenario registry drives all validation entry points / Single-scenario CLI stays stable
+    - keel-validation-runner / One scenario registry drives all validation entry points / Unknown scenario still fails loudly
+    - keel-validation-runner / One scenario registry drives all validation entry points / Moving scenarios into modules changes no result
+    - keel-validation-runner / The one-message-many-failures assertion shape is counted / A newly added site fails the suite and is named
+    - keel-validation-runner / The one-message-many-failures assertion shape is counted / A stale recorded count fails when sites are fixed
+    - D2
+    - D3
+    - D4
+    - D5
+    - D8
+  - Read:
+    - openspec/changes/validation-modules/design.md
+    - scripts/validate_plugin.py
+  - Touch:
+    - scripts/validate_plugin.py
+    - scripts/validation/__init__.py
+    - scripts/validation/common.py
+    - scripts/validation/baseline.py
+    - scripts/validation/registry.py
+    - scripts/validation/contract.py
+    - scripts/validation/install.py
+    - scripts/validation/hosts.py
+    - scripts/validation/guard.py
+    - scripts/validation/chat.py
+    - scripts/validation/shift.py
+    - scripts/validation/docs.py
+    - scripts/validation/selfcheck.py
+    - scripts/bump_version.js
+    - docs/updating.md
+  - Verify:
+    - Strategy: equivalence
+    - Base: 72c91661
+    - Fields: the registry's scenario names in order; the `npm test` summary line (verified count and skipped names); the exit status of `--scenario no-such-scenario` and of `--all --jobs x`; every top-level definition and its AST
+    - M1: `npm test` on the base and on the split tree print the same `validation --all passed: baseline plus <n> scenarios, <k> skipped: <names>` line; the registry read from the base file and from `scripts/validation/registry.py` lists the same names, bound to functions of the same names, in the same order; `node scripts/run_python.js scripts/validate_plugin.py --scenario no-such-scenario` exits 2 and `--all --jobs x` exits 2 on both; and an AST comparison of every top-level definition in the base file against `scripts/validate_plugin.py` plus `scripts/validation/*.py` finds none missing, none added, and none changed except the ones this task edits on purpose, each named in Evidence.
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario <name>` passes for each of `validation-runner`, `runner-skip-accounting`, `assertion-shape-count`, `the-dependency-resolves-where-npm-put-it`, `the-routing-rule-reaches-the-decision`, `version-alignment`, and `authored-scenario-names-are-registered`, and the baseline passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 Run one module's scenarios with `--group`
+  - Covers:
+    - keel-validation-runner / One group of scenarios runs alone / A group runs only its own scenarios
+    - keel-validation-runner / One group of scenarios runs alone / An unknown group fails loudly
+    - D7
+  - Read:
+    - openspec/changes/validation-modules/design.md
+    - scripts/validate_plugin.py
+  - Touch:
+    - scripts/validate_plugin.py
+    - scripts/validation/selfcheck.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario runner-runs-one-group`: `validate_plugin.py --group selfcheck --jobs 2` exits 0, its output carries the pass line of every registered scenario defined in `scripts/validation/selfcheck.py` except itself and of no scenario defined elsewhere, and its summary reads `validation --group selfcheck passed:` with that count; `--group no-such-group` exits 2 and names `contract` and `selfcheck` among the groups. Fails with: `runner-runs-one-group:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario validation-runner` and `--scenario runner-skip-accounting` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.3 Have the path scan and the standard-library check read every module
+  - Covers:
+    - keel-validation-runner / The runner's self-checks read every validation module / A mutating command in a module is caught
+    - keel-validation-runner / The runner's self-checks read every validation module / A third-party import in a module is caught
+    - keel-validation-runner / The runner's self-checks read every validation module / An unregistered scenario in a module is caught
+    - D6
+  - Read:
+    - openspec/changes/validation-modules/design.md
+    - scripts/validation/baseline.py
+  - Touch:
+    - scripts/validation/baseline.py
+    - scripts/validation/selfcheck.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario self-checks-read-every-module`: against a scratch copy of `scripts/` with one planted module under `scripts/validation/`, the baseline's path scan reports the planted `run_keel(ROOT, "--install")` naming the module and line, and the standard-library check reports a planted `import requests` naming the module, while it accepts `from validation.common import ROOT`. Fails with: `self-checks-read-every-module:`
+    - M2 (regression): the same scenario's third check passes: an unregistered `validate_planted_scenario` in a planted module is named by the unregistered-scenario check that `validation-runner` uses; and the baseline passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the spec
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-validation-runner/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1–1.3, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker, including the constants in `scripts/validation/common.py`, to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-validation-runner`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "`validate_plugin.py` MUST own a single ordered scenario registry" — `keel-validation-runner`. Updated by: 2.1.
+- I2: "assertion sites in `scripts/validate_plugin.py`" and "an assertion of the counted shape is added to `scripts/validate_plugin.py`" — `keel-validation-runner`. Updated by: 2.1.
+- I3: "`adopted-update-is-silent-unless-reload` in `scripts/validate_plugin.py`" — `docs/updating.md`. Updated by: 1.1.
+- I4: `replaceInFile("scripts/validate_plugin.py", [` with `PACKAGE_VERSION` — `scripts/bump_version.js`. Updated by: 1.1.
+- I5: "one validate_plugin.py --all run: baseline + all scenarios in parallel (--jobs N sets concurrency)" — `README.md`, and its line in `README.zh-CN.md`. Updated by: 1.2.
+- I6: "scripts/validate_plugin.py" in the Touch lists and Evidence of archived changes. Discard reason: archived records describe the tree they were written against and are not rewritten.
+
+## Expectation Coverage
+
+- E1: The scenarios live in modules by responsibility with one registry, and every result, name, order, and definition is what it was before the split (#409; D1, D2, D3, D4, D5, D8). Covered by: 1.1
+- E2: One module's scenarios run alone with the same accounting as the full run (#409 owner decision; D7). Covered by: 1.2
+- E3: No self-check silently stops reading code that moved out of the entry file (D6). Covered by: 1.3
+- E4: The release carries it. Covered by: 2.1
