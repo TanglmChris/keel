@@ -1,5 +1,24 @@
 # Keel Changelog
 
+## 5.180.0 - keel --update --adopt restarts the idle sessions still on an older plugin
+
+Issue #424. A running Claude background session keeps the skills of the plugin it loaded. On 2026-10-20 the owner did not want to type `/reload-plugins` into each one: "我每个去跑 reload 太麻烦了"; "或换班更新".
+
+Measured on 2026-10-21:
+
+- **A CLI shift change already adopts the update.** Its hand-over starts a new process. kaiwu-lead `0e12b6cb`, started on 5.170.0, listed the retired `keel:keel-run-single-task-goal`. `ef20932c`, started by a hand-over after 5.175.0 was installed, did not.
+- **A session that does not change shift stays on the old plugin.** On a probe started before 5.178.0 was installed, `claude stop` then `claude --bg --resume <id>` ran the new plugin's hooks. With no prompt, the resume ran no turn.
+
+What changes:
+
+- **`keel --update --adopt`** finds each idle background session that started before the installed plugin's `lastUpdated`. For each one, it runs `claude stop`, waits for the process to exit, then runs `claude --bg --resume <session id>` with no prompt. The session keeps its id, worktree, chat role, and conversation.
+- **What it leaves alone, and names:** a busy or waiting session, one under a task's write guard, and the session running the command.
+- **Why it is opt-in:** a restarted session's Remote Control reconnects under a new address.
+- **`keel --update` without `--adopt`** prints one `claude sessions` line naming the background sessions that started before the update, when there are any.
+- **Where it is documented:** `docs/updating.md` describes both paths. Both READMEs and `keel --help` list `--adopt`.
+- **Desktop and Codex sessions are unchanged.**
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.180.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.179.0 - A version the registry does not serve yet reads pending, and a release waits for the registry
 
 Issue #421. Right after every release from 5.171.0 to 5.177.0, `keel --update` reported the Claude plugin `failed` with `E404 No match found for version`, and a rerun a few minutes later succeeded. The registry the owner reaches through a proxy did not serve the new version yet, while the Claude marketplace, read from Git, already named it. On 2026-10-21 the owner chose to fix both ends.

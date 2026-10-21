@@ -2,7 +2,7 @@
 
 ## 1. Name, and on request adopt, the sessions on an older plugin
 
-- [ ] 1.1 Add `keel --update --adopt` and the `claude sessions` line
+- [x] 1.1 Add `keel --update --adopt` and the `claude sessions` line
   - Covers:
     - keel-native-plugin-package / An update names the sessions on an older plugin and adopts the idle ones on request / Adopting restarts only the idle sessions on the older plugin
     - keel-native-plugin-package / An update names the sessions on an older plugin and adopts the idle ones on request / Without adopting, the older sessions are only named
@@ -28,15 +28,29 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:059be25e9badf3221ac4a7420524d35b111b43adc942c1c959a4ed9104994222 (keel 5.178.0)
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario update-adopts-idle-sessions` reports `update-adopts-idle-sessions scenario passed.` (exit 0), also after merging 5.179.0 (#421) into the branch.
+      - `--adopt` stopped only `aaaaaaaa`, then resumed it with exactly `--bg --resume aaaaaaaa-0000-0000-0000-000000000001` in its worktree, after its process had exited.
+      - The line names it adopted, and names the busy and guarded sessions left. It does not name the fresh session or the command's own session.
+      - Without `--adopt`, nothing was stopped or resumed, and the line names the three older sessions and `keel --update --adopt`.
+      - `keel --adopt` exits 2.
+    - M1.red: fail. Before the change: `update-adopts-idle-sessions: keel --update --adopt exited 2: '' 'keel: unknown option: --adopt'` (exit 1).
+    - M1.green: pass. After these changes:
+      - `--adopt` is parsed and refused outside `--update`.
+      - `claudeKeel` returns `lastUpdated`.
+      - `adoptClaudeSessions` runs after the Claude plugin step. It waits on the pid with `waitForExit`, then resumes in the row's `cwd`.
+
+      The scenario's own first run was wrong: a killed `sleep` it spawned stayed a zombie, which still answers `kill(pid, 0)`. The sleepers are now started through `sh -c '… &'`, so they are reparented, like a real host process.
+    - M2: pass. `update-registry-lag`, `update-covers-installed-hosts`, `update-codex-from-disk`, `update-host-query-timeout`, `readme-states-the-cli`, `readme-zh-matches-english`, `config-documents-in-declaration-order`, and `assertion-shape-count` (74) each pass, and the baseline exits 0.
+      - Live: this tree's `node bin/keel.js --update` without `--adopt` printed `claude sessions: manual - 5 started before the plugin was installed …`. It named kaiwu-flow, kaiwu-pm-iecc, kaiwu-design-iecc, kaiwu-spec-iecc, and keel-maint-2, stopped nothing, and left out this session.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E1 is met for both paths.
+        - The hand-over path is proven by the transcripts' `skill_listing` (F1).
+        - The restart is measured on the probe (F2).
+        - The real `keel --update` path is exercised end to end with a stub claude, and the naming line was seen live.
+        - Busy, guarded, and own sessions are left, and the resume keeps the id. The chat role, note, and read cursors live in Keel's store and are untouched by a restart.
+      - Scope check: `git diff origin/main --stat` lists `bin/keel.js`, `docs/updating.md`, both READMEs, `scripts/validate_plugin.py`, and this change's directory. Merging #421's release took no file outside them.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
@@ -80,7 +94,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:01bd0a5f60264f78f58f5ec8f27ce6d085e1585b48bdc262f5196b487abeca9a (keel 5.179.0)
     - M1:
     - M2:
     - M3:
