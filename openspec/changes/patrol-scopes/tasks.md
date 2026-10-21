@@ -106,7 +106,7 @@
     - Blocker: none
     - Reauthorizations: 2026-10-21, before any implementation: `src/core/shift.js` added to Touch so `handOffRisks` can take the covered roles, rather than parsing role names back out of its sentences.
 
-- [ ] 1.3 Run each declared patrol from `keel tick` when it is due
+- [x] 1.3 Run each declared patrol from `keel tick` when it is due
   - Covers:
     - keel-coordinator-patrol / Several roles may patrol, each over the roles it coordinates / The tick runs each declared patrol when due
     - keel-coordinator-patrol / A host-run tick runs the patrol when due / The patrol runs only when due
@@ -126,7 +126,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:7535d5b89c9029f8580e68feb13e9afc0a072a79e7420501857c92f941a13c7e (keel 5.192.0)
+    - M1: pass. `tick-runs-each-patrol scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `tick-runs-each-patrol: the first tick ran pm-a 1 and pm-b 0 times, not once each` (exit 1).
+    - M1.green: pass. `patrolWorktrees` returns every declaration with its bound worktree, and `tick` runs each one that is due. A list keeps each role's due time under `tick/state.json` `patrols`, and its first role falls back to the mapping's old `patrol` entry. A single mapping still keeps `patrol` and prints exactly as before (D7). `keel tick task` takes the first declared role that has a bound worktree.
+    - M2: pass. `validation --group shift passed: 53 scenarios.` (exit 0), `tick-runs-due-patrol` among them. `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel tick`, two declared coordinators each run once, then neither runs while both say not due, then only the one whose `next_at` passed runs again. `tick-runs-due-patrol` shows the single mapping unchanged.
+      - Scope check: `git status --short` lists `src/core/tick.js`, the two validation files, and this change's directory.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

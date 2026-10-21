@@ -27,19 +27,27 @@ function readState(where) {
   return state && typeof state === "object" ? state : {};
 }
 
-// The patrol runs in the worktree bound to its role, whichever worktree called.
+// Each declared patrol runs in the worktree bound to its role, whichever
+// worktree called (#434 D7); a list's first role is the one a bare
+// `patrolWorktree` answers for.
+function patrolWorktrees(where) {
+  const all = require("./config").readPatrolDeclarations(where.worktree);
+  if (!all.declarations.length) {
+    return [{ declaration: null, worktree: null, why: all.messages.join(" ") || "keel/config.yaml declares no `patrol:` with role and every." }];
+  }
+  const roles = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")));
+  return all.declarations.map((declaration) => {
+    const bound = roles.filter(([, role]) => role === declaration.role).map(([worktree]) => worktree).sort();
+    if (!bound.length) {
+      return { declaration, worktree: null, why: `No worktree is bound to role ${declaration.role}; bind one with \`keel chat role --set ${declaration.role}\` there first.` };
+    }
+    return { declaration, worktree: bound[0], why: null };
+  });
+}
+
 function patrolWorktree(where) {
-  const { readPatrolDeclaration } = require("./config");
-  const declaration = readPatrolDeclaration(where.worktree);
-  if (!declaration.role) {
-    return { declaration, worktree: null, why: declaration.message || "keel/config.yaml declares no `patrol:` with role and every." };
-  }
-  const bound = Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
-    .filter(([, role]) => role === declaration.role).map(([worktree]) => worktree).sort();
-  if (!bound.length) {
-    return { declaration, worktree: null, why: `No worktree is bound to role ${declaration.role}; bind one with \`keel chat role --set ${declaration.role}\` there first.` };
-  }
-  return { declaration, worktree: bound[0], why: null };
+  const all = patrolWorktrees(where);
+  return all.find((found) => found.worktree) || all[0];
 }
 
 // Roles whose CLI session ended while a record addressed to them waits are
@@ -76,50 +84,55 @@ function tick(where, now = new Date()) {
   if (result.woken.length) {
     store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken, wake_attempts: wakeState.wake_attempts });
   }
-  const found = patrolWorktree(where);
-  if (!found.worktree) {
-    result.patrol = { ran: false, why: found.why };
-    return result;
-  }
+  // A single mapping keeps its due time at `patrol`; a list keeps each role's
+  // under `patrols`, the first falling back to `patrol` when it was a mapping.
+  const all = patrolWorktrees(where);
+  const listed = all.length > 1;
   const state = readState(where);
-  const due = state.patrol && state.patrol.next_at ? Date.parse(state.patrol.next_at) : NaN;
-  if (!Number.isNaN(due) && due > now.getTime()) {
-    result.patrol = { ran: false, why: `patrol not due until ${state.patrol.next_at}`, next_at: state.patrol.next_at };
-    return result;
-  }
-  // The host task this replaces fetched first (F1); a failed fetch is reported
-  // and the patrol still runs on the refs it has.
-  const fetched = spawnSync("git", ["-C", found.worktree, "fetch", "-q", "origin"], { encoding: "utf8" });
-  const fetchError = fetched.status === 0 ? null : String(fetched.stderr || fetched.error || "fetch failed").trim();
-  const ran = spawnSync(process.execPath, [KEEL, "patrol", "--repo", found.worktree, "--since-last", "--notify", "--json"], {
-    cwd: found.worktree, encoding: "utf8",
+  result.patrols = all.map((found) => {
+    if (!found.worktree) return { role: found.declaration ? found.declaration.role : null, ran: false, why: found.why };
+    const role = found.declaration.role;
+    const own = listed ? ((state.patrols || {})[role] || (role === all[0].declaration.role ? state.patrol : null)) : state.patrol;
+    const due = own && own.next_at ? Date.parse(own.next_at) : NaN;
+    if (!Number.isNaN(due) && due > now.getTime()) {
+      return { role, ran: false, why: `${listed ? `${role}'s ` : ""}patrol not due until ${own.next_at}`, next_at: own.next_at };
+    }
+    // The host task this replaces fetched first (F1); a failed fetch is reported
+    // and the patrol still runs on the refs it has.
+    const fetched = spawnSync("git", ["-C", found.worktree, "fetch", "-q", "origin"], { encoding: "utf8" });
+    const fetchError = fetched.status === 0 ? null : String(fetched.stderr || fetched.error || "fetch failed").trim();
+    const ran = spawnSync(process.execPath, [KEEL, "patrol", "--repo", found.worktree, "--since-last", "--notify", "--json"], {
+      cwd: found.worktree, encoding: "utf8",
+    });
+    let payload = {};
+    try {
+      payload = JSON.parse(ran.stdout);
+    } catch {
+      payload = {};
+    }
+    const next = payload.next_at || null;
+    const record = { next_at: next, last_run: store.isoLocal(now), last_exit: ran.status };
+    if (listed) state.patrols = { ...(state.patrols || {}), [role]: record };
+    else state.patrol = record;
+    store.writeJsonAtomic(where, stateFile(where), state);
+    return {
+      role, listed, ran: true, exit: ran.status, next_at: next, rule: payload.next_rule || null,
+      fetchError, error: ran.status === 1 ? String(ran.stderr || "").trim() : null,
+    };
   });
-  let payload = {};
-  try {
-    payload = JSON.parse(ran.stdout);
-  } catch {
-    payload = {};
-  }
-  const next = payload.next_at || null;
-  state.patrol = { next_at: next, last_run: store.isoLocal(now), last_exit: ran.status };
-  store.writeJsonAtomic(where, stateFile(where), state);
-  result.patrol = {
-    ran: true, exit: ran.status, next_at: next, rule: payload.next_rule || null,
-    fetchError, error: ran.status === 1 ? String(ran.stderr || "").trim() : null,
-  };
+  result.patrol = result.patrols[0];
   return result;
 }
 
 function render(result) {
   const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
   const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
-  return [...handed, ...woke, renderPatrol(result)].join("\n");
+  return [...handed, ...woke, ...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
 }
 
-function renderPatrol(result) {
-  const p = result.patrol;
+function renderPatrol(p) {
   if (!p.ran) return `keel tick: ${p.why}`;
-  const lines = [`keel tick: ran the patrol (exit ${p.exit})${p.next_at ? `; next ${p.next_at} (${p.rule})` : ""}`];
+  const lines = [`keel tick: ran ${p.listed ? `${p.role}'s` : "the"} patrol (exit ${p.exit})${p.next_at ? `; next ${p.next_at} (${p.rule})` : ""}`];
   if (p.fetchError) lines.push(`fetch failed: ${p.fetchError}`);
   if (p.error) lines.push(`patrol failed: ${p.error}`);
   return lines.join("\n");

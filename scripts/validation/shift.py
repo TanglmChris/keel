@@ -869,6 +869,52 @@ def validate_tick_runs_due_patrol_scenario() -> int:
     return 0
 
 
+def validate_tick_runs_each_patrol_scenario() -> int:
+    """Issue #434 D7: `keel tick` runs each declared patrol when it is due.
+
+    Each role keeps its own `next_at`; moving one into the past runs that
+    role's patrol alone.
+    """
+    label = "tick-runs-each-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-each-") as raw:
+        base = Path(raw)
+        config = ("patrol:\n"
+                  "  - role: pm-a\n    every: 30m\n    runner: tick\n    scope: group:team-a\n"
+                  "  - role: pm-b\n    every: 45m\n    runner: tick\n    scope: group:team-b\n")
+        repo, env, wt = patrol_scopes_scratch(base, config)
+        store_root = mailbox_common_dir(repo) / "keel-chat"
+        state = store_root / "tick" / "state.json"
+
+        def runs(role: str) -> int:
+            log = store_root / "patrol" / "log" / f"{role}.log"
+            return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
+
+        def tick() -> subprocess.CompletedProcess[str]:
+            return run_keel(wt["dev-a"], "tick", "--repo", str(repo), env=env)
+
+        first = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 1):
+            report(f"{label} the first tick ran pm-a {runs('pm-a')} and pm-b {runs('pm-b')} times, not once each: {first.stdout!r} {first.stderr!r}")
+            return 1
+        second = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 1):
+            report(f"{label} a tick before either next_at ran a patrol: pm-a {runs('pm-a')}, pm-b {runs('pm-b')}.")
+            return 1
+        for role in ("pm-a", "pm-b"):
+            if not any(role in line and "not due" in line for line in second.stdout.splitlines()):
+                report(f"{label} the skipped tick does not say {role}'s patrol is not due: {second.stdout!r}")
+                return 1
+        saved = json.loads(state.read_text(encoding="utf-8"))
+        saved["patrols"]["pm-b"]["next_at"] = "2000-01-01T00:00:00+00:00"
+        state.write_text(json.dumps(saved), encoding="utf-8")
+        third = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 2):
+            report(f"{label} with only pm-b due the tick ran pm-a {runs('pm-a')} and pm-b {runs('pm-b')} times in all: {third.stdout!r}")
+            return 1
+    report("tick-runs-each-patrol scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 

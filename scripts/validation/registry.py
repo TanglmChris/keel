@@ -455,6 +455,7 @@ SCENARIOS: tuple = (
     ("patrol-since-last", shift.validate_patrol_since_last_scenario),
     ("patrol-next", shift.validate_patrol_next_scenario),
     ("tick-runs-due-patrol", shift.validate_tick_runs_due_patrol_scenario),
+    ("tick-runs-each-patrol", shift.validate_tick_runs_each_patrol_scenario),
     ("launchd-stable-node", shift.validate_launchd_stable_node_scenario),
     ("shift-slash-command", shift.validate_shift_slash_command_scenario),
     ("patrol-exit-says-who-acts", shift.validate_patrol_exit_says_who_acts_scenario),
