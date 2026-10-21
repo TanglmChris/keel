@@ -71,7 +71,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -107,14 +107,18 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:6069f7db0cbee1b0b2c6e57b9a73da57e804a9dad68ca02e273cac5ccf7258dd (keel 5.184.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. The branch merged origin/main at 5.184.0, where #409 split the validator. `node scripts/bump_version.js minor` then moved every marker to 5.185.0, including `scripts/validation/common.py`'s `PACKAGE_VERSION`. The changelog section "5.185.0 - A CLI hand-off starts one session and retries a failed start" replaced the `TODO` stub and kept the stub's Version alignment line. `version-alignment scenario passed.`
+    - M2: pass. Both MODIFIED requirements were promoted into `openspec/specs/keel-shift-change/spec.md`. The phrase "once per entry" no longer appears (`grep -c` 0). `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass. `npm test` ran on commit 794906bf with a clean tree, started 12:17:35 at load 6. Result: `validation --all passed: baseline plus 315 scenarios, 1 skipped: output-survives-the-pipe.` (rc=0).
     - Review:
-      - Status:
+      - Status: pass
       - Acceptance check:
+        - M1 and M2 run the marker and published-spec scenarios on the written release.
+        - M3 is the whole suite on the release commit, including both new scenarios in their post-split home.
       - Scope check:
-      - Findings:
+        - The bump touched only listed Touch files, plus this change's record.
+        - `scripts/validation/common.py` was added to Touch during authoring, before this task started. The split moved `PACKAGE_VERSION` there.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
