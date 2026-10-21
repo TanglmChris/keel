@@ -918,11 +918,15 @@ function readReadOnlyRoles(repo) {
 
 // `issue_roles:` — which chat role an issue label routes to (#242), one
 // `<label>: <role>` per line, read by `keel patrol`. A label may itself hold a
-// colon (`role:verify`), so the role is what follows the last `: `. A line
-// that is not that shape is reported and routes nothing.
+// colon (`role:verify`), so the role is what follows the last `: `. A key may
+// name a set of labels joined by ` + ` (#433), which matches an issue carrying
+// all of them; a quoted key is one label and is not split. A line that is not
+// that shape, or a set with an empty or repeated label, is reported and routes
+// nothing. Routes come back in declaration order, a repeated set replacing the
+// earlier line.
 function readIssueRoles(repo) {
   const block = configBlockLines(repo, "issue_roles");
-  const routes = new Map();
+  const routes = [];
   const unreadable = [];
   if (block === null) return { routes, unreadable };
   if (block.inline !== null) unreadable.push(block.inline);
@@ -934,7 +938,16 @@ function readIssueRoles(repo) {
       unreadable.push(text);
       continue;
     }
-    routes.set(match[1].replace(/^["']|["']$/g, ""), match[2]);
+    const quoted = /^(["']).*\1$/.test(match[1]);
+    const labels = quoted ? [match[1].slice(1, -1)] : match[1].split(/\s+\+(?:\s+|$)/).map((label) => label.trim());
+    if (labels.some((label) => !label) || new Set(labels).size !== labels.length) {
+      unreadable.push(text);
+      continue;
+    }
+    const key = [...labels].sort().join("\n");
+    const earlier = routes.findIndex((route) => [...route.labels].sort().join("\n") === key);
+    if (earlier !== -1) routes.splice(earlier, 1);
+    routes.push({ labels, role: match[2] });
   }
   return { routes, unreadable };
 }
