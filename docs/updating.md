@@ -70,7 +70,7 @@ The refresh brings the overlays of every target the project carries forward, not
 
 `node scripts/run_python.js scripts/validate_codex_receiving.py --native-upgrade` repeats this in an isolated `CODEX_HOME`, with no model run and no personal trust written.
 
-The Claude rows are covered by `hook-hands-off-to-installed-update`, `guard-keeps-loaded-logic-under-manifest`, and `adopted-update-is-silent-unless-reload` in `scripts/validate_plugin.py`, and by #172 for the behavior before 5.89.0.
+The Claude rows are covered by `hook-hands-off-to-installed-update`, `guard-keeps-loaded-logic-under-manifest`, and `adopted-update-is-silent-unless-reload` (`scripts/validation/hosts.py` and `guard.py`, run through `scripts/validate_plugin.py`), and by #172 for the behavior before 5.89.0.
 
 ## Measured across two releases
 

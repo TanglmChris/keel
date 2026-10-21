@@ -182,7 +182,7 @@ function main() {
   replaceInFile("plugins/keel/.codex-plugin/plugin.json", [
     [`"version": "${oldVersion}"`, `"version": "${newVersion}"`],
   ]);
-  replaceInFile("scripts/validate_plugin.py", [
+  replaceInFile("scripts/validation/common.py", [
     [`PACKAGE_VERSION = "${oldVersion}"`, `PACKAGE_VERSION = "${newVersion}"`],
     [`PROTOCOL_VERSION = "${oldVersion}"`, `PROTOCOL_VERSION = "${newVersion}"`],
   ]);
