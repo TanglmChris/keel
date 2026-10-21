@@ -1497,6 +1497,11 @@ def validate_release_evidence_classes_scenario() -> int:
     if "version-alignment" not in deterministic:
         report(f"{label} version-alignment is not counted as deterministic.")
         return 1
+    # chat-core reaches the host's variables only through chat_environment,
+    # which names them to remove them: a mention is not a stand-in (5.188.0).
+    if "chat-core" not in deterministic:
+        report(f"{label} chat-core is counted as run against a stand-in host for removing host variables.")
+        return 1
     registered = {name for name, _ in registry.SCENARIOS}
     if standin & deterministic:
         report(f"{label} scenarios are counted in both classes: {sorted(standin & deterministic)!r}")
