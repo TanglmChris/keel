@@ -25545,8 +25545,11 @@ def validate_update_registry_lag_scenario() -> int:
                                 ("npm view exits 1", {"FAKE_NPM_VIEW_EXIT": "1"})):
             result, lines = update(env_extra)
             claude = lines["claude plugin"]
-            if not claude.startswith("keel update: claude plugin: failed") or "E404 No match found" not in claude:
-                report(f"{label} when {case}, the Claude line is not the failed line with the host's error: {claude!r}")
+            if not claude.startswith("keel update: claude plugin: failed"):
+                report(f"{label} when {case}, the Claude line does not read failed: {claude!r}")
+                return 1
+            if "E404 No match found" not in claude:
+                report(f"{label} when {case}, the failed Claude line does not carry the host's E404: {claude!r}")
                 return 1
             if result.returncode == 0:
                 report(f"{label} when {case}, the update exited 0: {result.stdout!r}")
@@ -40710,7 +40713,10 @@ def validate_publish_awaits_registry_scenario() -> int:
     wait_start = workflow.rfind("      - name: ", 0, workflow.find("scripts/await_registry.js"))
     wait_end = workflow.find("\n      - name: ", wait_start + 1) + 1
     moved = workflow[:wait_start] + workflow[wait_end:] + workflow[wait_start:wait_end]
-    if tag_step < 0 or not registry_wait_problem(moved):
+    if tag_step < 0:
+        report(f"{label} {PUBLISH_WORKFLOW} has no `Tag and release the landed version` step to plant a copy against.")
+        return 1
+    if not registry_wait_problem(moved):
         report(f"{label} a planted copy with the wait moved after the tag step was not refused.")
         return 1
 
