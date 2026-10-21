@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.193.0 - Several coordinators may patrol, each over its own team
+
+Issue #434, approved by the owner on 2026-10-21, with two decisions made that day: what happens to a role in two teams, and who receives repository-wide risks. `patrol:` declared one role. In kaiwu-ip, with one coordinator per IP team, the second coordinator got no reminder and no host task, and the first nudged the other team's roles and received their risks.
+
+- **`patrol:` may be a list.** Each item is opened by `- role:` and carries the keys a single mapping does, plus `scope: group:<name>`. A single mapping behaves exactly as before. An item that does not read, or that repeats a role, is reported and patrols nothing while the others apply.
+- **Each coordinator covers its own roles.** A scoped coordinator covers the members of its chat group, and an unscoped one covers the roles in no group. Nudges, escalations, presence rows, snapshot entries, hand-off risks, and issue routing all follow that coverage. A role in two groups is covered by both and nudged at most once per window. An issue update reaches it once, whichever coordinator sends it first.
+- **Repository-wide risks go to one coordinator.** These are the remote tip, the shared checkout, binding drift, disk, and quota. They go to the unscoped coordinator, or to the first listed when every coordinator is scoped.
+- **Each coordinator has its own reminder, host task, and cadence.** `keel context`, the projection, and `keel shift resume` remind the bound role of its own item. `keel patrol task` renders the calling worktree's role's task. A new `--role <role>` picks one explicitly. Between several declarations with neither, it refuses rather than guess.
+- **`keel tick` runs each declared patrol when it is due.** A list keeps each role's due time under `tick/state.json` `patrols`.
+- **Checks.** `patrol-scopes-declared`, `patrol-scopes-cover`, `patrol-scopes-repository-wide`, and `tick-runs-each-patrol` drive the real `keel context`, `keel shift resume`, `keel patrol`, and `keel tick` against a two-team fixture shaped like kaiwu-ip's groups.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.193.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.192.0 - An issue route may name a set of labels
 
 Issue #433, approved by the owner on 2026-10-21. `issue_roles:` mapped one label to one role, so a repository running several teams of the same shape could not route the labels they share. In kaiwu-ip, the second IP team's issues carry `design` + `dmc_rmw`, and every update went to `kaiwu-design-iecc`, the first team's role.
