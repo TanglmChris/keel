@@ -1000,6 +1000,9 @@ keel tick [--json] | keel tick task                # one step; print the launchd
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
+# Markdown with SVG to Word, on request (packages installed only with --yes, into ~/.keel/docx)
+keel docx setup [--yes]
+
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -1014,7 +1017,7 @@ keel openspec <args>
 
 Commands take the repository as a positional path or as `--repo <path>`; `keel --help` shows which.
 Each group prints its full subcommand list: `keel chat help`, `keel mail help`, `keel shift --help`,
-`keel lock --help`, `keel patrol --help`, and `keel agents --help`.
+`keel lock --help`, `keel patrol --help`, `keel agents --help`, and `keel docx --help`.
 
 Exit codes: `0` pass · `1` input error · `2` usage error (an unknown flag or a flag the command refuses) · `3` policy failure · `4` missing semantic review. `keel patrol` uses `2` and `3` for what it found; see Coordinator patrol.
 

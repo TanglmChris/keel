@@ -50,7 +50,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 `keel docx setup` lists without `--yes` and installs into the managed environment with it
+- [x] 1.2 `keel docx setup` lists without `--yes` and installs into the managed environment with it
   - Covers:
     - keel-md-docx-export / Setup lists before it installs / Without --yes nothing is installed
     - keel-md-docx-export / Setup lists before it installs / With --yes the packages go into the managed environment
@@ -77,7 +77,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:c106293e628bf78133ca99077b31f1907b0f9fbf0bfd458f8cb6d468757883ba (keel 5.190.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-setup-asks-first` reports `docx-setup-asks-first scenario passed.` (exit 0): with a scratch `KEEL_HOME` and logging stand-ins for Python and npm, `keel docx setup` named the five packages, their licences, `<KEEL_HOME>/docx`, and `--yes`, called no stand-in, created no `docx` directory, and exited 0; `setup --yes` called `-m venv <home>/docx/python`, then the environment's Python with `-m pip install -r plugins/keel/skills/keel-md-docx/scripts/requirements.txt`, then npm `install --prefix <home>/docx/node`, copied the pinned `package.json` there, and wrote `ready.json`; with npm failing it exited 1 naming `npm install` and left no `ready.json`. Smoke on this machine: `node bin/keel.js docx setup` printed the plan and `Nothing was installed. To install or reinstall, run \`keel docx setup --yes\`.` (exit 0), and `~/.keel/docx` did not exist before or after.
+    - M1.red: fail. Before `src/core/docx.js`: `docx-setup-asks-first: \`keel docx setup\` without --yes exited 2: 'keel: repo path was provided more than once\nRun keel --help for usage.\n'` (exit 1) — `docx` fell through to the argument parser.
+    - M1.green: pass. With `src/core/docx.js` (`runDocx`, `setup`: the plan, then with `--yes` the Python `run_python.js` resolves running `-m venv`, the environment's pip, and `npm install --prefix`, `ready.json` removed first and written last) and its dispatch in `bin/keel.js`, the scenario passed. `HELP`, the README pair's command block, and the "Each group prints its full subcommand list" sentence name `keel docx setup [--yes]` and `keel docx --help`; `docx` joined `MUTATING_KEEL_COMMANDS`.
+    - M2: pass. `Keel v4.1.0 baseline validation passed.`; `readme-states-the-cli`, `readme-zh-matches-english`, and `docx-skill-ships` each `PASS`, and `assertion-shape-count` and `self-checks-read-every-module` also `PASS` with the new module.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel docx setup` with only the installers stood in, the plan installs and creates nothing, `--yes` installs into the managed environment in order, and a failed step leaves it not ready.
+      - Scope check: `git status --short` lists `src/core/docx.js`, `bin/keel.js`, `scripts/validation/export.py`, `scripts/validation/registry.py`, `scripts/validation/baseline.py`, both READMEs, and this change's `tasks.md`.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

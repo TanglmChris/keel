@@ -641,4 +641,5 @@ SCENARIOS: tuple = (
         docs.validate_a_count_is_derived_from_what_it_counts_scenario,
     ),
     ("docx-skill-ships", export.validate_docx_skill_ships_scenario),
+    ("docx-setup-asks-first", export.validate_docx_setup_asks_first_scenario),
 )

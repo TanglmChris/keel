@@ -34,6 +34,144 @@ DOCX_LICENCES = {
 }
 
 
+# One stand-in for the interpreter Keel resolves, the environment's own Python,
+# and npm. Each call appends `[role, ...argv]` to FAKE_LOG. `-m venv DIR`
+# creates DIR's interpreter as another launcher of this file in the role
+# `venv`; FAKE_PIP_EXIT and FAKE_NPM_EXIT make those steps fail; FAKE_CONVERT
+# makes the venv Python act as the converter, writing its `-o` target and
+# recording its environment.
+DOCX_FAKE = r"""const fs = require("fs");
+const path = require("path");
+const role = process.env.FAKE_ROLE;
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([role, ...args]) + "\n");
+if (args[0] === "--version") { process.stdout.write("Python 3.12.0\n"); process.exit(0); }
+if (role === "python" && args[0] === "-m" && args[1] === "venv") {
+  const bin = path.join(args[2], process.platform === "win32" ? "Scripts" : "bin");
+  fs.mkdirSync(bin, { recursive: true });
+  const launcher = path.join(bin, "python");
+  fs.writeFileSync(launcher, `#!/bin/sh\nFAKE_ROLE=venv exec node "${__filename}" "$@"\n`);
+  fs.chmodSync(launcher, 0o755);
+  process.exit(0);
+}
+if (role === "venv" && args[0] === "-m" && args[1] === "pip") process.exit(Number(process.env.FAKE_PIP_EXIT || 0));
+if (role === "venv" && process.env.FAKE_CONVERT) {
+  const output = args[args.indexOf("-o") + 1];
+  fs.writeFileSync(output, "converted\n");
+  fs.writeFileSync(process.env.FAKE_CONVERT, JSON.stringify({
+    MD2WORD_NODE: process.env.MD2WORD_NODE || null,
+    MD2WORD_NODE_MODULES: process.env.MD2WORD_NODE_MODULES || null,
+  }));
+  process.exit(Number(process.env.FAKE_CONVERT_EXIT || 0));
+}
+if (role === "npm") {
+  const code = Number(process.env.FAKE_NPM_EXIT || 0);
+  if (code === 0) fs.mkdirSync(path.join(args[args.indexOf("--prefix") + 1], "node_modules"), { recursive: true });
+  process.exit(code);
+}
+process.exit(0);
+"""
+
+
+def docx_fakes(tmp: Path) -> dict[str, str]:
+    """The environment that points `keel docx` at the stand-ins and a scratch KEEL_HOME."""
+    fake = tmp / "docx-fake.js"
+    write_text(fake, DOCX_FAKE)
+    env = dict(os.environ)
+    for role in ("python", "npm"):
+        launcher = tmp / f"fake-{role}"
+        write_text(launcher, f'#!/bin/sh\nFAKE_ROLE={role} exec node "{fake}" "$@"\n')
+        launcher.chmod(0o755)
+    env.update({
+        "KEEL_HOME": str(tmp / "home"),
+        "KEEL_PYTHON": str(tmp / "fake-python"),
+        "KEEL_DOCX_NPM": str(tmp / "fake-npm"),
+        "FAKE_LOG": str(tmp / "log.jsonl"),
+    })
+    (tmp / "log.jsonl").write_text("")
+    return env
+
+
+def run_docx(tmp: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["node", str(ROOT / "bin/keel.js"), "docx", *args],
+        cwd=tmp, env=env, text=True, encoding="utf-8", errors="replace",
+        capture_output=True, check=False, timeout=60,
+    )
+
+
+def fake_calls(tmp: Path) -> list[list[str]]:
+    lines = (tmp / "log.jsonl").read_text().splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def validate_docx_setup_asks_first_scenario() -> int:
+    """Issue #405: nothing is installed until the user has seen the list and said yes."""
+    label = "docx-setup-asks-first:"
+    with tempfile.TemporaryDirectory(prefix="keel-405-setup-") as raw:
+        tmp = Path(raw)
+        env = docx_fakes(tmp)
+        home = tmp / "home/docx"
+
+        plan = run_docx(tmp, env, "setup")
+        said = plan.stdout + plan.stderr
+        if plan.returncode != 0:
+            report(f"{label} `keel docx setup` without --yes exited {plan.returncode}: {said!r}")
+            return 1
+        for needle in (*DOCX_LICENCES, *DOCX_LICENCES.values(), str(home), "--yes"):
+            if needle not in said:
+                report(f"{label} the setup plan does not name {needle!r}: {said!r}")
+                return 1
+        if fake_calls(tmp):
+            report(f"{label} the setup plan ran an installer or probe: {fake_calls(tmp)!r}")
+            return 1
+        if home.exists():
+            report(f"{label} the setup plan created {home}.")
+            return 1
+
+        installed = run_docx(tmp, env, "setup", "--yes")
+        said = installed.stdout + installed.stderr
+        if installed.returncode != 0:
+            report(f"{label} `keel docx setup --yes` exited {installed.returncode}: {said!r}")
+            return 1
+        steps = [call for call in fake_calls(tmp) if call[1:2] != ["--version"]]
+        requirements = ROOT / "plugins/keel/skills" / DOCX_SKILL / "scripts/requirements.txt"
+        expected = [
+            ["python", "-m", "venv", str(home / "python")],
+            ["venv", "-m", "pip", "install", "-r", str(requirements)],
+            ["npm", "install", "--prefix", str(home / "node")],
+        ]
+        got = [call[:len(want)] for call, want in zip(steps, expected)]
+        if got != expected or len(steps) != len(expected):
+            report(f"{label} setup --yes did not create the venv, pip-install the requirements, and npm-install into the environment, in order: {steps!r}")
+            return 1
+        if not (home / "node/package.json").is_file():
+            report(f"{label} setup --yes did not place the pinned package.json in {home / 'node'}.")
+            return 1
+        if not (home / "ready.json").is_file():
+            report(f"{label} a successful setup did not mark the environment ready.")
+            return 1
+
+        failing = dict(env, FAKE_NPM_EXIT="1")
+        broken = run_docx(tmp, failing, "setup", "--yes")
+        said = broken.stdout + broken.stderr
+        if broken.returncode != 1:
+            report(f"{label} a failed npm step exited {broken.returncode}, not 1: {said!r}")
+            return 1
+        if "npm" not in said:
+            report(f"{label} a failed npm step is not named: {said!r}")
+            return 1
+        if (home / "ready.json").exists():
+            report(f"{label} a failed setup left the environment marked ready.")
+            return 1
+
+    if "docx-setup-asks-first" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report("docx-setup-asks-first scenario passed.")
+    return 0
+
+
 def skill_description(text: str) -> str:
     match = re.search(r"^description:\s*(?:[>|]-?\s*\n((?:[ \t]+.*\n?)+)|(.+))$", text, re.M)
     if not match:
