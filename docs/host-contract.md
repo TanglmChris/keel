@@ -40,9 +40,10 @@ The first three sessions were measured on 2026-10-21 with Claude Code 2.1.304, u
 
 | Case | Keel does | Evidence |
 |---|---|---|
-| Waiter and tick reach the same hand-off | One hand-over lock per role; a lock older than 2 minutes is taken over; one session is started | deterministic; scenario `shift-cli-self-shift` (run one after the other) |
+| Waiter and tick reach the same hand-off at the same moment | A runner holds the role's lock only to claim the entry as `starting` (its process and time), then releases it before any host call; the others act only on an unclaimed entry, so one session is started | scenario `shift-cli-handover-claims-once` (two ticks and a waiter started together); `shift-cli-self-shift` (a held lock) |
 | Waiter gone | `keel tick` carries out any pending hand-off | scenario `shift-cli-self-shift` |
-| New session fails to start | Hand-off `failed` with the host's message; patrol risk; the stopped old session stays listed, and `keel chat wake now <role>` resumes it | scenario `shift-cli-self-shift` |
+| Runner dies while starting the new session | The claim stays `starting`. Once its process is gone, or after 10 minutes, the next runner adopts a listed session named `<role> · …` in the role's worktree started since the claim, and starts nothing; with none listed the entry is `failed` and retried as below | scenario `shift-cli-handover-claims-once` |
+| New session fails to start | Hand-off `failed` with the host's message; patrol risk. The tick tries again up to three start attempts per entry, adopting a session already listed instead of starting one; after the third, status and the patrol name `keel chat wake now <role>`, which resumes the stopped old session. Not retried once the old session runs again, nor for an entry that records no attempt count, written by an older Keel | scenario `shift-cli-retries-failed-handover`; `shift-cli-self-shift` |
 | Hand-off pending over 15 minutes | Patrol risk, naming the cause when the host could not be asked | scenario `shift-cli-names-host-failure` (the cause); the 15-minute rule is unverified |
 | Wake fails to resume | The tick tries again on its next runs, up to three attempts per addressed record; a newer record starts again | scenario `tick-retries-failed-wake` |
 | A note or chat record cannot be written | `ready` stops before queueing, so no hand-off runs without its note | unverified |
@@ -52,7 +53,8 @@ The first three sessions were measured on 2026-10-21 with Claude Code 2.1.304, u
 The following are unverified:
 - the Claude desktop app path (scheduled-task wake, `clear_session`, Remote Control restore);
 - Codex;
-- a real concurrent race between the waiter and a tick;
-- re-queueing a `failed` hand-off.
+- whether a `claude --bg` that timed out had started its session. Keel does not assume it did not: the next attempt first looks for one.
+
+The race between the waiter and a tick is decided by Keel's lock and claim, not by the host, so a fake host with real concurrent `keel` processes is its evidence.
 
 They stay with #408.
