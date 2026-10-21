@@ -70,7 +70,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -105,14 +105,16 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:0b8b8fa02c2de0fdb73b846373628b0beb39c32e397dfa6b97477aa8b2413796 (keel 5.185.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.186.0, and the changelog section "5.186.0 - The suite and each release say what kind of evidence ran" replaced the `TODO` stub, keeping its Version alignment line. Result: `version-alignment scenario passed.`
+    - M2: pass. The two ADDED requirements were promoted into `openspec/specs/keel-validation-runner/spec.md`. Result: `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass. `npm test` ran on commit 6721fa0e with a clean tree, starting 13:27:44 at load 7, and exited with rc=0. It printed `validation --all passed: baseline plus 316 scenarios, 1 skipped: output-survives-the-pipe.` and then `evidence: 180 deterministic, 136 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`. 180 + 136 = 316, the verified count. The skipped scenario is a deterministic one.
     - Review:
-      - Status:
+      - Status: pass
       - Acceptance check:
-      - Scope check:
-      - Findings:
+        - M1 and M2 run the marker and published-spec scenarios on the written release.
+        - M3 is the whole suite on the release commit, and it ends with the new evidence line, whose counts add up to the verified count.
+      - Scope check: the bump touched only listed Touch files, plus this change's record.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
