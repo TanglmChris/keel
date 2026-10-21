@@ -39,7 +39,7 @@ Keel leans on native capabilities rather than reinventing them. The spec workflo
 OpenSpec. The execution skills, the SessionStart continuity hook, and the write-guard hook
 ship as an ordinary Claude Code / Codex plugin. Besides running OpenSpec's own init,
 `keel --init` writes a small host surface into your repo: an `AGENTS.md` bootstrap block, the
-OpenSpec schema, the `/opsx:*` command overlay, and on Claude the plugin's auto-update entry in
+OpenSpec schema, the overlay on OpenSpec's workflow skills, and on Claude the plugin's auto-update entry in
 `.claude/settings.json`.
 
 ## Requirements
@@ -180,13 +180,14 @@ A subagent is the model's choice and is treated as the main agent is: the gates,
 no brief, activation, or second agent's rerun before one acts, and does not nudge the
 model toward or away from using one (#414).
 
-Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`,
-`/opsx:archive`). Keel's gates run at the task boundaries. The whole loop:
+Do the spec work through OpenSpec's workflow skills (`openspec-propose`, `openspec-apply-change`,
+`openspec-sync-specs`, `openspec-archive-change`); Keel generates them as skills only, with no OpenSpec
+slash commands (#406). Keel's gates run at the task boundaries. The whole loop:
 
 ```
-keel --init  →  keel context  →  /opsx:apply (tasks in order)
+keel --init  →  keel context  →  openspec-apply-change (tasks in order)
    →  task-start (+ write guard)  →  implement & verify
-   →  task-complete  →  /opsx:sync · /opsx:archive
+   →  task-complete  →  openspec-sync-specs · openspec-archive-change
 ```
 
 On the Claude target, the session-start hook also shows that state to **you**, not only to the
@@ -521,7 +522,7 @@ command at the right moment. Three things make that happen.
   session with `keel context`, route the work Full or Lite, pass the gates at task boundaries,
   and stay inside the task's declared write scope. That is how the agent knows *when* to run
   what.
-- **The skills.** The `keel-*` execution skills and the `/opsx:*` command overlays walk the
+- **The skills.** The `keel-*` execution skills and the overlays on OpenSpec's workflow skills walk the
   agent through align → apply → review → complete, invoking the gates at each step. A new or
   materially expanded skill is researched from an authoritative source with its provenance and
   license recorded, its description is tested with realistic should-trigger and should-not-trigger

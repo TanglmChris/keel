@@ -66,7 +66,7 @@ const OPENSPEC_SKILLS = [
 // `sync` is here because `AGENTS.md` gates it exactly as it gates archive —
 // `keel gate change-close --action sync|archive` plus `keel-review-checklist`.
 // Archive's surface said so and sync's said nothing, so an agent invoking
-// `/opsx:sync` read generic upstream instructions with no mention of the gate
+// the sync workflow read generic upstream instructions with no mention of the gate
 // that decides whether the sync may complete. `explore` is deliberately absent:
 // it reads and reports, reaches no gate, and changes no state, so an overlay
 // there would read as governance where there is none.
@@ -666,6 +666,7 @@ function runCommand(command, args, options = {}) {
 
   const result = spawnSync(command, args, {
     cwd: options.cwd || process.cwd(),
+    env: options.env || process.env,
     stdio: options.stdio || "inherit",
     encoding: options.encoding || "utf8",
     shell: process.platform === "win32",
@@ -1532,6 +1533,46 @@ function openspecToolsForTarget(target) {
   return target;
 }
 
+// Where OpenSpec reads its one global configuration (OpenSpec 1.14
+// `getGlobalConfigDir`): XDG_CONFIG_HOME on every platform when set, else
+// %APPDATA% on Windows and ~/.config elsewhere.
+function openspecGlobalConfigFile() {
+  const base = process.env.XDG_CONFIG_HOME
+    || (process.platform === "win32"
+      ? process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming")
+      : path.join(os.homedir(), ".config"));
+  return path.join(base, "openspec", "config.json");
+}
+
+// OpenSpec reads `delivery` only from that global file, and its default,
+// `both`, put every workflow on Claude twice: a skill and an `/opsx:` command
+// (#406). The OpenSpec runs that generate surfaces get the user's own
+// configuration with `delivery` replaced by `skills`, through a temporary
+// XDG_CONFIG_HOME; the user's file is read and never written. Every other
+// field, the workflow selection among them, still applies.
+function withSkillsDelivery(run) {
+  let config = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(openspecGlobalConfigFile(), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed;
+  } catch {
+    // Absent or unreadable reads as OpenSpec's defaults, as OpenSpec does.
+  }
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "keel-openspec-config-"));
+  try {
+    fs.mkdirSync(path.join(home, "openspec"));
+    fs.writeFileSync(
+      path.join(home, "openspec", "config.json"),
+      `${JSON.stringify({ ...config, delivery: "skills" }, null, 2)}\n`
+    );
+    return run({ ...process.env, XDG_CONFIG_HOME: home });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+const OPENSPEC_GENERATING_COMMANDS = new Set(["init", "update"]);
+
 function runOpenSpec(args, repo, options) {
   const command = options.dryRun ? "openspec" : findOpenSpecCommand();
   if (!command) {
@@ -1540,10 +1581,8 @@ function runOpenSpec(args, repo, options) {
     );
     return 1;
   }
-  return runCommand(command, args, {
-    cwd: repo,
-    dryRun: options.dryRun,
-  });
+  if (options.dryRun) return runCommand(command, args, { cwd: repo, dryRun: true });
+  return withSkillsDelivery((env) => runCommand(command, args, { cwd: repo, env }));
 }
 
 function runProjectInit(options) {
@@ -1746,7 +1785,8 @@ function commandSurfaceForTarget(target, repo) {
       paths: OPENSPEC_COMMAND_IDS.map((id) =>
         path.join(repo, location, `${id}.md`)
       ),
-      remediation: "run keel --init --target claude or openspec update --force",
+      remediation: "run keel --init --target claude to remove them",
+      retired: true,
     };
   }
   if (target === "codex" && codexOpenSpecLayout(repo) === "agents") {
@@ -1776,7 +1816,8 @@ function commandSurfaceForTarget(target, repo) {
     paths: OPENSPEC_COMMAND_IDS.map((id) =>
       path.join(repo, location, `opsx-${id}.md`)
     ),
-    remediation: "run keel --init --target opencode or openspec update --force",
+    remediation: "run keel --init --target opencode to remove them",
+    retired: true,
   };
 }
 
@@ -1804,16 +1845,19 @@ function openspecOverlaySurfacesForTarget(target, repo) {
       archive: "openspec-archive-change",
       sync: "openspec-sync-specs",
     }[action];
+    // Claude and OpenCode command files are no longer generated (#406); one a
+    // repository still holds from a `both` delivery keeps its overlay until
+    // the next `keel --init` removes it.
+    const command = commandPathForAction(target, repo, action);
+    const keepsCommand = command !== null
+      && (target === "codex" || fs.existsSync(command));
     return [
       {
         action,
         path: path.join(repo, skillRoot, skillName, "SKILL.md"),
       },
-      {
-        action,
-        path: commandPathForAction(target, repo, action),
-      },
-    ].filter((surface) => surface.path !== null);
+      ...(keepsCommand ? [{ action, path: command }] : []),
+    ];
   });
 }
 
@@ -1902,7 +1946,7 @@ function keelOpenSpecOverlay(action) {
       : [
           "- Archive completion is gated by `keel gate change-close --action archive` plus `keel-review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.",
           "- Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
-          "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
+          "- When the `openspec-sync-specs` skill has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
           "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
           "- A repository that standing-authorizes `archive` in `keel/config.yaml` does not need the per-occurrence archive confirmation; a repository that declares nothing still needs it.",
           "- The completion gate and follow-up ownership checks still run unchanged under a standing authorization; it removes the confirmation, not the proof.",
@@ -2237,7 +2281,17 @@ function printTargetSurface(repo, target) {
   );
 
   const commands = commandSurfaceForTarget(target, repo);
-  if (commands.skillsOnly) {
+  if (commands.retired) {
+    const leftover = commands.paths.filter((file) => fs.existsSync(file));
+    printDoctorLine(
+      "OpenSpec commands",
+      leftover.length === 0 ? "ok" : "duplicate",
+      leftover.length === 0
+        ? "none; Keel generates OpenSpec's workflows as skills only (#406)"
+        : `${leftover.length} command file${leftover.length === 1 ? "" : "s"} under ${commands.location} `
+          + `duplicate the skills; ${commands.remediation}`
+    );
+  } else if (commands.skillsOnly) {
     printDoctorLine(
       "OpenSpec commands",
       "ok",
@@ -2876,7 +2930,9 @@ function runAction(options) {
       return 1;
     }
     const archiving = options.openspecArgs[0] === "archive" ? archiveTracking(process.cwd(), options.openspecArgs) : null;
-    const status = runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    const status = OPENSPEC_GENERATING_COMMANDS.has(options.openspecArgs[0])
+      ? withSkillsDelivery((env) => runCommand(openspec, options.openspecArgs, { stdio: "inherit", env }))
+      : runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
     if (status === 0 && archiving) keepArchivedTracked(process.cwd(), archiving);
     if (status !== 0 || options.openspecArgs[0] !== "update") return status;
     const repo = process.cwd();

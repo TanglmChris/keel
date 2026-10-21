@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.182.0 - Each OpenSpec workflow is installed once, as a skill
+
+Issue #406. In a Keel-managed repository the Claude surface carried every OpenSpec workflow twice: a skill under `.claude/skills/openspec-*` and a command under `.claude/commands/opsx/*`. Both appeared in the model's listing every session, and every protocol bump refreshed the overlay on both. OpenSpec reads its `delivery` setting only from the user's global configuration, where the default is `both`. On 2026-10-21 the owner chose to have Keel guarantee skills only, without touching that file.
+
+- Every OpenSpec `init` and `update` Keel runs — `keel --init`, and `keel openspec init` or `update` — uses the user's global OpenSpec configuration with `delivery` set to `skills`, written to a temporary `XDG_CONFIG_HOME` that is removed after the run. The global file is not written, and every other field, the workflow selection among them, still applies. OpenSpec then generates skills only and removes the command files an earlier `both` delivery left. This applies to Claude and, because the setting covers a whole run, to OpenCode; Codex already had skills only.
+- `keel --doctor` no longer expects command files on Claude and OpenCode. A skills-only repository reads `OpenSpec commands: ok` and an overlay of `4/4`. Command files still present read `duplicate`, with the count and `keel --init --target <target>` as the remedy. Until then they keep their overlay.
+- Guidance names the workflows by skill (`openspec-apply-change`, `openspec-sync-specs`, …) instead of `/opsx:*`: the archive overlay, both READMEs, `keel-review-checklist`, `keel-debug-failure`, `keel-align-expectations`, the Keel schema, and this repository's protocol text.
+- This repository drops its own `.claude/commands/opsx/` and rewrites its Claude skills' `/opsx:*` references as OpenSpec's skills delivery does.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.182.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.181.0 - A role records its own session and wakes only one that still exists
 
 Issue #415, approved by the owner on 2026-10-21. A role's recorded CLI session — the one `keel chat dm` names and `keel chat wake now` resumes — could end up on the wrong session:

@@ -1,6 +1,6 @@
 ---
 name: keel-debug-failure
-description: Debug Keel agent command or validation failures under Keel's selected OpenSpec task contract. Use when `/opsx:apply` or a selected task reports failed commands, failing tests, validation errors, stop decisions, or needs an evidence-bound failure report.
+description: Debug Keel agent command or validation failures under Keel's selected OpenSpec task contract. Use when `openspec-apply-change` or a selected task reports failed commands, failing tests, validation errors, stop decisions, or needs an evidence-bound failure report.
 ---
 
 # keel-debug-failure
