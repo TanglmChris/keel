@@ -35,10 +35,10 @@ os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite
 os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 
-PACKAGE_VERSION = "5.189.0"
+PACKAGE_VERSION = "5.190.0"
 
 
-PROTOCOL_VERSION = "5.189.0"
+PROTOCOL_VERSION = "5.190.0"
 
 
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"

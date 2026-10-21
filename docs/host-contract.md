@@ -33,7 +33,7 @@ The first three sessions were measured on 2026-10-21 with Claude Code 2.1.304, u
 | Stopped | Row without `status` | Treated as finished. Old shifts beyond `keep_old_sessions` are removed once Keel holds their transcript | scenario `shift-cli-keeps-old-sessions` |
 | Removed (`claude rm`) | No row in `claude agents --json --all` | A wake does not resume it, and says so | scenario `chat-wake-skips-removed-session` |
 | Session list unreadable or `claude` missing | Exit nonzero, no JSON, timeout, or ENOENT | The hand-off stays pending, and `keel shift status` and the patrol risk name the cause. A wake names a missing `claude`. Every host call is bounded (`KEEL_SHIFT_HOST_TIMEOUT_MS`, default 60 s). | scenario `shift-cli-names-host-failure` |
-| Resumed after being started with `claude --bg -w` | SessionStart reports the directory it was launched from as `cwd` | The chat hook takes the worktree from the transcript's host project directory | measured; scenario `chat-hook-follows-session-worktree` |
+| Resumed after being started with `claude --bg -w` | SessionStart reports the directory it was launched from as both `cwd` and `transcript_path`. That transcript path names a file that does not exist, because the session keeps writing `<id>.jsonl` in its worktree's project directory (2.1.304, probe of 2026-10-21, #441) | The chat hook uses the transcript that exists, `<config>/projects/*/<session_id>.jsonl`, and takes the worktree from that file's project directory | measured; scenario `chat-hook-follows-session-worktree` |
 | Resumed with no prompt | Process starts idle; no turn | `keel --update --adopt` uses this to restart idle sessions on a new plugin | measured; scenario `update-adopts-idle-sessions` |
 
 ## Failures and recovery

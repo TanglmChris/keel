@@ -546,9 +546,29 @@ function hostProjectName(directory) {
 // 2026-10-21, Claude Code 2.1.304), while its transcript stays in the host
 // project directory of the worktree it runs in. When that names another
 // worktree of this repository, the session is that worktree's.
+// A resumed `claude --bg -w` session reports the launch directory for
+// `transcript_path` as well as `cwd`, naming a file that does not exist; its
+// transcript stays in the project directory of the worktree it runs in
+// (measured on Claude Code 2.1.304, #441). The file that exists is the truth.
+function existingTranscript(payload) {
+  const reported = typeof payload.transcript_path === "string" ? payload.transcript_path : "";
+  if (path.isAbsolute(reported) && fs.existsSync(reported)) return reported;
+  const id = typeof payload.session_id === "string" ? payload.session_id : "";
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) return reported;
+  const projects = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(require("os").homedir(), ".claude"), "projects");
+  let dirs = [];
+  try {
+    dirs = fs.readdirSync(projects);
+  } catch {
+    return reported;
+  }
+  const found = dirs.map((dir) => path.join(projects, dir, `${id}.jsonl`)).find((file) => fs.existsSync(file));
+  return found || reported;
+}
+
 function hookLocation(payload) {
   const where = store.locate(payload.cwd || process.cwd());
-  const transcript = typeof payload.transcript_path === "string" ? payload.transcript_path : "";
+  const transcript = existingTranscript(payload);
   if (!where || !path.isAbsolute(transcript)) return where;
   const project = path.basename(path.dirname(transcript));
   const named = (dir) => [dir, realpathOf(dir)].some((candidate) => hostProjectName(candidate) === project);
@@ -666,7 +686,7 @@ function hook(event, input, { mail = false } = {}) {
   if (event === "session-start") rememberSession(where, role, file);
   const started = event === "session-start" ? { source: typeof payload.source === "string" ? payload.source : null } : null;
   touchPresence(where, role, "online", mail ? null : "claude-code", started);
-  if (event === "session-start" || event === "user-prompt-submit") recordSegment(where, role, payload.transcript_path);
+  if (event === "session-start" || event === "user-prompt-submit") recordSegment(where, role, existingTranscript(payload));
   const chatText = noticeText(where, role);
   const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
