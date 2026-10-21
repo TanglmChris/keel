@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.178.0 - An old CLI shift leaves the session list after its hand-over
+
+Issue #418, at the owner's request; the shift feature is frozen otherwise. Since 5.168.0 a hand-over stopped the old shift's session but left it listed, named like the current one but for the time, and the owner kept mistaking it for a live one. On 2026-10-21 the owner compared three probes in the claude.ai, desktop, and phone lists. A stopped session and one disconnected from Remote Control before stopping both still read as sessions. Only one removed with `claude rm` was gone, and the owner chose that.
+
+- `shift: keep_old_sessions:` now defaults to 0 instead of 3. An unreadable value also falls back to 0.
+- After a delivered hand-over, every stopped session of the role that has a transcript is removed with `claude rm`, including the shift just handed over. Each one is removed only after Keel's store holds its transcript. `keel shift history <role> --show <id>` still prints it in full. Removing a session started in an existing worktree leaves the worktree in place, which was measured.
+- A repository that wants old shifts listed declares a number.
+- `keel shift ready --wake` in a CLI session now says the old session will be removed and how to read it. When a number is declared, it still says `claude attach` reopens the session.
+- `shift:` is now a documented declaration:
+  - it is listed in `CONFIG_DECLARATIONS`;
+  - `keel/config.yaml` has a block for it, and its header names thirteen declarations;
+  - `docs/cli-team.md` and its Chinese page state the new default.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.178.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.177.0 - The configuration file and the docs follow their sources
 
 Issue #413, third and last part. 5.175.0 and 5.176.0 corrected the protocol surfaces and the two READMEs. This release corrects the rest of what a reader relies on.

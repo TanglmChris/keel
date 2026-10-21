@@ -51,8 +51,8 @@ REQUIRED_SCRIPTS = [
     "scripts/validate_plugin.py",
 ]
 
-PACKAGE_VERSION = "5.177.0"
-PROTOCOL_VERSION = "5.177.0"
+PACKAGE_VERSION = "5.178.0"
+PROTOCOL_VERSION = "5.178.0"
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
 OPENSPEC_SCHEMA_NAME = "keel-spec-driven"
 # Mirrors KEEL_PACKAGE_NAME in scripts/install_to_repo.py, one of the two
@@ -8338,8 +8338,9 @@ def validate_shift_cli_self_shift_scenario() -> int:
         if readied.returncode != 0:
             report(f"{label} ready --wake in a CLI session failed: {readied.stdout!r} {readied.stderr!r}")
             return 1
-        if "claude attach" not in readied.stdout or "--wake" in readied.stderr:
-            report(f"{label} ready --wake in a CLI session does not say how the old session is reopened: {readied.stdout!r}")
+        # #418: nothing is kept by default, so the old session is removed and read through Keel's copy.
+        if "keel shift history verify --show" not in readied.stdout or "--wake" in readied.stderr:
+            report(f"{label} ready --wake in a CLI session does not say how the old session is read once removed: {readied.stdout!r}")
             return 1
         note = next((mailbox_common_dir(rtl) / "keel-chat" / "shift").glob("verify.md"), None)
         if not note:
@@ -8446,7 +8447,7 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
     """Issue #397 (owner, 2026-10-20): each CLI shift leaves a stopped session, and the list kept growing.
 
     After a delivered hand-over, the newest `shift: keep_old_sessions:`
-    (default 3) stopped background sessions in the role's bound worktrees stay
+    (default 0 since #418, so the shift just handed over goes too) stopped background sessions in the role's bound worktrees stay
     listed; each older one is removed with `claude rm` once Keel's store holds
     a copy of its transcript. Only a session with a transcript, the host's or
     Keel's copy, counts (#401): one whose transcript is nowhere takes no slot and
@@ -8555,13 +8556,20 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
             report(f"{label} shift status does not name the removed sessions: {text!r}")
             return 1
 
-        # No declaration keeps three; a value that is not a whole number is named and three applies.
+        # #418 (owner, 2026-10-21): no declaration keeps none, so the shift just handed over leaves the
+        # session list too; a value that is not a whole number is named and none are kept.
         for keep in (None, "many"):
             olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(4, bound["verify"])]
             setup(keep, olds)
             ids = sorted(r["argv"][1] for r in removed())
-            if ids != ["01010101"]:
+            if ids != sorted(["01010101", "02020202", "04040404", OLD[:8]]):
                 report(f"{label} the default keeps the wrong number of old sessions (keep_old_sessions {keep!r}): removed {ids!r}")
+                return 1
+            if not all(r["kept"] for r in removed()):
+                report(f"{label} a session was removed before Keel's store held its transcript: {removed()!r}")
+                return 1
+            if f"keel shift history verify --show {OLD[:8]}" not in run_keel(rtl, "shift", "status", env=env).stdout:
+                report(f"{label} shift status does not say how the removed old shift is read: {run_keel(rtl, 'shift', 'status', env=env).stdout!r}")
                 return 1
             if keep == "many" and "keep_old_sessions" not in run_keel(rtl, "shift", "status", env=env).stdout:
                 report(f"{label} an unreadable keep_old_sessions is not named: {run_keel(rtl, 'shift', 'status', env=env).stdout!r}")

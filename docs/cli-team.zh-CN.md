@@ -64,10 +64,10 @@ CLI 会话不能清空自己，所以换班改为替换会话。角色和在任�
 ```yaml
 shift:
   permission_mode: auto   # default、acceptEdits、auto、plan 或 bypassPermissions
-  keep_old_sessions: 3    # 每个角色在 `claude agents` 里保留的旧班数
+  keep_old_sessions: 0    # 每个角色保留在列表里的旧班数；默认 0，一个不留
 ```
 
-每次换班都会在 `claude agents` 里留下一个已停止的旧会话。交接之后，该角色最新的 `keep_old_sessions` 个已停会话（不声明时为 3；0 表示一个不留）留在列表里，可以 `claude attach`；更早的，在 Keel 的存储里已有其 transcript 副本之后用 `claude rm` 移除（#397）。只有有 transcript（宿主的或 Keel 的副本）的会话才算一班：从没收到过提示的会话没有 transcript，不占名额，也保留不动（#401）。内容不会丢：`claude rm` 不删宿主的 transcript，Keel 另有一份副本，`keel shift history <角色> --show <会话 id>` 能打印任何一班的完整对话，无论它还在不在列表里。
+每次换班都会停掉旧会话。交接之后，该角色最新的 `keep_old_sessions` 个已停会话留在列表里，可以 `claude attach`；更早的，在 Keel 的存储里已有其 transcript 副本之后用 `claude rm` 移除（#397）。不声明时一个不留（#418）：刚交接的那一班也会被移除，所以它不会再和当前一班并列出现在 `claude agents` 和 claude.ai 上——已停的会话在那里看起来和在跑的一样。对在已有 worktree 里启动的会话执行 `claude rm`，不会删掉那个 worktree。只有有 transcript（宿主的或 Keel 的副本）的会话才算一班：从没收到过提示的会话没有 transcript，不占名额，也保留不动（#401）。内容不会丢：`claude rm` 不删宿主的 transcript，Keel 另有一份副本，`keel shift history <角色> --show <会话 id>` 能打印任何一班的完整对话，无论它还在不在列表里。
 
 `keel shift status` 会列出每个交接的状态：等待中、已送达（带新会话的 id）或失败（带错误信息），并给出重新打开旧会话的命令 `claude attach <其 id 的前 8 个字符>`，旧会话已被移除时则给出 `keel shift history <角色> --show <id>`；还会列出这次交接移除的更早会话。失败的交接，或等待超过 15 分钟的交接，会成为巡检风险，从而通知到协调者。worktree 没被信任过是失败的一种情形：新会话在那里起不来。
 

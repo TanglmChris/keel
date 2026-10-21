@@ -1204,8 +1204,13 @@ const CLEAR_HINT = [
 // or — without a chat role — the person who opens it.
 function clearHint(result) {
   if (result.queued) {
+    const own = result.cli.session.slice(0, 8);
+    // Nothing kept by default (#418): the old shift is removed once Keel holds its transcript.
+    const kept = require("./config").readShiftDeclaration(result.worktree).keepOldSessions > 0
+      ? `its conversation is kept, \`claude attach ${own}\` reopens it`
+      : `then removes it from the session list once Keel's store holds its transcript, which \`keel shift history ${result.role} --show ${own}\` prints`;
     return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session has finished, "
-      + `a waiter stops it — its conversation is kept, \`claude attach ${result.cli.session.slice(0, 8)}\` reopens it — and starts a new session `
+      + `a waiter stops it — ${kept} — and starts a new session `
       + `named for its start, \`${result.role} · <MM-DD HH:MM>\`, in ${result.worktree} that runs \`keel shift resume\`; \`keel tick\` does the same if the waiter is gone. \`keel shift status\` shows the hand-off.`;
   }
   let last;

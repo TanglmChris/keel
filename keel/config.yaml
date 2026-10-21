@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Twelve independent declarations live here, each documented below in this
+# Thirteen independent declarations live here, each documented below in this
 # order: fast_check, which names a command; authorize, which names repository
 # actions this project has decided may proceed without being asked each time;
 # precedents, which points at a directory of decisions already made and the
@@ -12,9 +12,10 @@
 # this project allows and the paths that must not be handed to one;
 # read_only_roles, which names the chat roles whose sessions own no change;
 # issue_roles, which names the chat role each issue label routes to; patrol,
-# which names the role that runs `keel patrol` and how often; and
-# owner_language, which names the language every message to the owner is
-# written in.
+# which names the role that runs `keel patrol` and how often; shift, which
+# names how a CLI hand-over starts the new session and how many old ones stay
+# listed; and owner_language, which names the language every message to the
+# owner is written in.
 
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -303,6 +304,21 @@ patrol:
   every: 1h
   runner: tick
   cadence: adaptive
+
+# shift (optional): how a Claude Code CLI hand-over runs (#357, docs/cli-team.md).
+# `permission_mode:` is the mode the new session starts in — default,
+# acceptEdits, auto, plan or bypassPermissions; `auto` when absent.
+# `keep_old_sessions:` is how many stopped old shifts of a role stay listed in
+# `claude agents` and on claude.ai; 0 when absent or unreadable (#418), so the
+# old shift is removed with `claude rm` once Keel's store holds its transcript,
+# and `keel shift history <role> --show <id>` still prints it in full.
+#
+# Example:
+#   shift:
+#     permission_mode: auto
+#     keep_old_sessions: 1
+#
+# This repository declares none.
 
 # owner_language (optional): a language tag such as zh or en (#305). Every
 # message to the owner — replies, summaries, reports, and the question and
