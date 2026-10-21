@@ -859,37 +859,27 @@ def validate_native_plugin_manifests_scenario() -> int:
         )
         return 1
     for skill_name in PLUGIN_SKILLS:
-        plugin_skill = skills_root / skill_name / "SKILL.md"
-        canonical_skill = ROOT / "src/skills" / skill_name / "SKILL.md"
-        if plugin_skill.read_text(encoding="utf-8") != canonical_skill.read_text(
-            encoding="utf-8"
-        ):
+        # Every file a skill's body may name travels with it — `guidance.md`,
+        # `conditional-checks.md`, whatever is split out next (#411). The host
+        # reads the plugin copy directly, so a file the parity check ignored
+        # could drift from the criteria it was split out of, invisibly.
+        canonical_dir = ROOT / "src/skills" / skill_name
+        plugin_dir = skills_root / skill_name
+        canonical_files = sorted(p.relative_to(canonical_dir).as_posix() for p in canonical_dir.rglob("*") if p.is_file())
+        plugin_files = sorted(p.relative_to(plugin_dir).as_posix() for p in plugin_dir.rglob("*") if p.is_file())
+        for missing in sorted(set(canonical_files) - set(plugin_files)):
             report(
-                "native-plugin-manifests plugin skill diverges from canonical "
-                f"source: {skill_name}"
+                f"native-plugin-manifests plugin copy of {skill_name} lacks {missing}, "
+                "so a reference to it resolves to nothing"
             )
             return 1
-        # A referenced `guidance.md` travels with the body that names it. The
-        # host reads the plugin copy directly, so a guidance file the parity
-        # check ignored could drift from the criteria it was split out of, and
-        # the drift would be invisible to everything except a reader.
-        canonical_guidance = canonical_skill.parent / "guidance.md"
-        plugin_guidance = plugin_skill.parent / "guidance.md"
-        if canonical_guidance.is_file() and not plugin_guidance.is_file():
-            report(
-                "native-plugin-manifests guidance file diverges from canonical "
-                f"source: {skill_name} has guidance.md that the plugin does not "
-                "ship, so the body's reference resolves to nothing"
-            )
+        for extra in sorted(set(plugin_files) - set(canonical_files)):
+            report(f"native-plugin-manifests plugin copy of {skill_name} has {extra}, which the source does not")
             return 1
-        if canonical_guidance.is_file() and plugin_guidance.read_text(
-            encoding="utf-8"
-        ) != canonical_guidance.read_text(encoding="utf-8"):
-            report(
-                "native-plugin-manifests guidance file diverges from canonical "
-                f"source: {skill_name}"
-            )
-            return 1
+        for name in canonical_files:
+            if (plugin_dir / name).read_bytes() != (canonical_dir / name).read_bytes():
+                report(f"native-plugin-manifests plugin copy diverges from canonical source: {skill_name}/{name}")
+                return 1
     lenses_root = ROOT / "assets/lenses"
     for template in ("web.md", "hardware.md", "hardware-dsl.md"):
         if not (lenses_root / template).is_file():

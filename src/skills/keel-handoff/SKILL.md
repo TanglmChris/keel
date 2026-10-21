@@ -9,6 +9,8 @@ description: Create, validate, or clear the optional keel-handoff/v1 pointer ove
 
 Use this skill only when `keel context` is ambiguous or blocked because human intent cannot be inferred, or when the user explicitly asks to set or clear an override. HANDOFF is not session state or a startup summary, and it is not a durable follow-up owner.
 
+The shift note that `keel shift ready` stores is a different thing: it hands working context to the role's next session and selects no task. HANDOFF overrides which task `keel context` selects. Neither holds task state; OpenSpec does.
+
 ## Context to read
 
 Run `keel context --json`, then read the returned paths and the intended durable OpenSpec owner under `openspec/changes/<change>/`.

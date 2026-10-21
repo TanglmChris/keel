@@ -693,9 +693,10 @@ def validate_continuation_docs_scenario() -> int:
 
 
 def validate_plan_funnel_guidance_scenario() -> int:
+    # The funnel is a conditional check, read on demand since #411.
     skill_copies = (
-        ROOT / "src/skills/keel-review-checklist/SKILL.md",
-        ROOT / PLUGIN_ROOT / "skills/keel-review-checklist/SKILL.md",
+        ROOT / "src/skills/keel-review-checklist/conditional-checks.md",
+        ROOT / PLUGIN_ROOT / "skills/keel-review-checklist/conditional-checks.md",
     )
     for copy in skill_copies:
         text = copy.read_text(encoding="utf-8")
@@ -1812,4 +1813,54 @@ def validate_external_agents_are_documented_scenario() -> int:
         return 1
 
     report("external-agents-are-documented scenario passed.")
+    return 0
+
+
+def validate_review_checklist_conditional_checks_scenario() -> int:
+    """Issue #411 rows 7 and 8 (owner, 2026-10-21): a short base checklist, conditions on demand.
+
+    Four review-checklist sections apply only under a condition — a coupled
+    task, a matching lens, a new or expanded skill, a plan-mode artifact — yet
+    every activation read them. They live in `conditional-checks.md`, read
+    when a condition applies. The handoff skill tells its override apart from
+    the shift note, which selects no task.
+    """
+    label = "review-checklist-conditional-checks:"
+    skill_dir = ROOT / "src/skills/keel-review-checklist"
+    base = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    conditional_path = skill_dir / "conditional-checks.md"
+    if "conditional-checks.md" not in base:
+        report(f"{label} the review checklist does not name conditional-checks.md.")
+        return 1
+    for condition in ("Coupling: required", "lens", "skill", "plan-mode"):
+        if condition not in base.split("## Conditional checks", 1)[-1]:
+            report(f"{label} the checklist's conditional-checks section does not name the {condition!r} condition.")
+            return 1
+    for moved in ("## Skill change review", "## Planning artifact funnel"):
+        if moved in base:
+            report(f"{label} the base checklist still holds {moved!r}, which applies only under a condition.")
+            return 1
+    lines = len(base.splitlines())
+    if lines >= 80:
+        report(f"{label} the base checklist is {lines} lines, not under 80.")
+        return 1
+    if not conditional_path.is_file():
+        report(f"{label} conditional-checks.md is missing beside the checklist.")
+        return 1
+    conditional = conditional_path.read_text(encoding="utf-8")
+    for needle in ("## Skill change review", "## Planning artifact funnel", "Coupling: required", "Execution and review checks"):
+        if needle not in conditional:
+            report(f"{label} conditional-checks.md does not hold {needle!r}.")
+            return 1
+    handoff = (ROOT / "src/skills/keel-handoff/SKILL.md").read_text(encoding="utf-8")
+    if "keel shift ready" not in handoff:
+        report(f"{label} the handoff skill does not name the shift note's `keel shift ready`.")
+        return 1
+    if "selects no task" not in handoff:
+        report(f"{label} the handoff skill does not say the shift note selects no task.")
+        return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed: the base checklist is {lines} lines.")
     return 0

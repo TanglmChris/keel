@@ -511,6 +511,7 @@ SCENARIOS: tuple = (
     ("domain-lens-scaffold", install.validate_domain_lens_scaffold_scenario),
     ("domain-lens-doctor", install.validate_domain_lens_doctor_scenario),
     ("plan-funnel-guidance", docs.validate_plan_funnel_guidance_scenario),
+    ("review-checklist-conditional-checks", docs.validate_review_checklist_conditional_checks_scenario),
     (
         "declared-paths-are-read-whole",
         contract.validate_declared_paths_are_read_whole_scenario,

@@ -23,7 +23,6 @@ Read the selected OpenSpec proposal, design, specs, tasks, diff, and command evi
 - A failure message must **name the actual cause** of what it reports. Watch for one condition guarding **two distinct failures** — `if result is None or result["status"] != expected` reports the first failure's message when the second one happened, sending the reader to a place with no problem in it. Split the condition. No gate can judge this: deciding whether a sentence misleads needs a model, so it stays here.
 - When two tasks in the change declared the same Touch set under a red-green strategy — `keel gate task-start` warns about this — ask whether they turned out to be **one behavior** split in half. The tell is that the first task's minimal implementation was wrong in the field, or that the second had no honest red left because the first already made its checks pass. The gate can only see the shape; by completion you can see the outcome, which is the only point at which this is answerable.
 - Scope attribution is now the gate's job by default: `keel gate task-complete` compares the worktree against the dirty set `task-start` recorded and refuses a path outside Touch, so a `pass` is evidence about scope rather than silence about it. Two cases still need you. When the gate reports paths as *unattributed* — no recorded set, because the manifest predates the field or the guard was cleared — nothing was checked and the review is the only scope evidence. And a path already dirty when the task started stays unattributed only while its content matches what was recorded then; if the task changed it again, the gate attributes it — so read the gate's silence about such a path as evidence its content was never touched again, not as an unconditional exemption.
-- For `Coupling: required`, confirm one complete candidate reached its completion gate and generated artifacts are aligned.
 
 ## Semantic Review
 
@@ -51,10 +50,6 @@ happened.
 
 The Review remains in tasks.md. A user-facing Report summarizes delivery but is not hidden gate state. Do not let Core or this checklist write evidence automatically.
 
-## Domain lenses
-
-When the change's artifacts or Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before concluding the review. When no lens matches, load nothing.
-
 ## Expectation and follow-up ownership
 
 Each related critical expectation needs behavior evidence, a durable follow-up owner, or an explicit discard reason. Relevant `D<n>`, `F<n>`, `A<n>`, and `Q<n>` references in Covers must agree with their OpenSpec basis and resolution owner. Unresolved authority returns to OpenSpec authoring.
@@ -68,21 +63,9 @@ its verdict rests on.
 
 `keel/HANDOFF.md` is an optional pointer override and cannot own findings, critical expectation state, evidence details, or follow-ups.
 
-## Skill change review
+## Conditional checks
 
-For a new or materially expanded dedicated skill, confirm the authoring evidence
-identifies authoritative sources, provenance and license implications, realistic
-positive and negative trigger cases, and real-task evidence. Confirm detailed
-conditional knowledge uses progressive references when it is not needed on
-every activation.
-
-The canonical portable `SKILL.md` must agree with every declared target
-projection. Target metadata may be additive, but it must not redefine skill
-behavior or make Keel the authority for target-native discovery or activation.
-
-## Planning artifact funnel
-
-When the work followed an accepted native plan-mode artifact, confirm its decisions affecting scope, Acceptance, completion, or execution boundaries were recorded in proposal, design, specs, or tasks before implementation. A material decision found only in session state is missing authority and returns to OpenSpec authoring; the session plan file is never execution authority.
+Read `conditional-checks.md` beside this file only when a task declares `Coupling: required`, a `keel/lenses/` lens matches the change's domain, the change adds or materially expands a dedicated skill, or the work followed an accepted native plan-mode artifact. Each of its sections states the criterion for one of these.
 
 ## Output
 
