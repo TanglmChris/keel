@@ -103,18 +103,24 @@ function patrol(where, role, options) {
   return result;
 }
 
-// D5 (#242): each role a label of an issue maps to gets one direct message
-// per `updatedAt`, deduped by its ref against the direct group's records.
+// D5 (#242): each role a matching route names gets one direct message per
+// `updatedAt`, deduped by its ref against the direct group's records. A route
+// whose labels are a strict subset of another matching route's is refined by
+// it and sends nothing (#433).
 function routeIssues(where, role, options) {
   const { routes, unreadable } = require("./config").readIssueRoles(where.worktree);
   const warnings = unreadable.map(
-    (line) => `keel/config.yaml issue_roles line \`${line}\` is not \`<label>: <role>\`; it routes nothing.`
+    (line) => `keel/config.yaml issue_roles line \`${line}\` is not \`<label>: <role>\` or \`<label> + <label>: <role>\`; it routes nothing.`
   );
   const notices = [];
-  if (!options.issues || !routes.size) return { notices, warnings };
+  if (!options.issues || !routes.length) return { notices, warnings };
   for (const issue of options.issues) {
-    const labels = (issue.labels || []).map((entry) => (typeof entry === "string" ? entry : entry && entry.name)).filter(Boolean);
-    const targets = [...new Set(labels.map((name) => routes.get(name)).filter(Boolean))];
+    const labels = new Set((issue.labels || []).map((entry) => (typeof entry === "string" ? entry : entry && entry.name)).filter(Boolean));
+    const matching = routes.filter((route) => route.labels.every((name) => labels.has(name)));
+    const refined = (route) => matching.some(
+      (other) => other.labels.length > route.labels.length && route.labels.every((name) => other.labels.includes(name))
+    );
+    const targets = [...new Set(matching.filter((route) => !refined(route)).map((route) => route.role))];
     for (const target of targets) {
       if (target === role) continue;
       const ref = `issue:#${issue.number}@${issue.updatedAt || "unknown"}`;
