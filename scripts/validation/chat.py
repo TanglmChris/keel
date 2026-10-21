@@ -351,6 +351,43 @@ def validate_chat_hook_follows_session_worktree_scenario() -> int:
         if "sess-v" in chat_session_list(rtl, "rtl"):
             report(f"{label} rtl's session list took the resumed session: {chat_session_list(rtl, 'rtl')!r}")
             return 1
+
+    # #441, measured on Claude Code 2.1.304 (2026-10-21): on resume the host
+    # reports the launch directory for `transcript_path` too, naming a file that
+    # does not exist; the session keeps writing its transcript in the project
+    # directory of the worktree it runs in.
+    with tempfile.TemporaryDirectory(prefix="keel-chat-441-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+        config = base / "claude-config"
+        env = {**env, "CLAUDE_CONFIG_DIR": str(config)}
+        chat_session_start(rtl, env, "sess-r", os.getpid())
+        real = config / "projects" / host_project_name(verify) / "sess-w.jsonl"
+        write_text(real, json.dumps({"type": "user", "message": {"role": "user", "content": "carry on"}}) + "\n")
+        reported = config / "projects" / host_project_name(rtl) / "sess-w.jsonl"
+        started = chat_session_start(rtl, env, "sess-w", os.getpid(), source="resume", transcript=reported)
+        try:
+            watched = json.loads(started.stdout)["hookSpecificOutput"]["watchPaths"]
+        except (ValueError, KeyError, TypeError):
+            report(f"{label} the measured resume payload printed no watch paths: {started.stdout!r} {started.stderr!r}")
+            return 1
+        if not any(path.endswith("/signal/verify") for path in watched):
+            report(f"{label} a resumed -w session whose reported transcript does not exist watches {watched!r}, not verify's signal.")
+            return 1
+        if any(path.endswith("/signal/rtl") for path in watched):
+            report(f"{label} a resumed -w session whose reported transcript does not exist also watches rtl's signal: {watched!r}")
+            return 1
+        if chat_session_record(rtl, "sess-w").get("role") != "verify":
+            report(f"{label} the measured resume was recorded as {chat_session_record(rtl, 'sess-w').get('role')!r}, not verify.")
+            return 1
+        if chat_presence(rtl, "rtl").get("cli_session") != "sess-r":
+            report(f"{label} rtl's presence took the measured resume: {chat_presence(rtl, 'rtl')!r}")
+            return 1
+        segments_file = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "segments" / "verify.json"
+        segments = json.loads(segments_file.read_text(encoding="utf-8")).get("segments", []) if segments_file.is_file() else []
+        if not segments or os.path.realpath(segments[-1].get("transcript") or "") != os.path.realpath(real):
+            report(f"{label} the resumed session's segment names {segments!r}, not the transcript that exists ({real}).")
+            return 1
     if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} the scenario registry does not include it.")
         return 1
