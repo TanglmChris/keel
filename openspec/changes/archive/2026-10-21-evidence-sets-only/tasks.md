@@ -38,7 +38,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -73,14 +73,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:0589e67c51e7cdbd2675c750c15d53ea1052e0eededcc6241d75f7f97f4d36e3 (keel 5.187.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker to 5.188.0. The changelog section "5.188.0 - Evidence counts a stand-in only where a scenario sets one" replaced the `TODO` stub and kept its Version alignment line. `version-alignment scenario passed.`
+    - M2: pass. The MODIFIED requirement was promoted into `keel-validation-runner`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass. `npm test` ran on commit 9f44bcc6 with a clean tree. It started at 14:47:27, at load 5, and finished with rc=0. Its summary line: `validation --all passed: baseline plus 317 scenarios, 1 skipped: output-survives-the-pipe.` Its evidence line: `evidence: 217 deterministic, 100 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: M1 and M2 run the marker and published-spec scenarios on the written release. M3 runs the whole suite and reports the corrected counts.
+      - Scope check: only the Touch files listed above changed, plus this change's record.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
