@@ -464,6 +464,8 @@ SCENARIOS: tuple = (
     ("patrol-host-task", shift.validate_patrol_host_task_scenario),
     ("patrol-rearm", shift.validate_patrol_rearm_scenario),
     ("patrol-issue-routing", shift.validate_patrol_issue_routing_scenario),
+    ("patrol-issue-label-sets", shift.validate_patrol_issue_label_sets_scenario),
+    ("patrol-issue-label-set-unreadable", shift.validate_patrol_issue_label_set_unreadable_scenario),
     ("chat-listen-only", chat.validate_chat_listen_only_scenario),
     ("chat-summary", chat.validate_chat_summary_scenario),
     ("worktree-overview", shift.validate_worktree_overview_scenario),

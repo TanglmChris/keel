@@ -752,11 +752,15 @@ keel patrol --issues /tmp/issues.json        # 以协调者的角色运行
 
 带上 `--issues` 时，巡查还会分派 issue 更新（#242）：`keel/config.yaml` 里的 `issue_roles:` 把一个标签映射到
 一个角色，每个角色会为带着它标签的 issue 的每次更新收到一条私信——这样一个标为 `role:verify` 的交接无需第二条
-消息就能到达 `verify`。
+消息就能到达 `verify`。一个键也可以是用 ` + ` 连起来的一组标签（#433），只匹配同时带着这些标签的 issue，这样
+结构相同的几个团队就能共用能力标签。当一条匹配路由的标签是另一条的子集时，只有标签更多的那条的角色收到更新；
+加了引号的键仍是单个标签。
 
 ```yaml
 issue_roles:
   role:verify: verify
+  design: design-iecc
+  design + dmc_rmw: design-rmw
 ```
 
 在会话内创建的宿主计划任务会随该会话结束，所以换班或重启就会丢掉它。声明由哪个角色巡查、多久一次，那个角色的

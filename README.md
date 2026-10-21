@@ -906,11 +906,16 @@ Keel's own messages never count as waiting.
 
 With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
 maps a label to a role, and each role gets one direct message per update of an issue carrying its
-label — so a handoff labelled `role:verify` reaches `verify` without a second message.
+label — so a handoff labelled `role:verify` reaches `verify` without a second message. A key may
+name a set of labels joined by ` + ` (#433), which matches an issue carrying all of them, so teams of
+the same shape can share capability labels. When one matching route's labels are a subset of
+another's, only the larger set's role is sent the update; a quoted key stays one label.
 
 ```yaml
 issue_roles:
   role:verify: verify
+  design: design-iecc
+  design + dmc_rmw: design-rmw
 ```
 
 A host schedule made inside a session ends with that session, so a shift change or restart drops

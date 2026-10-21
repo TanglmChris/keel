@@ -1070,6 +1070,78 @@ def validate_patrol_issue_routing_scenario() -> int:
     return 0
 
 
+def issue_label_scratch(base: Path, config: str) -> tuple[Path, dict, dict[str, Path]]:
+    """`rtl` patrols; `design-iecc`, `design-rmw`, and `flow` each have a worktree."""
+    rtl, _verify, env = chat_scratch_group(base)
+    worktrees = {}
+    for role in ("design-iecc", "design-rmw", "flow"):
+        worktrees[role] = chat_worktree(rtl, base / role)
+        run_keel(worktrees[role], "chat", "role", "--set", role, env=env)
+    write_authorize_config(rtl, config)
+    return rtl, env, worktrees
+
+
+def issue_notices(worktree: Path, env: dict, number: int) -> int:
+    unread = chat_json(run_keel(worktree, "chat", "unread", "--json", env=env)).get("unread", [])
+    return sum(1 for record in unread if f"#{number} " in record.get("text", "") or f"#{number}:" in record.get("text", ""))
+
+
+def validate_patrol_issue_label_sets_scenario() -> int:
+    """Issue #433: a route keyed on a set of labels refines a single-label one.
+
+    An issue carrying `design` and `dmc_rmw` reaches the `design + dmc_rmw`
+    role and not the `design` role; a route that is not nested still sends.
+    """
+    label = "patrol-issue-label-sets:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-label-sets-") as raw:
+        base = Path(raw)
+        rtl, env, worktrees = issue_label_scratch(
+            base, "issue_roles:\n  design: design-iecc\n  design + dmc_rmw: design-rmw\n  flow: flow\n")
+        issues = base / "issues.json"
+        issues.write_text(json.dumps([
+            {"number": 160, "title": "rmw ecc path", "state": "OPEN",
+             "labels": [{"name": "design"}, {"name": "dmc_rmw"}, {"name": "flow"}], "updatedAt": "2026-10-21T01:00:00Z"},
+            {"number": 161, "title": "iecc ecc path", "state": "OPEN",
+             "labels": [{"name": "design"}], "updatedAt": "2026-10-21T01:00:00Z"},
+        ]), encoding="utf-8")
+        run = run_keel(rtl, "patrol", "--issues", str(issues), env=env)
+        if run.returncode != 3:
+            report(f"{label} patrol exited {run.returncode}, not 3: {run.stdout} {run.stderr}")
+            return 1
+        expected = (("design-rmw", 160, 1), ("flow", 160, 1), ("design-iecc", 160, 0),
+                    ("design-iecc", 161, 1), ("design-rmw", 161, 0))
+        for role, number, want in expected:
+            got = issue_notices(worktrees[role], env, number)
+            if got != want:
+                report(f"{label} {role} has {got} notices about #{number}, not {want}.")
+                return 1
+    report("patrol-issue-label-sets scenario passed.")
+    return 0
+
+
+def validate_patrol_issue_label_set_unreadable_scenario() -> int:
+    """Issue #433: a set with an empty or repeated label is reported and routes nothing."""
+    label = "patrol-issue-label-set-unreadable:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-label-set-bad-") as raw:
+        base = Path(raw)
+        rtl, env, worktrees = issue_label_scratch(
+            base, "issue_roles:\n  design + : design-rmw\n  design + design: design-rmw\n")
+        issues = base / "issues.json"
+        issues.write_text(json.dumps([{"number": 162, "title": "ecc", "state": "OPEN",
+                                       "labels": [{"name": "design"}], "updatedAt": "2026-10-21T01:00:00Z"}]), encoding="utf-8")
+        run = run_keel(rtl, "patrol", "--issues", str(issues), env=env)
+        for line in ("design + : design-rmw", "design + design: design-rmw"):
+            if f"`{line}`" not in run.stdout:
+                report(f"{label} the unreadable line `{line}` is not reported: {run.stdout!r}")
+                return 1
+        got = issue_notices(worktrees["design-rmw"], env, 162)
+        if got:
+            report(f"{label} design-rmw has {got} notices about #162 from unreadable lines.")
+            return 1
+    report("patrol-issue-label-set-unreadable scenario passed.")
+    return 0
+
+
 def validate_worktree_overview_scenario() -> int:
     """Read every worktree through the CLI without fetching or changing chat."""
     label = "worktree-overview:"
