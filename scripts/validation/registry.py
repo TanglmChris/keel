@@ -478,6 +478,7 @@ SCENARIOS: tuple = (
     ("repo-action-mode", guard.validate_repo_action_mode_scenario),
     ("runner-skip-accounting", selfcheck.validate_runner_skip_accounting_scenario),
     ("runner-runs-one-group", selfcheck.validate_runner_runs_one_group_scenario),
+    ("release-evidence-classes", selfcheck.validate_release_evidence_classes_scenario),
     ("self-checks-read-every-module", selfcheck.validate_self_checks_read_every_module_scenario),
     ("resident-topic-matching", selfcheck.validate_resident_topic_matching_scenario),
     ("task-start-invalidation", contract.validate_task_start_invalidation_scenario),

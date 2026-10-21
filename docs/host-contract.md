@@ -48,13 +48,17 @@ The first three sessions were measured on 2026-10-21 with Claude Code 2.1.304, u
 | Wake fails to resume | The tick tries again on its next runs, up to three attempts per addressed record; a newer record starts again | scenario `tick-retries-failed-wake` |
 | A note or chat record cannot be written | `ready` stops before queueing, so no hand-off runs without its note | unverified |
 
-## Not covered by this loop
+## Outside this contract
 
-The following are unverified:
-- the Claude desktop app path (scheduled-task wake, `clear_session`, Remote Control restore);
-- Codex;
-- whether a `claude --bg` that timed out had started its session. Keel does not assume it did not: the next attempt first looks for one.
+- **The Claude desktop app path** (scheduled-task wake, `clear_session`, Remote Control restore) is not maintained for this team. The owner moved the team to background CLI sessions on 2026-10-19.
+- **Codex** has no automated hand-over or wake. A Codex shift ends with "start a new session in this worktree", which a person does. Keel makes no host call there to verify.
 
-The race between the waiter and a tick is decided by Keel's lock and claim, not by the host, so a fake host with real concurrent `keel` processes is its evidence.
+## Unverified
 
-They stay with #408.
+- Whether a `claude --bg` that timed out had started its session. Keel does not assume it did not: the next attempt first looks for one. This stays with #408.
+
+The race between the waiter and a tick is decided by Keel's lock and claim, not by the host. Its evidence is therefore a fake host with real concurrent `keel` processes.
+
+## In each run and release
+
+A passing `npm test` or `--group` run ends with an `evidence:` line. It counts the scenarios that ran deterministically and those that ran against a stand-in host. A stand-in host here means a fake host program, the host's environment, a host data directory, or a hook payload. The line also says that none ran on a real host. Each GitHub release carries the same counts in an `## Evidence` section, together with the number of `measured` rows on this page. `node scripts/run_python.js scripts/validate_plugin.py --evidence` lists which scenario is which. The classification is derived from Keel's own sources (#408).

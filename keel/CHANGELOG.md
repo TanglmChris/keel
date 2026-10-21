@@ -1,5 +1,27 @@
 # Keel Changelog
 
+## 5.186.0 - The suite and each release say what kind of evidence ran
+
+Issue #408 asks that release records separate deterministic tests, stub-adapter tests, real-host measurements, and skipped or unverified items, rather than letting one green summary stand for capability evidence. On 2026-10-21 the owner chose to have the test summary count these classes automatically.
+
+What changes:
+
+- **Every registered scenario is classified as deterministic or stand-in host.** A stand-in host is a fake host program, the host's environment, a host data directory, or a hook payload.
+  - The markers are derived from Keel's own sources: the ten `process.env.KEEL_X || "<program>"` overrides, the `CLAUDE_*`/`CODEX_*` variables Keel reads, `hook_event_name`, and a file named for a host program.
+  - A scenario counts as stand-in host when the markers appear in its own code, in a validation helper it reaches, or in a validation script it runs.
+  - The classification over-approximates, so it errs toward claiming less real evidence.
+- **A passing `npm test` or `--group` run ends with an `evidence:` line.** For example: `evidence: 181 deterministic, 136 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`. Its counts add up to the verified count.
+- **`validate_plugin.py --evidence` lists which scenario is which, without running any.** With `--markdown` it prints an `## Evidence` section, and the publish workflow appends that section to every GitHub release's notes. The section gives:
+  - both counts;
+  - the number of conditions `docs/host-contract.md` records as measured on a real host;
+  - the scenarios that can skip.
+- **`docs/host-contract.md` settles two former "unverified" items.**
+  - The desktop app path is not maintained for this team: the owner moved it to CLI sessions on 2026-10-19.
+  - Codex has no automated hand-over or wake to verify.
+
+  What stays unverified is whether a timed-out `claude --bg` had started its session.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.186.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.185.0 - A CLI hand-off starts one session and retries a failed start
 
 Issue #408, second loop. The owner chose the remaining CLI items on 2026-10-21.

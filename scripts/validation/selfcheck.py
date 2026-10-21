@@ -1464,3 +1464,89 @@ def validate_the_routing_rule_reaches_the_decision_scenario() -> int:
         return 1
     report(f"{label} scenario passed.")
     return 0
+
+
+def validate_release_evidence_classes_scenario() -> int:
+    """Issue #408 (owner, 2026-10-21): the suite and each release say what kind of evidence ran.
+
+    A green summary read as more than it proved: much of the suite runs Keel
+    against a stand-in host — a fake `claude`, the host's environment, a host
+    data directory, a hook payload — and none of it against a real one. Each
+    scenario is classified from markers derived from Keel's own sources,
+    through the helpers and scripts it reaches; a passing run and each
+    release's notes give the counts.
+    """
+    label = "release-evidence-classes:"
+    plain = subprocess.run([sys.executable, str(ROOT / "scripts/validate_plugin.py"), "--evidence"],
+                           cwd=ROOT, text=True, capture_output=True)
+    if plain.returncode != 0:
+        report(f"{label} `--evidence` exited {plain.returncode}: {(plain.stderr or plain.stdout).strip()!r}")
+        return 1
+    lines = {line.split(":", 1)[0]: line.split(":", 1)[1].strip() for line in plain.stdout.splitlines() if ":" in line}
+    standin = set(filter(None, (name.strip() for name in lines.get("stand-in host", "").split(","))))
+    deterministic = set(filter(None, (name.strip() for name in lines.get("deterministic", "").split(","))))
+    markers = set(filter(None, (name.strip() for name in lines.get("stand-in markers", "").split(","))))
+    for name in ("KEEL_CLAUDE", "CLAUDE_CODE_SESSION_ID"):
+        if name not in markers:
+            report(f"{label} the markers derived from Keel's sources do not include {name}: {sorted(markers)!r}")
+            return 1
+    for name in ("shift-cli-self-shift", "chat-claude-hooks", "codex-receiving", "update-pack-install"):
+        if name not in standin:
+            report(f"{label} {name} is not counted as run against a stand-in host.")
+            return 1
+    if "version-alignment" not in deterministic:
+        report(f"{label} version-alignment is not counted as deterministic.")
+        return 1
+    registered = {name for name, _ in registry.SCENARIOS}
+    if standin & deterministic:
+        report(f"{label} scenarios are counted in both classes: {sorted(standin & deterministic)!r}")
+        return 1
+    if standin | deterministic != registered:
+        report(f"{label} the two classes do not cover the registry: missing {sorted(registered - standin - deterministic)!r}, "
+               f"unknown {sorted((standin | deterministic) - registered)!r}")
+        return 1
+
+    contract = (ROOT / "docs/host-contract.md").read_text(encoding="utf-8")
+    measured = sum(1 for line in contract.splitlines()
+                   if line.startswith("|") and "measured" in line.rstrip().rstrip("|").rsplit("|", 1)[-1])
+    skippable = set(filter(None, (name.strip() for name in lines.get("can skip", "").split(","))))
+    if "output-survives-the-pipe" not in skippable:
+        report(f"{label} `--evidence` does not name output-survives-the-pipe among the scenarios that can skip: {sorted(skippable)!r}")
+        return 1
+    markdown = subprocess.run([sys.executable, str(ROOT / "scripts/validate_plugin.py"), "--evidence", "--markdown"],
+                              cwd=ROOT, text=True, capture_output=True)
+    section = markdown.stdout
+    for needle in ("## Evidence", f"{len(deterministic)} scenarios", f"{len(standin)} scenarios",
+                   f"{measured} conditions", "docs/host-contract.md", *sorted(skippable)):
+        if needle not in section:
+            report(f"{label} the release notes section does not carry {needle!r}: {section!r}")
+            return 1
+
+    workflow = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+    start = workflow.find("- name: Tag and release the landed version")
+    following = workflow.find("\n      - name:", start + 1)
+    step = workflow[start:] if following < 0 else workflow[start:following]
+    if "validate_plugin.py --evidence --markdown >> notes.md" not in step:
+        report(f"{label} the publish release step does not append `validate_plugin.py --evidence --markdown` to notes.md.")
+        return 1
+
+    grouped = subprocess.run([sys.executable, str(ROOT / "scripts/validate_plugin.py"), "--group", "docs"],
+                             cwd=ROOT, text=True, capture_output=True)
+    tail = grouped.stdout.strip().splitlines()[-2:]
+    verified = re.search(r"validation --group docs passed: (\d+) scenario", tail[0]) if tail else None
+    counts = re.match(r"evidence: (\d+) deterministic, (\d+) against a stand-in host, none on a real host .*docs/host-contract\.md",
+                      tail[-1]) if tail else None
+    if grouped.returncode != 0 or not verified:
+        report(f"{label} `--group docs` did not pass: {grouped.stdout[-400:]!r}")
+        return 1
+    if not counts:
+        report(f"{label} a passing `--group docs` does not end with an evidence line: {tail!r}")
+        return 1
+    if int(counts.group(1)) + int(counts.group(2)) != int(verified.group(1)):
+        report(f"{label} the evidence line's counts do not add up to the {verified.group(1)} verified: {tail[-1]!r}")
+        return 1
+    if label.rstrip(":") not in registered:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed: {len(deterministic)} deterministic, {len(standin)} stand-in host.")
+    return 0
