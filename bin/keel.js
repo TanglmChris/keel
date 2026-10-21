@@ -666,6 +666,7 @@ function runCommand(command, args, options = {}) {
 
   const result = spawnSync(command, args, {
     cwd: options.cwd || process.cwd(),
+    env: options.env || process.env,
     stdio: options.stdio || "inherit",
     encoding: options.encoding || "utf8",
     shell: process.platform === "win32",
@@ -1532,6 +1533,46 @@ function openspecToolsForTarget(target) {
   return target;
 }
 
+// Where OpenSpec reads its one global configuration (OpenSpec 1.14
+// `getGlobalConfigDir`): XDG_CONFIG_HOME on every platform when set, else
+// %APPDATA% on Windows and ~/.config elsewhere.
+function openspecGlobalConfigFile() {
+  const base = process.env.XDG_CONFIG_HOME
+    || (process.platform === "win32"
+      ? process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming")
+      : path.join(os.homedir(), ".config"));
+  return path.join(base, "openspec", "config.json");
+}
+
+// OpenSpec reads `delivery` only from that global file, and its default,
+// `both`, put every workflow on Claude twice: a skill and an `/opsx:` command
+// (#406). The OpenSpec runs that generate surfaces get the user's own
+// configuration with `delivery` replaced by `skills`, through a temporary
+// XDG_CONFIG_HOME; the user's file is read and never written. Every other
+// field, the workflow selection among them, still applies.
+function withSkillsDelivery(run) {
+  let config = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(openspecGlobalConfigFile(), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed;
+  } catch {
+    // Absent or unreadable reads as OpenSpec's defaults, as OpenSpec does.
+  }
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "keel-openspec-config-"));
+  try {
+    fs.mkdirSync(path.join(home, "openspec"));
+    fs.writeFileSync(
+      path.join(home, "openspec", "config.json"),
+      `${JSON.stringify({ ...config, delivery: "skills" }, null, 2)}\n`
+    );
+    return run({ ...process.env, XDG_CONFIG_HOME: home });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+const OPENSPEC_GENERATING_COMMANDS = new Set(["init", "update"]);
+
 function runOpenSpec(args, repo, options) {
   const command = options.dryRun ? "openspec" : findOpenSpecCommand();
   if (!command) {
@@ -1540,10 +1581,8 @@ function runOpenSpec(args, repo, options) {
     );
     return 1;
   }
-  return runCommand(command, args, {
-    cwd: repo,
-    dryRun: options.dryRun,
-  });
+  if (options.dryRun) return runCommand(command, args, { cwd: repo, dryRun: true });
+  return withSkillsDelivery((env) => runCommand(command, args, { cwd: repo, env }));
 }
 
 function runProjectInit(options) {
@@ -1746,7 +1785,8 @@ function commandSurfaceForTarget(target, repo) {
       paths: OPENSPEC_COMMAND_IDS.map((id) =>
         path.join(repo, location, `${id}.md`)
       ),
-      remediation: "run keel --init --target claude or openspec update --force",
+      remediation: "run keel --init --target claude to remove them",
+      retired: true,
     };
   }
   if (target === "codex" && codexOpenSpecLayout(repo) === "agents") {
@@ -1776,7 +1816,8 @@ function commandSurfaceForTarget(target, repo) {
     paths: OPENSPEC_COMMAND_IDS.map((id) =>
       path.join(repo, location, `opsx-${id}.md`)
     ),
-    remediation: "run keel --init --target opencode or openspec update --force",
+    remediation: "run keel --init --target opencode to remove them",
+    retired: true,
   };
 }
 
@@ -1804,16 +1845,19 @@ function openspecOverlaySurfacesForTarget(target, repo) {
       archive: "openspec-archive-change",
       sync: "openspec-sync-specs",
     }[action];
+    // Claude and OpenCode command files are no longer generated (#406); one a
+    // repository still holds from a `both` delivery keeps its overlay until
+    // the next `keel --init` removes it.
+    const command = commandPathForAction(target, repo, action);
+    const keepsCommand = command !== null
+      && (target === "codex" || fs.existsSync(command));
     return [
       {
         action,
         path: path.join(repo, skillRoot, skillName, "SKILL.md"),
       },
-      {
-        action,
-        path: commandPathForAction(target, repo, action),
-      },
-    ].filter((surface) => surface.path !== null);
+      ...(keepsCommand ? [{ action, path: command }] : []),
+    ];
   });
 }
 
@@ -2237,7 +2281,17 @@ function printTargetSurface(repo, target) {
   );
 
   const commands = commandSurfaceForTarget(target, repo);
-  if (commands.skillsOnly) {
+  if (commands.retired) {
+    const leftover = commands.paths.filter((file) => fs.existsSync(file));
+    printDoctorLine(
+      "OpenSpec commands",
+      leftover.length === 0 ? "ok" : "duplicate",
+      leftover.length === 0
+        ? "none; Keel generates OpenSpec's workflows as skills only (#406)"
+        : `${leftover.length} command file${leftover.length === 1 ? "" : "s"} under ${commands.location} `
+          + `duplicate the skills; ${commands.remediation}`
+    );
+  } else if (commands.skillsOnly) {
     printDoctorLine(
       "OpenSpec commands",
       "ok",
@@ -2876,7 +2930,9 @@ function runAction(options) {
       return 1;
     }
     const archiving = options.openspecArgs[0] === "archive" ? archiveTracking(process.cwd(), options.openspecArgs) : null;
-    const status = runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
+    const status = OPENSPEC_GENERATING_COMMANDS.has(options.openspecArgs[0])
+      ? withSkillsDelivery((env) => runCommand(openspec, options.openspecArgs, { stdio: "inherit", env }))
+      : runCommand(openspec, options.openspecArgs, { stdio: "inherit" });
     if (status === 0 && archiving) keepArchivedTracked(process.cwd(), archiving);
     if (status !== 0 || options.openspecArgs[0] !== "update") return status;
     const repo = process.cwd();

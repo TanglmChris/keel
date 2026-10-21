@@ -1227,7 +1227,7 @@ def validate_target_surface_scenario() -> int:
             claude_doctor.returncode != 0
             or "Target surface:" not in claude_doctor.stdout
             or "OpenSpec commands: ok" not in claude_doctor.stdout
-            or ".claude/commands/opsx" not in posix_paths(claude_doctor.stdout)
+            or "skills only" not in claude_doctor.stdout
             or "OpenSpec action skills: ok" not in claude_doctor.stdout
             or ".claude/skills" not in posix_paths(claude_doctor.stdout)
             or "bootstrap: ok" not in claude_doctor.stdout
@@ -1294,7 +1294,7 @@ def validate_target_surface_scenario() -> int:
         if (
             opencode_doctor.returncode != 0
             or "OpenSpec commands: ok" not in opencode_doctor.stdout
-            or ".opencode/commands" not in posix_paths(opencode_doctor.stdout)
+            or "skills only" not in opencode_doctor.stdout
             or "OpenSpec action skills: ok" not in opencode_doctor.stdout
             or ".opencode/skills" not in posix_paths(opencode_doctor.stdout)
             or "bootstrap: ok" not in opencode_doctor.stdout
@@ -10760,16 +10760,21 @@ def openspec_overlay_files(
     target: str,
     codex_home: Path | None = None,
 ) -> dict[str, list[Path]]:
+    # Keel generates skills only (#406); a command file counts only while a
+    # repository still holds one from an earlier `both` delivery.
+    def held(*paths: Path) -> list[Path]:
+        return [paths[0], *[p for p in paths[1:] if p.exists()]]
+
     if target == "claude":
         return {
-            "apply": [
+            "apply": held(
                 repo / ".claude/skills/openspec-apply-change/SKILL.md",
                 repo / ".claude/commands/opsx/apply.md",
-            ],
-            "archive": [
+            ),
+            "archive": held(
                 repo / ".claude/skills/openspec-archive-change/SKILL.md",
                 repo / ".claude/commands/opsx/archive.md",
-            ],
+            ),
         }
     if target == "codex":
         assert codex_home is not None
@@ -10780,14 +10785,14 @@ def openspec_overlay_files(
             "archive": [repo / ".agents/skills/openspec-archive-change/SKILL.md"],
         }
     return {
-        "apply": [
+        "apply": held(
             repo / ".opencode/skills/openspec-apply-change/SKILL.md",
             repo / ".opencode/commands/opsx-apply.md",
-        ],
-        "archive": [
+        ),
+        "archive": held(
             repo / ".opencode/skills/openspec-archive-change/SKILL.md",
             repo / ".opencode/commands/opsx-archive.md",
-        ],
+        ),
     }
 
 
@@ -10890,15 +10895,20 @@ def expected_overlay_surfaces(
     for action, skill in OVERLAY_ACTION_SKILLS.items():
         if action == "propose" and target == "opencode":
             continue
+        # Keel generates skills only (#406); a command file counts only while a
+        # repository still holds one from an earlier `both` delivery.
         if target == "claude":
             surfaces.append(repo / f".claude/skills/{skill}/SKILL.md")
-            surfaces.append(repo / f".claude/commands/opsx/{action}.md")
+            command = repo / f".claude/commands/opsx/{action}.md"
         elif target == "codex":
             assert codex_home is not None
             surfaces.append(repo / f".agents/skills/{skill}/SKILL.md")
+            command = None
         else:
             surfaces.append(repo / f".opencode/skills/{skill}/SKILL.md")
-            surfaces.append(repo / f".opencode/commands/opsx-{action}.md")
+            command = repo / f".opencode/commands/opsx-{action}.md"
+        if command is not None and command.exists():
+            surfaces.append(command)
     return surfaces
 
 
@@ -11134,8 +11144,8 @@ def validate_sync_surface_overlay_scenario() -> int:
         tmp = Path(raw)
 
         surfaces = {
+            # Skills only since #406: Keel generates no `.claude/commands/opsx/`.
             "claude": [
-                ".claude/commands/opsx/sync.md",
                 ".claude/skills/openspec-sync-specs/SKILL.md",
             ],
             "codex": [
@@ -11186,8 +11196,8 @@ def validate_sync_surface_overlay_scenario() -> int:
 
             # M4 — explore stays uncovered, deliberately.
             explore = repo / (
-                ".claude/commands/opsx/explore.md" if target == "claude"
-                else f".{target}/skills/openspec-explore/SKILL.md"
+                ".claude/skills/openspec-explore/SKILL.md" if target == "claude"
+                else ".agents/skills/openspec-explore/SKILL.md"
             )
             if explore.is_file() and marker in explore.read_text(encoding="utf-8"):
                 report(
@@ -11337,6 +11347,135 @@ def validate_update_restores_overlays_scenario() -> int:
             report(f"{label} failed update was masked or changed surfaces")
             return 1
     report("update-restores-overlays scenario passed.")
+    return 0
+
+
+def validate_openspec_skills_only_scenario() -> int:
+    """Issue #406: one copy of each OpenSpec workflow, whatever the global delivery.
+
+    OpenSpec reads `delivery` only from the user's global configuration, which
+    defaults to `both` and put every workflow on Claude twice — a skill and an
+    `/opsx:` command. Keel runs OpenSpec with that configuration's `delivery`
+    replaced by `skills`, and never writes the file itself.
+    """
+    label = "openspec-skills-only:"
+    with tempfile.TemporaryDirectory(prefix="keel-406-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        config = tmp / "xdg/openspec/config.json"
+        write_text(config, json.dumps({
+            "featureFlags": {}, "profile": "custom", "delivery": "both",
+            "workflows": ["propose", "explore", "apply", "sync", "archive"],
+        }, indent=2) + "\n")
+        before = config.read_bytes()
+        env = dict(os.environ)
+        env["XDG_CONFIG_HOME"] = str(tmp / "xdg")
+        stray = ".claude/commands/opsx/apply.md"
+        upstream = "---\nname: OPSX: Apply\n---\n\nImplement tasks.\n"
+
+        def keel(repo: Path, *args: str):
+            result = run_keel(repo, *args, env=env)
+            if result.returncode != 0:
+                report(f"{label} `keel {' '.join(args)}` failed: {(result.stderr or result.stdout).strip()}")
+            return result
+
+        claude = tmp / "claude"
+        claude.mkdir()
+        if keel(claude, "--init", "--target", "claude").returncode != 0:
+            return 1
+        commands = sorted(p.name for p in (claude / ".claude/commands/opsx").glob("*")) \
+            if (claude / ".claude/commands/opsx").is_dir() else []
+        if commands:
+            report(f"{label} with a global `delivery: both`, keel --init left command files: {commands!r}")
+            return 1
+        skills = [claude / f".claude/skills/{skill}/SKILL.md" for skill in ("openspec-propose", "openspec-explore", "openspec-apply-change",
+                                                               "openspec-sync-specs", "openspec-archive-change")]
+        absent = [str(p.relative_to(claude)) for p in skills if not p.is_file()]
+        if absent:
+            report(f"{label} keel --init did not generate the workflow skills: {absent!r}")
+            return 1
+        # OpenSpec's own text only: the Keel overlay's wording is
+        # guidance-names-openspec-skills's to check.
+        naming = [str(p.relative_to(claude)) for p in skills
+                  if "/opsx:" in strip_openspec_surface_overlay(p.read_text(encoding="utf-8"))]
+        if naming:
+            report(f"{label} OpenSpec's generated skill text still names `/opsx:` commands: {naming!r}")
+            return 1
+        unmarked = [str(p.relative_to(claude)) for p in expected_overlay_surfaces(claude, "claude")
+                    if OPENSPEC_SURFACE_OVERLAY_START not in p.read_text(encoding="utf-8")]
+        if unmarked:
+            report(f"{label} managed skills lack the Keel overlay: {unmarked!r}")
+            return 1
+        if config.read_bytes() != before:
+            report(f"{label} keel --init rewrote the global OpenSpec configuration: {config.read_text()!r}")
+            return 1
+
+        doctor = keel(claude, "--doctor", "--target", "claude")
+        commands_line = next((l for l in doctor.stdout.splitlines() if l.startswith("OpenSpec commands:")), "")
+        overlay_line = next((l for l in doctor.stdout.splitlines() if l.startswith("Keel apply/archive/sync overlay:")), "")
+        if not commands_line.startswith("OpenSpec commands: ok") or "skills only" not in commands_line:
+            report(f"{label} doctor does not read a skills-only repository's commands as ok: {commands_line!r}")
+            return 1
+        if not overlay_line.startswith("Keel apply/archive/sync overlay: ok") or "4/4" not in overlay_line:
+            report(f"{label} doctor does not read the skills-only overlay as ok 4/4: {overlay_line!r}")
+            return 1
+
+        write_text(claude / stray, upstream)
+        if keel(claude, "--install", "--target", "claude").returncode != 0:
+            return 1
+        if OPENSPEC_SURFACE_OVERLAY_START not in (claude / stray).read_text(encoding="utf-8"):
+            report(f"{label} keel --install did not overlay a command file the repository still holds.")
+            return 1
+        doctor = keel(claude, "--doctor", "--target", "claude")
+        commands_line = next((l for l in doctor.stdout.splitlines() if l.startswith("OpenSpec commands:")), "")
+        if not commands_line.startswith("OpenSpec commands: duplicate"):
+            report(f"{label} doctor does not read a leftover command file as duplicate: {commands_line!r}")
+            return 1
+        for needle in ("1 ", ".claude/commands/opsx", "keel --init --target claude"):
+            if needle not in posix_paths(commands_line):
+                report(f"{label} the duplicate line does not name {needle!r}: {commands_line!r}")
+                return 1
+        if keel(claude, "--init", "--target", "claude").returncode != 0:
+            return 1
+        if (claude / stray).exists():
+            report(f"{label} keel --init did not remove a command file a `both` delivery left.")
+            return 1
+
+        passthrough = tmp / "passthrough"
+        passthrough.mkdir()
+        if keel(passthrough, "--init", "--target", "claude").returncode != 0:
+            return 1
+        write_text(passthrough / stray, upstream)
+        if keel(passthrough, "openspec", "update", "--force").returncode != 0:
+            return 1
+        if (passthrough / stray).exists():
+            report(f"{label} keel openspec update did not remove a command file a `both` delivery left.")
+            return 1
+
+        opencode = tmp / "opencode"
+        opencode.mkdir()
+        if keel(opencode, "--init", "--target", "opencode").returncode != 0:
+            return 1
+        left = sorted(p.name for p in (opencode / ".opencode/commands").glob("opsx-*.md")) \
+            if (opencode / ".opencode/commands").is_dir() else []
+        if left:
+            report(f"{label} keel --init --target opencode left command files: {left!r}")
+            return 1
+        # Any OpenSpec command — doctor runs some — records OpenSpec's own
+        # telemetry notice in the file it reads; everything else must stand.
+        settled = {k: v for k, v in json.loads(config.read_text()).items() if k != "telemetry"}
+        if settled != json.loads(before):
+            report(f"{label} a later run changed the global OpenSpec configuration: {config.read_text()!r}")
+            return 1
+        # Last: OpenSpec itself may record its telemetry notice in the file it reads.
+        listed = keel(passthrough, "openspec", "config", "list")
+        if "delivery: both" not in listed.stdout:
+            report(f"{label} keel openspec config list no longer reports the user's own delivery: {listed.stdout!r}")
+            return 1
+
+    if "openspec-skills-only" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("openspec-skills-only scenario passed.")
     return 0
 
 
@@ -11508,11 +11647,12 @@ def validate_openspec_surface_overlay_scenario() -> int:
             report(f"openspec-surface-overlay scenario OpenCode overlay failed: {error}")
             return 1
 
-        opencode_apply_command = opencode_repo / ".opencode/commands/opsx-apply.md"
+        # The skill, since Keel generates no command file (#406).
+        opencode_apply_skill = opencode_repo / ".opencode/skills/openspec-apply-change/SKILL.md"
         write_text(
-            opencode_apply_command,
+            opencode_apply_skill,
             strip_openspec_surface_overlay(
-                opencode_apply_command.read_text(encoding="utf-8")
+                opencode_apply_skill.read_text(encoding="utf-8")
             ),
         )
         opencode_missing_doctor = run_keel(
@@ -27182,9 +27322,9 @@ def validate_authoring_alignment_overlay_scenario() -> int:
             report("authoring-alignment-overlay Claude init failed:")
             report((claude_init.stderr or claude_init.stdout).strip())
             return 1
+        # Skills only since #406: Keel generates no `.claude/commands/opsx/`.
         claude_surfaces = (
             claude_repo / ".claude/skills/openspec-propose/SKILL.md",
-            claude_repo / ".claude/commands/opsx/propose.md",
         )
         for surface in claude_surfaces:
             content = surface.read_text(encoding="utf-8")
@@ -41710,6 +41850,7 @@ SCENARIOS: tuple = (
     ("version-alignment", validate_version_alignment_scenario),
     ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
+    ("openspec-skills-only", validate_openspec_skills_only_scenario),
     ("update-restores-overlays", validate_update_restores_overlays_scenario),
     ("uninstall", validate_uninstall_scenario),
     (
