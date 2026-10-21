@@ -15,6 +15,8 @@ Exit 0 means ready. Exit 1 lists items. Deal with each before going on, or stop 
 - Uncommitted changes, unpushed commits, a write guard, a lock lease, a linked worktree: commit and push, run `keel guard clear`, release the lease, or remove the worktree you made. Do not discard work to make the list empty.
 - A process: tell the host's from yours. A keep-awake the host started under this session, such as `caffeinate -i -t 300`, ends by itself, so it may stay. A server, watcher or job you started is yours: stop it, or ask the owner before leaving it running.
 
+Then act on the `memory:` note: recheck what this session wrote to memory, and remove what this shift made untrue or what the repository can answer. It never blocks the shift.
+
 A shift in the middle of a task throws away working state that compaction would have kept. If the task is not at a boundary, say so to the owner before going on.
 
 ## 2. Write the hand-off note

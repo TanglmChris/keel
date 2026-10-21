@@ -1,6 +1,6 @@
-# Keel v5.186.0 Agent Protocol
+# Keel v5.187.0 Agent Protocol
 
-<!-- keel:start version=5.186.0 -->
+<!-- keel:start version=5.187.0 -->
 ## Session Start
 - Before deciding what to do, run `keel context` and follow its versioned result; its read list is where to start, not a limit.
 - State that result — status, any selection, and the next action or failure reason — to the user in your first reply, unasked. A host may also show the projection directly; that is a second channel, not a substitute, because what the user needs to check is the state you are actually working from.
@@ -89,6 +89,11 @@
 - `keel/CHANGELOG.md` records Keel workflow/protocol/project-operation changes. Root `CHANGELOG.md` is product-facing only when the host project explicitly owns one.
 - `keel/archive/` stores historical source documents and evidence. Official OpenSpec stores completed changes under `openspec/changes/archive/`.
 
+## memory
+- Write to native memory only what the next session would get wrong without it and the repository cannot answer: why a decision was made, a host or toolchain fact found by investigation, the owner's stated preferences. Never record a one-off slip of your own, or what code, Git, OpenSpec, or this file already says.
+- Keep one fact per entry and split an entry that has grown into a compilation. Stamp a behavioral claim with the version and issue it was true at.
+- Recheck memory after a fix (grep it by the symptom's wording, since a fix invalidates what recorded the defect), at a release, and at a shift change, before the hand-off note; `keel shift check` reminds you. Remove what is no longer true. Keel itself reads and writes no memory.
+
 ## token discipline
 - Keep resident files concise and route detail into official OpenSpec artifacts or archive evidence.
 - A skill's stepwise guidance lives in a `guidance.md` beside its `SKILL.md` and is read before proceeding unless `keel/config.yaml` declares `executor_tier: high`; an absent or unreadable declaration reads it. The tier reaches guidance and nothing else — no gate, criterion, evidence requirement, or Review moves with it — and a guidance file states no criterion, which is checked rather than promised.
@@ -96,7 +101,7 @@
 ## preflight
 - Do not install automatically without explicit user approval.
 - If official OpenSpec instructions or Keel protocol files are missing for Full-mode work, ask the user to run `keel --init --target <target>` before creating Full-mode artifacts. Keel carries the OpenSpec CLI dependency; do not ask for a separate OpenSpec install unless the Keel package dependencies are broken.
-- If this repo is missing or partially missing the v5.186.0 protocol, prompt before install and suggest keel --init --target <target>.
+- If this repo is missing or partially missing the v5.187.0 protocol, prompt before install and suggest keel --init --target <target>.
 <!-- keel:end -->
 
 ## Project Conventions

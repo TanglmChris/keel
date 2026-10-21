@@ -35,10 +35,10 @@ os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite
 os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 
-PACKAGE_VERSION = "5.186.0"
+PACKAGE_VERSION = "5.187.0"
 
 
-PROTOCOL_VERSION = "5.186.0"
+PROTOCOL_VERSION = "5.187.0"
 
 
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
@@ -131,7 +131,14 @@ TEMPLATE_CHECKSUM_SUFFIX = " -->"
 #
 # 1400 rather than a round 1536: the headroom is "current content plus one short
 # clause", so the next addition has to argue for itself the way this one did.
-BOOTSTRAP_BLOCK_BYTE_BUDGET = 1400
+#
+# Raised from 1400 to 1700 in 5.187.0 for the memory rule (#416). The owner put
+# memory hygiene into the protocol on 2026-10-21, and memory argues the way
+# routing did: it is never inert. Any session may write to memory whether or not
+# a project declares anything, and the bootstrap is the only text that reaches a
+# consuming repository. The headroom is again current content plus one short
+# clause.
+BOOTSTRAP_BLOCK_BYTE_BUDGET = 1700
 
 
 RESIDENT_BLOCKS = [
@@ -153,6 +160,10 @@ RESIDENT_BLOCKS = [
             re.compile(r"Touch\b[^\n]*\bbound", re.IGNORECASE),
             # #414: subagents are the model's choice, treated as the main agent.
             "treated as the main agent is",
+            # #416: what memory may hold and when it is rechecked, as topics so
+            # the sentence can be reworded under the byte budget.
+            re.compile(r"memory[^\n]*repository cannot answer", re.IGNORECASE),
+            re.compile(r"memory[^\n]*shift change", re.IGNORECASE),
             "native plugin",
             "keel --init",
             # Routing is the one durable rule with no gate behind it, so the

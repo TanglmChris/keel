@@ -9,7 +9,7 @@ With `keel chat` roles bound, each step is also a record in the direct group bet
 | Who | Command | What it does |
 |---|---|---|
 | coordinator | `keel shift request <role> [text]` | With chat roles: posts a shift request to the role as a todo, which wakes it. Without them, tell the session any way you like. |
-| role | `keel shift check` | Read-only. Lists loose ends and exits 1 if there are any. |
+| role | `keel shift check` | Read-only. Lists loose ends and exits 1 if there are any. It always adds a `memory:` note, which reminds the session to recheck what it wrote to memory before the hand-off note. The note never blocks the shift (#416). |
 | role | `keel shift ready "<note>"` | Stores the note and closes the request, if there is one. Refused while `check` reports anything, unless `--force-reason "<why>"` is given. The note can also come from `--file` or stdin. |
 | role, working in another worktree | `keel shift ready --role <role> "<note>"` | Files the note under the role and closes its request, from a worktree bound to no role (#290). Without `--role`, `ready` in an unbound worktree is refused while any role's request is open, so a note cannot land where no request will find it. |
 | role | clear the session | Desktop app: `clear_session("self")`, which you approve, or `/clear`. Interactive CLI: `/clear`. Background CLI session (`claude --bg`): nothing — after `ready --wake`, a waiter replaces the session within seconds of its finishing, and `keel tick` does the same if the waiter is gone ([docs/cli-team.md](cli-team.md)). Codex: a new session. Keel runs none of these. |
