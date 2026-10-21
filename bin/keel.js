@@ -98,6 +98,7 @@ Usage:
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
   keel docx setup [--yes]   (Markdown with SVG to Word: list its packages; --yes installs them into ~/.keel/docx)
+  keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   (an existing output is kept without --replace)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)

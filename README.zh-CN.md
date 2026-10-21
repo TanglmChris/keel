@@ -844,6 +844,7 @@ keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # 含 SVG 的 Markdown 导出 Word，按需使用（依赖只在加 --yes 时安装，装到 ~/.keel/docx）
 keel docx setup [--yes]
+keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   # 输出已存在时不加 --replace 就保留原文件
 
 # 安装 / 维护
 keel --init    [--target <t>] [--dry-run] [--force-template-update]

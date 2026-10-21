@@ -37,6 +37,8 @@ const PACKAGES = [
 const USAGE = [
   "Usage:",
   "  keel docx setup [--yes]   list what the export needs; install it into the Keel-managed environment with --yes",
+  "  keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]",
+  "                            convert in that environment; an existing output is kept unless --replace is given",
 ].join("\n");
 
 function docxHome() {
@@ -120,6 +122,80 @@ function setup(argv) {
   return 0;
 }
 
+// The real path of a file that may not exist yet: its directory's, plus its name.
+function realTarget(file) {
+  const absolute = path.resolve(file);
+  try {
+    return fs.realpathSync(absolute);
+  } catch {
+    try {
+      return path.join(fs.realpathSync(path.dirname(absolute)), path.basename(absolute));
+    } catch {
+      return absolute;
+    }
+  }
+}
+
+function convert(argv) {
+  const fail = (message) => {
+    process.stderr.write(`keel docx convert: ${message}\n`);
+    return 1;
+  };
+  let input = null;
+  let output = null;
+  let template = null;
+  let replace = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--replace") replace = true;
+    else if ((arg === "-o" || arg === "--output" || arg === "--template") && argv[index + 1] !== undefined) {
+      index += 1;
+      if (arg === "--template") template = argv[index];
+      else output = argv[index];
+    } else if (!arg.startsWith("-") && input === null) input = arg;
+    else {
+      process.stderr.write(`keel docx convert: unexpected argument ${arg}\n${USAGE}\n`);
+      return 2;
+    }
+  }
+  if (input === null) {
+    process.stderr.write(`keel docx convert: no input file given\n${USAGE}\n`);
+    return 2;
+  }
+
+  const source = realTarget(input);
+  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) return fail(`${input} does not exist.`);
+  const target = realTarget(output === null ? `${source.slice(0, source.length - path.extname(source).length)}.docx` : output);
+  if (target === source) return fail(`the output ${target} is the input; name a different output with -o.`);
+  const styles = template === null ? null : realTarget(template);
+  if (styles !== null && !fs.existsSync(styles)) return fail(`the template ${template} does not exist.`);
+  const home = docxHome();
+  if (!fs.existsSync(path.join(home, "ready.json"))) {
+    return fail(`the environment in ${home} is not ready; run \`keel docx setup\` to see what it installs.`);
+  }
+  if (fs.existsSync(target) && !replace) {
+    return fail(`${target} already exists and was left as it is; give --replace to overwrite it.`);
+  }
+
+  const env = {
+    ...process.env,
+    MD2WORD_NODE: process.execPath,
+    MD2WORD_NODE_MODULES: path.join(home, "node", "node_modules"),
+  };
+  if (process.platform === "darwin" && !env.FONTCONFIG_FILE) {
+    env.FONTCONFIG_FILE = path.join(SKILL_SCRIPTS, "fonts-macos.conf");
+  }
+  const args = [path.join(SKILL_SCRIPTS, "md2word.py"), source, "-o", target];
+  if (styles !== null) args.push("--template", styles);
+  // The converter writes a temporary file and renames it over the output, so
+  // a failed run leaves the previous output as it was.
+  const result = spawnSync(environmentPython(home), args, { stdio: "inherit", env });
+  if (result.error) {
+    return fail(`the environment's Python did not run (${result.error.message}); rerun \`keel docx setup --yes\`.`);
+  }
+  return result.status === null ? 1 : result.status;
+}
+
 function runDocx(argv) {
   const [sub, ...rest] = argv;
   if (sub === undefined || sub === "--help" || sub === "-h" || sub === "help") {
@@ -127,6 +203,7 @@ function runDocx(argv) {
     return sub === undefined ? 2 : 0;
   }
   if (sub === "setup") return setup(rest);
+  if (sub === "convert") return convert(rest);
   process.stderr.write(`keel docx: unknown subcommand ${sub}\n${USAGE}\n`);
   return 2;
 }

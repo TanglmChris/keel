@@ -90,7 +90,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.3 `keel docx convert` refuses rather than overwrites, and runs the converter in the ready environment
+- [x] 1.3 `keel docx convert` refuses rather than overwrites, and runs the converter in the ready environment
   - Covers:
     - keel-md-docx-export / Convert refuses rather than overwrites / Before setup it names the setup command
     - keel-md-docx-export / Convert refuses rather than overwrites / An existing output is kept without --replace
@@ -117,7 +117,19 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:6e0feb8ab2396470bb1b4bb00d39a4be75759175787686287d6cb52d5e23ec91 (keel 5.190.0)
+    - M1: `--scenario docx-convert-refuses-first` exit 0, "docx-convert-refuses-first scenario passed." Real smoke with this worktree's `bin/keel.js` and the real `~/.keel`: `keel docx convert smoke405.md` exited 1 with "keel docx convert: the environment in /Users/my_home_mac/.keel/docx is not ready; run `keel docx setup` to see what it installs.", wrote no `smoke405.docx`, and `~/.keel/docx` did not exist before or after.
+    - M1.red: exit 1, "docx-convert-refuses-first: convert before setup does not say to run `keel docx setup`: 'keel docx: unknown subcommand convert\nUsage:\n  keel docx setup [--yes] …'". (The first draft checked only for `keel docx setup`, which the usage text already carries, so it passed that arm vacuously and failed later; tightened to the refusal's own wording before this red.)
+    - M1.green: exit 0 after `convert` landed in `src/core/docx.js`; all of its arms — refusal before setup, `--replace` keeping the bytes, missing input, same-file output, missing template, no converter run on refusal, argv and `MD2WORD_NODE`/`MD2WORD_NODE_MODULES` hand-off, `--template`, status 1 returned — passed.
+    - M2: `env -u KEEL_DOCX_TEST_ENV … --scenario docx-converts-markdown-with-svg` exit 3, "docx-converts-markdown-with-svg: skipped: no ready docx environment; set KEEL_DOCX_TEST_ENV to a KEEL_HOME where `keel docx setup --yes` has run."
+    - M2.red: exit 2, "unknown validation scenario: docx-converts-markdown-with-svg" (written but not yet registered).
+    - M2.green: exit 3 with the skip message above once registered in `scripts/validation/registry.py`.
+    - M3: `run_scenarios.sh` — PASS docx-setup-asks-first, PASS readme-states-the-cli, PASS readme-zh-matches-english; also PASS assertion-shape-count (after splitting four OR-guarded assertions in the new scenarios), docx-skill-ships, authored-scenario-names-are-registered, self-checks-read-every-module.
+    - Review:
+      - Status: pass
+      - Acceptance check: the three Convert scenarios are exercised through `keel docx convert` itself against stand-in executables (M1), and the skip scenario through the suite runner (M2); the real conversion checks exist but are not run here, per the owner's #405 decision not to install test dependencies.
+      - Scope check: only Touch files changed — `src/core/docx.js`, `bin/keel.js` HELP, `scripts/validation/export.py`, `scripts/validation/registry.py`, and the two READMEs' command blocks; the shipped converter is unchanged.
+      - Findings: The real conversion and the Chinese page-by-page rendering stay unverified on every host; Durable owner: keel/archive/skill-evidence/keel-md-docx-v1.md
     - Blocker: none
     - Reauthorizations: none
 

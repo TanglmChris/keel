@@ -1002,6 +1002,7 @@ keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # Markdown with SVG to Word, on request (packages installed only with --yes, into ~/.keel/docx)
 keel docx setup [--yes]
+keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   # an existing output is kept without --replace
 
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
