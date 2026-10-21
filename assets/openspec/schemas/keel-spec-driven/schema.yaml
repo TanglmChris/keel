@@ -137,7 +137,7 @@ artifacts:
       final assertions, immediate task-stop conditions, and
       evidence. The task must agree with design.md's Coupled Iteration Contract.
 
-      `/opsx:apply` works through the unchecked tasks of this file in order. Any
+      `openspec-apply-change` works through the unchecked tasks of this file in order. Any
       repository file may be read needed for the selected task; Read lists required
       starting context, not a read allowlist. The Slice Start Gate requires each
       selected current slice or contiguous slice group to name source
@@ -183,7 +183,7 @@ apply:
     - tasks
   tracks: tasks.md
   instruction: |
-    Use `/opsx:apply` as the implementation entry for Keel-managed work.
+    Use the `openspec-apply-change` skill as the implementation entry for Keel-managed work.
 
     Apply workflow:
     1. Read the current change's proposal.md, specs, design.md when present, and tasks.md.
@@ -200,5 +200,5 @@ apply:
     12. Modify only files listed under Touch. If modifying any other file is required, stop and report an Out-of-scope Need with file or area, why needed, consequence if unchanged, minimal proposed change, and evidence.
     13. Do not commit or push unless the selected task, a human instruction, or a standing authorization in `keel/config.yaml` allows it.
     14. After each iteration, compare Changed Files and command evidence with the selected task contract before checking tasks complete.
-    15. Run `keel-review-checklist` only at completion gates: after a complete task group, before `/opsx:sync openspec/changes/<change>/tasks.md` or `/opsx:archive openspec/changes/<change>/tasks.md`, before meaningful handoff, or when implementation reports risks, follow-ups, or out-of-scope need. No hook gates completion; running the gates is the agent's own step.
+    15. Run `keel-review-checklist` only at completion gates: after a complete task group, before `openspec-sync-specs` or `openspec-archive-change` for `openspec/changes/<change>/tasks.md`, before meaningful handoff, or when implementation reports risks, follow-ups, or out-of-scope need. No hook gates completion; running the gates is the agent's own step.
     16. Before archive or handoff, unresolved follow-ups must be owned by current OpenSpec tasks, a new OpenSpec change, archive evidence, or an explicit discard reason.

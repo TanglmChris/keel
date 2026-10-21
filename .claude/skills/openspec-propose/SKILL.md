@@ -17,7 +17,7 @@ I'll create a change with artifacts:
 - design.md (how)
 - tasks.md (implementation steps)
 
-When ready to implement, run /opsx:apply
+When ready to implement, run /openspec-apply-change
 
 ---
 
@@ -94,7 +94,7 @@ After completing all artifacts, summarize:
 - Change name and location
 - List of artifacts created with brief descriptions
 - What's ready: "All artifacts created! Ready for implementation."
-- Prompt: "Run `/opsx:apply` or ask me to implement to start working on the tasks."
+- Prompt: "Run `/openspec-apply-change` or ask me to implement to start working on the tasks."
 
 **Artifact Creation Guidelines**
 
@@ -113,7 +113,7 @@ After completing all artifacts, summarize:
 - If a change with that name already exists, ask if user wants to continue it or create a new one
 - Verify each artifact file exists after writing before proceeding to next
 
-<!-- keel:openspec-surface-overlay version=5.181.0 -->
+<!-- keel:openspec-surface-overlay version=5.182.0 -->
 ## Keel Authoring Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.

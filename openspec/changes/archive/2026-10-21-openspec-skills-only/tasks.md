@@ -1,0 +1,191 @@
+# Tasks
+
+## 1. One copy of each OpenSpec workflow
+
+- [x] 1.1 Run Keel's OpenSpec init and update with skills delivery, and have doctor expect no command files
+  - Covers:
+    - keel-openspec-surface-overlay / Keel generates OpenSpec workflows as skills only / A global both delivery still yields skills only
+    - keel-openspec-surface-overlay / Keel generates OpenSpec workflows as skills only / Command files from a both delivery are removed
+    - keel-openspec-surface-overlay / Keel generates OpenSpec workflows as skills only / A pass-through update generates skills only
+    - keel-openspec-surface-overlay / Keel overlays every action in the managed set / Claude surfaces receive the overlay for every managed action
+    - keel-openspec-surface-overlay / Keel overlays every action in the managed set / OpenCode surfaces receive the overlay for the actions it has
+    - keel-openspec-surface-overlay / Keel overlays every action in the managed set / A command file a repository still holds keeps its overlay
+    - keel-target-surface-diagnostics / Doctor expects no OpenSpec command files on Claude and OpenCode / A skills-only repository reads healthy
+    - keel-target-surface-diagnostics / Doctor expects no OpenSpec command files on Claude and OpenCode / Leftover command files read as duplicates
+    - D1
+    - D2
+    - D3
+    - D4
+  - Read:
+    - openspec/changes/openspec-skills-only/design.md
+    - bin/keel.js
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario openspec-skills-only`: with `XDG_CONFIG_HOME` pointing at a configuration that declares `delivery: both`, `keel --init --target claude` leaves the five workflow skills under `.claude/skills/` with the overlay on the four managed ones, no file under `.claude/commands/opsx/`, no `/opsx:` in any generated skill, and the configuration file byte-for-byte unchanged; a planted `.claude/commands/opsx/apply.md` is removed by `keel --init --target claude` and, in another repository, by `keel openspec update --force`, after which `keel openspec config list` still reports `delivery: both`; `keel --init --target opencode` leaves no `.opencode/commands/opsx-*.md`; `keel --install --target claude` overlays a planted command file; and `keel --doctor --target claude` reads the OpenSpec commands line `ok` and the overlay line `ok` with `4/4` on the skills-only repository, and `duplicate` naming 1 command file and `keel --init --target claude` with one planted. Fails with: `openspec-skills-only:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario <name>` passes for each of `target-capability-adapters`, `target-surface`, `thin-native-install`, `sync-surface-overlay`, `openspec-surface-overlay`, `update-restores-overlays`, `uninstall`, `doctor-openspec-honesty`, `the-overlay-names-the-invocation`, `delegation-overlay`, `fast-pre-push-doctor`, `authoring-alignment-overlay`, `refresh-covers-every-target`, `init-declares-plugin-auto-update`, `init-never-downgrades-openspec`, `native-plugin-install-matrix`, `dry-run-overlay-accounting`, and `domain-lens-doctor`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:067f058a1e06a1839298769663edc627b2db9cf2675d66788115a824c4778ade (keel 5.180.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario openspec-skills-only` reports `openspec-skills-only scenario passed.` (exit 0), against the pinned OpenSpec 1.14.0 under `node_modules/.bin`: with `XDG_CONFIG_HOME` pointing at a `delivery: both` configuration, `keel --init --target claude` left the five skills, overlays on the four managed ones, no `.claude/commands/opsx/` file, no `/opsx:` in OpenSpec's own skill text, and the configuration byte-for-byte unchanged; doctor read `OpenSpec commands: ok - none; Keel generates OpenSpec's workflows as skills only (#406)` and the overlay `ok` `4/4`; a planted `apply.md` was overlaid by `--install`, read `duplicate` naming 1 file, `.claude/commands/opsx`, and `keel --init --target claude`, and was removed by `--init` and, in a second repository, by `keel openspec update --force`; `--init --target opencode` left no `opsx-*.md`; `keel openspec config list` still printed `delivery: both`. The later configuration comparison excludes the `telemetry` key, which OpenSpec itself adds when doctor runs an OpenSpec command (measured with a probe script: unchanged after `--init`, changed only after `--doctor`, and only by `telemetry`).
+    - M1.red: fail. Before the change: `openspec-skills-only: with a global \`delivery: both\`, keel --init left command files: ['apply.md', 'archive.md', 'explore.md', 'propose.md', 'sync.md']` (exit 1) — the #406 symptom.
+    - M1.green: pass. With `withSkillsDelivery()` in `bin/keel.js` (the user's global OpenSpec configuration with `delivery: "skills"` written under a temporary `XDG_CONFIG_HOME`, removed after the run) around `runOpenSpec` and the `keel openspec init|update` pass-through, Claude and OpenCode command surfaces marked `retired` with doctor reading `ok` for none and `duplicate` for leftovers, and command files overlaid only while they exist, the scenario passed.
+    - M2: pass. All 18 named scenarios report `PASS`. Five needed their expectations moved to skills only, each inside Touch: `target-surface` (the Claude and OpenCode commands lines now say `skills only`), `openspec-surface-overlay` (the missing-marker probe strips the OpenCode apply skill rather than a command file), `sync-surface-overlay` and `authoring-alignment-overlay` (Claude surfaces are the skills; the explore probe now reads the skill that exists), and `update-restores-overlays`, through the shared helpers `openspec_overlay_files` and `expected_overlay_surfaces`, which count a command file only while it exists.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel --init`, `--install`, `--doctor`, and `keel openspec update|config list` against the pinned OpenSpec, a `both` global configuration yields one skill per workflow and no command file on Claude and OpenCode, leftovers are removed by the next generating run and reported `duplicate` until then, and the user's configuration keeps every field Keel could have changed.
+      - Scope check: `git status --short` lists `bin/keel.js`, `scripts/validate_plugin.py`, and this change's directory.
+      - Findings: doctor runs an OpenSpec command that makes OpenSpec record its telemetry notice in the user's global configuration. Discard reason: OpenSpec's own behavior on any command, unchanged by this task and unrelated to `delivery`; Keel writes nothing there.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Name the OpenSpec workflows by skill in shipped guidance and this repository's protocol
+  - Covers:
+    - keel-openspec-surface-overlay / Shipped guidance names the OpenSpec workflows by skill / No shipped guidance names an opsx command
+    - keel-openspec-surface-overlay / Archive overlay skips already-promoted specs and reminds to clear the guard / Archive after sync skips specs
+    - D5
+  - Read:
+    - openspec/changes/openspec-skills-only/design.md
+  - Touch:
+    - bin/keel.js
+    - scripts/validate_plugin.py
+    - README.md
+    - README.zh-CN.md
+    - AGENTS.md
+    - src/skills/keel-review-checklist/SKILL.md
+    - src/skills/keel-debug-failure/SKILL.md
+    - src/skills/keel-align-expectations/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-debug-failure/SKILL.md
+    - plugins/keel/skills/keel-align-expectations/SKILL.md
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - openspec/schemas/keel-spec-driven/schema.yaml
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario guidance-names-openspec-skills`: the archive overlay text `bin/keel.js` writes, `README.md`, `README.zh-CN.md`, every `SKILL.md` under `src/skills/` and `plugins/keel/skills/`, and `assets/openspec/schemas/keel-spec-driven/schema.yaml` contain no `/opsx:`, the archive overlay names `openspec-sync-specs`, and the managed block of `AGENTS.md` contains no `/opsx:` and no `commands/opsx`. Fails with: `guidance-names-openspec-skills:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py` (the baseline), `--scenario openspec-surface-overlay`, `--scenario sync-surface-overlay`, `--scenario docs-zh-match-english`, and `--scenario openspec-skills-only` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:25479857a09486f7cd98e46f7aae4e1f78d2007bdb4b8641fc4b30eabc73f388 (keel 5.181.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario guidance-names-openspec-skills` reports `guidance-names-openspec-skills scenario passed.` (exit 0): neither README, the Keel schema, nor any `SKILL.md` under `src/skills/` and `plugins/keel/skills/` contains `/opsx:`; the `AGENTS.md` managed block contains neither `/opsx:` nor `commands/opsx`; and the archive overlay that a real `keel --init --target claude` writes names `openspec-sync-specs` and no `/opsx:` command.
+    - M1.red: fail. Before the change: `guidance-names-openspec-skills: shipped guidance still names \`/opsx:\` commands: ['README.md', 'README.zh-CN.md', 'assets/openspec/schemas/keel-spec-driven/schema.yaml', 'src/skills/keel-align-expectations/SKILL.md', 'src/skills/keel-debug-failure/SKILL.md', 'src/skills/keel-review-checklist/SKILL.md', 'plugins/keel/skills/keel-align-expectations/SKILL.md', 'plugins/keel/skills/keel-debug-failure/SKILL.md', 'plugins/keel/skills/keel-review-checklist/SKILL.md']` (exit 1).
+    - M1.green: pass. With the workflows named by skill in both READMEs (the loop diagram, the host-surface sentence, the skills bullet), the three Keel skills in both copies, both schema copies, the archive overlay line and its comment in `bin/keel.js`, and the three protocol lines in `AGENTS.md` (the implementation entry, the sync/archive gate, and the per-target surface line, which now says every target gets skills only), the scenario passed. A first green attempt failed on README wording that itself wrote `/opsx:`; it now says "no OpenSpec slash commands".
+    - M2: pass. The baseline (`Keel v4.1.0 baseline validation passed.`) after its review-checklist and schema required phrases moved from `/opsx:apply`/`/opsx:sync`/`/opsx:archive` to the skill names; `openspec-surface-overlay`, `sync-surface-overlay`, `docs-zh-match-english`, and `openspec-skills-only` each `PASS`.
+    - Review:
+      - Status: pass
+      - Acceptance check: the shipped text a reader or agent acts on names workflows that exist under skills-only delivery, checked by reading the files and the overlay a real init writes.
+      - Scope check: `git status --short` lists exactly the Touch files plus this change's `tasks.md`; the `archive-overlay-hygiene` error message in `scripts/validate_plugin.py` was reworded to match.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 Drop this repository's own OpenSpec command files
+  - Covers:
+    - D6
+  - Read:
+    - openspec/changes/openspec-skills-only/design.md
+  - Touch:
+    - .claude/commands/opsx/propose.md
+    - .claude/commands/opsx/explore.md
+    - .claude/commands/opsx/apply.md
+    - .claude/commands/opsx/sync.md
+    - .claude/commands/opsx/archive.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-explore/SKILL.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - scripts/validate_plugin.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario own-surface-is-skills-only`: this repository holds no file under `.claude/commands/opsx/`, no `.claude/skills/openspec-*/SKILL.md` contains `/opsx:`, and `node bin/keel.js --doctor --target claude` run here reads the OpenSpec commands line `ok` and the Keel overlay line `ok`. Fails with: `own-surface-is-skills-only:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario delegation-overlay`, `--scenario native-capabilities-unrestricted`, `--scenario surfaces-agree-with-code`, and `--scenario version-alignment` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:517fefcd6db2a5cbe22f59ea13b11b04b99a0a6008af6c6039551c2dbbb43776 (keel 5.181.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario own-surface-is-skills-only` reports `own-surface-is-skills-only scenario passed.` (exit 0): no `.claude/commands/opsx/` here, no `/opsx:` in `.claude/skills/openspec-*/SKILL.md`, and `node bin/keel.js --doctor --target claude` here reads both the OpenSpec commands line and the Keel overlay line `ok`.
+    - M1.red: fail. Before the change: `own-surface-is-skills-only: this repository still holds OpenSpec command files: ['apply.md', 'archive.md', 'explore.md', 'propose.md', 'sync.md']` (exit 1).
+    - M1.green: pass. `git rm` of the five `.claude/commands/opsx/*.md`; `node bin/keel.js --install --target claude` here refreshed the archive overlay in `.claude/skills/openspec-archive-change/SKILL.md` and `.codex/skills/openspec-archive-change/SKILL.md` to 1.2's wording (`refreshed=1 current=3` for each); and `/opsx:apply` (apply, propose ×2) and `/opsx:explore` were rewritten to `/openspec-apply-change` and `/openspec-explore` with OpenSpec 1.14's `COMMAND_TO_SKILL_NAME` mapping. The scenario passed.
+    - M2: pass. `delegation-overlay`, `native-capabilities-unrestricted`, `surfaces-agree-with-code`, and `version-alignment` each `PASS`, after the three that listed this repository's command files read the skills instead.
+    - Review:
+      - Status: pass
+      - Acceptance check: this checkout carries the surface the change makes Keel generate, proven by reading it and by doctor run against it.
+      - Scope check: `git status --short` lists the five deleted command files, four `.claude/skills/openspec-*` files, `.codex/skills/openspec-archive-change/SKILL.md`, `scripts/validate_plugin.py`, and this change's `tasks.md`, all in Touch after the reauthorization below.
+      - Findings: this repository's OpenSpec skills remain the 1.6.0-generated bodies, and `.codex/skills` is the legacy Codex layout. Discard reason: regenerating them under 1.14 rewrites every body and moves Codex to `.agents/skills`, a separate migration of this repository's own surfaces outside #406 (D6).
+    - Blocker: none
+    - Reauthorizations: 2026-10-21 — added `.codex/skills/openspec-archive-change/SKILL.md` to Touch before any product write beyond the test and the `git rm`: refreshing this repository's overlays to 1.2's archive wording also rewrites the Codex archive skill's overlay block. Re-recorded with `keel gate task-start --record` (fingerprint 6571527c… → 517fefcd…).
+
+## 2. Release
+
+- [x] 2.1 Release and promote the specs
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validate_plugin.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+    - openspec/specs/keel-target-surface-diagnostics/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and the spec promotion; the behavior is proven in 1.1, 1.2 and 1.3, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the deltas are promoted into `keel-openspec-surface-overlay` and `keel-target-surface-diagnostics`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:30f83f97cd15b5eb18cb86d7bbb4a8897a28009cbedb8ac61740c9da608fd657 (keel 5.181.0)
+    - M1: after merging origin/main at 5.181.0 (the four `.claude/commands/opsx/*` files it had re-marked resolved as deleted), `node scripts/bump_version.js minor` moved every marker 5.181.0 → 5.182.0; with the "Each OpenSpec workflow is installed once, as a skill" section written into the stub, `version-alignment scenario passed.` (exit 0).
+    - M2: the three modified and two added requirements were promoted into `keel-openspec-surface-overlay`, and the added doctor requirement into `keel-target-surface-diagnostics`; `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit d96abe7 (clean tree), started 10:01 at load 9.97: `validation --all passed: baseline plus 308 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The first run, on a57c882 at 09:55, failed only `assertion-shape-count` (76 OR-guarded sites, 74 recorded) on two combined conditions in `openspec-skills-only`; d96abe7 split them.
+    - Review:
+      - Status: pass
+      - Acceptance check: E4 — version markers, the 5.182.0 changelog section, and both published specs carry the change; I3 is updated by the promotion; the full suite passes on the committed tree.
+      - Scope check: files beyond tasks 1.1–1.3 are the version markers, `keel/CHANGELOG.md`, and the two published specs, all in Touch; the assertion split stays in `scripts/validate_plugin.py`, which is in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Do the spec work through OpenSpec's commands (`/opsx:propose`, `/opsx:apply`, `/opsx:sync`, `/opsx:archive`)" and "the `/opsx:*` command overlay" — `README.md`, and the same lines in `README.zh-CN.md`. Updated by: 1.2.
+- I2: "Use `/opsx:apply` as the implementation entry", "`/opsx:sync` and `/opsx:archive` completion is gated", and "OpenCode uses project-local `.opencode/commands/opsx-*.md`" — this repository's `AGENTS.md`. Updated by: 1.2.
+- I3: "`.claude/commands/opsx/propose.md`, `apply.md`, `archive.md`, and `sync.md` each contain the Keel overlay marker" and "The archive overlay MUST sequence `/opsx:sync` before archive" — `keel-openspec-surface-overlay`. Updated by: 2.1.
+- I4: "run keel --init --target claude or openspec update --force" as the remedy for missing Claude command files — doctor in `bin/keel.js`. Updated by: 1.1.
+- I5: "When `/opsx:sync` has already promoted the change's spec delta" — the archive overlay text in `bin/keel.js`, and the `/opsx:apply` mentions in the three Keel skills and the Keel schema. Updated by: 1.2.
+- I6: "the `/opsx:*` command overlay" and other `/opsx:` mentions in earlier sections — `keel/CHANGELOG.md`. Discard reason: release history records what each version shipped and is not rewritten.
+- I7: "`.claude/commands/opsx/apply.md`" and its siblings in consumer repositories such as kaiwu-ip, which keep them until their next `keel --init`. Discard reason: those files belong to each repository; after this release doctor reports them `duplicate` and names `keel --init --target claude`, which removes them.
+
+## Expectation Coverage
+
+- E1: A Keel-managed repository carries one copy of each OpenSpec workflow, as a skill, whatever the user's global `delivery`, and Keel never writes that global file (#406; D1, D2, D3). Covered by: 1.1
+- E2: Doctor reads a skills-only repository as healthy and names leftover command files as duplicates with the remedy (D4). Covered by: 1.1
+- E3: Guidance and this repository's own surface name no command that no longer exists (D5, D6). Covered by: 1.2, 1.3
+- E4: The release carries it. Covered by: 2.1
