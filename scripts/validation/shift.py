@@ -4542,8 +4542,11 @@ def validate_memory_rule_reaches_every_repo_scenario() -> int:
 
         rtl, verify, env, _ = shift_scratch(base / "team")
         text = run_keel(verify, "shift", "check", env=env)
-        if text.returncode != 0 or "keel shift check: ready" not in text.stdout:
-            report(f"{label} a clean bound worktree is not ready: {text.stdout!r}")
+        if text.returncode != 0:
+            report(f"{label} keel shift check exited {text.returncode} in a clean bound worktree: {text.stdout!r}")
+            return 1
+        if "keel shift check: ready" not in text.stdout:
+            report(f"{label} a clean bound worktree is not reported ready: {text.stdout!r}")
             return 1
         if not re.search(r"^note: memory: .*hand-off note", text.stdout, re.MULTILINE):
             report(f"{label} keel shift check prints no memory note: {text.stdout!r}")

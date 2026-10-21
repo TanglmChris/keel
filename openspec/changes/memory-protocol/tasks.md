@@ -76,6 +76,7 @@
     - plugins/keel/.claude-plugin/plugin.json
     - plugins/keel/.codex-plugin/plugin.json
     - scripts/validation/common.py
+    - scripts/validation/shift.py
     - AGENTS.md
     - CLAUDE.md
     - assets/bootstrap/AGENTS.md
@@ -100,7 +101,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:c40b0e43f59c94a0dc72be3e4251ddf6c2e81dd02ec06a8b37866015d3b9b672 (keel 5.186.0)
+    - Contract: keel-task-capsule/v1 sha256:5fae2a6c7ccb8eb78fa110639dc94c4cf1f862154b9126b4e45f2ea67743a22c (keel 5.187.0)
     - M1:
     - M2:
     - M3:
@@ -110,7 +111,7 @@
       - Scope check:
       - Findings:
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-21 14:50, before any Evidence was recorded. The first `npm test` on commit cad31000 failed only `assertion-shape-count` (75 sites against 74 recorded). 1.1's new scenario guards two failures behind one message at `scripts/validation/shift.py`: a non-zero exit, and a missing ready line. `scripts/validation/shift.py` joins this task's Touch so the condition can be split. 1.1's M2 had not listed `assertion-shape-count`.
 
 ## Invalidates
 
