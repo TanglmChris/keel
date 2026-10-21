@@ -1,0 +1,158 @@
+# Tasks
+
+## 1. Markdown with SVG to Word, on request
+
+- [ ] 1.1 Ship the `keel-md-docx` skill with the prototype's converter files
+  - Covers:
+    - keel-md-docx-export / The export skill loads only when asked / The plugin carries the skill and its converter
+    - D1
+    - D5
+  - Read:
+    - openspec/changes/md-docx-export/design.md
+  - Touch:
+    - src/skills/keel-md-docx/SKILL.md
+    - src/skills/keel-md-docx/scripts/md2word.py
+    - src/skills/keel-md-docx/scripts/runtime.mjs
+    - src/skills/keel-md-docx/scripts/fonts-macos.conf
+    - src/skills/keel-md-docx/scripts/requirements.txt
+    - src/skills/keel-md-docx/scripts/package.json
+    - plugins/keel/skills/keel-md-docx/SKILL.md
+    - plugins/keel/skills/keel-md-docx/scripts/md2word.py
+    - plugins/keel/skills/keel-md-docx/scripts/runtime.mjs
+    - plugins/keel/skills/keel-md-docx/scripts/fonts-macos.conf
+    - plugins/keel/skills/keel-md-docx/scripts/requirements.txt
+    - plugins/keel/skills/keel-md-docx/scripts/package.json
+    - keel/archive/skill-evidence/keel-md-docx-v1.md
+    - scripts/validation/export.py
+    - scripts/validation/registry.py
+    - scripts/validation/hosts.py
+    - bin/keel.js
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-skill-ships`: `plugins/keel/skills/keel-md-docx/` holds `SKILL.md` and `scripts/md2word.py`, `runtime.mjs`, `fonts-macos.conf`, `requirements.txt`, `package.json`, byte-identical to `src/skills/keel-md-docx/`; `md2word.py` and `runtime.mjs` carry the SHA-256 sums #405 states (`73331af5…`, `7fa52c33…`); the description names Markdown, SVG, and Word; the body names `keel docx setup`, `--yes`, `--replace`, all five packages with their licences, and "unverified"; and `keel/archive/skill-evidence/keel-md-docx-v1.md` carries at least two positive and two negative trigger cases and a licence line for each package. Fails with: `docx-skill-ships:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py` (the baseline), `--scenario skill-portability-policy`, `--scenario native-plugin-manifests`, `--scenario directory-tree-is-the-package-renamed`, `--scenario guidance-is-referenced-and-carries-no-criterion`, and `--scenario guidance-names-openspec-skills` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 `keel docx setup` lists without `--yes` and installs into the managed environment with it
+  - Covers:
+    - keel-md-docx-export / Setup lists before it installs / Without --yes nothing is installed
+    - keel-md-docx-export / Setup lists before it installs / With --yes the packages go into the managed environment
+    - keel-md-docx-export / Setup lists before it installs / A failed step leaves the environment not ready
+    - D2
+    - D3
+    - D7
+  - Read:
+    - openspec/changes/md-docx-export/design.md
+    - bin/keel.js
+  - Touch:
+    - src/core/docx.js
+    - bin/keel.js
+    - scripts/validation/export.py
+    - scripts/validation/registry.py
+    - scripts/validation/baseline.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-setup-asks-first`: with `KEEL_HOME` a temporary directory and stand-in Python (`KEEL_PYTHON`) and npm (`KEEL_DOCX_NPM`) that log their calls, `keel docx setup` exits 0 naming python-docx, lxml, Pillow, marked, sharp, their licences, `<KEEL_HOME>/docx`, and `--yes`, with no stand-in called and no `docx` directory created; `keel docx setup --yes` calls `-m venv <home>/docx/python`, then the environment's Python with `-m pip install -r` the shipped `requirements.txt`, then npm `install --prefix <home>/docx/node`, and writes `ready.json`; with the stand-in npm failing it exits 1 naming the npm step and leaves no `ready.json`. Fails with: `docx-setup-asks-first:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py` (the baseline), `--scenario readme-states-the-cli`, `--scenario readme-zh-matches-english`, and `--scenario docx-skill-ships` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.3 `keel docx convert` refuses rather than overwrites, and runs the converter in the ready environment
+  - Covers:
+    - keel-md-docx-export / Convert refuses rather than overwrites / Before setup it names the setup command
+    - keel-md-docx-export / Convert refuses rather than overwrites / An existing output is kept without --replace
+    - keel-md-docx-export / Convert refuses rather than overwrites / A ready environment runs the converter
+    - keel-md-docx-export / The export skill loads only when asked / The conversion checks skip without an environment
+    - D4
+    - D6
+  - Read:
+    - openspec/changes/md-docx-export/design.md
+    - src/core/docx.js
+  - Touch:
+    - src/core/docx.js
+    - bin/keel.js
+    - scripts/validation/export.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-convert-refuses-first`: with `KEEL_HOME` a temporary directory, `keel docx convert in.md` before setup exits nonzero naming `keel docx setup` and writes nothing; with a ready environment whose stand-in Python logs its argv and environment and writes the output, an existing `in.docx` is refused naming `--replace` and keeps its bytes, a missing input and a same-file output are refused, and with `--replace` the stand-in receives the shipped `md2word.py`, the input, `-o` the output, and `--template` when given, with `MD2WORD_NODE` and `MD2WORD_NODE_MODULES` set and the converter's exit status returned. Fails with: `docx-convert-refuses-first:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-converts-markdown-with-svg` with no `KEEL_DOCX_TEST_ENV` exits 3 naming `KEEL_DOCX_TEST_ENV`. Fails with: `docx-converts-markdown-with-svg`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-setup-asks-first`, `--scenario readme-states-the-cli`, and `--scenario readme-zh-matches-english` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release
+  - Covers:
+    - E5
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-md-docx-export/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task's effect is version markers, a changelog entry, and publishing the new spec; the behavior is proven in 1.1–1.3, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the new capability is published as `openspec/specs/keel-md-docx-export/spec.md` with a Purpose, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "One skill carries a guidance file today" … "The other four are almost entirely criteria" — `README.md`, and "其他四个几乎全是准则" in `README.zh-CN.md`. Updated by: 1.1.
+- I2: the `keel` command list in `HELP` and in the README pair's command block, which names no `docx` command. Updated by: 1.2, 1.3.
+- I3: "No skill ships executable files" holds nowhere in the repository's text, but `PLUGIN_SKILLS` in `scripts/validation/hosts.py` and `KEEL_SKILLS` in `bin/keel.js` list five skills. Updated by: 1.1.
+
+## Expectation Coverage
+
+- E1: The skill and its converter ship in the keel plugin and load only on request (#405; D1, D5). Covered by: 1.1
+- E2: Nothing is installed without the user's confirmation, and then only into the Keel-managed environment (#405; D2, D3, D7). Covered by: 1.2
+- E3: An existing output is never replaced without `--replace`, and a failed conversion never touches it (#405; D4). Covered by: 1.3
+- E4: Real conversion of every supported SVG form, the failure cases, and a Chinese mixed-text example rendered page by page are verified on a provisioned environment. Durable owner: keel/archive/skill-evidence/keel-md-docx-v1.md
+- E5: The release carries it. Covered by: 2.1
