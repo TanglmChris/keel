@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.179.0 - A version the registry does not serve yet reads pending, and a release waits for the registry
+
+Issue #421. Right after every release from 5.171.0 to 5.177.0, `keel --update` reported the Claude plugin `failed` with `E404 No match found for version`, and a rerun a few minutes later succeeded. The registry the owner reaches through a proxy did not serve the new version yet, while the Claude marketplace, read from Git, already named it. On 2026-10-21 the owner chose to fix both ends.
+
+- `keel --update`: when `claude plugin update` fails with `E404 No match found for version X` and `npm view @christang/keel version` answers an older version, the Claude line reads `pending`, names both versions, and says to rerun `keel --update` in a few minutes. It does not fail the command. An E404 for a version the registry already serves, or an `npm view` that fails, still reads `failed`.
+- `keel --update`: from the default source, the CLI line names the version the npm registry served as its latest, so `current` right after a release says what the registry served.
+- `publish.yml`: after `npm publish`, the job runs the new `scripts/await_registry.js` and creates the tag and release only once registry.npmjs.org serves the version. It polls every 15 s for at most 15 minutes. A timeout fails the job before the tag, so a re-run waits again. A proxy or mirror can still lag, which the `pending` line covers.
+- `docs/updating.md` lists `pending` and no longer calls a `failed` line after a release expected.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.179.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.178.0 - An old CLI shift leaves the session list after its hand-over
 
 Issue #418, at the owner's request; the shift feature is frozen otherwise. Since 5.168.0 a hand-over stopped the old shift's session but left it listed, named like the current one but for the time, and the owner kept mistaking it for a live one. On 2026-10-21 the owner compared three probes in the claude.ai, desktop, and phone lists. A stopped session and one disconnected from Remote Control before stopping both still read as sessions. Only one removed with `claude rm` was gone, and the owner chose that.
