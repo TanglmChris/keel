@@ -48,6 +48,7 @@ from validation.baseline import (
     validate_templates,
 )
 from validation.registry import SCENARIOS
+from validation import evidence
 
 
 def run_baseline() -> int:
@@ -104,6 +105,7 @@ def run_all(jobs: int) -> int:
     if skipped:
         summary += f", {len(skipped)} skipped: {', '.join(skipped)}"
     report(f"{summary}.")
+    report(evidence.evidence_line(evidence.classify(SCENARIOS), {name for name, _ in SCENARIOS} - set(skipped)))
     return 0
 
 
@@ -138,6 +140,7 @@ def run_group(group: str, jobs: int) -> int:
     if skipped:
         summary += f", {len(skipped)} skipped: {', '.join(skipped)}"
     report(f"{summary}.")
+    report(evidence.evidence_line(evidence.classify(SCENARIOS), set(names) - set(skipped)))
     return 0
 
 
@@ -169,6 +172,15 @@ def main() -> int:
             report(f"usage: validate_plugin.py --group NAME [--jobs N], got: {' '.join(rest)}")
             return 2
         return run_group(sys.argv[2], jobs)
+
+    if sys.argv[1:2] == ["--evidence"]:
+        rest = sys.argv[2:]
+        if rest not in ([], ["--markdown"]):
+            report(f"usage: validate_plugin.py --evidence [--markdown], got: {' '.join(rest)}")
+            return 2
+        classes = evidence.classify(SCENARIOS)
+        print(evidence.render_markdown(classes) if rest else evidence.render(classes))
+        return 0
 
     return run_baseline()
 

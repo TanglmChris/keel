@@ -185,6 +185,9 @@ jobs:
         run: |
           set -euo pipefail
           awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f = 1; next} /^## / && f {exit} f' keel/CHANGELOG.md > notes.md
+          # What kind of evidence the gate ran: deterministic, stand-in host,
+          # real host, and what can skip (#408).
+          node scripts/run_python.js scripts/validate_plugin.py --evidence --markdown >> notes.md
           title="$(awk -v v="$VERSION" 'index($0, "## " v " - ") == 1 {print substr($0, length("## " v " - ") + 1); exit}' keel/CHANGELOG.md)"
           # Anthropic's plugin directory tracks the claude-directory branch:
           # the npm package's files with the manifest named keel-openspec
