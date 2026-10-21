@@ -66,7 +66,7 @@ const OPENSPEC_SKILLS = [
 // `sync` is here because `AGENTS.md` gates it exactly as it gates archive —
 // `keel gate change-close --action sync|archive` plus `keel-review-checklist`.
 // Archive's surface said so and sync's said nothing, so an agent invoking
-// `/opsx:sync` read generic upstream instructions with no mention of the gate
+// the sync workflow read generic upstream instructions with no mention of the gate
 // that decides whether the sync may complete. `explore` is deliberately absent:
 // it reads and reports, reaches no gate, and changes no state, so an overlay
 // there would read as governance where there is none.
@@ -1946,7 +1946,7 @@ function keelOpenSpecOverlay(action) {
       : [
           "- Archive completion is gated by `keel gate change-close --action archive` plus `keel-review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.",
           "- Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
-          "- When `/opsx:sync` has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
+          "- When the `openspec-sync-specs` skill has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
           "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",
           "- A repository that standing-authorizes `archive` in `keel/config.yaml` does not need the per-occurrence archive confirmation; a repository that declares nothing still needs it.",
           "- The completion gate and follow-up ownership checks still run unchanged under a standing authorization; it removes the confirmation, not the proof.",

@@ -171,9 +171,9 @@ SKILL_DOC_REQUIREMENTS = [
         "path": "src/skills/keel-review-checklist/SKILL.md",
         "required": [
             "completion gates",
-            "/opsx:apply",
-            "/opsx:sync",
-            "/opsx:archive",
+            "openspec-apply-change",
+            "openspec-sync-specs",
+            "openspec-archive-change",
             "## Context to read",
             "keel gate task-start",
             "task-complete",
@@ -753,7 +753,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             f"name: {OPENSPEC_SCHEMA_NAME}",
             "description: Keel OpenSpec workflow",
             "apply:",
-            "/opsx:apply",
+            "openspec-apply-change",
             "keel-review-checklist",
             "Mode",
             "Covers",
@@ -11476,6 +11476,55 @@ def validate_openspec_skills_only_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("openspec-skills-only scenario passed.")
+    return 0
+
+
+def validate_guidance_names_openspec_skills_scenario() -> int:
+    """Issue #406: guidance names no `/opsx:` command, since Keel generates none.
+
+    With the workflows delivered as skills only, a sentence telling the reader
+    to run `/opsx:sync` points at a command that does not exist.
+    """
+    label = "guidance-names-openspec-skills:"
+    shipped = [ROOT / "README.md", ROOT / "README.zh-CN.md",
+               ROOT / "assets/openspec/schemas/keel-spec-driven/schema.yaml",
+               *sorted((ROOT / "src/skills").rglob("SKILL.md")),
+               *sorted((ROOT / "plugins/keel/skills").rglob("SKILL.md"))]
+    naming = [str(p.relative_to(ROOT)) for p in shipped if "/opsx:" in p.read_text(encoding="utf-8")]
+    if naming:
+        report(f"{label} shipped guidance still names `/opsx:` commands: {naming!r}")
+        return 1
+    block = extract_managed_block((ROOT / "AGENTS.md").read_text(encoding="utf-8")) or ""
+    if not block:
+        report(f"{label} AGENTS.md has no managed protocol block to read.")
+        return 1
+    for needle in ("/opsx:", "commands/opsx"):
+        if needle in block:
+            report(f"{label} the AGENTS.md protocol block still names {needle!r}.")
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="keel-406-guidance-") as raw_tmp:
+        repo = Path(raw_tmp)
+        init = run_keel(repo, "--init", "--target", "claude")
+        if init.returncode != 0:
+            report(f"{label} keel --init --target claude failed: {(init.stderr or init.stdout).strip()}")
+            return 1
+        archive = (repo / ".claude/skills/openspec-archive-change/SKILL.md").read_text(encoding="utf-8")
+        overlay = archive[archive.find(OPENSPEC_SURFACE_OVERLAY_START):archive.find(OPENSPEC_SURFACE_OVERLAY_END)]
+        if not overlay:
+            report(f"{label} the archive skill carries no Keel overlay to read.")
+            return 1
+        if "/opsx:" in overlay:
+            report(f"{label} the archive overlay still names an `/opsx:` command.")
+            return 1
+        if "openspec-sync-specs" not in overlay:
+            report(f"{label} the archive overlay does not name `openspec-sync-specs`.")
+            return 1
+
+    if "guidance-names-openspec-skills" not in {name for name, _ in SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("guidance-names-openspec-skills scenario passed.")
     return 0
 
 
@@ -41851,6 +41900,7 @@ SCENARIOS: tuple = (
     ("sync-surface-overlay", validate_sync_surface_overlay_scenario),
     ("openspec-surface-overlay", validate_openspec_surface_overlay_scenario),
     ("openspec-skills-only", validate_openspec_skills_only_scenario),
+    ("guidance-names-openspec-skills", validate_guidance_names_openspec_skills_scenario),
     ("update-restores-overlays", validate_update_restores_overlays_scenario),
     ("uninstall", validate_uninstall_scenario),
     (
@@ -42390,7 +42440,7 @@ def validate_archive_overlay_hygiene(errors: list[str]) -> None:
     if "--skip-specs" not in cli:
         errors.append(
             "the archive overlay must direct archive to pass --skip-specs "
-            "after /opsx:sync has promoted the delta."
+            "after the openspec-sync-specs skill has promoted the delta."
         )
     if "drop the change's guard manifest" not in cli:
         errors.append(

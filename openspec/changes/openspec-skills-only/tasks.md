@@ -43,7 +43,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Name the OpenSpec workflows by skill in shipped guidance and this repository's protocol
+- [x] 1.2 Name the OpenSpec workflows by skill in shipped guidance and this repository's protocol
   - Covers:
     - keel-openspec-surface-overlay / Shipped guidance names the OpenSpec workflows by skill / No shipped guidance names an opsx command
     - keel-openspec-surface-overlay / Archive overlay skips already-promoted specs and reminds to clear the guard / Archive after sync skips specs
@@ -72,7 +72,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:25479857a09486f7cd98e46f7aae4e1f78d2007bdb4b8641fc4b30eabc73f388 (keel 5.181.0)
+    - M1: pass. `node scripts/run_python.js scripts/validate_plugin.py --scenario guidance-names-openspec-skills` reports `guidance-names-openspec-skills scenario passed.` (exit 0): neither README, the Keel schema, nor any `SKILL.md` under `src/skills/` and `plugins/keel/skills/` contains `/opsx:`; the `AGENTS.md` managed block contains neither `/opsx:` nor `commands/opsx`; and the archive overlay that a real `keel --init --target claude` writes names `openspec-sync-specs` and no `/opsx:` command.
+    - M1.red: fail. Before the change: `guidance-names-openspec-skills: shipped guidance still names \`/opsx:\` commands: ['README.md', 'README.zh-CN.md', 'assets/openspec/schemas/keel-spec-driven/schema.yaml', 'src/skills/keel-align-expectations/SKILL.md', 'src/skills/keel-debug-failure/SKILL.md', 'src/skills/keel-review-checklist/SKILL.md', 'plugins/keel/skills/keel-align-expectations/SKILL.md', 'plugins/keel/skills/keel-debug-failure/SKILL.md', 'plugins/keel/skills/keel-review-checklist/SKILL.md']` (exit 1).
+    - M1.green: pass. With the workflows named by skill in both READMEs (the loop diagram, the host-surface sentence, the skills bullet), the three Keel skills in both copies, both schema copies, the archive overlay line and its comment in `bin/keel.js`, and the three protocol lines in `AGENTS.md` (the implementation entry, the sync/archive gate, and the per-target surface line, which now says every target gets skills only), the scenario passed. A first green attempt failed on README wording that itself wrote `/opsx:`; it now says "no OpenSpec slash commands".
+    - M2: pass. The baseline (`Keel v4.1.0 baseline validation passed.`) after its review-checklist and schema required phrases moved from `/opsx:apply`/`/opsx:sync`/`/opsx:archive` to the skill names; `openspec-surface-overlay`, `sync-surface-overlay`, `docs-zh-match-english`, and `openspec-skills-only` each `PASS`.
+    - Review:
+      - Status: pass
+      - Acceptance check: the shipped text a reader or agent acts on names workflows that exist under skills-only delivery, checked by reading the files and the overlay a real init writes.
+      - Scope check: `git status --short` lists exactly the Touch files plus this change's `tasks.md`; the `archive-overlay-hygiene` error message in `scripts/validate_plugin.py` was reworded to match.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
