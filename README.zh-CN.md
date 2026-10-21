@@ -869,8 +869,13 @@ target，后续每次 `--install` / `--check` / `--doctor` / `--uninstall` 都�
 
 ```bash
 npm test                  # 一次 validate_plugin.py --all：baseline + 全部场景并行（--jobs N 控制并发）
+node scripts/run_python.js scripts/validate_plugin.py --scenario <name>   # 单个场景
+node scripts/run_python.js scripts/validate_plugin.py --group <module>    # 一个模块的场景，例如 --group chat
 node scripts/bump_version.js <patch|minor|major>   # 一次改齐所有版本 pin
 ```
+
+场景按职责放在 `scripts/validation/` 下的模块里（`contract`、`install`、`hosts`、`guard`、`chat`、
+`shift`、`docs`、`selfcheck`）；`registry.py` 是唯一的有序注册表，`common.py` 放它们共用的辅助代码。
 
 ## 隐私
 
