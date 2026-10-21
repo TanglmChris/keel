@@ -61,7 +61,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -97,14 +97,21 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:8c4f57125c44fedf811f5f3e779258dae2b3797864ee50a396684e6c5434936c (keel 5.189.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: pass.
+      - The branch merged origin/main at 5.188.0 (d6c14867).
+      - `node scripts/bump_version.js minor` moved every marker to 5.189.0.
+      - The changelog section "5.189.0 - The review checklist reads its conditional checks only when they apply" replaced the `TODO` stub and kept the stub's Version alignment line.
+      - `version-alignment scenario passed.`
+    - M2: pass. The two ADDED requirements were promoted into `keel-native-plugin-package`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.`
+    - M3: pass, on the second run.
+      - First run, on commit 53f72f28: only `domain-execution-references` failed. It pinned the lens step to `SKILL.md`, and the check was widened under the recorded reauthorization.
+      - Second run, on commit ad8807a6 (clean tree, started 15:03:28 at load 8, rc=0): `validation --all passed: baseline plus 318 scenarios, 1 skipped: output-survives-the-pipe.` and `evidence: 218 deterministic, 100 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
+      - Status: pass
+      - Acceptance check: M1 and M2 run the marker and published-spec scenarios on the release as written. M3 runs the whole suite on the release commit.
+      - Scope check: the bump touched only the listed Touch files. `scripts/validation/install.py` changed only to read `conditional-checks.md` beside `SKILL.md`, and the reauthorization added it to Touch. This change's record also changed.
       - Findings:
+        - 1.1's regression list missed `domain-execution-references`, a further check that pinned moved text to `SKILL.md`. The full gate caught it. The check now reads the conditional file too. Resolved here: M3
     - Blocker: none
     - Reauthorizations: 2026-10-21 15:10, before any Evidence was recorded. The first `npm test` on commit 53f72f28 failed only `domain-execution-references`: "skills/keel-review-checklist lacks the on-demand lens consult step ('Execution and review checks')". That check pins the lens consult step to `SKILL.md`, and 1.1 moved the step to `conditional-checks.md`. Under D4, moved text stays checked where it now lives. `scripts/validation/install.py` joins Touch so that the check reads a skill's `SKILL.md` together with its `conditional-checks.md`.
 
