@@ -1003,7 +1003,7 @@ keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
 keel --check | --doctor  [--target <t>]
 keel --uninstall | --clear  [--target <t>] [--dry-run]   # --clear is the same removal
-keel --update [--dry-run] [--source <npm package or git spec>]
+keel --update [--dry-run] [--source <npm package or git spec>] [--adopt]   # --adopt: restart idle background sessions on the new plugin
 keel --version | --help
 
 # OpenSpec, through the CLI Keel bundles
