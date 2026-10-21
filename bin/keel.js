@@ -1050,7 +1050,28 @@ function versionChange(before, after) {
   return before && after && before !== after ? `updated ${before} -> ${after}` : `current ${after || before || "unknown"}`;
 }
 
-function updateClaudePlugin(options) {
+// Right after a release the Claude marketplace, read from Git, names a version
+// the npm registry this machine reaches does not serve yet, and the plugin
+// update exits with npm's E404; a rerun minutes later succeeds (#421). That is
+// read as lag only when the registry's own latest is older than the version
+// asked for; an E404 the registry cannot explain stays a failure.
+function registryLag(result, npm) {
+  const said = `${result.stdout || ""}\n${result.stderr || ""}`;
+  const match = /E404 No match found for version (\d+\.\d+\.\d+[^\s'"]*)/.exec(said);
+  if (!match) return null;
+  const limit = Number(process.env.KEEL_UPDATE_QUERY_TIMEOUT_MS) || 30 * 1000;
+  const view = spawnSync(npm, ["view", PACKAGE_JSON.name, "version", "--prefer-online"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: limit,
+  });
+  if (view.error || view.status !== 0) return null;
+  const latest = String(view.stdout || "").trim();
+  if (!/^\d+\.\d+\.\d+/.test(latest) || compareVersions(match[1], latest) <= 0) return null;
+  return { wanted: match[1], latest };
+}
+
+function updateClaudePlugin(options, npm) {
   const component = "claude plugin";
   const executable = process.env.KEEL_UPDATE_CLAUDE || "claude";
   const queried = claudeKeel(executable);
@@ -1078,7 +1099,21 @@ function updateClaudePlugin(options) {
     updateLine(component, "failed", `\`claude ${steps[0].join(" ")}\` failed twice; ${hostFailure(refreshed)}`);
     return false;
   }
-  if (!runHostSteps(component, "claude", executable, [steps[1]])) return false;
+  const updated = hostRun(executable, steps[1]);
+  if (updated.error || updated.status !== 0) {
+    const lag = registryLag(updated, npm);
+    if (lag) {
+      updateLine(
+        component,
+        "pending",
+        `the npm registry here does not serve ${lag.wanted} yet (its latest is ${lag.latest}); `
+          + "rerun keel --update in a few minutes"
+      );
+      return true;
+    }
+    updateLine(component, "failed", `\`claude ${steps[1].join(" ")}\` ${hostFailure(updated)}`);
+    return false;
+  }
   const after = claudeKeel(executable);
   if (after && after.failed) {
     updateLine(component, "failed", `${after.failed} after the update, so its result is unverified`);
@@ -1303,7 +1338,17 @@ function updateGlobalCli(options, npm, source) {
       return false;
     }
     const packed = /-(\d+\.\d+\.\d+[^/]*?)\.tgz$/.exec(path.basename(tarball));
-    updateLine("cli", versionChange(PACKAGE_JSON.version, packed ? packed[1] : null), "applies to the next command that runs keel");
+    // From the default source the packed version is the registry's latest as
+    // this machine sees it, which is what `current` means right after a
+    // release whose version has not reached that registry yet (#421).
+    const latest = packed && source === DEFAULT_UPDATE_SOURCE
+      ? `the npm registry's latest here is ${packed[1]}; `
+      : "";
+    updateLine(
+      "cli",
+      versionChange(PACKAGE_JSON.version, packed ? packed[1] : null),
+      `${latest}applies to the next command that runs keel`
+    );
     return true;
   } catch (error) {
     updateLine("cli", "failed", error.message);
@@ -1332,7 +1377,7 @@ function runGlobalUpdate(options) {
   // leaves the others to report, and any failure fails the command.
   const results = [
     updateGlobalCli(options, npm, source),
-    updateClaudePlugin(options),
+    updateClaudePlugin(options, npm),
     updateCodexPlugin(options),
   ];
   return results.every(Boolean) ? 0 : 1;
