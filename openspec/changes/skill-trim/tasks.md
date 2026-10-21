@@ -72,6 +72,7 @@
     - plugins/keel/.claude-plugin/plugin.json
     - plugins/keel/.codex-plugin/plugin.json
     - scripts/validation/common.py
+    - scripts/validation/install.py
     - AGENTS.md
     - CLAUDE.md
     - assets/bootstrap/AGENTS.md
@@ -95,7 +96,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:ea8349bb4b02910d0abdd5af96383f8f943c92459df3481a0e611f1db4fe7447 (keel 5.188.0)
+    - Contract: keel-task-capsule/v1 sha256:8c4f57125c44fedf811f5f3e779258dae2b3797864ee50a396684e6c5434936c (keel 5.189.0)
     - M1:
     - M2:
     - M3:
@@ -105,7 +106,7 @@
       - Scope check:
       - Findings:
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: 2026-10-21 15:10, before any Evidence was recorded. The first `npm test` on commit 53f72f28 failed only `domain-execution-references`: "skills/keel-review-checklist lacks the on-demand lens consult step ('Execution and review checks')". That check pins the lens consult step to `SKILL.md`, and 1.1 moved the step to `conditional-checks.md`. Under D4, moved text stays checked where it now lives. `scripts/validation/install.py` joins Touch so that the check reads a skill's `SKILL.md` together with its `conditional-checks.md`.
 
 ## Invalidates
 
