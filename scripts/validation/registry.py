@@ -416,6 +416,8 @@ SCENARIOS: tuple = (
     ("shift-cli-removes-after-exit", shift.validate_shift_cli_removes_after_exit_scenario),
     ("shift-cli-names-host-failure", shift.validate_shift_cli_names_host_failure_scenario),
     ("tick-retries-failed-wake", shift.validate_tick_retries_failed_wake_scenario),
+    ("shift-cli-handover-claims-once", shift.validate_shift_cli_handover_claims_once_scenario),
+    ("shift-cli-retries-failed-handover", shift.validate_shift_cli_retries_failed_handover_scenario),
     ("owner-language", chat.validate_owner_language_scenario),
     ("owner-language-after-tools", chat.validate_owner_language_after_tools_scenario),
     ("shift-history", shift.validate_shift_history_scenario),

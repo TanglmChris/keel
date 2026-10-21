@@ -2672,6 +2672,198 @@ def validate_tick_retries_failed_wake_scenario() -> int:
     return 0
 
 
+HANDOVER_RETRY_FAKE = """#!/usr/bin/env python3
+import json, os, sys, time
+agents, calls = os.environ['FAKE_AGENTS'], os.environ['FAKE_CALLS']
+argv = sys.argv[1:]
+def load():
+    return json.loads(open(agents).read())
+def save(rows):
+    tmp = agents + '.' + str(os.getpid())
+    open(tmp, 'w').write(json.dumps(rows)); os.replace(tmp, agents)
+open(calls, 'a').write(json.dumps({'argv': argv}) + '\\n')
+if argv[:2] == ['agents', '--json']:
+    print(json.dumps([{k: v for k, v in row.items() if not k.startswith('_')} for row in load()])); sys.exit(0)
+if argv[:1] == ['stop']:
+    rows = load()
+    for row in rows:
+        if row['id'] == argv[1] and 'status' in row:
+            row.pop('status', None); pid = row.pop('pid', None); row['state'] = 'stopped'
+            if pid:
+                try:
+                    os.kill(pid, 9)
+                except OSError:
+                    pass
+    save(rows); print('stopped ' + argv[1]); sys.exit(0)
+if argv[:1] == ['--bg'] and '--resume' not in argv:
+    failing = os.environ.get('FAKE_BG_FAILS', '0')
+    count = os.environ['FAKE_CALLS'] + '.starts'
+    made = int(open(count).read()) if os.path.exists(count) else 0
+    open(count, 'w').write(str(made + 1))
+    if failing == 'always' or made < int(failing):
+        print('Workspace not trusted.', file=sys.stderr); sys.exit(1)
+    new = 'newsess%d-0000-0000-0000-000000000000' % (made + 1)
+    rows = load()
+    rows.append({'kind': 'background', 'name': argv[2], 'sessionId': new, 'id': new[:8], 'status': 'busy', 'state': 'working',
+                 'pid': os.getpid(), 'cwd': os.getcwd(), 'startedAt': int(time.time() * 1000)})
+    save(rows)
+    time.sleep(float(os.environ.get('FAKE_BG_SLEEP', '0')))
+    print('backgrounded · ' + new[:8] + ' · ' + argv[2]); sys.exit(0)
+print('ok')
+"""
+
+
+def handover_retry_scratch(base: Path, old: str) -> dict:
+    """A verify hand-off queued from an idle CLI session, against HANDOVER_RETRY_FAKE."""
+    rtl, verify, env, _ = shift_scratch(base)
+    agents, calls, fake = base / "agents.json", base / "calls.jsonl", base / "fake-claude"
+    write_text(fake, HANDOVER_RETRY_FAKE)
+    fake.chmod(0o755)
+    process = detached_sleeper()
+    agents.write_text(json.dumps([{"kind": "background", "name": "verify · 10-20 09:00", "sessionId": old, "id": old[:8],
+                                   "status": "idle", "state": "done", "pid": process, "cwd": str(verify),
+                                   "startedAt": 1792500000000}]))
+    calls.write_text("")
+    exited = subprocess.Popen(["true"])
+    exited.wait()
+    env = {**env, "KEEL_CLAUDE": str(fake), "FAKE_AGENTS": str(agents), "FAKE_CALLS": str(calls),
+           "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1", "KEEL_SHIFT_EXIT_WAIT_MS": "500"}
+    cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": old, "CLAUDE_PID": str(exited.pid)}
+    readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R040", env=cli_env)
+    if readied.returncode != 0:
+        raise RuntimeError(f"ready --wake failed: {readied.stderr!r}")
+    queue = mailbox_common_dir(rtl) / "keel-chat" / "shift" / "queue" / "verify.json"
+
+    def starts() -> int:
+        return sum(1 for line in calls.read_text().splitlines()
+                   if json.loads(line)["argv"][:1] == ["--bg"] and "--resume" not in json.loads(line)["argv"])
+
+    return {"rtl": rtl, "verify": verify, "env": env, "agents": agents, "calls": calls, "queue": queue,
+            "starts": starts, "process": process,
+            "tick": lambda extra=None: run_keel(verify, "tick", "--repo", str(rtl), env={**env, **(extra or {})}),
+            "keel": ["node", str(ROOT / "bin" / "keel.js")]}
+
+
+def validate_shift_cli_handover_claims_once_scenario() -> int:
+    """Issue #408, second loop: one pending hand-off starts one session.
+
+    Runners claim the entry as `starting` before any host call (D1). So two
+    ticks and a waiter running at the same moment start one session. A runner
+    killed after `claude --bg` listed the new session is settled by adopting
+    that session, not by starting another (D2, D3).
+    """
+    label = "shift-cli-handover-claims-once:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-408c-") as raw:
+        s = handover_retry_scratch(Path(raw), OLD)
+        try:
+            race = {**s["env"], "FAKE_BG_SLEEP": "1", "KEEL_SHIFT_HANDOVER_POLL_MS": "50", "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "8000"}
+            runners = [subprocess.Popen([*s["keel"], "tick", "--repo", str(s["rtl"])], cwd=s["verify"], env=race,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(2)]
+            runners.append(subprocess.Popen([*s["keel"], "shift", "handover-wait", "--role", "verify", "--repo", str(s["verify"])],
+                                            cwd=s["verify"], env=race, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            for runner in runners:
+                runner.wait(timeout=60)
+            entry = json.loads(s["queue"].read_text())
+            if s["starts"]() != 1 or entry["state"] != "delivered":
+                report(f"{label} two ticks and a waiter at once ran `claude --bg` {s['starts']()} times; the entry is {entry['state']}.")
+                return 1
+        finally:
+            with contextlib.suppress(OSError):
+                os.kill(s["process"], signal.SIGKILL)
+
+    with tempfile.TemporaryDirectory(prefix="keel-shift-408d-") as raw:
+        s = handover_retry_scratch(Path(raw), OLD)
+        try:
+            slow = {**s["env"], "FAKE_BG_SLEEP": "30"}
+            runner = subprocess.Popen([*s["keel"], "tick", "--repo", str(s["rtl"])], cwd=s["verify"], env=slow,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            deadline = time.time() + 20
+            while s["starts"]() < 1 and time.time() < deadline:
+                time.sleep(0.1)
+            time.sleep(0.5)
+            os.killpg(runner.pid, signal.SIGKILL)
+            runner.wait()
+            # The next tick comes minutes later, when any lock the dead runner left reads as stale.
+            for lock in s["queue"].parent.glob("*.lock"):
+                os.utime(lock, (time.time() - 600, time.time() - 600))
+            s["tick"]()
+            entry = json.loads(s["queue"].read_text())
+            if s["starts"]() != 1:
+                report(f"{label} a tick after the runner died mid-start ran `claude --bg` again: {s['starts']()} starts; the entry is {entry['state']}.")
+                return 1
+            if entry["state"] != "delivered" or not entry.get("adopted") or entry.get("new_session") != "newsess1":
+                report(f"{label} the entry left by a runner that died mid-start was not delivered with the listed session: {entry!r}")
+                return 1
+        finally:
+            with contextlib.suppress(OSError):
+                os.kill(s["process"], signal.SIGKILL)
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_cli_retries_failed_handover_scenario() -> int:
+    """Issue #408, second loop: a failed hand-off is retried within a bound (D4, D5).
+
+    The tick makes up to three start attempts per entry. After the last one,
+    status and the patrol name `keel chat wake now <role>`. The tick does not
+    retry when the old session runs again, or when the entry predates the
+    attempt count.
+    """
+    label = "shift-cli-retries-failed-handover:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    for case in ("always", "third", "resumed", "legacy"):
+        with tempfile.TemporaryDirectory(prefix="keel-shift-408e-") as raw:
+            s = handover_retry_scratch(Path(raw), OLD)
+            try:
+                fails = {"FAKE_BG_FAILS": "2" if case == "third" else "always"}
+                s["tick"](fails)
+                if case == "resumed":
+                    rows = json.loads(s["agents"].read_text())
+                    rows[0].update({"status": "idle", "state": "done", "pid": s["process"]})
+                    s["agents"].write_text(json.dumps(rows))
+                if case == "legacy":
+                    entry = json.loads(s["queue"].read_text())
+                    entry.pop("attempts", None)
+                    s["queue"].write_text(json.dumps(entry))
+                for _ in range(4 if case in ("always", "third") else 2):
+                    s["tick"](fails)
+                entry = json.loads(s["queue"].read_text())
+                status = run_keel(s["rtl"], "shift", "status", env=s["env"]).stdout
+                if case == "always":
+                    if s["starts"]() != 3:
+                        report(f"{label} five ticks ran a failing `claude --bg` {s['starts']()} times, not 3.")
+                        return 1
+                    patrolled = run_keel(s["rtl"], "patrol", env=s["env"]).stdout
+                    if entry["state"] != "failed":
+                        report(f"{label} after three failed starts the entry is {entry['state']}, not failed.")
+                        return 1
+                    if "keel chat wake now verify" not in status:
+                        report(f"{label} after three failed starts, shift status does not name `keel chat wake now verify`: {status!r}")
+                        return 1
+                    if "keel chat wake now verify" not in patrolled:
+                        report(f"{label} after three failed starts, the patrol does not name `keel chat wake now verify`: {patrolled!r}")
+                        return 1
+                elif case == "third":
+                    if s["starts"]() != 3 or entry["state"] != "delivered" or entry.get("new_session") != "newsess3":
+                        report(f"{label} a start that fails twice was not delivered on the third attempt: {s['starts']()} starts, {entry!r}")
+                        return 1
+                elif s["starts"]() != 1 or entry["state"] != "failed":
+                    report(f"{label} a failed hand-off was retried although {'its old session runs again' if case == 'resumed' else 'it records no attempts'}: {s['starts']()} starts, {entry['state']}.")
+                    return 1
+            finally:
+                with contextlib.suppress(OSError):
+                    os.kill(s["process"], signal.SIGKILL)
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_shift_cli_self_shift_scenario() -> int:
     """Issues #357 and #388 on the CLI (owner, 2026-10-19): hand over, promptly, and retire.
 
