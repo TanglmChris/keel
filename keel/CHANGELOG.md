@@ -1,5 +1,28 @@
 # Keel Changelog
 
+## 5.185.0 - A CLI hand-off starts one session and retries a failed start
+
+Issue #408, second loop. The owner chose the remaining CLI items on 2026-10-21.
+
+5.183.0 left two gaps on the CLI hand-over path:
+- **A runner that died while starting the new session left the entry `pending`.** This could be the waiter or a tick. Once its lock read as stale, the next tick started a second session.
+- **A failed start was never tried again.** The role had no running session until someone acted on the patrol risk.
+
+The hand-over lock also covered every host call, so a runner stuck on hung calls could hold it past the two minutes after which another runner takes it over.
+
+Fixes:
+
+- **A runner claims the hand-off before any host call.** Under the role's lock, it marks the entry `starting` with its process and the time, then releases the lock. Other runners act only on an entry nobody has claimed, so runners that start at the same moment start one session.
+- **A claim whose runner is gone is settled without a second start.** This applies when the runner's process has exited, or after ten minutes. The next runner looks for a listed session named `<role> · …` in the role's worktree that started since the claim. If it finds one, it adopts it as the delivered session, marked `adopted`. If not, the hand-off becomes `failed`.
+- **The tick retries a failed start.** It makes up to three attempts per hand-off, and looks for an already-started session before each one.
+  - After the last attempt, `keel shift status` and the patrol risk name `keel chat wake now <role>`, which resumes the stopped old session.
+  - There is no retry when the old session is running again.
+  - There is no retry for a hand-off recorded by an older Keel, which carries no attempt count.
+- **`docs/host-contract.md` and `docs/cli-team.md` (both languages)** describe this.
+  - The contract page cites `shift-cli-handover-claims-once` and `shift-cli-retries-failed-handover` for the race and the retry.
+  - The page still lists three things as unverified: the desktop app path, Codex, and whether a timed-out `claude --bg` had started its session.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.185.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.184.0 - The validation runner is split into modules, and one module's scenarios run alone
 
 Issue #409. `scripts/validate_plugin.py` had grown to about 43,000 lines holding 312 scenarios with their fixtures, helpers, registry, runner, and summary. Every session that added a scenario edited that one file, which is where parallel Keel sessions collided. On 2026-10-21 the owner chose genuinely separate modules with explicit imports, and a `--group` entry in the same change.
