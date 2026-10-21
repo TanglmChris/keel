@@ -11603,11 +11603,17 @@ def validate_openspec_skills_only_scenario() -> int:
         doctor = keel(claude, "--doctor", "--target", "claude")
         commands_line = next((l for l in doctor.stdout.splitlines() if l.startswith("OpenSpec commands:")), "")
         overlay_line = next((l for l in doctor.stdout.splitlines() if l.startswith("Keel apply/archive/sync overlay:")), "")
-        if not commands_line.startswith("OpenSpec commands: ok") or "skills only" not in commands_line:
+        if not commands_line.startswith("OpenSpec commands: ok"):
             report(f"{label} doctor does not read a skills-only repository's commands as ok: {commands_line!r}")
             return 1
-        if not overlay_line.startswith("Keel apply/archive/sync overlay: ok") or "4/4" not in overlay_line:
-            report(f"{label} doctor does not read the skills-only overlay as ok 4/4: {overlay_line!r}")
+        if "skills only" not in commands_line:
+            report(f"{label} doctor's commands line does not say the workflows are skills only: {commands_line!r}")
+            return 1
+        if not overlay_line.startswith("Keel apply/archive/sync overlay: ok"):
+            report(f"{label} doctor does not read the skills-only overlay as ok: {overlay_line!r}")
+            return 1
+        if "4/4" not in overlay_line:
+            report(f"{label} doctor's overlay line does not count 4/4 surfaces: {overlay_line!r}")
             return 1
 
         write_text(claude / stray, upstream)
