@@ -846,7 +846,7 @@ keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
 keel --check | --doctor  [--target <t>]
 keel --uninstall | --clear  [--target <t>] [--dry-run]   # --clear 是同一种移除
-keel --update [--dry-run] [--source <npm package or git spec>]
+keel --update [--dry-run] [--source <npm package or git spec>] [--adopt]   # --adopt：让空闲的后台会话重启到新插件上
 keel --version | --help
 
 # OpenSpec，通过 Keel 捆绑的 CLI 运行

@@ -25311,6 +25311,162 @@ process.exit(0);
 """
 
 
+# A claude for #424: the Keel plugin, the background sessions `agents --json`
+# lists, `stop` (which kills the row's process, as the host does a moment after
+# returning), and `--bg --resume`, which records whether the old process was
+# still alive when it ran.
+ADOPT_FAKE_CLAUDE = r"""const fs = require("fs");
+const args = process.argv.slice(2);
+const joined = args.join(" ");
+const statePath = process.env.FAKE_STATE;
+const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+const save = () => fs.writeFileSync(statePath, JSON.stringify(state));
+fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ args, cwd: process.cwd() }) + "\n");
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+if (joined === "plugin list --json") {
+  process.stdout.write(JSON.stringify([{ id: "keel@keel-marketplace", version: state.version,
+    lastUpdated: state.lastUpdated }]));
+} else if (joined === "plugin update keel@keel-marketplace") {
+  state.version = "5.1.0";
+  save();
+} else if (joined === "agents --json") {
+  process.stdout.write(JSON.stringify(state.rows));
+} else if (args[0] === "stop") {
+  const row = state.rows.find((item) => item.id === args[1]);
+  if (row) {
+    setTimeout(() => { try { process.kill(row.pid, "SIGKILL"); } catch {} }, 300);
+    delete row.status;
+    save();
+  }
+  process.stdout.write(`stopped ${args[1]}\n`);
+  setTimeout(() => process.exit(0), 400);
+  return;
+} else if (args[0] === "--bg" && args[1] === "--resume") {
+  const row = state.rows.find((item) => item.sessionId === args[2]);
+  fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ resumed: args[2], oldAlive: row ? alive(row.pid) : null }) + "\n");
+  if (row) { row.status = "idle"; row.startedAt = Date.now(); save(); }
+  process.stdout.write(`backgrounded · ${args[2].slice(0, 8)} · resumed\n`);
+}
+process.exit(0);
+"""
+
+
+def validate_update_adopts_idle_sessions_scenario() -> int:
+    """Issue #424: a release reaches the running background sessions on request.
+
+    Each Claude background session keeps the plugin it loaded. A hand-over starts
+    a new process, so it adopts the update; a session that does not change shift
+    stays on the old one. Measured on 2026-10-21 (Claude Code 2.1.304), stop and
+    resume with no prompt restarts it on the installed plugin without a turn.
+    `--adopt` does that for the idle sessions started before the update, and
+    leaves busy, guarded, and its own session alone.
+    """
+    label = "update-adopts-idle-sessions:"
+    t0 = 1792540800000  # 2026-10-21T00:00:00Z, the update's lastUpdated
+    with tempfile.TemporaryDirectory(prefix="keel-adopt-424-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake-claude.js"
+        write_text(fake, ADOPT_FAKE_CLAUDE)
+        launcher = tmp / "fake-claude"
+        write_text(launcher, f'#!/bin/sh\nexec node "{fake}" "$@"\n')
+        launcher.chmod(0o755)
+        npm_fake = tmp / "fake-npm.js"
+        write_text(npm_fake, UPDATE_FAKE)
+        npm = tmp / "fake-npm"
+        write_text(npm, f'#!/bin/sh\nFAKE_HOST=npm exec node "{npm_fake}" "$@"\n')
+        npm.chmod(0o755)
+        guarded = tmp / "guarded"
+        write_text(guarded / "keel" / "guard.json", "{}\n")
+        sleepers: list[int] = []
+
+        def row(name: str, sid: str, status: str, started: int, cwd: Path) -> dict:
+            # Not this process's child: a killed child stays a zombie until reaped,
+            # and a zombie still answers kill(pid, 0), which a host process never does.
+            pid = int(subprocess.run(["sh", "-c", "sleep 300 >/dev/null 2>&1 & echo $!"], text=True,
+                                     capture_output=True, check=True).stdout.strip())
+            sleepers.append(pid)
+            return {"kind": "background", "name": name, "sessionId": sid, "id": sid[:8], "status": status,
+                    "state": "working", "pid": pid, "cwd": str(cwd), "startedAt": started}
+
+        def run(*extra: str) -> tuple[subprocess.CompletedProcess, list[dict]]:
+            log = tmp / "log.jsonl"
+            log.write_text("")
+            rows = [
+                row("lead · old idle", "aaaaaaaa-0000-0000-0000-000000000001", "idle", t0 - 3600000, tmp),
+                row("verify · old busy", "bbbbbbbb-0000-0000-0000-000000000002", "busy", t0 - 3600000, tmp),
+                row("rtl · old guarded", "cccccccc-0000-0000-0000-000000000003", "idle", t0 - 3600000, guarded),
+                row("pm · fresh idle", "dddddddd-0000-0000-0000-000000000004", "idle", t0 + 3600000, tmp),
+                row("maint · this session", "eeeeeeee-0000-0000-0000-000000000005", "busy", t0 - 3600000, tmp),
+            ]
+            (tmp / "state.json").write_text(json.dumps({"version": "5.0.0", "lastUpdated": "2026-10-21T00:00:00.000Z", "rows": rows}))
+            env = dict(os.environ)
+            env.update({"KEEL_UPDATE_NPM": str(npm), "KEEL_UPDATE_CLAUDE": str(launcher),
+                        "KEEL_UPDATE_CODEX": str(tmp / "no-codex"), "FAKE_LOG": str(log),
+                        "FAKE_STATE": str(tmp / "state.json"), "CLAUDE_CODE_SESSION_ID": rows[4]["sessionId"]})
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update", *extra], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=90)
+            # The npm fake logs arrays to the same file; the claude fake logs objects.
+            entries = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+            return result, [entry for entry in entries if isinstance(entry, dict)]
+
+        try:
+            adopted, calls = run("--adopt")
+            stops = [c["args"][1] for c in calls if c.get("args", [None])[0] == "stop"]
+            resumes = [c for c in calls if c.get("args", [None])[:2] == ["--bg", "--resume"]]
+            witnessed = [c for c in calls if "resumed" in c]
+            line = next((l for l in adopted.stdout.splitlines() if l.startswith("keel update: claude sessions:")), "")
+            if adopted.returncode != 0:
+                report(f"{label} keel --update --adopt exited {adopted.returncode}: {adopted.stdout!r} {adopted.stderr!r}")
+                return 1
+            if stops != ["aaaaaaaa"]:
+                report(f"{label} --adopt stopped {stops!r}, not only the idle session started before the update.")
+                return 1
+            if len(resumes) != 1 or resumes[0]["args"] != ["--bg", "--resume", "aaaaaaaa-0000-0000-0000-000000000001"]:
+                report(f"{label} --adopt did not resume the stopped session with exactly `--bg --resume <id>`: {resumes!r}")
+                return 1
+            if resumes[0]["cwd"] != os.path.realpath(tmp) and resumes[0]["cwd"] != str(tmp):
+                report(f"{label} the resume ran in {resumes[0]['cwd']!r}, not the session's worktree {str(tmp)!r}.")
+                return 1
+            if not witnessed or witnessed[0]["oldAlive"]:
+                report(f"{label} the resume ran while the stopped session's process was still alive: {witnessed!r}")
+                return 1
+            for needle in ("adopted", "lead · old idle", "verify · old busy", "rtl · old guarded"):
+                if needle not in line:
+                    report(f"{label} the claude sessions line does not name {needle!r}: {line!r}")
+                    return 1
+            for absent in ("pm · fresh idle", "maint · this session"):
+                if absent in line:
+                    report(f"{label} the claude sessions line names {absent!r}, which is not on an older plugin or is this session: {line!r}")
+                    return 1
+
+            named, calls = run()
+            line = next((l for l in named.stdout.splitlines() if l.startswith("keel update: claude sessions:")), "")
+            if any(c.get("args", [None])[0] == "stop" or c.get("args", [None])[:2] == ["--bg", "--resume"] for c in calls):
+                report(f"{label} keel --update without --adopt stopped or resumed a session: {calls!r}")
+                return 1
+            for needle in ("lead · old idle", "verify · old busy", "rtl · old guarded", "keel --update --adopt"):
+                if needle not in line:
+                    report(f"{label} without --adopt the claude sessions line does not name {needle!r}: {line!r}")
+                    return 1
+        finally:
+            for pid in sleepers:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        refused = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--adopt"], cwd=ROOT, text=True,
+                                 capture_output=True, check=False)
+        if refused.returncode != 2:
+            report(f"{label} --adopt outside --update exited {refused.returncode}, not 2: {refused.stderr!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_update_covers_installed_hosts_scenario() -> int:
     """Issue #204: one owner-run `keel --update` covers every installed component.
 
@@ -41550,6 +41706,7 @@ SCENARIOS: tuple = (
     ("update-claude-refresh-retry", validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", validate_update_host_query_timeout_scenario),
     ("update-codex-from-disk", validate_update_codex_from_disk_scenario),
+    ("update-adopts-idle-sessions", validate_update_adopts_idle_sessions_scenario),
     ("refresh-covers-every-target", validate_refresh_covers_every_target_scenario),
     ("directory-branch-advances", validate_directory_branch_advances_scenario),
     ("release-notes-name-the-directory-branch", validate_release_notes_name_the_directory_branch_scenario),
