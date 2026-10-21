@@ -22,7 +22,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    BOOTSTRAP_BLOCK_BYTE_BUDGET,
     ROOT,
+    extract_managed_block,
     chat_environment,
     chat_json,
     chat_log,
@@ -4505,4 +4507,60 @@ def validate_stateless_continuity_scenario() -> int:
             return 1
 
     report("stateless-continuity scenario passed.")
+    return 0
+
+
+def validate_memory_rule_reaches_every_repo_scenario() -> int:
+    """Issue #416 (owner, 2026-10-21): memory hygiene is part of the Keel protocol.
+
+    A consuming repository carries only the bootstrap block, so the rule goes
+    there: memory holds only what the next session would get wrong without it
+    and the repository cannot answer, one fact per entry, rechecked after a
+    fix, at a release and at a shift change. `keel shift check` reminds the
+    session before the hand-off note, as a note that never blocks readiness.
+    Keel reads no memory.
+    """
+    label = "memory-rule-reaches-every-repo:"
+    with tempfile.TemporaryDirectory(prefix="keel-memory-416-") as raw:
+        base = Path(raw)
+        repo = base / "fresh"
+        repo.mkdir()
+        installed = run_keel(repo, "--install")
+        if installed.returncode != 0:
+            report(f"{label} keel --install failed: {(installed.stderr or installed.stdout).strip()!r}")
+            return 1
+        block = extract_managed_block((repo / "AGENTS.md").read_text(encoding="utf-8")) or ""
+        if not re.search(r"memory[^\n]*repository cannot answer", block, re.IGNORECASE):
+            report(f"{label} the installed bootstrap does not say memory holds only what the repository cannot answer: {block!r}")
+            return 1
+        if not re.search(r"memory[^\n]*shift change", block, re.IGNORECASE):
+            report(f"{label} the installed bootstrap does not name a memory recheck at a shift change.")
+            return 1
+        if len(block.encode("utf-8")) > BOOTSTRAP_BLOCK_BYTE_BUDGET:
+            report(f"{label} the installed bootstrap is {len(block.encode('utf-8'))} bytes, over the {BOOTSTRAP_BLOCK_BYTE_BUDGET}-byte budget.")
+            return 1
+
+        rtl, verify, env, _ = shift_scratch(base / "team")
+        text = run_keel(verify, "shift", "check", env=env)
+        if text.returncode != 0 or "keel shift check: ready" not in text.stdout:
+            report(f"{label} a clean bound worktree is not ready: {text.stdout!r}")
+            return 1
+        if not re.search(r"^note: memory: .*hand-off note", text.stdout, re.MULTILINE):
+            report(f"{label} keel shift check prints no memory note: {text.stdout!r}")
+            return 1
+        listed = json.loads(run_keel(verify, "shift", "check", "--json", env=env).stdout)
+        if listed.get("ready") is not True or listed.get("items"):
+            report(f"{label} the memory note changed readiness: {listed!r}")
+            return 1
+        if not any(note.startswith("memory:") for note in listed.get("notes", [])):
+            report(f"{label} keel shift check --json carries no memory note: {listed.get('notes')!r}")
+            return 1
+    command = (ROOT / "plugins/keel/commands/shift.md").read_text(encoding="utf-8")
+    if "memory" not in command.split("## 2.", 1)[0]:
+        report(f"{label} /keel:shift step 1 does not tell the session to act on the memory note.")
+        return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
     return 0

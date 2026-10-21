@@ -89,6 +89,11 @@
 - `keel/CHANGELOG.md` records Keel workflow/protocol/project-operation changes. Root `CHANGELOG.md` is product-facing only when the host project explicitly owns one.
 - `keel/archive/` stores historical source documents and evidence. Official OpenSpec stores completed changes under `openspec/changes/archive/`.
 
+## memory
+- Write to native memory only what the next session would get wrong without it and the repository cannot answer: why a decision was made, a host or toolchain fact found by investigation, the owner's stated preferences. Never record a one-off slip of your own, or what code, Git, OpenSpec, or this file already says.
+- Keep one fact per entry and split an entry that has grown into a compilation. Stamp a behavioral claim with the version and issue it was true at.
+- Recheck memory after a fix (grep it by the symptom's wording, since a fix invalidates what recorded the defect), at a release, and at a shift change, before the hand-off note; `keel shift check` reminds you. Remove what is no longer true. Keel itself reads and writes no memory.
+
 ## token discipline
 - Keep resident files concise and route detail into official OpenSpec artifacts or archive evidence.
 - A skill's stepwise guidance lives in a `guidance.md` beside its `SKILL.md` and is read before proceeding unless `keel/config.yaml` declares `executor_tier: high`; an absent or unreadable declaration reads it. The tier reaches guidance and nothing else — no gate, criterion, evidence requirement, or Review moves with it — and a guidance file states no criterion, which is checked rather than promised.

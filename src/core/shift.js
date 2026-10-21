@@ -230,6 +230,10 @@ function check(where, role) {
   } else {
     notes.push("this worktree has no chat role, so its chat was not checked");
   }
+  // Keel reads no memory, so it cannot tell whether there is anything to
+  // recheck: a reminder, never an item that holds the shift (#416 D5).
+  notes.push("memory: before the hand-off note, recheck what this session wrote to memory — keep only what the next session "
+    + "would get wrong without it and the repository cannot answer, and remove what this shift made untrue");
   return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes };
 }
 

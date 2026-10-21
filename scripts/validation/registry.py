@@ -418,6 +418,7 @@ SCENARIOS: tuple = (
     ("tick-retries-failed-wake", shift.validate_tick_retries_failed_wake_scenario),
     ("shift-cli-handover-claims-once", shift.validate_shift_cli_handover_claims_once_scenario),
     ("shift-cli-retries-failed-handover", shift.validate_shift_cli_retries_failed_handover_scenario),
+    ("memory-rule-reaches-every-repo", shift.validate_memory_rule_reaches_every_repo_scenario),
     ("owner-language", chat.validate_owner_language_scenario),
     ("owner-language-after-tools", chat.validate_owner_language_after_tools_scenario),
     ("shift-history", shift.validate_shift_history_scenario),
