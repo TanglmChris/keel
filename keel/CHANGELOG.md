@@ -1,5 +1,23 @@
 # Keel Changelog
 
+## 5.183.0 - The CLI hand-over and wake keep to the measured host contract
+
+Issue #408, approved by the owner on 2026-10-21. A CLI shift change and a wake rely on what `claude agents --json`, `claude stop`, `claude rm`, and `claude --bg --resume` report and do. This release re-measures those calls on Claude Code 2.1.304 with throwaway probe sessions and closes the gaps the measurement and an inventory of the code found.
+
+Measured on 2026-10-21:
+
+- A session blocked on a question to the owner reads `status: waiting`, `state: blocked`, `waitingFor: input needed`.
+- A session blocked on a tool-permission prompt reads `status: waiting`, `state: blocked`, `waitingFor: permission prompt`.
+- `claude stop` on 2.1.304: the row loses `status` and `pid` at 0.32 s, stop returns at 0.98 s, and the process exits at about 3.2 s.
+
+Fixes:
+
+- **A hand-over never removes a running session.** `claude rm` of the session just handed over waits up to 15 s (`KEEL_SHIFT_EXIT_WAIT_MS`) for the process its note recorded to exit. An older session whose process still runs is left for the next hand-over.
+- **A host Keel cannot ask is named.** The hand-off stays pending, and `keel shift status` and the patrol risk say why: `claude` not found, the listing timed out, or it printed no session list. Every host call in the hand-over is bounded (`KEEL_SHIFT_HOST_TIMEOUT_MS`, default 60 s). `keel chat wake now` names a missing `claude` the same way.
+- **The tick retries a failed wake.** It makes up to three resume attempts per addressed record. A newer record starts the count again. A removed session is not retried.
+- **`docs/host-contract.md`** records the CLI path's host contract. Each condition is listed with what the host reports, what Keel does, and the evidence: a scenario name, a real-host measurement, or "unverified". Still unverified, and still with #408: the desktop app path, Codex, a real waiter/tick race, and re-queueing a `failed` hand-off.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.183.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.182.0 - Each OpenSpec workflow is installed once, as a skill
 
 Issue #406. In a Keel-managed repository the Claude surface carried every OpenSpec workflow twice: a skill under `.claude/skills/openspec-*` and a command under `.claude/commands/opsx/*`. Both appeared in the model's listing every session, and every protocol bump refreshed the overlay on both. OpenSpec reads its `delivery` setting only from the user's global configuration, where the default is `both`. On 2026-10-21 the owner chose to have Keel guarantee skills only, without touching that file.

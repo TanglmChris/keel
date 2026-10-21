@@ -81,10 +81,6 @@
     - assets/bootstrap/AGENTS.md
     - keel/CHANGELOG.md
     - openspec/specs/keel-shift-change/spec.md
-    - .claude/commands/opsx/apply.md
-    - .claude/commands/opsx/archive.md
-    - .claude/commands/opsx/propose.md
-    - .claude/commands/opsx/sync.md
     - .claude/skills/openspec-apply-change/SKILL.md
     - .claude/skills/openspec-archive-change/SKILL.md
     - .claude/skills/openspec-propose/SKILL.md
@@ -103,7 +99,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:1351ad8f5f080c25be0187c5866ed6e2415cce2d1fc029ce75aadc3648328700 (keel 5.182.0)
     - M1:
     - M2:
     - M3:
