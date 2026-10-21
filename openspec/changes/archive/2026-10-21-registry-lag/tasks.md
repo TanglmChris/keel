@@ -75,7 +75,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E4
   - Touch:
@@ -114,14 +114,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:9938abd7cd7cc6fe66a571fd31dc25f81be6df59a2949bb758eeb571ebbe75f8 (keel 5.177.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: after merging origin/main at 5.178.0, `node scripts/bump_version.js minor` moved every marker 5.178.0 → 5.179.0; with the "A version the registry does not serve yet reads pending, and a release waits for the registry" section written into the stub the bump left, `version-alignment scenario passed.` (exit 0).
+    - M2: the modified requirement replaced "One owner-run update covers every installed Keel component" and "A release completes only once the registry serves its version" was appended in `keel-native-plugin-package` (17 requirements); `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit b841eb0 (clean tree), started 08:49 at load 9.64: `validation --all passed: baseline plus 300 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The first run, on cb0085a at 08:45, failed only `assertion-shape-count` (75 OR-guarded sites, 74 recorded) on one combined condition in `update-registry-lag`; b841eb0 split it, and the same split was applied to one in `publish-awaits-registry`.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E4 — version markers, the 5.179.0 changelog section, and the published spec carry the change; I2 is updated by the promotion; the full suite passes on the committed tree.
+      - Scope check: files beyond tasks 1.1 and 1.2 are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch; the assertion split stays in `scripts/validate_plugin.py`, which is in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
