@@ -1029,8 +1029,14 @@ validation).
 
 ```bash
 npm test                  # one validate_plugin.py --all run: baseline + all scenarios in parallel (--jobs N sets concurrency)
+node scripts/run_python.js scripts/validate_plugin.py --scenario <name>   # one scenario
+node scripts/run_python.js scripts/validate_plugin.py --group <module>    # one module's scenarios, e.g. --group chat
 node scripts/bump_version.js <patch|minor|major>   # bump every version pin at once
 ```
+
+The scenarios live in modules under `scripts/validation/`, grouped by responsibility (`contract`,
+`install`, `hosts`, `guard`, `chat`, `shift`, `docs`, `selfcheck`); `registry.py` holds the one
+ordered registry, and `common.py` the helpers they share.
 
 ## Privacy
 
