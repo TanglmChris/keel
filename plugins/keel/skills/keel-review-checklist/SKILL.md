@@ -7,7 +7,7 @@ description: Run the current agent's thin semantic consistency review after shar
 
 ## Purpose
 
-Use this thin Keel consistency gate only at completion gates: after a complete `/opsx:apply` task group, before `/opsx:sync` or `/opsx:archive`, before meaningful handoff, or when delivery reports risks, findings, follow-ups, or out-of-scope need.
+Use this thin Keel consistency gate only at completion gates: after a complete `openspec-apply-change` task group, before `openspec-sync-specs` or `openspec-archive-change`, before meaningful handoff, or when delivery reports risks, findings, follow-ups, or out-of-scope need.
 
 Shared Core commands (`keel gate task-start`, `task-complete`, and `change-close`) validate deterministic structure. They do not judge product intent, behavioral test sufficiency, design quality, or risk completeness. Those judgments remain with the current agent.
 

@@ -31,7 +31,7 @@ Keel 加的东西：
 Keel 尽量借力原生能力，而不是重造。spec 工作流就是原生 OpenSpec；执行技能、SessionStart 连续性
 hook 和写入守卫 hook 都以一个普通的 Claude Code / Codex 插件分发。除了运行 OpenSpec 自己的 init，
 `keel --init` 还往你的 repo 里写一小块宿主面：`AGENTS.md` bootstrap 块、OpenSpec schema、
-`/opsx:*` 命令 overlay，以及在 Claude 上写入 `.claude/settings.json` 的插件自动更新条目。
+OpenSpec 工作流 skill 上的 overlay，以及在 Claude 上写入 `.claude/settings.json` 的插件自动更新条目。
 
 ## 环境要求
 
@@ -154,13 +154,13 @@ overlay 状态，所以 Claude 一侧正常不会掩盖 Codex overlay 的缺失�
 和证据规则适用于执行该步骤的任何一方。Keel 在 subagent 动手前不要求 brief、额外激活或另一个
 agent 复跑，也不引导模型去用或不用它（#414）。
 
-spec 相关的活走 OpenSpec 的命令（`/opsx:propose`、`/opsx:apply`、`/opsx:sync`、`/opsx:archive`），
-Keel 的门禁在任务边界处运行。整个回路：
+spec 相关的活走 OpenSpec 的工作流 skill（`openspec-propose`、`openspec-apply-change`、`openspec-sync-specs`、
+`openspec-archive-change`）；Keel 只生成 skill，不生成 OpenSpec 斜杠命令（#406）。Keel 的门禁在任务边界处运行。整个回路：
 
 ```
-keel --init  →  keel context  →  /opsx:apply（按顺序做 task）
+keel --init  →  keel context  →  openspec-apply-change（按顺序做 task）
    →  task-start（+ 写入守卫）  →  实现并验证
-   →  task-complete  →  /opsx:sync · /opsx:archive
+   →  task-complete  →  openspec-sync-specs · openspec-archive-change
 ```
 
 在 Claude target 上，session-start hook 还会把这个状态展示给**你**，而不只是给 agent——在你输入任何内容
@@ -422,7 +422,7 @@ executor_tier: high
 - **协议**：`keel --init` 会往你 repo 的 `AGENTS.md` 写一段 bootstrap 块（在 Claude 上由
   `CLAUDE.md` 引入）。它写明 agent 要遵守的规则：每次会话先跑 `keel context`、把工作路由到 Full 或 Lite、
   在任务边界处过门禁、只在任务声明的写入范围内改文件。这就是 agent 知道**何时**运行什么的来源。
-- **技能**：`keel-*` 执行技能和 `/opsx:*` 命令 overlay 带着 agent 走「对齐 → apply → review →
+- **技能**：`keel-*` 执行技能和 OpenSpec 工作流 skill 上的 overlay 带着 agent 走「对齐 → apply → review →
   完成」，每一步调用门禁。新增或实质扩展的技能，要从 authoritative source 研究并记录出处与许可证，
   用真实的 should-trigger 与 should-not-trigger 用例检验其 description，并至少通过一个 real task。
   `src/skills/<name>/SKILL.md` 是唯一可移植权威，target metadata 只是附加，发现与激活由 target-native 运行时负责。
