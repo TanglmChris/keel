@@ -378,13 +378,15 @@ function dispatch(where, options) {
       }
       let role = store.currentRole(where);
       if (options.set !== null) role = store.setRole(where, options.set);
+      // The session that binds a role becomes its session (#415 D3).
+      const bound = options.set !== null && role ? notice.recordBinding(where, role) : null;
       if (options.alias !== null) {
         if (!role) throw new ChatError("Bind a role before adding an alias: `keel chat role --set <name>`.");
         store.addAlias(where, role, options.alias);
       }
       const aliases = role ? store.readMember(where.root, role).aliases : [];
       if (options.json) out(JSON.stringify({ role, aliases, worktree: where.worktree, store: where.root }));
-      else out(role ? `Chat role: ${role}${aliases.length ? ` (aliases: ${aliases.join(", ")})` : ""}` : "This worktree has no chat role. Bind one with `keel chat role --set <name>`.");
+      else out(role ? `Chat role: ${role}${aliases.length ? ` (aliases: ${aliases.join(", ")})` : ""}${bound ? `\n${bound}` : ""}` : "This worktree has no chat role. Bind one with `keel chat role --set <name>`.");
       return 0;
     }
     case "group":
@@ -705,6 +707,7 @@ function runWake(cwd, options) {
         return 0;
       }
       const resumed = notice.resumeCli(entry);
+      if (resumed.removed) throw new ChatError(`${role}'s recorded CLI ${resumed.output}.`);
       out(`${resumed.ok ? "Resumed" : "Could not resume"} ${role}'s CLI session ${entry.session} in ${entry.worktree}.${resumed.output ? `\n${resumed.output}` : ""}`);
       return resumed.ok ? 0 : 1;
     }
@@ -747,7 +750,7 @@ function runChat(argv) {
     const where = store.requireLocation(cwd);
     migrateIfNeeded(where);
     const role = store.currentRole(where);
-    if (role) notice.touchPresence(where, role);
+    if (role) notice.commandPresence(where, role);
     // Two live sessions on one role share its name and cursor (#369 D3).
     if (role && ["post", "dm", "todo", "unread", "read"].includes(options.positionals[0])) {
       const twins = notice.twinWarning(where, role);

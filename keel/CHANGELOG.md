@@ -1,5 +1,21 @@
 # Keel Changelog
 
+## 5.181.0 - A role records its own session and wakes only one that still exists
+
+Issue #415, approved by the owner on 2026-10-21. A role's recorded CLI session — the one `keel chat dm` names and `keel chat wake now` resumes — could end up on the wrong session:
+
+- On 2026-10-20 `kaiwu-lead` recorded a visiting `kaiwu-chief` session and a removed one.
+- On 2026-10-21 keel-maint-2, started with `claude --bg -w` from the main checkout, was recorded as `codex-issues` when it was resumed. It then watched codex-issues' signal and was not woken by its own messages. Its resumed SessionStart had reported the launch directory as `cwd`.
+
+Fixes:
+
+- **The chat hook follows the session's real worktree.** When the transcript's host project directory names another worktree of the repository than the hook's `cwd`, the hook uses that worktree.
+- **A `keel chat` command records the calling session only if it started as the role.** Otherwise the command marks the role active and leaves its recorded session and session list as they were. This also covers a caller with no Claude session, which used to clear them.
+- **`keel chat role --set <role>` records the session that ran it.** This applies when run inside a Claude Code session whose transcript is in that worktree. Keel writes the session's record, records its presence, and starts the role's transcript segment with it, so `keel chat wake now <role>` resumes it. A session binding the role from another worktree on someone's behalf is not recorded.
+- **`keel chat wake now` and `keel tick` skip a removed session.** They first read `claude agents --json --all`. When it lists sessions but not the recorded one, they resume nothing and say so. An unreadable list resumes as before.
+- **The validation suite no longer inherits the running session's `CLAUDE_CODE_SESSION_ID` or `CLAUDE_PID`.** CI never had them.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.181.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.180.0 - keel --update --adopt restarts the idle sessions still on an older plugin
 
 Issue #424. A running Claude background session keeps the skills of the plugin it loaded. On 2026-10-20 the owner did not want to type `/reload-plugins` into each one: "我每个去跑 reload 太麻烦了"; "或换班更新".
