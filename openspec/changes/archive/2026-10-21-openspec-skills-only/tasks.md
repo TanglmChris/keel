@@ -126,7 +126,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E4
   - Touch:
@@ -162,14 +162,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:30f83f97cd15b5eb18cb86d7bbb4a8897a28009cbedb8ac61740c9da608fd657 (keel 5.181.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: after merging origin/main at 5.181.0 (the four `.claude/commands/opsx/*` files it had re-marked resolved as deleted), `node scripts/bump_version.js minor` moved every marker 5.181.0 → 5.182.0; with the "Each OpenSpec workflow is installed once, as a skill" section written into the stub, `version-alignment scenario passed.` (exit 0).
+    - M2: the three modified and two added requirements were promoted into `keel-openspec-surface-overlay`, and the added doctor requirement into `keel-target-surface-diagnostics`; `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit d96abe7 (clean tree), started 10:01 at load 9.97: `validation --all passed: baseline plus 308 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The first run, on a57c882 at 09:55, failed only `assertion-shape-count` (76 OR-guarded sites, 74 recorded) on two combined conditions in `openspec-skills-only`; d96abe7 split them.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E4 — version markers, the 5.182.0 changelog section, and both published specs carry the change; I3 is updated by the promotion; the full suite passes on the committed tree.
+      - Scope check: files beyond tasks 1.1–1.3 are the version markers, `keel/CHANGELOG.md`, and the two published specs, all in Touch; the assertion split stays in `scripts/validate_plugin.py`, which is in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
