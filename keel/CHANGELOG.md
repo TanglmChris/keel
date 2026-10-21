@@ -1,5 +1,20 @@
 # Keel Changelog
 
+## 5.187.0 - The protocol says what memory may hold and when to recheck it
+
+Issue #416. On 2026-10-20 the owner said "感觉啥都会进 mem". On 2026-10-21 the owner put memory hygiene into the Keel protocol for every repository that uses Keel. This is an explicit exception to the #414 stance that Keel leaves native capabilities alone: it governs what memory holds, not whether memory is used. Keel still reads and writes no memory. A `keel memory audit` tool was not chosen.
+
+What changes:
+
+- **The bootstrap block gains one bullet.** It reads: "Memory: write only what the next session would get wrong without it and the repository cannot answer, never a one-off slip; one fact per entry. Recheck it after a fix, at a release, and at a shift change." Consuming repositories receive it when they refresh their managed block, and `keel context` names that refresh.
+- **The bootstrap byte budget rises from 1400 to 1700.** The reason is recorded beside the constant: like routing, memory is never inert, and the bootstrap is the only text that reaches a consuming repository. The resident-block check now requires the memory topics.
+- **This repository's full protocol gains a `## memory` section.** It covers:
+  - what to write and what not to;
+  - one fact per entry, and stamping a behavioural claim with its version and issue;
+  - rechecking after a fix (grep by the symptom), at a release, and at a shift change.
+- **`keel shift check` always adds a `memory:` note.** The note reminds the session to recheck what it wrote to memory before the hand-off note. It is a note, not an item, so it never changes readiness. `/keel:shift` tells the session to act on it.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.187.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.186.0 - The suite and each release say what kind of evidence ran
 
 Issue #408 asks that release records separate deterministic tests, stub-adapter tests, real-host measurements, and skipped or unverified items, rather than letting one green summary stand for capability evidence. On 2026-10-21 the owner chose to have the test summary count these classes automatically.

@@ -100,7 +100,7 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:c40b0e43f59c94a0dc72be3e4251ddf6c2e81dd02ec06a8b37866015d3b9b672 (keel 5.186.0)
     - M1:
     - M2:
     - M3:
