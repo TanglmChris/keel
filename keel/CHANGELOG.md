@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.195.0 - A new shift is told when it starts on a merged branch
+
+Issue #446, approved by the owner on 2026-10-21 under the shift freeze. A new shift's session starts on the branch the last shift left, and `land` has usually merged it already. Each of the last 7 keel-maint shifts started that way. On 2026-10-21 the session started 7 commits behind `origin/main` and spent a tool call learning why `AGENTS.md` read an older protocol. In Keel's own repository the startup hook named `keel --install --target claude` and a Protocol: line that `keel context` does not print there.
+
+- **`keel shift resume` names a merged branch.** When HEAD is behind `origin/<default>` and contained in it, resume prints the branch, that it is already merged, how many commits behind it is, and to start new work from the default branch. With `--json` it carries `merged_branch`. Resume fetches nothing. A branch with commits of its own gets no such line.
+- **In Keel's source repository the hook names the lagging branch, not a refresh.** There the protocol block is the checked-out branch's own version, so the hook names neither `keel --install` nor a Protocol: line. User repositories still get the refresh command.
+- **Checks.** `shift-resume-names-merged-branch` and `session-start-source-repo-protocol`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.195.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.194.0 - A shift note's session ids are not read as commits
 
 Issue #445, approved by the owner on 2026-10-21 as a bug fix under the shift freeze. `keel shift resume` checks the commits a note names (#347), and it was reading session ids as commits. That includes the `CLI session: <uuid>.` header Keel writes itself, so every CLI-era resume printed a false `not found`. A read-only survey found this in 5 of the 6 notes written since the check exists.

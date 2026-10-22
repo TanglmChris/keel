@@ -105,7 +105,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:946703e51d1c958e56038c0b3c547820812fb0d66270653dc54241a891a4bcb4 (keel 5.193.0)
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
     - Blocker: none
     - Reauthorizations: none
 
