@@ -178,6 +178,176 @@ def validate_patrol_rearm_scenario() -> int:
     return 0
 
 
+PATROL_SCOPES = (
+    "patrol:\n"
+    "  - role: pm-a\n    every: 30m\n    scope: group:team-a\n"
+    "  - role: pm-b\n    every: 45m\n    host_task: team-b-patrol\n    scope: group:team-b\n"
+)
+
+
+def patrol_scopes_scratch(base: Path, config: str) -> tuple[Path, dict, dict[str, Path]]:
+    """Two team coordinators, their teams, a role in both teams, and one in neither (#434).
+
+    `team-a` holds pm-a, dev-a, and flow; `team-b` holds pm-b, dev-b, and
+    flow; lead and chief are in no team, as kaiwu-ip's shared roles are.
+    """
+    repo = mailbox_repository(base / "repo")
+    write_text(repo / "openspec/specs/.keep", "")
+    write_authorize_config(repo, config)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "patrol scopes"], cwd=repo, check=True, capture_output=True)
+    env = chat_environment()
+    worktrees = {}
+    for role in ("pm-a", "pm-b", "dev-a", "dev-b", "flow", "lead", "chief"):
+        worktrees[role] = chat_worktree(repo, base / role)
+        run_keel(worktrees[role], "chat", "role", "--set", role, env=env)
+    run_keel(worktrees["pm-a"], "chat", "group", "create", "team-a", "--member", "dev-a", "--member", "flow", env=env)
+    run_keel(worktrees["pm-b"], "chat", "group", "create", "team-b", "--member", "dev-b", "--member", "flow", env=env)
+    return repo, env, worktrees
+
+
+def validate_patrol_scopes_declared_scenario() -> int:
+    """Issue #434: each role a `patrol:` list declares gets its own reminder and host task.
+
+    A broken item is reported while the others apply; `keel patrol task`
+    renders the calling worktree's declaration, or `--role`'s, and refuses
+    to guess between two.
+    """
+    label = "patrol-scopes-declared:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-scopes-") as raw:
+        base = Path(raw)
+        _repo, env, wt = patrol_scopes_scratch(base, PATROL_SCOPES + "  - role: pm-c\n    every: soon\n")
+
+        def context(role: str) -> dict:
+            return json.loads(run_keel(wt[role], "context", "--json", env=env).stdout)
+
+        a = context("pm-a")
+        if a.get("patrol") != {"role": "pm-a", "every": "30m"}:
+            report(f"{label} pm-a's context carries patrol {a.get('patrol')!r}.")
+            return 1
+        b = context("pm-b")
+        if b.get("patrol") != {"role": "pm-b", "every": "45m", "hostTask": "team-b-patrol"}:
+            report(f"{label} pm-b's context carries patrol {b.get('patrol')!r}.")
+            return 1
+        dev = context("dev-a")
+        if "patrol" in dev:
+            report(f"{label} dev-a's context carries patrol {dev.get('patrol')!r}.")
+            return 1
+        if not any("pm-c" in w and "soon" in w for w in dev.get("warnings", [])):
+            report(f"{label} the broken pm-c item is not reported: {dev.get('warnings')!r}")
+            return 1
+        ready = run_keel(wt["pm-b"], "shift", "ready", "next: keep patrolling team-b", env=env)
+        if ready.returncode != 0:
+            report(f"{label} keel shift ready failed in pm-b: {ready.stdout} {ready.stderr}")
+            return 1
+        resumed = run_keel(wt["pm-b"], "shift", "resume", env=env)
+        tail = resumed.stdout.strip().splitlines()[-1] if resumed.stdout.strip() else ""
+        if "team-b-patrol" not in tail:
+            report(f"{label} pm-b's resume does not end with its own reminder: {resumed.stdout!r}")
+            return 1
+        own = run_keel(wt["pm-b"], "patrol", "task", env=env)
+        if own.returncode != 0:
+            report(f"{label} keel patrol task in pm-b's worktree exited {own.returncode}: {own.stderr!r}")
+            return 1
+        if "task id: team-b-patrol" not in own.stdout:
+            report(f"{label} keel patrol task in pm-b's worktree did not render team-b-patrol: {own.stdout!r}")
+            return 1
+        guessed = run_keel(wt["dev-a"], "patrol", "task", env=env)
+        if guessed.returncode == 0:
+            report(f"{label} keel patrol task in dev-a's worktree guessed a declaration: {guessed.stdout!r}")
+            return 1
+        missing = [name for name in ("pm-a", "pm-b", "--role") if name not in guessed.stderr]
+        if missing:
+            report(f"{label} keel patrol task's refusal in dev-a's worktree does not name {missing!r}: {guessed.stderr!r}")
+            return 1
+        chosen = run_keel(wt["dev-a"], "patrol", "task", "--role", "pm-a", env=env)
+        for needle in ("task id: keel-patrol-pm-a", "*/30 * * * *", f"keel patrol --repo {wt['pm-a'].resolve()} --since-last --notify"):
+            if needle not in chosen.stdout:
+                report(f"{label} keel patrol task --role pm-a does not carry {needle!r}: {chosen.stdout!r} {chosen.stderr!r}")
+                return 1
+    report("patrol-scopes-declared scenario passed.")
+    return 0
+
+
+PATROL_CHIEF = "  - role: chief\n    every: 60m\n"
+PATROL_ISSUE_ROLES = "issue_roles:\n  flow: flow\n  dev: dev-b\n"
+
+
+def validate_patrol_scopes_cover_scenario() -> int:
+    """Issue #434 D3, D5: each coordinator nudges and routes only the roles it covers.
+
+    A scoped declaration covers its group, the unscoped one the roles in no
+    group; flow, in both teams, is nudged once and sent one message per
+    issue update.
+    """
+    label = "patrol-scopes-cover:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-cover-") as raw:
+        base = Path(raw)
+        _repo, env, wt = patrol_scopes_scratch(base, PATROL_SCOPES + PATROL_CHIEF + PATROL_ISSUE_ROLES)
+        for role in ("dev-a", "dev-b", "flow", "lead"):
+            run_keel(wt["chief"], "chat", "dm", role, f"{role}: please report status", env=env)
+        time.sleep(1.2)
+        expected = (("pm-a", ["dev-a", "flow"]), ("pm-b", ["dev-b"]), ("chief", ["lead"]))
+        for coordinator, want in expected:
+            run = run_keel(wt[coordinator], "patrol", "--nudge", "--idle", "1s", env=env)
+            got = sorted(line.split()[1].rstrip(":") for line in run.stdout.splitlines() if line.startswith("nudged "))
+            if got != want:
+                report(f"{label} {coordinator} nudged {got}, not {want}: {run.stdout!r} {run.stderr!r}")
+                return 1
+        issues = base / "issues.json"
+        issues.write_text(json.dumps([{"number": 170, "title": "shared flow step", "state": "OPEN",
+                                       "labels": [{"name": "flow"}, {"name": "dev"}], "updatedAt": "2026-10-21T01:00:00Z"}]),
+                          encoding="utf-8")
+        for coordinator, want in (("pm-a", {"flow": 1, "dev-b": 0}), ("pm-b", {"flow": 1, "dev-b": 1})):
+            run_keel(wt[coordinator], "patrol", "--issues", str(issues), env=env)
+            for role, count in want.items():
+                got = issue_notices(wt[role], env, 170)
+                if got != count:
+                    report(f"{label} after {coordinator}'s patrol {role} has {got} messages about #170, not {count}.")
+                    return 1
+    report("patrol-scopes-cover scenario passed.")
+    return 0
+
+
+def validate_patrol_scopes_repository_wide_scenario() -> int:
+    """Issue #434 D4: a repository-wide risk reaches one coordinator.
+
+    The unscoped declaration owns the shared checkout; with every declaration
+    scoped, the first declared does.
+    """
+    label = "patrol-scopes-repository-wide:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-wide-") as raw:
+        base = Path(raw)
+        repo, env, wt = patrol_scopes_scratch(base, PATROL_SCOPES + PATROL_CHIEF)
+
+        def told(role: str) -> int:
+            group = "dm-" + "--".join(sorted(("keel-patrol", role)))
+            return len(chat_records_with(repo, group, "shared checkout"))
+
+        def round_trip(roles: tuple[str, ...]) -> None:
+            for role in roles:
+                run_keel(wt[role], "patrol", "--since-last", "--notify", env=env)
+            write_text(repo / "scratch.txt", "left behind\n")
+            for role in roles:
+                run_keel(wt[role], "patrol", "--since-last", "--notify", env=env)
+
+        round_trip(("pm-a", "pm-b", "chief"))
+        got = {role: told(role) for role in ("pm-a", "pm-b", "chief")}
+        if got != {"pm-a": 0, "pm-b": 0, "chief": 1}:
+            report(f"{label} with chief unscoped the checkout risk reached {got}, not chief alone.")
+            return 1
+        (repo / "scratch.txt").unlink()
+        for role in ("pm-a", "pm-b", "chief"):
+            write_authorize_config(wt[role], PATROL_SCOPES)
+        round_trip(("pm-a", "pm-b"))
+        got = {role: told(role) for role in ("pm-a", "pm-b")}
+        if got != {"pm-a": 1, "pm-b": 0}:
+            report(f"{label} with every declaration scoped the checkout risk reached {got}, not pm-a alone.")
+            return 1
+    report("patrol-scopes-repository-wide scenario passed.")
+    return 0
+
+
 def validate_patrol_host_task_scenario() -> int:
     """Issue #295: `patrol:` names the host task; `keel patrol task` renders it.
 
@@ -696,6 +866,52 @@ def validate_tick_runs_due_patrol_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("tick-runs-due-patrol scenario passed.")
+    return 0
+
+
+def validate_tick_runs_each_patrol_scenario() -> int:
+    """Issue #434 D7: `keel tick` runs each declared patrol when it is due.
+
+    Each role keeps its own `next_at`; moving one into the past runs that
+    role's patrol alone.
+    """
+    label = "tick-runs-each-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-each-") as raw:
+        base = Path(raw)
+        config = ("patrol:\n"
+                  "  - role: pm-a\n    every: 30m\n    runner: tick\n    scope: group:team-a\n"
+                  "  - role: pm-b\n    every: 45m\n    runner: tick\n    scope: group:team-b\n")
+        repo, env, wt = patrol_scopes_scratch(base, config)
+        store_root = mailbox_common_dir(repo) / "keel-chat"
+        state = store_root / "tick" / "state.json"
+
+        def runs(role: str) -> int:
+            log = store_root / "patrol" / "log" / f"{role}.log"
+            return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
+
+        def tick() -> subprocess.CompletedProcess[str]:
+            return run_keel(wt["dev-a"], "tick", "--repo", str(repo), env=env)
+
+        first = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 1):
+            report(f"{label} the first tick ran pm-a {runs('pm-a')} and pm-b {runs('pm-b')} times, not once each: {first.stdout!r} {first.stderr!r}")
+            return 1
+        second = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 1):
+            report(f"{label} a tick before either next_at ran a patrol: pm-a {runs('pm-a')}, pm-b {runs('pm-b')}.")
+            return 1
+        for role in ("pm-a", "pm-b"):
+            if not any(role in line and "not due" in line for line in second.stdout.splitlines()):
+                report(f"{label} the skipped tick does not say {role}'s patrol is not due: {second.stdout!r}")
+                return 1
+        saved = json.loads(state.read_text(encoding="utf-8"))
+        saved["patrols"]["pm-b"]["next_at"] = "2000-01-01T00:00:00+00:00"
+        state.write_text(json.dumps(saved), encoding="utf-8")
+        third = tick()
+        if (runs("pm-a"), runs("pm-b")) != (1, 2):
+            report(f"{label} with only pm-b due the tick ran pm-a {runs('pm-a')} and pm-b {runs('pm-b')} times in all: {third.stdout!r}")
+            return 1
+    report("tick-runs-each-patrol scenario passed.")
     return 0
 
 

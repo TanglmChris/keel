@@ -773,6 +773,22 @@ patrol:
   every: 30m
 ```
 
+一个团队一个协调者的仓库可以列出多个（#434），每一项带同样的键，再加上 `scope: group:<name>`。带范围的协调者
+只催促该聊天群的成员、只把 issue 分派给他们、也只报告他们的情况；不带范围的协调者负责不在任何范围里的角色，
+同时在两个群里的角色两边都管，但同一窗口内只会被催一次。远端分支头、共享 checkout、绑定漂移、磁盘和配额由不带
+范围的协调者报告，全部都带范围时由列在第一个的报告。每个角色收到自己的提醒，`keel patrol task` 渲染调用所在
+worktree 的角色的任务（或 `--role <role>` 指定的），`keel tick` 在各自到期时分别运行：
+
+```yaml
+patrol:
+  - role: pm-iecc
+    every: 60m
+    scope: group:iecc
+  - role: pm-rmw
+    every: 60m
+    scope: group:rmw
+```
+
 更好的做法是把巡查完全放到协调者的会话之外，作为一个运行在小模型上的宿主计划任务，这样它能熬过协调者清空自己
 （#295）。加上 `host_task: <id>`（愿意的话再加 `model: <id>`，Keel 只是原样传递，从不替你选择），然后运行
 `keel patrol task`：它打印出这个任务——id、由 `every:` 生成的 cron、模型，以及一份按路径针对协调者 worktree 运行

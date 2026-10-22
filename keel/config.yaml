@@ -281,7 +281,9 @@ external_agents:
 # This repository declares none.
 
 # patrol (optional): the role whose sessions run `keel patrol` on a host
-# schedule, and its interval (#260). Keel schedules nothing; it reminds that
+# schedule, and its interval (#260), or a list of `- role:` items, one per
+# team coordinator, each scoped with `scope: group:<name>` to the members of
+# that chat group (#434). Keel schedules nothing; it reminds that
 # role's new sessions and `keel shift resume` to re-create the schedule, since
 # a session's schedule ends with the session. `host_task:` names a host
 # scheduled task that runs it instead, which outlives the session, and the
