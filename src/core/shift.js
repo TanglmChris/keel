@@ -133,6 +133,8 @@ function processDirectories() {
 
 // An interactive shell open in the worktree, such as a terminal tab, is not
 // work in progress; what it runs is, and is listed by its own entry.
+const HOST_KEEP_AWAKE = /^(?:\S*\/)?caffeinate(?:\s|$)/;
+
 const IDLE_SHELL = /^-?(?:\S*\/)?(?:zsh|bash|sh|dash|fish)(?:\s+-[il]+)*\s*$/;
 
 function liveProcesses(worktree) {
@@ -147,6 +149,10 @@ function liveProcesses(worktree) {
     if (own.has(pid) || !inside(realpath(cwd), worktree)) continue;
     const row = table.get(pid);
     if (!row || row.pgid === group || IDLE_SHELL.test(row.command)) continue;
+    // The keep-awake the session's host runs under it (#447 D1): its parent is
+    // one of the checker's ancestors, the host process itself. Not init, which
+    // every orphan has for a parent and every process for an ancestor.
+    if (row.ppid > 1 && own.has(row.ppid) && HOST_KEEP_AWAKE.test(row.command)) continue;
     found.push(row);
   }
   return found.sort((a, b) => a.pid - b.pid);

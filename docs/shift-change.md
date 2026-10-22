@@ -29,7 +29,7 @@ Change shift at a task boundary, and compact within a task (#313). While a role 
 
 ## Changing your own shift
 
-In Claude Code, `/keel:shift` runs the steps below in order (#386): `keel shift check`, settling each item it reports (a keep-awake process the host started under the session, such as `caffeinate`, is not a loose end of yours), the note, then `keel shift ready --wake --file -`, and what `ready` prints for the host. It decides nothing about whether to change shift: the owner types it. Codex has no plugin commands, so there the steps are by hand.
+In Claude Code, `/keel:shift` runs the steps below in order (#386): `keel shift check`, settling each item it reports (the check leaves out the keep-awake the host runs under the session, such as `caffeinate`, #447), the note, then `keel shift ready --wake --file -`, and what `ready` prints for the host. It decides nothing about whether to change shift: the owner types it. Codex has no plugin commands, so there the steps are by hand.
 
 A role that no request named — the coordinator going last, or any session that decides to change its own shift — runs `ready` like any role, but nobody is set to start its new session, and `ready` says so. It cannot `keel shift start` itself, which is refused. `status` says its note is resumed by its own next session: type into it, or use `keel shift ready --wake` (below).
 
