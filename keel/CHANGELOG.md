@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.194.0 - A shift note's session ids are not read as commits
+
+Issue #445, approved by the owner on 2026-10-21 as a bug fix under the shift freeze. `keel shift resume` checks the commits a note names (#347), and it was reading session ids as commits. That includes the `CLI session: <uuid>.` header Keel writes itself, so every CLI-era resume printed a false `not found`. A read-only survey found this in 5 of the 6 notes written since the check exists.
+
+- **A session id is not listed.** The first segment of a UUID is skipped. So is a token that begins a session id Keel records under `sessions/` or keeps a transcript of under `shift/transcripts/`. A landed commit is still marked, and so is an unknown hex token such as `deadbee1`.
+- **The note header has no blank lines for empty slots**, such as the desktop-session fields in a CLI note.
+- **Check.** `shift-resume-skips-session-ids` runs `keel shift ready` and `resume` with a CLI session's environment and a second recorded session quoted in the note.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.194.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.193.0 - Several coordinators may patrol, each over its own team
 
 Issue #434, approved by the owner on 2026-10-21, with two decisions made that day: what happens to a role in two teams, and who receives repository-wide risks. `patrol:` declared one role. In kaiwu-ip, with one coordinator per IP team, the second coordinator got no reminder and no host task, and the first nudged the other team's roles and received their risks.
