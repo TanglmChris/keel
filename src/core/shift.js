@@ -845,8 +845,9 @@ function retryNote(entry) {
 }
 
 // A failed hand-off, or one pending past 15 minutes, is the patrol's risk (#357 D4).
-function handOffRisks(where, now = Date.now()) {
-  return handOffs(where).filter((entry) => entry.state === "failed"
+// `covers` limits them to the roles a scoped patrol coordinates (#434 D5).
+function handOffRisks(where, now = Date.now(), covers = () => true) {
+  return handOffs(where).filter((entry) => covers(entry.role)).filter((entry) => entry.state === "failed"
     || (entry.state === "pending" && now - Date.parse(entry.requested_at) > 15 * 60 * 1000))
     .map((entry) => `${entry.role}'s CLI hand-off ${entry.state}${entry.error ? `: ${entry.error}; ${retryNote(entry)}` : ` since ${entry.requested_at}`}`
       + `${entry.waiting_on ? ` (${entry.waiting_on})` : ""}; see \`keel shift status\``);
@@ -1489,8 +1490,8 @@ function runShift(argv) {
         }
         // A new shift of the patrolling role re-creates its schedule (#260).
         const { readPatrolDeclaration, patrolReminder } = require("./config");
-        const patrol = readPatrolDeclaration(where.worktree);
-        const remind = patrol.role && result.role === patrol.role;
+        const patrol = readPatrolDeclaration(where.worktree, { role: result.role || null });
+        const remind = Boolean(patrol.role);
         if (remind) result.patrol = { role: patrol.role, every: patrol.every, ...(patrol.hostTask ? { hostTask: patrol.hostTask } : {}), ...(patrol.runner ? { runner: patrol.runner } : {}) };
         // A new coordinator learns whom its previous shift left unstarted (#289 D2).
         const waiting = (result.waiting || []).map((w) => w.role);

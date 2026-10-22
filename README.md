@@ -928,6 +928,24 @@ patrol:
   every: 30m
 ```
 
+A repository with one coordinator per team lists several (#434), each item carrying the same keys
+plus `scope: group:<name>`. A scoped coordinator nudges, routes issues to, and reports on only the
+members of that chat group; an unscoped one covers the roles in no scope, and a role in two groups
+is covered by both and nudged at most once per window. The remote tip, the shared checkout, drift,
+disk, and quota are reported by the unscoped coordinator, or by the first listed when all are
+scoped. Each role gets its own reminder, `keel patrol task` renders the calling worktree's role's
+task (or `--role <role>`'s), and `keel tick` runs each one when it is due:
+
+```yaml
+patrol:
+  - role: pm-iecc
+    every: 60m
+    scope: group:iecc
+  - role: pm-rmw
+    every: 60m
+    scope: group:rmw
+```
+
 Better, run the patrol outside the coordinator's session altogether, as a host scheduled task on a
 small model, which survives the coordinator clearing itself (#295). Add `host_task: <id>` (and, if
 you like, `model: <id>`, which Keel passes through and never chooses) and run `keel patrol task`: it

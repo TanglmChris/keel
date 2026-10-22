@@ -952,24 +952,28 @@ function readIssueRoles(repo) {
   return { routes, unreadable };
 }
 
-// `patrol:` — which role runs `keel patrol`, and how often (#260). Keel only
-// reminds that role to re-create its host schedule; it schedules nothing. A
+// `patrol:` — which roles run `keel patrol`, and how often (#260). Keel only
+// reminds each role to re-create its host schedule; it schedules nothing. A
 // declaration missing a value, or with a malformed one, reminds nobody.
 // `host_task:` names the host scheduled task that runs it and `model:` the
 // model that task declares (#295 D3); Keel passes a model through and never
 // chooses one, and a malformed one of these is ignored by name.
-function readPatrolDeclaration(repo) {
-  const block = configMap(repo, "patrol");
-  if (!Object.keys(block).length) return { declared: false, role: null, every: null, hostTask: null, model: null, message: null };
+//
+// The block is one mapping, or a list of them for one coordinator per team
+// (#434 D1), each item opened by `- role:` and optionally scoped with
+// `scope: group:<name>` (D2). A list item that does not read, or that repeats
+// a role, is reported and patrols nothing while the other items apply.
+function patrolItem(block) {
   const problems = [];
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(block.role || "")) problems.push(`role \`${block.role || ""}\` is not a chat role name`);
   if (!/^\d+[smhd]$/.test(block.every || "")) problems.push(`every \`${block.every || ""}\` is not a duration such as 30m`);
-  if (problems.length) {
-    return {
-      declared: true, role: null, every: null, hostTask: null, model: null,
-      message: `keel/config.yaml patrol: ${problems.join("; ")}, so no session is reminded to run \`keel patrol\`.`,
-    };
+  let scope = null;
+  if (block.scope !== undefined) {
+    const group = String(block.scope).match(/^group:([A-Za-z0-9][\w.-]{0,63})$/);
+    if (group) scope = group[1];
+    else problems.push(`scope \`${block.scope}\` is not group:<name>`);
   }
+  if (problems.length) return { problems };
   const ignored = [];
   let hostTask = null;
   let model = null;
@@ -1002,8 +1006,68 @@ function readPatrolDeclaration(repo) {
     if (block.runner === "tick") runner = "tick";
     else ignored.push(`runner \`${block.runner}\` is not tick`);
   }
-  const message = ignored.length ? `keel/config.yaml patrol: ${ignored.join("; ")}, so it is ignored.` : null;
-  return { declared: true, role: block.role, every: block.every, hostTask, model, message, cadence, runner };
+  return { declaration: { declared: true, role: block.role, every: block.every, hostTask, model, cadence, runner, scope }, ignored };
+}
+
+function readPatrolDeclarations(repo) {
+  const block = configBlockLines(repo, "patrol");
+  const empty = { declared: false, declarations: [], messages: [] };
+  if (block === null) return empty;
+  const declarations = [];
+  const messages = [];
+  if (!block.lines.some((line) => /^\s*-\s/.test(line))) {
+    const map = configMap(repo, "patrol");
+    if (!Object.keys(map).length) return empty;
+    const item = patrolItem(map);
+    if (item.problems) {
+      messages.push(`keel/config.yaml patrol: ${item.problems.join("; ")}, so no session is reminded to run \`keel patrol\`.`);
+    } else {
+      declarations.push(item.declaration);
+      if (item.ignored.length) messages.push(`keel/config.yaml patrol: ${item.ignored.join("; ")}, so it is ignored.`);
+    }
+    return { declared: true, declarations, messages };
+  }
+  const items = [];
+  const stray = [];
+  for (const line of block.lines) {
+    const text = line.replace(/\s+#.*$/, "");
+    if (!text.trim()) continue;
+    const opened = text.match(/^\s*-\s+(\w+)\s*:\s*(\S+)\s*$/);
+    const entry = text.match(/^\s+(\w+)\s*:\s*(\S+)\s*$/);
+    if (opened) items.push({ [opened[1]]: opened[2] });
+    else if (entry && items.length) items[items.length - 1][entry[1]] = entry[2];
+    else stray.push(text.trim());
+  }
+  if (stray.length) messages.push(`keel/config.yaml patrol: ${stray.map((line) => `\`${line}\``).join(", ")} is not part of a \`- role:\` item, so it is ignored.`);
+  items.forEach((map, index) => {
+    const name = `keel/config.yaml patrol item ${index + 1}${map.role ? ` (\`${map.role}\`)` : ""}`;
+    const item = patrolItem(map);
+    if (item.problems) {
+      messages.push(`${name}: ${item.problems.join("; ")}, so it patrols nothing.`);
+      return;
+    }
+    if (declarations.some((declaration) => declaration.role === item.declaration.role)) {
+      messages.push(`${name}: role ${item.declaration.role} is declared already, so this item patrols nothing.`);
+      return;
+    }
+    declarations.push(item.declaration);
+    if (item.ignored.length) messages.push(`${name}: ${item.ignored.join("; ")}, so it is ignored.`);
+  });
+  return { declared: true, declarations, messages };
+}
+
+// One role's declaration, `{ role }` naming whose; without it the first, which
+// is the single mapping's. `message` carries every problem in the block, so a
+// caller that reports it reports the whole declaration.
+function readPatrolDeclaration(repo, options = {}) {
+  const all = readPatrolDeclarations(repo);
+  const message = all.messages.length ? all.messages.join(" ") : null;
+  if (!all.declared) return { declared: false, role: null, every: null, hostTask: null, model: null, scope: null, message: null };
+  const found = "role" in options
+    ? all.declarations.find((declaration) => declaration.role === options.role)
+    : all.declarations[0];
+  if (!found) return { declared: true, role: null, every: null, hostTask: null, model: null, scope: null, message };
+  return { ...found, message };
 }
 
 // `shift: permission_mode:` for the session a CLI hand-off starts (#357 D5).
@@ -1048,6 +1112,7 @@ module.exports = {
   readOwnerLanguage,
   ownerLanguageRule,
   readPatrolDeclaration,
+  readPatrolDeclarations,
   readShiftDeclaration,
   durationSeconds,
   patrolReminder,
