@@ -1638,6 +1638,48 @@ def plant_spawn_recorder(path: Path) -> str:
     return f"--require {path}"
 
 
+def validate_session_start_source_repo_protocol_scenario() -> int:
+    """Issue #446 D2: in Keel's source repository a lagging protocol is a lagging branch.
+
+    There the managed block is the checked-out branch's own version, and
+    `keel context` prints no Protocol: line, so naming the refresh sends the
+    maintainer to the wrong command. Elsewhere the refresh is still named.
+    """
+    label = "session-start-source-repo-protocol:"
+    event = {"hook_event_name": "SessionStart", "source": "startup"}
+    with tempfile.TemporaryDirectory(prefix="keel-446-hook-") as raw:
+        tmp = Path(raw)
+        plugin = plant_session_start_plugin(tmp / "plugin", "5.9.0")
+        cli = fake_keel_cli(tmp / "cli.js", "5.9.0")
+        lagging = "<!-- keel:start version=5.2.0 -->\n## Session Start\n<!-- keel:end -->\n"
+        source = tmp / "keel-source"
+        write_text(source / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(source / "CLAUDE.md", lagging)
+        write_text(source / "package.json", json.dumps({"name": "@christang/keel", "version": "5.2.0"}) + "\n")
+        write_text(source / "plugins/keel/.keep", "")
+        text = session_start_context(run_session_start_hook(source, event, keel_cli=cli, plugin_root=plugin)) or ""
+        if VERSION_DRIFT_STATEMENT not in text:
+            report(f"{label} the source repository's lagging protocol is not reported at all: {text!r}")
+            return 1
+        for forbidden in ("keel --install", "Protocol: line"):
+            if forbidden in text:
+                report(f"{label} the source repository's report still names {forbidden!r}: {text!r}")
+                return 1
+        if "checked-out branch" not in text:
+            report(f"{label} the source repository's report does not say the block is the checked-out branch's: {text!r}")
+            return 1
+        other = tmp / "user-repo"
+        write_text(other / "openspec/changes/demo/tasks.md", task_contract_fixture())
+        write_text(other / "CLAUDE.md", lagging)
+        write_text(other / "package.json", json.dumps({"name": "user-app"}) + "\n")
+        elsewhere = session_start_context(run_session_start_hook(other, event, keel_cli=cli, plugin_root=plugin)) or ""
+        if "keel --install --target claude" not in elsewhere:
+            report(f"{label} a user repository's lagging protocol no longer names the refresh: {elsewhere!r}")
+            return 1
+    report("session-start-source-repo-protocol scenario passed.")
+    return 0
+
+
 def validate_runtime_version_drift_scenario() -> int:
     codex_event = {"hook_event_name": "SessionStart", "source": "startup"}
 

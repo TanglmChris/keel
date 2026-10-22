@@ -386,6 +386,7 @@ SCENARIOS: tuple = (
     ("native-plugin-manifests", hosts.validate_native_plugin_manifests_scenario),
     ("native-plugin-session-start", hosts.validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", hosts.validate_runtime_version_drift_scenario),
+    ("session-start-source-repo-protocol", hosts.validate_session_start_source_repo_protocol_scenario),
     ("plugin-runs-its-own-cli", hosts.validate_plugin_runs_its_own_cli_scenario),
     ("drift-names-a-pending-reload", hosts.validate_drift_names_a_pending_reload_scenario),
     ("hook-hands-off-to-installed-update", hosts.validate_hook_hands_off_to_installed_update_scenario),

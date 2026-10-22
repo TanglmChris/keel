@@ -34,7 +34,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Name the branch, not a refresh, for a lagging protocol in Keel's source repository
+- [x] 1.2 Name the branch, not a refresh, for a lagging protocol in Keel's source repository
   - Covers:
     - keel-native-runtime-projection / The session projection reports runtime version alignment / Keel's source repository names the branch, not a refresh
     - keel-native-runtime-projection / The session projection reports runtime version alignment / A lagging protocol names the protocol refresh
@@ -55,7 +55,16 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:f7ca97313c430e086ab70f57a65abb0daa93964c30e1064f5d34a49d0c586351 (keel 5.193.0)
+    - M1: pass. `session-start-source-repo-protocol scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `session-start-source-repo-protocol: the source repository's report still names 'keel --install'` (exit 1).
+    - M1.green: pass. `keelSourceRepo` inlines `isKeelSourceRepo`'s test. When the protocol lags in that repository, `versionReport` says the block is the checked-out branch's own version and the branch is behind. It names no refresh and no Protocol: line (D2).
+    - M2: pass. `validation --group hosts passed: 36 scenarios.` and `validation --group install passed: 30 scenarios.` (each exit 0), `runtime-version-drift` among them. `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: the shipping SessionStart hook, in a repository shaped like Keel's source, reports the lagging protocol as a lagging branch and names neither `keel --install` nor a Protocol: line. In a user repository it still names `keel --install --target claude`.
+      - Scope check: `git status --short` lists `plugins/keel/scripts/session-start.js`, `scripts/validation/hosts.py`, `scripts/validation/registry.py`, and this change's directory.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
