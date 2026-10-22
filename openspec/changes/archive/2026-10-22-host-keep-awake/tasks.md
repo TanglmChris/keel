@@ -47,7 +47,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -82,14 +82,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:83bd94bfc22479c4abec2c46f8e35adb3188be519577745e414c994ba265f572 (keel 5.195.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.195.0 → 5.196.0. With the section "The host's own keep-awake no longer blocks a shift" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the two modified requirements are promoted into `keel-shift-change`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit ad048726 (clean tree), started at load 2.23: `validation --all passed: baseline plus 331 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.196.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
