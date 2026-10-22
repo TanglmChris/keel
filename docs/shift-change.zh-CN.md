@@ -29,7 +29,7 @@
 
 ## 给自己换班
 
-在 Claude Code 里，`/keel:shift` 会按顺序做完下面这些步骤（#386）：`keel shift check`，处理它报出的每一项（宿主在会话下面启动的保持唤醒进程，例如 `caffeinate`，不算你自己的遗留），写便条，然后 `keel shift ready --wake --file -`，再照 `ready` 为当前宿主打印的内容做。要不要换班它不替你决定：由负责人来输入它。Codex 没有插件命令，那里这些步骤要手动做。
+在 Claude Code 里，`/keel:shift` 会按顺序做完下面这些步骤（#386）：`keel shift check`，处理它报出的每一项（宿主在会话下面运行的保持唤醒进程，例如 `caffeinate`，检查本身就不会列出，#447），写便条，然后 `keel shift ready --wake --file -`，再照 `ready` 为当前宿主打印的内容做。要不要换班它不替你决定：由负责人来输入它。Codex 没有插件命令，那里这些步骤要手动做。
 
 没有被任何请求点名的角色——最后换班的协调者，或者任何决定给自己换班的会话——和其他角色一样运行 `ready`，但没有人负责启动它的新会话，`ready` 也会这么说。它不能对自己 `keel shift start`，那会被拒绝。`status` 会说它的便条由它自己的下一个会话接班：往那个会话里输入，或者用 `keel shift ready --wake`（见下）。
 

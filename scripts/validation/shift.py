@@ -710,6 +710,65 @@ def validate_launchd_stable_node_scenario() -> int:
     return 0
 
 
+def validate_shift_check_skips_host_keep_awake_scenario() -> int:
+    """Issue #447: the host's own keep-awake is not a loose end of the shift.
+
+    Claude Code runs `caffeinate` as a child of the session's host process,
+    an ancestor of the check. That one is left out; a `caffeinate` with any
+    other parent, and any other program, are still named.
+    """
+    label = "shift-check-skips-host-keep-awake:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-447-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        # A stand-in named `caffeinate` by its argv[0]: macOS kills a copied
+        # system binary, and `ps` shows the name a process was exec'd under.
+        # This process is an ancestor of the `keel shift check` it runs, as the
+        # session's claude process is of the shell that runs the check.
+        host = subprocess.Popen(["bash", "-c", "exec -a caffeinate sleep 90"], cwd=verify, start_new_session=True)
+        # Orphaned in a process group of its own, as a keep-awake another
+        # session or a script left behind would be.
+        subprocess.run(["bash", "-c", "bash -c 'exec -a caffeinate sleep 91' >/dev/null 2>&1 &"], cwd=verify, check=True,
+                       start_new_session=True)
+        found: list[str] = []
+        for _ in range(50):
+            found = subprocess.run(["pgrep", "-f", "^caffeinate 91"], capture_output=True, text=True).stdout.split()
+            if found:
+                break
+            time.sleep(0.1)
+        if not found:
+            report(f"{label} the orphaned stand-in caffeinate did not start.")
+            host.kill()
+            return 1
+        orphan = int(found[0])
+        sleeper = subprocess.Popen(["sleep", "92"], cwd=verify, start_new_session=True)
+        try:
+            listed = run_keel(verify, "shift", "check", env=env)
+            if f"PID {host.pid}," in listed.stdout:
+                report(f"{label} keel shift check names the host's own keep-awake: {listed.stdout.strip()}")
+                return 1
+            for name, pid in (("an orphaned caffeinate", orphan), ("a sleep", sleeper.pid)):
+                if f"PID {pid}," not in listed.stdout:
+                    report(f"{label} keel shift check does not name {name} (PID {pid}): {listed.stdout.strip()}")
+                    return 1
+            os.kill(orphan, signal.SIGKILL)
+            sleeper.kill()
+            sleeper.wait()
+            time.sleep(0.3)
+            clean = run_keel(verify, "shift", "check", env=env)
+            if clean.returncode != 0:
+                report(f"{label} with only the host's keep-awake running, keel shift check exited {clean.returncode}: {clean.stdout.strip()}")
+                return 1
+        finally:
+            for proc in (host, sleeper):
+                proc.kill()
+                proc.wait()
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(orphan, signal.SIGKILL)
+    report("shift-check-skips-host-keep-awake scenario passed.")
+    return 0
+
+
 def validate_shift_slash_command_scenario() -> int:
     """Issue #386: a session changes its own shift with one slash command.
 
