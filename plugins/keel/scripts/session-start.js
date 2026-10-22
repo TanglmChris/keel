@@ -227,6 +227,18 @@ function installedTarget(cwd) {
   return "codex";
 }
 
+// Keel's own source repository, by the test `isKeelSourceRepo` makes
+// (src/core/capabilities.js), inlined because these scripts load nothing from
+// src/core. There the managed block is the checked-out branch's own version.
+function keelSourceRepo(cwd) {
+  try {
+    if (JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8")).name !== "@christang/keel") return false;
+  } catch {
+    return false;
+  }
+  return fs.existsSync(path.join(cwd, "plugins", "keel"));
+}
+
 // Three versions are comparable in any repository: the plugin executing this
 // hook, the CLI it just invoked, and the protocol version the repository
 // stamped into its managed block. Keel reports the disagreement and stops
@@ -288,7 +300,12 @@ function versionReport(cwd, cli, pathCli = null) {
   const parts = [];
   if (pending) parts.push(`The host has already installed plugin ${pending}, so nothing needs updating.`);
   else if (runtimeBehind || !protocolBehind) parts.push(`Updating is ${plugin.remedy}, which Keel names and does not run.`);
-  if (protocolBehind) {
+  if (protocolBehind && keelSourceRepo(cwd)) {
+    // #446 D2: a refresh is not the remedy here, and `keel context` prints no
+    // Protocol: line in this repository.
+    parts.push("This is Keel's source repository, whose protocol block is the checked-out branch's own version: "
+      + "an older one means the branch is behind its default branch, so start from that branch rather than refreshing.");
+  } else if (protocolBehind) {
     parts.push(`The repository's protocol block is behind: refresh it with \`keel --install --target ${installedTarget(cwd)}\`, `
       + "the command `keel context` names on its Protocol: line.");
   }
