@@ -41,7 +41,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -76,14 +76,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:385d3311df8938e4daaefa9811b22d1a3ba89846fd9f8d8b02c814315e940055 (keel 5.193.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.193.0 → 5.194.0. With the section "A shift note's session ids are not read as commits" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "A shift note's session ids are not read as commits" is promoted into `keel-shift-change`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit f094c6b6 (clean tree), started at load 2.30: `validation --all passed: baseline plus 328 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.194.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
