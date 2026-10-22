@@ -141,7 +141,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -176,14 +176,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:82750c28c942d7fc6b71b7aa509951a8489f9ffd3000e916855b5396cda00d1e (keel 5.192.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.192.0 → 5.193.0. With the section "Several coordinators may patrol, each over its own team" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the delta is promoted into `keel-coordinator-patrol`: the added requirement "Several roles may patrol, each over the roles it coordinates", and the five modified ones. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 09ed1f14 (clean tree), started at load 4.21: `validation --all passed: baseline plus 327 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.193.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1–1.3, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
