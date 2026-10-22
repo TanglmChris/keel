@@ -1,0 +1,10 @@
+## Facts
+
+- F1 — On 2026-10-21 this shift's session started in the keel-maint worktree, on branch `claude/resume-transcript` (b770168b), which `land` had already merged. It was 7 commits behind `origin/main` (c82117b9), so `AGENTS.md` read protocol 5.190.0 while 5.191.0 was running. A read-only survey found that each of the last 7 new keel-maint sessions started on the outgoing shift's branch. In 13 of 19 notes, someone wrote "branch new work from origin/main" by hand.
+- F2 — `keel shift resume` checks the commits a note names against the remote-tracking refs (#347), but never compares the worktree's own HEAD with them. `remoteDefault` (`src/core/shift.js`) already resolves `origin/<default>` without fetching.
+- F3 — `plugins/keel/scripts/session-start.js` `versionReport` names `keel --install --target <t>` and "the command `keel context` names on its Protocol: line" whenever the protocol block is behind. `keel context` prints no Protocol: line in Keel's source repository: `protocolRefresh` returns null under `isKeelSourceRepo` (`src/core/context.js`, `src/core/capabilities.js`: `package.json` named `@christang/keel` and a `plugins/keel` directory). In the source repository, the protocol block is the checked-out branch's own version.
+
+## Decisions
+
+- D1 — After the commit list, `keel shift resume` prints one line when HEAD differs from `origin/<default>` and is an ancestor of it: the branch name (or `detached HEAD`), that it is already in `origin/<default>`, the number of commits behind, and to start new work from `origin/<default>`. With `--json`, the result carries `merged_branch` with `branch`, `base`, and `behind`. It fetches nothing. A HEAD with commits of its own prints nothing new, and so does no remote default.
+- D2 — In Keel's source repository, using the same test as `isKeelSourceRepo`, the hook names no `keel --install` and no Protocol: line when the protocol block is behind. It says instead that the block is the checked-out branch's own version, so an older one means the branch is behind `origin/<default>`. The check is inlined in the hook script, since the plugin's scripts do not load `src/core`.

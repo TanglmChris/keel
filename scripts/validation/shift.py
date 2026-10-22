@@ -1580,6 +1580,54 @@ def validate_shift_resume_skips_session_ids_scenario() -> int:
     return 0
 
 
+def validate_shift_resume_names_merged_branch_scenario() -> int:
+    """Issue #446: resume says when the worktree is on a branch already merged.
+
+    A new shift starts on the branch the last one left, which `land` has
+    usually merged; resume names it and says to start from the default
+    branch. A branch with commits of its own gets no such line.
+    """
+    label = "shift-resume-names-merged-branch:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-446-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        default = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=rtl, text=True,
+                                 capture_output=True, check=True).stdout.strip()
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=verify, text=True, capture_output=True, check=True).stdout.strip()
+
+        git("fetch", "-q", "origin")
+        git("switch", "-q", "-c", "feat", f"origin/{default}")
+        git("commit", "-q", "--allow-empty", "-m", "feat work")
+        git("push", "-q", "origin", f"feat:{default}")
+        after = git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-p", "HEAD", "-m", "next shift's work")
+        git("push", "-q", "origin", f"{after}:refs/heads/{default}")
+        git("fetch", "-q", "origin")
+
+        def resumed(note: str) -> str:
+            ready = run_keel(verify, "shift", "ready", note, env=env)
+            if ready.returncode != 0:
+                return f"ready failed: {ready.stdout} {ready.stderr}"
+            return run_keel(verify, "shift", "resume", env=env).stdout
+
+        merged = resumed("next: pick the next issue")
+        notice = next((line for line in merged.splitlines() if f"already in origin/{default}" in line and "feat" in line), "")
+        if not notice:
+            report(f"{label} resume on merged branch feat does not say so: {merged!r}")
+            return 1
+        if "1 commit behind" not in notice:
+            report(f"{label} the merged-branch line does not say 1 commit behind: {notice!r}")
+            return 1
+        git("commit", "-q", "--allow-empty", "-m", "unpushed work")
+        own = resumed("next: push feat")
+        if any("feat" in line and f"already in origin/{default}" in line for line in own.splitlines()):
+            report(f"{label} a branch with an unpushed commit is reported as merged: {own!r}")
+            return 1
+    report("shift-resume-names-merged-branch scenario passed.")
+    return 0
+
+
 def validate_shift_resume_checks_commits_scenario() -> int:
     """Issue #347: a shift note's commit ids go stale before the next shift reads it.
 

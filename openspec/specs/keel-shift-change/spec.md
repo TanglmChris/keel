@@ -294,3 +294,12 @@ When `keel shift resume` lists the commits a note names, a bare token that is th
 #### Scenario: Session ids in a note are not listed as commits
 - **WHEN** a CLI session runs `keel shift ready` with a note naming a landed commit, `deadbee1`, and the first eight digits of another recorded session's id, and `keel shift resume` runs
 - **THEN** the landed commit is marked `already in origin/<default>` and `deadbee1` `not found`, neither session id is listed, and the note's header holds no two consecutive blank lines
+
+### Requirement: Resume says when the worktree is on a branch already merged
+
+After printing a note, `keel shift resume` MUST print one line when the worktree's HEAD differs from `origin/<default>` and is an ancestor of it, naming the branch (or a detached HEAD), that it is already in `origin/<default>`, how many commits behind it is, and to start new work from `origin/<default>`. It MUST NOT fetch, and MUST print no such line when HEAD has commits `origin/<default>` lacks or no remote default branch resolves.
+
+#### Scenario: A merged branch is named, an unmerged one is not
+- **WHEN** verify's worktree is on `feat`, whose commit was pushed and fast-forwarded into the remote default branch with one more commit after it, and verify runs `keel shift ready` then `keel shift resume`
+- **THEN** the resume output names `feat`, `already in origin/<default>`, and `1 commit behind`
+- **AND THEN** after a new unpushed commit on `feat`, another ready and resume print no such line

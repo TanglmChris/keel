@@ -1033,6 +1033,21 @@ function noteCommits(cwd, text, sessions = []) {
   return commits;
 }
 
+// A new shift starts on the branch the last one left, which `land` has
+// usually merged (#446 D1): named when HEAD is behind the remote default branch
+// and contained in it. Nothing is fetched.
+function mergedBranch(cwd) {
+  const base = remoteDefault(cwd);
+  if (!base) return null;
+  const head = git(cwd, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  const tip = git(cwd, ["rev-parse", "--verify", "--quiet", `refs/remotes/${base}`]);
+  if (!head.ok || !tip.ok || head.out === tip.out) return null;
+  if (!git(cwd, ["merge-base", "--is-ancestor", head.out, tip.out]).ok) return null;
+  const branch = git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const behind = Number(git(cwd, ["rev-list", "--count", `${head.out}..${tip.out}`]).out) || 0;
+  return { branch: branch.ok ? branch.out : null, base, behind };
+}
+
 function lastFetch(cwd) {
   const file = git(cwd, ["rev-parse", "--git-path", "FETCH_HEAD"]);
   if (!file.ok) return null;
@@ -1052,7 +1067,7 @@ function resume(where, named = null) {
   const history = path.join(shiftDir(where), "history", `${role || path.basename(note, ".md")}-${stamp}.md`);
   fs.mkdirSync(path.dirname(history), { recursive: true });
   fs.renameSync(note, history);
-  if (!role) return { role: null, note: history, text, told: null, commits: noteCommits(where.worktree, text, knownSessionIds(where)), fetched: lastFetch(where.worktree) };
+  if (!role) return { role: null, note: history, text, told: null, commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree) };
   // The cold-start message has done its work once the note is read.
   for (const record of store.unread(where, role)) {
     if (isShift(record)) store.advanceCursor(where, role, record.group, record.id);
@@ -1066,7 +1081,7 @@ function resume(where, named = null) {
       ? store.post(where, { group, text, refs: [REF] })
       : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
-  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), fetched: lastFetch(where.worktree) };
+  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree) };
 }
 
 function status(where) {
@@ -1531,7 +1546,12 @@ function runShift(argv) {
           ? `\n\nCommits the note names, against the remote-tracking refs (not fetched; last fetch ${result.fetched || "never"}):\n`
             + result.commits.map((c) => `- ${c.token}: ${c.marks.join("; ")}`).join("\n")
           : "";
-        out(result, `${result.text.replace(/\s+$/, "")}${commits}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
+        const merged = result.merged_branch;
+        const stale = merged
+          ? `\n\nThis worktree is on ${merged.branch ? `\`${merged.branch}\`` : "a detached HEAD"}, already in ${merged.base} and `
+            + `${merged.behind} commit${merged.behind === 1 ? "" : "s"} behind it: start new work from ${merged.base}.`
+          : "";
+        out(result, `${result.text.replace(/\s+$/, "")}${commits}${stale}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;
       }
       case "history": {

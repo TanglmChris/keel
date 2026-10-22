@@ -147,7 +147,7 @@ Main specs are now updated. The change remains active - archive when implementat
 - Show what you're changing as you go
 - The operation should be idempotent - running twice should give same result
 
-<!-- keel:openspec-surface-overlay version=5.194.0 -->
+<!-- keel:openspec-surface-overlay version=5.195.0 -->
 ## Keel Sync Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
