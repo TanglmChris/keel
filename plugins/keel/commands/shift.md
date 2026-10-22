@@ -30,6 +30,8 @@ The note is all the next shift has. Put in it:
 
 Name commits and branches by id; `keel shift resume` checks them against the remote. Carry over what the owner already approved, because the next shift cannot ask this one.
 
+Leave out what the next session gets anyway: what `keel context` prints, what `keel/config.yaml` declares, such as the owner's language, and what memory already holds. Restated in a note, they go stale while their source moves on.
+
 ## 3. Hand over
 
 Use a quoted heredoc, so backticks in the note are not run. When the owner let a listed process stay, add `--force-reason "<which process, and that the owner let it stay>"`.

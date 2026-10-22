@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.196.1 - A hand-off note leaves out what the next session gets anyway
+
+Issue #448, approved by the owner on 2026-10-21 under the shift freeze. This is guidance only. In the 19 keel-maint notes, 14 restate the owner language and 7 restate memory items, such as the shift freeze and the load rule. Restated facts go stale in the note while their source moves on.
+
+- **`/keel:shift` step 2 says what to leave out.** Leave out what `keel context` prints, what `keel/config.yaml` declares (such as the owner's language), and what memory already holds.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.196.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.196.0 - The host's own keep-awake no longer blocks a shift
 
 Issue #447, approved by the owner on 2026-10-21 under the shift freeze. Claude Code runs `caffeinate -i -t 300` as a child of the session's host process. `keel shift check` listed it as work left running in the worktree, so every CLI shift needed `--force-reason`, and every CLI note carried a "Left as is" block for it. When forcing becomes routine, a real process left running is easier to force past.
