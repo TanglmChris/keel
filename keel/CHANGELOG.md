@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.196.0 - The host's own keep-awake no longer blocks a shift
+
+Issue #447, approved by the owner on 2026-10-21 under the shift freeze. Claude Code runs `caffeinate -i -t 300` as a child of the session's host process. `keel shift check` listed it as work left running in the worktree, so every CLI shift needed `--force-reason`, and every CLI note carried a "Left as is" block for it. When forcing becomes routine, a real process left running is easier to force past.
+
+- **`keel shift check` leaves out the host's keep-awake.** That is a `caffeinate` whose parent is an ancestor of the checking process, other than init. A `caffeinate` with any other parent is still listed. So is an orphaned one, and so is anything else. Measured on this Mac: 5.195.0 listed `PID 37350 … caffeinate -i -t 300`, and this release does not.
+- **`/keel:shift`, its spec, and `docs/shift-change` (en/zh) stop prescribing `--force-reason` for it.** `--force-reason` is now for a process the owner lets stay.
+- **Check.** `shift-check-skips-host-keep-awake` uses `exec -a caffeinate sleep` stand-ins: one under the scenario process, one orphaned in its own process group, and a plain `sleep`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.196.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.195.0 - A new shift is told when it starts on a merged branch
 
 Issue #446, approved by the owner on 2026-10-21 under the shift freeze. A new shift's session starts on the branch the last shift left, and `land` has usually merged it already. Each of the last 7 keel-maint shifts started that way. On 2026-10-21 the session started 7 commits behind `origin/main` and spent a tool call learning why `AGENTS.md` read an older protocol. In Keel's own repository the startup hook named `keel --install --target claude` and a Protocol: line that `keel context` does not print there.
