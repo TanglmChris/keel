@@ -1526,6 +1526,60 @@ def validate_worktree_overview_scenario() -> int:
     return 0
 
 
+def validate_shift_resume_skips_session_ids_scenario() -> int:
+    """Issue #445: a shift note's session ids are not read as commits.
+
+    The `CLI session:` header Keel writes, and a recorded session id quoted
+    in prose, are not listed; a landed commit and an unknown hex token still
+    are. An empty session slot leaves no blank line in the header.
+    """
+    label = "shift-resume-skips-session-ids:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-445-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        own = "b5a55cf2-5e84-4193-902b-22012e35eb8e"
+        other = "a166c34f-93e5-441e-b277-fe1e0bda647d"
+        chat_session_start(rtl, env, other, os.getpid())
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", *args], cwd=rtl, text=True, capture_output=True, check=True).stdout.strip()
+
+        git("commit", "-q", "--allow-empty", "-m", "landed")
+        git("push", "-q", "origin", "HEAD")
+        landed = git("rev-parse", "HEAD")
+        default = git("rev-parse", "--abbrev-ref", "HEAD")
+        note = f"{landed[:8]} landed. deadbee1 was the old base. Session {other[:8]} ran the probe."
+        cli = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": own, "CLAUDE_PID": str(os.getpid())}
+        readied = run_keel(verify, "shift", "ready", note, env=cli)
+        if readied.returncode != 0:
+            report(f"{label} ready failed: {readied.stdout} {readied.stderr}")
+            return 1
+        resumed = run_keel(verify, "shift", "resume", env=env)
+        listed = [line for line in resumed.stdout.splitlines() if line.startswith("- ")]
+
+        def line_for(token: str) -> str:
+            return next((line for line in listed if line.startswith(f"- {token}")), "")
+
+        if f"already in origin/{default}" not in line_for(landed[:8]):
+            report(f"{label} the landed commit is not marked already in origin/{default}: {listed!r}")
+            return 1
+        if "not found" not in line_for("deadbee1"):
+            report(f"{label} an unknown hex token is no longer reported not found: {listed!r}")
+            return 1
+        for name, session in (("the header's CLI session", own), ("a recorded session", other)):
+            if line_for(session[:8]):
+                report(f"{label} {name} id {session[:8]} is listed as a commit: {line_for(session[:8])!r}")
+                return 1
+        if f"CLI session: {own}." not in resumed.stdout:
+            report(f"{label} the note header lost its CLI session line: {resumed.stdout!r}")
+            return 1
+        if "\n\n\n" in resumed.stdout.split(note)[0]:
+            report(f"{label} the note header holds blank lines for empty slots: {resumed.stdout.split(note)[0]!r}")
+            return 1
+    report("shift-resume-skips-session-ids scenario passed.")
+    return 0
+
+
 def validate_shift_resume_checks_commits_scenario() -> int:
     """Issue #347: a shift note's commit ids go stale before the next shift reads it.
 

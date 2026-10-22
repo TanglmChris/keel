@@ -425,6 +425,7 @@ SCENARIOS: tuple = (
     ("shift-history", shift.validate_shift_history_scenario),
     ("shift-history-show", shift.validate_shift_history_show_scenario),
     ("shift-resume-checks-commits", shift.validate_shift_resume_checks_commits_scenario),
+    ("shift-resume-skips-session-ids", shift.validate_shift_resume_skips_session_ids_scenario),
     ("shift-keeps-transcripts", shift.validate_shift_keeps_transcripts_scenario),
     ("shift-keeps-found-transcripts", shift.validate_shift_keeps_found_transcripts_scenario),
     ("role-drift", shift.validate_role_drift_scenario),

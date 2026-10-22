@@ -451,6 +451,7 @@ function ready(where, options) {
   const desktop = desktopSession();
   const pid = desktop ? desktopProcess() : null;
   const cli = desktop ? null : cliSession();
+  // An empty slot is dropped rather than left as a blank line (#445 D3).
   const head = [
     `# Shift note: ${role || path.basename(where.worktree)}`,
     "",
@@ -463,8 +464,7 @@ function ready(where, options) {
     options.wake ? "Self-initiated: this shift armed `keel shift ready --wake`." : "",
     !role ? `Started by hand: ${options.forceReason}.` : "",
     options.forceReason && result.items.length ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
-    "",
-  ].join("\n");
+  ].filter((line, index) => index < 2 || line !== "").concat("").join("\n");
   const note = ownNotePath(where, role);
   writeFileAtomic(note, `${head}\n${text}\n`);
   // Requests are chat records; without a role there is none to close (D2).
@@ -964,7 +964,8 @@ function resumeRole(where, named) {
 // `ready` and `resume` (#347). Each is marked against the remote-tracking refs
 // as they are: Keel fetches nothing, and says when they were last fetched.
 const NOTE_PAIR = /([A-Za-z0-9][\w./-]*)\s*@\s*([0-9a-f]{7,40})\b/g;
-const NOTE_SHA = /(?<![\w@/-])([0-9a-f]{7,40})\b/g;
+// The first segment of a UUID — a session id — is not a commit (#445 D1).
+const NOTE_SHA = /(?<![\w@/-])([0-9a-f]{7,40})\b(?!-[0-9a-f]{4}-)/g;
 const looksLikeSha = (token) => /[a-f]/.test(token) && /\d/.test(token);
 
 function remoteDefault(cwd) {
@@ -976,7 +977,23 @@ function remoteDefault(cwd) {
   return null;
 }
 
-function noteCommits(cwd, text) {
+// Session ids Keel records or keeps a transcript of (#445 D2).
+function knownSessionIds(where) {
+  const ids = new Set();
+  const names = (dir) => {
+    try {
+      return fs.readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  for (const file of names(path.join(where.root, "sessions"))) ids.add(file.split(".")[0]);
+  const kept = path.join(where.root, "shift", "transcripts");
+  for (const role of names(kept)) for (const file of names(path.join(kept, role))) ids.add(file.split(".")[0]);
+  return [...ids].filter((id) => /^[0-9a-f]{8}-/.test(id));
+}
+
+function noteCommits(cwd, text, sessions = []) {
   const seen = new Set();
   const named = [];
   // After `@` the pair already says it is a commit, so an all-digit sha counts
@@ -988,7 +1005,9 @@ function noteCommits(cwd, text) {
   for (const match of String(text).matchAll(NOTE_SHA)) {
     if (seen.has(match.index)) continue;
     // A bare token needs a letter and a digit, or, when it is all digits, to
-    // resolve to a commit, so a date does not count.
+    // resolve to a commit, so a date does not count; one that begins a session
+    // id Keel records is that session (#445 D2).
+    if (sessions.some((id) => id.startsWith(match[1]))) continue;
     const allDigits = /^\d+$/.test(match[1]);
     if (allDigits ? !git(cwd, ["rev-parse", "--verify", "--quiet", `${match[1]}^{commit}`]).ok : !looksLikeSha(match[1])) continue;
     named.push({ index: match.index, branch: null, sha: match[1], token: match[1] });
@@ -1033,7 +1052,7 @@ function resume(where, named = null) {
   const history = path.join(shiftDir(where), "history", `${role || path.basename(note, ".md")}-${stamp}.md`);
   fs.mkdirSync(path.dirname(history), { recursive: true });
   fs.renameSync(note, history);
-  if (!role) return { role: null, note: history, text, told: null, commits: noteCommits(where.worktree, text), fetched: lastFetch(where.worktree) };
+  if (!role) return { role: null, note: history, text, told: null, commits: noteCommits(where.worktree, text, knownSessionIds(where)), fetched: lastFetch(where.worktree) };
   // The cold-start message has done its work once the note is read.
   for (const record of store.unread(where, role)) {
     if (isShift(record)) store.advanceCursor(where, role, record.group, record.id);
@@ -1047,7 +1066,7 @@ function resume(where, named = null) {
       ? store.post(where, { group, text, refs: [REF] })
       : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
-  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text), fetched: lastFetch(where.worktree) };
+  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), fetched: lastFetch(where.worktree) };
 }
 
 function status(where) {
