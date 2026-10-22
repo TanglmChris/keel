@@ -70,7 +70,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -106,14 +106,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:946703e51d1c958e56038c0b3c547820812fb0d66270653dc54241a891a4bcb4 (keel 5.193.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.194.0 → 5.195.0. With the section "A new shift is told when it starts on a merged branch" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "Resume says when the worktree is on a branch already merged" is promoted into `keel-shift-change`, and the modified "The session projection reports runtime version alignment" into `keel-native-runtime-projection`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit d9e6dcd6 (clean tree), second run, started at load 6.88: `validation --all passed: baseline plus 330 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.195.0 section, and both published specs carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 and 1.2, the files are the version markers, `keel/CHANGELOG.md`, and the two published specs, all in Touch.
+      - Findings: the first `npm test` on the same commit, started at load 5.28, failed `update-host-query-retry` and `update-codex-from-disk`. Their stand-in `codex`/`claude plugin list` did not answer within the 2–4 s host-query timeout (`timed out twice, after 4 s each`). Each passed when run alone right after, and the second full run passed. This change touches neither `keel --update` nor its scenarios. Durable owner: https://github.com/TanglmChris/keel/issues/452
     - Blocker: none
     - Reauthorizations: none
 
