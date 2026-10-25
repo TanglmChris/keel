@@ -106,7 +106,7 @@
       - 2026-10-25: Touch gains `README.md`, `README.zh-CN.md`, `keel/config.yaml`, and `openspec/specs/keel-standing-authorization/spec.md`, and M2 gains `--group docs`. Adding the action `delete-branch` to the closed vocabulary makes `surfaces-agree-with-code`, `readme-states-the-cli`, and `readme-zh-matches-english` require it in the published vocabulary requirement and in both READMEs. The first `--group docs` run named all three, and the authoring had not foreseen them. task-start was re-run, and the M1 red and green are unaffected.
       - 2026-10-25: Touch gains `scripts/validation/docs.py`. `continuation-docs` pins the README sentence `The thirteen names above are the whole vocabulary.` and the full accepted-names string, so the fourteenth name has to be added there too, or the check stops checking the whole vocabulary. task-start was re-run.
 
-- [ ] 1.3 Point at merged branches from the shift check, resume, and doctor
+- [x] 1.3 Point at merged branches from the shift check, resume, and doctor
   - Covers:
     - keel-merged-branches / Merged branches are pointed out, never deleted, elsewhere / The check points without failing
     - D5
@@ -128,16 +128,20 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:21cf165a6c19a09a61ac17e99b4bd88e73a45f4f056c656a753dd98fc3942942 (keel 5.203.0)
+    - M1: pass. `branches-pointed-out scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `branches-pointed-out: keel shift check does not name \`keel branches\`: 'keel shift check: ready (…/verify, role verify)\nnote: temporary worktree of another session, …'` (exit 1).
+    - M1.green: pass.
+      - `check()` appends the note from `mergedBranchNote`: `merged branches: 2 of verify's task branches are merged into a trunk and checked out nowhere (done-a, done-b); keel branches lists them, …`. It is a note and never an item, so `ready` is unchanged.
+      - `resume`'s merged-branch line now points at `keel branches` and `prune`.
+      - `keel --doctor` gains `printMergedBranches`, which prints `branches: merged` with `<role> <count>` for each role, or `branches: ok` (D5).
+      - Nothing in `keel gate` changed (D6).
+    - M2: pass. `validation --group shift passed: 62 scenarios.` (exit 0, load 4.31), `shift-resume-names-merged-branch` included. `validation --group hosts passed: 38 scenarios.` `assertion-shape-count scenario passed: 74 sites`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: with verify's two qualifying branches and nothing loose, the real `keel shift check` exits 0 and its pointer names `keel branches` and `2`. `keel --doctor` prints a `branches` line naming verify. `git for-each-ref` is unchanged afterwards.
+      - Scope check: the changed paths are `src/core/shift.js`, `bin/keel.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, and this change's `tasks.md`, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

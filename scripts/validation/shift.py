@@ -5409,3 +5409,41 @@ def validate_branches_prune_under_authorization_scenario() -> int:
         return 1
     report(f"{label.rstrip(':')} scenario passed.")
     return 0
+
+
+def validate_branches_pointed_out_scenario() -> int:
+    """Issue #469: the shift check and the doctor point at merged branches, and delete none.
+
+    A session learns its merged branches where it already looks — the shift
+    check and `keel --doctor` — without either one failing over them or
+    touching a ref.
+    """
+    label = "branches-pointed-out:"
+    with tempfile.TemporaryDirectory(prefix="keel-branches-469c-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _remote = branches_scratch(base)
+        before = all_refs(verify)
+        checked = run_keel(verify, "shift", "check", env=env)
+        if checked.returncode != 0:
+            report(f"{label} keel shift check exited {checked.returncode} with nothing loose: {checked.stdout!r}")
+            return 1
+        pointer = next((line for line in checked.stdout.splitlines() if "keel branches" in line), "")
+        if not pointer:
+            report(f"{label} keel shift check does not name `keel branches`: {checked.stdout!r}")
+            return 1
+        if not re.search(r"(?<!\d)2(?!\d)", pointer):
+            report(f"{label} the shift check's pointer does not count verify's 2 merged branches: {pointer!r}")
+            return 1
+        doctor = run_keel(verify, "--doctor", env=env).stdout
+        line = next((l for l in doctor.splitlines() if l.strip().startswith("branches")), "")
+        if "verify" not in line:
+            report(f"{label} keel --doctor has no branches line naming verify: {line!r}")
+            return 1
+        if all_refs(verify) != before:
+            report(f"{label} the shift check or the doctor changed a ref.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0

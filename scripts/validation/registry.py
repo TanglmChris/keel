@@ -437,6 +437,7 @@ SCENARIOS: tuple = (
     ("shift-resume-names-merged-branch", shift.validate_shift_resume_names_merged_branch_scenario),
     ("branches-lists-merged", shift.validate_branches_lists_merged_scenario),
     ("branches-prune-under-authorization", shift.validate_branches_prune_under_authorization_scenario),
+    ("branches-pointed-out", shift.validate_branches_pointed_out_scenario),
     ("shift-keeps-transcripts", shift.validate_shift_keeps_transcripts_scenario),
     ("shift-keeps-found-transcripts", shift.validate_shift_keeps_found_transcripts_scenario),
     ("role-drift", shift.validate_role_drift_scenario),

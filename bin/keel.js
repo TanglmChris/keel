@@ -2496,6 +2496,7 @@ function runDoctor(options) {
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
   printChatRoleDrift(repo);
+  printMergedBranches(repo);
   printLaunchdJobs();
 
   return authorizationOk ? checkStatus : 1;
@@ -2518,6 +2519,35 @@ function printLaunchdJobs() {
     );
   }
   if (!gone.length) printDoctorLine("launchd", "ok", `${jobs.length} dev.keel job${jobs.length === 1 ? "" : "s"}, each naming a node that exists`);
+}
+
+// Each role's merged, unused task branches (#469 D5): a count pointing at
+// `keel branches`, never a deletion.
+function printMergedBranches(repo) {
+  let where = null;
+  try {
+    where = require("../src/core/chat/store").locate(repo);
+  } catch {
+    where = null;
+  }
+  if (!where || !fs.existsSync(path.join(where.root, "roles.json"))) return;
+  const branches = require("../src/core/branches");
+  const roles = [...new Set(Object.values(JSON.parse(fs.readFileSync(path.join(where.root, "roles.json"), "utf8"))).filter(Boolean))].sort();
+  const counts = [];
+  for (const role of roles) {
+    let names = [];
+    try {
+      names = [...new Set(branches.merged(where, role).branches.map((b) => b.branch))];
+    } catch {
+      continue;
+    }
+    if (names.length) counts.push(`${role} ${names.length}`);
+  }
+  if (!counts.length) {
+    printDoctorLine("branches", "ok", "no role has a merged task branch left");
+    return;
+  }
+  printDoctorLine("branches", "merged", `${counts.join(", ")} merged task branch(es) may be deleted; \`keel branches --role <role>\` lists them`);
 }
 
 function printChatRoleDrift(repo) {
