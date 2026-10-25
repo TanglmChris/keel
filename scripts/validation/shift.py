@@ -3742,9 +3742,20 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
         # #418 (owner, 2026-10-21): no declaration keeps none, so the shift just handed over leaves the
         # session list too; a value that is not a whole number is named and none are kept.
         for keep in (None, "many"):
-            olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(4, bound["verify"])]
+            # #462: after a rename a session's working directory names no bound worktree; Keel's copy of its
+            # transcript under verify still makes it verify's, and one kept under no role stays.
+            moved, stray = old_row(7, str(base / "renamed-away" / "verify")), old_row(8, str(base / "renamed-away" / "other"))
+            (kept_dir / f"{moved['sessionId']}.jsonl.gz").write_bytes(gzip.compress(b'{"type": "user"}\n'))
+            olds = [old_row(1, bound["verify"]), old_row(2, bound["verify"]), old_row(4, bound["verify"]), moved, stray]
             setup(keep, olds)
             ids = sorted(r["argv"][1] for r in removed())
+            if "07070707" not in ids:
+                report(f"{label} a session of verify's from a missing worktree stayed: {ids!r}")
+                return 1
+            if "08080808" in ids:
+                report(f"{label} a session from a missing worktree kept under no role was removed: {ids!r}")
+                return 1
+            ids = [i for i in ids if i != "07070707"]
             if ids != sorted(["01010101", "02020202", "04040404", OLD[:8]]):
                 report(f"{label} the default keeps the wrong number of old sessions (keep_old_sessions {keep!r}): removed {ids!r}")
                 return 1
@@ -3761,6 +3772,139 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("shift-cli-keeps-old-sessions scenario passed.")
+    return 0
+
+
+def validate_shift_resume_removes_old_sessions_scenario() -> int:
+    """Issue #462 (owner, 2026-10-25): a takeover Keel did not carry out left the old shift listed.
+
+    After the workspace rename the owner opened a session by hand and it ran
+    `keel shift resume`; only a delivered hand-over removed old sessions, and it
+    matched them by a working directory the rename had moved. `resume` of a
+    note a CLI session wrote, in a Claude Code session, now removes them as a
+    hand-over does, and a session whose transcript Keel keeps under the role is
+    the role's wherever it ran. It asks the host only when it may remove
+    something.
+    """
+    label = "shift-resume-removes-old-sessions:"
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    NEW = "c0ffee00-1111-2222-3333-444444444444"
+    MOVED = "07070707-0000-0000-0000-000000000007"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-462-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        calls, agents = base / "claude-calls.jsonl", base / "agents.json"
+        config_dir = base / "claude-config"
+        shift_root = mailbox_common_dir(rtl) / "keel-chat" / "shift"
+        kept_dir = shift_root / "transcripts" / "verify"
+        fake = base / "fake-claude"
+        # The row shapes of shift-cli-keeps-old-sessions: a stopped row has no `status`; `rm` drops the row and
+        # logs whether Keel's copy was there when it ran.
+        write_text(fake, "#!/usr/bin/env python3\nimport json, os, sys\n"
+                   f"agents, kept = {str(agents)!r}, {str(kept_dir)!r}\n"
+                   "argv = sys.argv[1:]\n"
+                   "rows = json.loads(open(agents).read())\n"
+                   "record = {'argv': argv}\n"
+                   "if argv[:1] == ['rm']:\n"
+                   "    gone = [row for row in rows if row['id'] == argv[1]]\n"
+                   "    record['kept'] = bool(gone) and os.path.exists(os.path.join(kept, gone[0]['sessionId'] + '.jsonl.gz'))\n"
+                   "    rows = [row for row in rows if row['id'] != argv[1]]\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps(record) + '\\n')\n"
+                   "if argv[:2] == ['agents', '--json']:\n    print(json.dumps(rows)); sys.exit(0)\n"
+                   "open(agents, 'w').write(json.dumps(rows)); print('ok'); sys.exit(0)\n")
+        fake.chmod(0o755)
+        env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config_dir)}
+        exited = subprocess.Popen(["true"])
+        exited.wait()
+        old_cli = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(exited.pid)}
+        new_cli = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": NEW, "CLAUDE_PID": str(os.getpid())}
+        roles = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        bound = {role: path for path, role in roles.items()}
+        moved_cwd = str(base / "renamed-away" / "verify")
+
+        def transcript(cwd: str, session: str) -> None:
+            project = config_dir / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd)
+            project.mkdir(parents=True, exist_ok=True)
+            (project / f"{session}.jsonl").write_text(json.dumps(
+                {"type": "user", "timestamp": "2026-10-21T01:00:00.000Z", "cwd": cwd, "message": {"role": "user", "content": "carry on"}}) + "\n",
+                encoding="utf-8")
+
+        def row(session: str, cwd: str, n: int, **extra: object) -> dict:
+            return {"kind": "background", "name": "verify", "sessionId": session, "id": session[:8], "state": "stopped",
+                    "cwd": cwd, "startedAt": 1792400000000 + n * 1000, **extra}
+
+        def readied(text: str) -> None:
+            calls.write_text("")
+            done = run_keel(verify, "shift", "ready", text, env=old_cli)
+            if done.returncode != 0:
+                raise RuntimeError(f"ready failed: {done.stdout} {done.stderr}")
+
+        def host_calls() -> list[list[str]]:
+            return [json.loads(line)["argv"] for line in calls.read_text().splitlines()]
+
+        # The old shift and a pre-rename one Keel kept under verify are verify's; rtl's stopped session is not,
+        # and the session running resume is live.
+        transcript(bound["verify"], OLD)
+        transcript(bound["rtl"], "05050505-0000-0000-0000-000000000005")
+        kept_dir.mkdir(parents=True, exist_ok=True)
+        (kept_dir / f"{MOVED}.jsonl.gz").write_bytes(gzip.compress(b'{"type": "user"}\n'))
+        agents.write_text(json.dumps([
+            row(MOVED, moved_cwd, 1), row("05050505-0000-0000-0000-000000000005", bound["rtl"], 5),
+            row(OLD, bound["verify"], 8),
+            row(NEW, bound["verify"], 9, status="busy", state="working", pid=os.getpid()),
+        ]))
+        readied("next: rerun R021")
+        resumed = run_keel(verify, "shift", "resume", env=new_cli)
+        if resumed.returncode != 0:
+            report(f"{label} resume exited {resumed.returncode}: {resumed.stderr!r}")
+            return 1
+        if "next: rerun R021" not in resumed.stdout:
+            report(f"{label} resume did not print the note: {resumed.stdout!r}")
+            return 1
+        gone = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
+        if not gone:
+            report(f"{label} resume removed no old session: {calls.read_text()!r}")
+            return 1
+        ids = sorted(r["argv"][1] for r in gone)
+        if ids != sorted([OLD[:8], MOVED[:8]]):
+            report(f"{label} resume removed {ids!r}, not the shift handed over and verify's session from a missing worktree.")
+            return 1
+        if not all(r["kept"] for r in gone):
+            report(f"{label} a session was removed before Keel's store held its transcript: {gone!r}")
+            return 1
+        left = {r["id"] for r in json.loads(agents.read_text())}
+        if left != {"05050505", NEW[:8]}:
+            report(f"{label} rtl's session and the current one should stay, and the listed ones are {sorted(left)!r}")
+            return 1
+        for needle in (OLD[:8], MOVED[:8], "keel shift history verify --show"):
+            if needle not in resumed.stdout:
+                report(f"{label} resume does not name {needle!r}: {resumed.stdout!r}")
+                return 1
+
+        # Outside a Claude Code host, and in the session Keel's own delivered hand-over started, there is nothing to
+        # ask the host: the first runs no `claude`, and the hand-over already removed them.
+        readied("next: rerun R022")
+        plain = run_keel(verify, "shift", "resume", env=env)
+        if "next: rerun R022" not in plain.stdout:
+            report(f"{label} resume outside a Claude Code host did not print the note: {plain.stdout!r}")
+            return 1
+        if host_calls():
+            report(f"{label} resume outside a Claude Code host called claude: {host_calls()!r}")
+            return 1
+        readied("next: rerun R023")
+        write_text(shift_root / "queue" / "verify.json", json.dumps(
+            {"role": "verify", "session": OLD, "worktree": bound["verify"], "state": "delivered", "new_session": NEW[:8]}))
+        handed = run_keel(verify, "shift", "resume", env=new_cli)
+        if "next: rerun R023" not in handed.stdout:
+            report(f"{label} resume after a delivered hand-over did not print the note: {handed.stdout!r}")
+            return 1
+        if host_calls():
+            report(f"{label} resume after a delivered hand-over called claude: {host_calls()!r}")
+            return 1
+    if "shift-resume-removes-old-sessions" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("shift-resume-removes-old-sessions scenario passed.")
     return 0
 
 
