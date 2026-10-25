@@ -205,7 +205,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release, promote the specs, and delete the retired spec
+- [x] 2.1 Release, promote the specs, and delete the retired spec
   - Covers:
     - E2
   - Touch:
@@ -252,14 +252,19 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:9df05633c4e055532616ec765a1c8b4ea75840c87a8df9022e3611c0ca767939 (keel 5.201.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.201.0 → 5.202.0. With the section "Slash commands: skills named once, model-only ones hidden, four new commands, export retired" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the deltas are promoted:
+      - the 21 renamed requirements in 11 specs;
+      - the Claude-only exception and its scenario in "A skill's plugin copy carries every file of its source";
+      - the added requirement "The slash menu offers what a person runs".
+
+      `openspec/specs/keel-md-docx-export/` is deleted. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0). `grep` finds no old skill name left in `openspec/specs/`.
+    - M3: pass. `npm test` on commit 0e452d90 (clean tree), started 22:21 at load 2.85: `validation --all passed: baseline plus 337 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.202.0 section, and the published specs carry the change, the retired spec is gone, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 to 1.3, the files are the version markers, `keel/CHANGELOG.md`, the 11 promoted specs, and the deleted `keel-md-docx-export` spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
