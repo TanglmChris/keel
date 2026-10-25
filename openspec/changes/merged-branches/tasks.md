@@ -90,7 +90,7 @@
       - `delete-branch` is a scoped action whose one scope is `merged`, beside `cleanup:scratch` (F4).
       - The vocabulary grew to fourteen names. That is now reflected in `keel-standing-authorization` (published, mirrored as a delta in this change), both READMEs, `keel/config.yaml`, and `continuation-docs`, under the two reauthorizations below.
       - Both READMEs, `keel --help`, and `keel/config.yaml` name `keel branches prune`.
-    - M2: pass. `branches-lists-merged`, `branches-prune-under-authorization`, and `assertion-shape-count` passed (`validation --scenario passed: 3 scenarios.`). `validation --group docs passed: 23 scenarios.`
+    - M2: pass. `branches-lists-merged`, `branches-prune-under-authorization`, and `assertion-shape-count` passed, three of three. `validation --group docs passed: 23 scenarios.`
       - Its first run failed `surfaces-agree-with-code`, `readme-states-the-cli`, and `readme-zh-matches-english` on the missing `delete-branch`.
       - The second run failed `continuation-docs` on its pinned sentence `The thirteen names above are the whole vocabulary.`.
     - Review:
