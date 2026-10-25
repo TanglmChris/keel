@@ -653,6 +653,12 @@ function post(where, options) {
   if (options.replyTo) {
     parent = findRecord(where, options.replyTo);
   }
+  // A reply is addressed to the member it answers, written or not (#468 D1,
+  // D2): the mention goes into the record, so every reader and older Keel
+  // versions see it, and answering oneself or a non-member adds nothing.
+  if (parent && parent.from !== from && state.members.has(parent.from) && !mentions.includes(parent.from)) {
+    mentions.push(parent.from);
+  }
   if (options.supersedes) checkSupersedes(where, from, group, records, options.supersedes);
   if (options.ack) {
     const draft = { kind: options.kind || "message", from, group, mentions, assignee: options.assignee || null };
