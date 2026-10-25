@@ -53,7 +53,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -88,14 +88,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:b648df7a2e7a45589c5ef0ca6d3d7eefa918bd119de27a5ea8d43e820d4d0930 (keel 5.200.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.200.0 → 5.201.0. With the section "Wake now explains a session whose directory is gone" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "A session whose directory is gone is explained, not resumed" is promoted into `keel-cross-host-mailbox`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 7b2a2daf (clean tree), started 21:03 at load 3.22: `validation --all passed: baseline plus 338 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.201.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
