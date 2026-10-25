@@ -2,7 +2,7 @@
 
 ## 1. Retire, rename, and add
 
-- [ ] 1.1 Remove the Markdown-to-Word export; `keel docx` says it was retired
+- [x] 1.1 Remove the Markdown-to-Word export; `keel docx` says it was retired
   - Covers:
     - keel-native-plugin-package / The slash menu offers what a person runs / The retired export says so
     - D3
@@ -39,16 +39,21 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:5cb4659d7c32038279b4100107b88be4bcfa759f608493e85ab61560e4388ed3 (keel 5.201.0)
+    - M1: pass. `docx-retired scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `docx-retired: keel docx setup --yes does not say it was retired (exit 1): 'keel docx: Markdown with SVG to Word needs these packages, installed into …/home/docx: …'` (exit 1).
+    - M1.green: pass.
+      - `bin/keel.js` answers `keel docx` with `keel docx was retired in 5.202.0: Markdown-to-Word export is not part of Keel. Use a general document tool.` and returns 2 (D3). Its two usage lines and the unused `keel-md-docx` entry in `KEEL_SKILLS` are gone.
+      - `src/core/docx.js` and both copies of `keel-md-docx` are deleted.
+      - `export.py` holds only `docx-retired`, and the registry lists it in place of the four export scenarios.
+      - `docx` left `MUTATING_KEEL_COMMANDS`, and `keel-md-docx` left `PLUGIN_SKILLS`.
+      - Both READMEs drop the export's paragraph, usage lines, and `--help` mention.
+    - M2: pass. The baseline reported `Keel v4.1.0 baseline validation passed.` (exit 0). `assertion-shape-count scenario passed: 74 sites`. `validation --group hosts passed: 37 scenarios.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: through the real `bin/keel.js`, `keel docx setup --yes` and `keel docx convert a.md` each print `keel docx was retired` and exit 2. Nothing is written under `KEEL_HOME/docx` or beside `a.md`, and neither skill directory exists.
+      - Scope check: the worktree's changes are the deleted docx files, `bin/keel.js`, `README.md`, `README.zh-CN.md`, `scripts/validation/{baseline,export,hosts,registry}.py`, and this change's directory, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
@@ -250,7 +255,7 @@
 
 - I1: "the fifth, `keel-md-docx`, is a short export procedure" and the `keel docx setup` / `keel docx convert` usage lines — `README.md`, `README.zh-CN.md`, `bin/keel.js` usage. Updated by: 1.1.
 - I2: "`keel-align-expectations`", "`keel-review-checklist`", "`keel-tdd-or-test-first`", "`keel-debug-failure`", "`keel-handoff`" as skill names — `AGENTS.md`, the OpenSpec schema and overlays, `bin/keel.js`, `src/core/`, the READMEs, and `scripts/validation/`. Updated by: 1.2, 2.1.
-- I3: The same skill names in a downstream repository's managed protocol block and overlays. Discard reason: this change edits no other repository. Each refreshes at its next `keel --init`, which `keel context` names when the block is older than the running Keel (D5).
+- I3: "align expectations with `keel-align-expectations`" and "plus `keel-review-checklist`" — a downstream repository's managed protocol block in `AGENTS.md` and its OpenSpec overlays. Discard reason: this change edits no other repository. Each refreshes at its next `keel --init`, which `keel context` names when the block is older than the running Keel (D5).
 - I4: "Markdown with SVG to Word" as a Keel capability — `openspec/specs/keel-md-docx-export/spec.md`. Updated by: 2.1.
 
 ## Expectation Coverage

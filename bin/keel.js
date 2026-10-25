@@ -52,7 +52,6 @@ const KEEL_SKILLS = [
   "keel-align-expectations",
   "keel-debug-failure",
   "keel-handoff",
-  "keel-md-docx",
   "keel-review-checklist",
   "keel-tdd-or-test-first",
 ];
@@ -97,8 +96,6 @@ Usage:
   keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
-  keel docx setup [--yes]   (Markdown with SVG to Word: list its packages; --yes installs them into ~/.keel/docx)
-  keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   (an existing output is kept without --replace)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
@@ -3235,9 +3232,11 @@ function main() {
   if (process.argv[2] === "agents") {
     return require("../src/core/agents").runAgents(process.argv.slice(3));
   }
-  // `keel docx` likewise: Markdown with SVG to Word, on request (#405).
+  // `keel docx` was Markdown with SVG to Word (#405). It is retired (#464 D3),
+  // and the word stays known so a caller learns where the export went.
   if (process.argv[2] === "docx") {
-    return require("../src/core/docx").runDocx(process.argv.slice(3));
+    process.stderr.write("keel docx was retired in 5.202.0: Markdown-to-Word export is not part of Keel. Use a general document tool.\n");
+    return 2;
   }
   const options = parseArgs(process.argv.slice(2));
   if (options.adopt && options.action !== "update") {

@@ -796,7 +796,6 @@ PLUGIN_SKILLS = (
     "keel-align-expectations",
     "keel-debug-failure",
     "keel-handoff",
-    "keel-md-docx",
     "keel-review-checklist",
     "keel-tdd-or-test-first",
 )
