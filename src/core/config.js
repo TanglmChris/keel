@@ -1000,13 +1000,22 @@ function patrolItem(block) {
     if (window) cadence.quiet = { start: Number(window[1]) * 60 + Number(window[2]), end: Number(window[3]) * 60 + Number(window[4]) };
     else ignored.push(`quiet \`${block.quiet}\` is not a window such as 23:00-08:30`);
   }
+  // What `keel tick` passes the patrol (#456 D2): the free-disk floor, and the
+  // file a status line writes the weekly quota percent to. Keel runs nothing to
+  // read quota.
+  let diskMinGb = null;
+  if (block.disk_min_gb !== undefined) {
+    if (Number(block.disk_min_gb) > 0) diskMinGb = Number(block.disk_min_gb);
+    else ignored.push(`disk_min_gb \`${block.disk_min_gb}\` is not a positive number of gigabytes`);
+  }
+  const quotaFile = block.quota_file !== undefined ? String(block.quota_file).replace(/^["']|["']$/g, "") : null;
   // `runner: tick` says `keel tick` runs the patrol from the host scheduler.
   let runner = null;
   if (block.runner !== undefined) {
     if (block.runner === "tick") runner = "tick";
     else ignored.push(`runner \`${block.runner}\` is not tick`);
   }
-  return { declaration: { declared: true, role: block.role, every: block.every, hostTask, model, cadence, runner, scope }, ignored };
+  return { declaration: { declared: true, role: block.role, every: block.every, hostTask, model, cadence, runner, scope, diskMinGb, quotaFile }, ignored };
 }
 
 function readPatrolDeclarations(repo) {

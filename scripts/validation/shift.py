@@ -974,6 +974,60 @@ def validate_tick_runs_each_patrol_scenario() -> int:
     return 0
 
 
+def tick_scopes_scratch(base: Path, extra_a: str = "", extra_b: str = "", tail: str = "") -> tuple[Path, dict, dict[str, Path], Path]:
+    """Two scoped coordinators run by `keel tick` (#434), for what the tick passes them (#456)."""
+    config = ("patrol:\n"
+              f"  - role: pm-a\n    every: 30m\n    runner: tick\n    scope: group:team-a\n{extra_a}"
+              f"  - role: pm-b\n    every: 45m\n    runner: tick\n    scope: group:team-b\n{extra_b}" + tail)
+    repo, env, wt = patrol_scopes_scratch(base, config)
+    return repo, env, wt, mailbox_common_dir(repo) / "keel-chat" / "tick" / "state.json"
+
+
+def due_tick(repo: Path, env: dict, wt: dict[str, Path], state: Path) -> subprocess.CompletedProcess[str]:
+    """Run `keel tick` with every recorded patrol made due first."""
+    if state.exists():
+        saved = json.loads(state.read_text(encoding="utf-8"))
+        for entry in (saved.get("patrols") or {}).values():
+            entry["next_at"] = "2000-01-01T00:00:00+00:00"
+        state.write_text(json.dumps(saved), encoding="utf-8")
+    return run_keel(wt["dev-a"], "tick", "--repo", str(repo), env=env)
+
+
+def patrol_told(repo: Path, role: str, needle: str) -> int:
+    return len(chat_records_with(repo, "dm-" + "--".join(sorted(("keel-patrol", role))), needle))
+
+
+def validate_tick_passes_free_disk_scenario() -> int:
+    """Issue #456 D1, D2: `keel tick` measures free disk and passes it to the patrol.
+
+    Raising the floor far above the machine's free space turns the disk low
+    without faking the measurement; the risk reaches the coordinator that owns
+    repository-wide risks once, and nobody else.
+    """
+    label = "tick-passes-free-disk:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-disk-") as raw:
+        # The patrol reports disk turning low, so the floor starts below the
+        # machine's free space and is then raised far above it.
+        repo, env, wt, state = tick_scopes_scratch(Path(raw), extra_a="    disk_min_gb: 1\n")
+        config = repo / "keel" / "config.yaml"
+        for floor in ("1", "1000000", "1000000"):
+            config.write_text(config.read_text(encoding="utf-8").replace("disk_min_gb: 1\n", f"disk_min_gb: {floor}\n")
+                              .replace("disk_min_gb: 1000000\n", f"disk_min_gb: {floor}\n"), encoding="utf-8")
+            ran = due_tick(repo, env, wt, state)
+            if ran.returncode != 0:
+                report(f"{label} keel tick exited {ran.returncode}: {ran.stdout!r} {ran.stderr!r}")
+                return 1
+        told = {role: patrol_told(repo, role, "free disk is") for role in ("pm-a", "pm-b")}
+        if told != {"pm-a": 1, "pm-b": 0}:
+            report(f"{label} the disk risk reached {told}, not pm-a once: {ran.stdout!r}")
+            return 1
+        if not patrol_told(repo, "pm-a", "below 1000000 GB"):
+            report(f"{label} the disk risk does not name the declared floor of 1000000 GB.")
+            return 1
+    report("tick-passes-free-disk scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 

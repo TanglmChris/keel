@@ -45,6 +45,16 @@ function patrolWorktrees(where) {
   });
 }
 
+// Free space on a worktree's filesystem in GiB, as `df -g` reports it (#456 D1).
+function freeDiskGb(dir) {
+  try {
+    const stats = fs.statfsSync(dir);
+    return { gb: Math.floor((Number(stats.bavail) * Number(stats.bsize)) / 2 ** 30), error: null };
+  } catch (error) {
+    return { gb: null, error: error.message };
+  }
+}
+
 function patrolWorktree(where) {
   const all = patrolWorktrees(where);
   return all.find((found) => found.worktree) || all[0];
@@ -89,6 +99,10 @@ function tick(where, now = new Date()) {
   const all = patrolWorktrees(where);
   const listed = all.length > 1;
   const state = readState(where);
+  // Repository-wide settings come from the first item declaring each (#456 D2);
+  // every run gets them, and the patrol decides who reports (#434 D4).
+  const declared = all.map((found) => found.declaration).filter(Boolean);
+  const diskMinGb = (declared.find((d) => d.diskMinGb) || {}).diskMinGb || null;
   result.patrols = all.map((found) => {
     if (!found.worktree) return { role: found.declaration ? found.declaration.role : null, ran: false, why: found.why };
     const role = found.declaration.role;
@@ -101,9 +115,11 @@ function tick(where, now = new Date()) {
     // and the patrol still runs on the refs it has.
     const fetched = spawnSync("git", ["-C", found.worktree, "fetch", "-q", "origin"], { encoding: "utf8" });
     const fetchError = fetched.status === 0 ? null : String(fetched.stderr || fetched.error || "fetch failed").trim();
-    const ran = spawnSync(process.execPath, [KEEL, "patrol", "--repo", found.worktree, "--since-last", "--notify", "--json"], {
-      cwd: found.worktree, encoding: "utf8",
-    });
+    const args = [KEEL, "patrol", "--repo", found.worktree, "--since-last", "--notify", "--json"];
+    const disk = freeDiskGb(found.worktree);
+    if (disk.gb !== null) args.push("--disk-free-gb", String(disk.gb));
+    if (diskMinGb) args.push("--disk-min-gb", String(diskMinGb));
+    const ran = spawnSync(process.execPath, args, { cwd: found.worktree, encoding: "utf8" });
     let payload = {};
     try {
       payload = JSON.parse(ran.stdout);
@@ -117,7 +133,7 @@ function tick(where, now = new Date()) {
     store.writeJsonAtomic(where, stateFile(where), state);
     return {
       role, listed, ran: true, exit: ran.status, next_at: next, rule: payload.next_rule || null,
-      fetchError, error: ran.status === 1 ? String(ran.stderr || "").trim() : null,
+      fetchError, diskError: disk.error, error: ran.status === 1 ? String(ran.stderr || "").trim() : null,
     };
   });
   result.patrol = result.patrols[0];
@@ -134,6 +150,7 @@ function renderPatrol(p) {
   if (!p.ran) return `keel tick: ${p.why}`;
   const lines = [`keel tick: ran ${p.listed ? `${p.role}'s` : "the"} patrol (exit ${p.exit})${p.next_at ? `; next ${p.next_at} (${p.rule})` : ""}`];
   if (p.fetchError) lines.push(`fetch failed: ${p.fetchError}`);
+  if (p.diskError) lines.push(`free disk not measured: ${p.diskError}`);
   if (p.error) lines.push(`patrol failed: ${p.error}`);
   return lines.join("\n");
 }
