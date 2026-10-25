@@ -39,7 +39,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -74,14 +74,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:536be12426fe68e030f7e1c0ede7b9729b07b2a7b8098089ac0a46871a451327 (keel 5.202.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.202.0 → 5.203.0. With the section "A reply reaches the role it answers" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "A reply addresses the role it answers" is promoted into `keel-cross-host-mailbox`. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 281b2d9d (clean tree), started 22:51 at load 6.07: `validation --all passed: baseline plus 338 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.203.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
