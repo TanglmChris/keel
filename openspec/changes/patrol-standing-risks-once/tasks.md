@@ -39,7 +39,7 @@
     - Reauthorizations:
       - 2026-10-26: M1's second and third runs must now exit other than 2, not exit 0. The first red showed the patrol's own message leaves rtl one more unread record, so run 2 reports a drift change and exits 3 by the existing rule; the property the check owes is that a risk already sent does not make the run exit 2. The spec scenario was reworded to match. task-start was re-run before any execution evidence was recorded.
 
-- [ ] 1.2 Leave a parked role's gone session out of the patrol, and add `keel chat role --unset`
+- [x] 1.2 Leave a parked role's gone session out of the patrol, and add `keel chat role --unset`
   - Covers:
     - keel-cross-host-mailbox / A parked role's gone session is not reported, and a binding can be removed / Parking quiets the risk, and unset removes the binding
     - D3
@@ -64,16 +64,18 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:1bba3a937c4cad7eaa5276799985d114b517fad4188c0be6f37a3e8b8e00e88d (keel 5.205.0)
+    - M1: pass. `chat-role-park-and-unset scenario passed.` (exit 0).
+    - M1.red: fail. With 1.1 in place: `chat-role-park-and-unset: the patrol still reports parked verify's gone session: "keel patrol: nothing new.\nrisk: verify's CLI session sess-verify-1 ran in …` (exit 1).
+    - M1.green: pass.
+      - `movedSessionRisks` skips a role whose park is in effect (`parkOf`). The patrol and `keel shift status` both read it, so both leave the role out (D3).
+      - `keel chat role --unset` deletes `roles.json`'s entry for the worktree it runs in, read from the file rather than an environment override. It prints `Unbound <role> from <worktree>.`, or `This worktree has no chat role.`, and exits 0 (D4). The usage line names it (I4), and both READMEs say so (I3).
+    - M2: pass. `validation --group chat passed: 52 scenarios.` (exit 0). `surfaces-agree-with-code`, `readme-states-the-cli`, and `readme-zh-matches-english` each passed on its own. `assertion-shape-count` first failed at 75 sites, naming `scripts/validation/chat.py:659`, this task's own `returncode != 0 or "Unbound verify" not in …`. After splitting that check in two, it passed at 74.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: through the real `keel patrol` and `keel chat role`, parking verify removed its moved-session risk from the patrol, `--unset` in verify's worktree printed `Unbound verify`, and `keel chat role` there then reported no chat role.
+      - Scope check: `git status --short` lists `src/core/chat/notice.js`, `src/core/chat/cli.js`, `scripts/validation/chat.py`, `scripts/validation/registry.py`, both READMEs, and this change's directory.
+      - Findings: Resolved here: M2 — the `--unset` check first reported two failures under one message; it is split in two, and M2's `assertion-shape-count` run at 74 sites proves it.
     - Blocker: none
     - Reauthorizations: none
 
