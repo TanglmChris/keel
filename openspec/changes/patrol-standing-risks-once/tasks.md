@@ -1,0 +1,139 @@
+# Tasks
+
+## 1. Standing risks, parked roles, and unbinding
+
+- [x] 1.1 Send a hand-off or moved-session risk once under `--since-last`
+  - Covers:
+    - keel-coordinator-patrol / A standing risk reaches the coordinator once / An unchanged moved-session risk is sent once
+    - D1
+    - D2
+  - Read:
+    - openspec/changes/patrol-standing-risks-once/design.md
+    - src/core/patrol.js
+    - src/core/chat/notice.js
+  - Touch:
+    - src/core/patrol.js
+    - scripts/validation/chat.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-standing-risk-once`: with verify's ended CLI session recorded in a directory that no longer exists, three runs of the real `keel patrol --since-last --notify` as rtl leave exactly one `keel-patrol` message to rtl containing `no longer exists`; the second and third runs exit other than 2 and print a line containing `sent before`; a plain `keel patrol` afterwards still prints a `risk:` line naming verify. Fails with: `patrol-standing-risk-once:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, `patrol-since-last` and `coordinator-patrol` among them, and so do `--scenario chat-wake-moved-worktree`, `--scenario readme-zh-matches-english`, and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:0c1d967b528d85b148dfc2bafa37cf6758bfc7cd3e1c3813d1c4a61f9b8a0ac2 (keel 5.205.0)
+    - M1: pass. `patrol-standing-risk-once scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `patrol-standing-risk-once: three --since-last --notify runs sent the moved-session risk 3 times, not once: …` (exit 1).
+    - M1.green: pass. `runPatrol` collects the hand-off and moved-session risks as `result.standing`. Without `--since-last` they join `result.risks` as before (D2). Under it, `sinceLast` stores them as the snapshot's `standing`. It counts as risks only the texts the previous snapshot did not hold, on a baseline run too, and keeps the rest as `result.sentBefore`, printed as `risk (sent before): …` (D1). Both READMEs say so (I3).
+    - M2: pass. `validation --group shift passed: 64 scenarios.` (exit 0). `chat-wake-moved-worktree` and `readme-zh-matches-english` each passed on its own, and `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel patrol --since-last --notify`, an unchanged moved-session risk was sent once in three runs, the later runs printed it as sent before and did not exit 2, and a plain `keel patrol` still reported it.
+      - Scope check: `git status --short` lists `src/core/patrol.js`, `scripts/validation/chat.py`, `scripts/validation/registry.py`, both READMEs, and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations:
+      - 2026-10-26: M1's second and third runs must now exit other than 2, not exit 0. The first red showed the patrol's own message leaves rtl one more unread record, so run 2 reports a drift change and exits 3 by the existing rule; the property the check owes is that a risk already sent does not make the run exit 2. The spec scenario was reworded to match. task-start was re-run before any execution evidence was recorded.
+
+- [ ] 1.2 Leave a parked role's gone session out of the patrol, and add `keel chat role --unset`
+  - Covers:
+    - keel-cross-host-mailbox / A parked role's gone session is not reported, and a binding can be removed / Parking quiets the risk, and unset removes the binding
+    - D3
+    - D4
+  - Read:
+    - openspec/changes/patrol-standing-risks-once/design.md
+    - src/core/chat/notice.js
+    - src/core/chat/cli.js
+    - src/core/chat/drift.js
+  - Touch:
+    - src/core/chat/notice.js
+    - src/core/chat/cli.js
+    - scripts/validation/chat.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-role-park-and-unset`: with verify's ended CLI session recorded in a directory that no longer exists, after `keel chat role --park verify` from rtl the real `keel patrol` prints no line containing `verify` and `no longer exists`; `keel chat role --unset` in verify's worktree prints `Unbound verify`, and `keel chat role` there then prints `has no chat role`. Fails with: `chat-role-park-and-unset:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group chat --jobs 4` passes, `chat-wake-moved-worktree` and the park scenarios among them, and so do `--scenario surfaces-agree-with-code`, `--scenario readme-states-the-cli`, `--scenario readme-zh-matches-english`, and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the specs
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - openspec/specs/keel-cross-host-mailbox/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: both deltas are promoted, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "With `--notify`, a run MUST send the patrolling role one direct message from `keel-patrol` listing only its risks" — the since-last requirement in `openspec/specs/keel-coordinator-patrol/spec.md`. Discard reason: still true; the added requirement narrows which hand-off and moved-session risks count as a run's risks, and is promoted beside it by 2.1.
+- I2: "`keel patrol` MUST report each role it covers whose ended CLI session's recorded worktree no longer exists as a risk" — `openspec/specs/keel-cross-host-mailbox/spec.md`. Discard reason: the added requirement states the parked exception and the since-last limit beside it; both are promoted by 2.1, and a reader of either finds the other in the same capability set.
+- I3: "carrying only risks (#307): …" and "`keel chat role --prune` drops bindings to removed worktrees (#301)" — `README.md` and their counterparts in `README.zh-CN.md`, which say nothing of standing risks being sent once or of `--unset`. Updated by: 1.1, 1.2.
+- I4: "`keel chat role [--set <name>] [--alias <alias>] [--prune] [--json]`" — the usage line in `src/core/chat/cli.js`. Updated by: 1.2.
+
+## Expectation Coverage
+
+- E1: A hand-off or moved-session risk reaches the coordinator once while unchanged (D1, D2), a parked role's gone session is not reported (D3), and a binding can be removed without editing `roles.json` (D4) (#476). Covered by: 1.1, 1.2
+- E2: The release carries it. Covered by: 2.1

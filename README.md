@@ -893,7 +893,9 @@ writes that snapshot on every run, and exits 3 when something changed and 2 only
 coordinator gets one direct message from `keel-patrol`, which wakes its session, carrying only risks
 (#307): the shared checkout gaining uncommitted paths after a clean run, free disk the host reports with
 `--disk-free-gb` dropping below `--disk-min-gb` (default 20), and a role that left two nudges in a row
-unanswered. Shift-status changes and new commits are printed, not sent. Every run appends one line to
+unanswered. A failed or stuck CLI hand-off and an ended session whose directory is gone are sent
+once, on the run they appear or change, and are then printed as `risk (sent before)` while they last
+(#476). Shift-status changes and new commits are printed, not sent. Every run appends one line to
 `patrol/log/<role>.log` in the chat store, so a silent run can still be audited.
 The host can also pass the weekly quota's percent used with `--quota <percent>`: each threshold in
 `--quota-alerts` (default `90,95,99`) becomes a risk once per quota period, a drop in the figure starts
