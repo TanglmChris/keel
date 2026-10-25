@@ -77,6 +77,62 @@ function readQuota(where, declared, now) {
   return { state: "read", percent, text: `quota is read from ${file} (${percent}%)` };
 }
 
+const ISSUE_FIELDS = "number,title,state,labels,updatedAt";
+const ISSUE_WINDOW = 100;
+
+// The issues open `issue #<n> closed` waits name, in any group (#473 D1).
+function waitedIssues(where) {
+  const numbers = store.openWaits(where).map((wait) => (String(wait.condition).match(/^issue #(\d+) closed$/) || [])[1]);
+  return [...new Set(numbers.filter(Boolean).map(Number))].sort((a, b) => a - b);
+}
+
+function runGh(cwd, args) {
+  const command = `gh ${args.slice(0, args[1] === "view" ? 3 : 2).join(" ")}`;
+  const ran = spawnSync("gh", args, { cwd, encoding: "utf8", timeout: 60000 });
+  if (ran.error || ran.status !== 0) {
+    const why = ran.error
+      ? (ran.error.code === "ENOENT" ? "gh is not on PATH" : ran.error.message)
+      : String(ran.stderr || `exit ${ran.status}`).trim().split("\n")[0];
+    return { error: `\`${command}\` failed: ${why}` };
+  }
+  try {
+    return { value: JSON.parse(ran.stdout) };
+  } catch {
+    return { error: `\`${command}\` printed no JSON` };
+  }
+}
+
+// Issue state for the patrol, fetched with `gh` only when an `issue_roles:`
+// route or an issue wait needs it (#473 D1, D2; owner, 2026-10-26). What was
+// read is passed even when a call failed.
+function fetchIssues(where, worktree, now) {
+  const routes = require("./config").readIssueRoles(worktree).routes;
+  const waited = waitedIssues(where);
+  if (!routes.length && !waited.length) {
+    return { state: "unneeded", file: null, text: "issue checks: nothing needs them (no issue_roles route, no issue wait), so gh is not run" };
+  }
+  const issues = [];
+  const errors = [];
+  const listed = runGh(worktree, ["issue", "list", "--state", "all", "--search", "sort:updated-desc", "--limit", String(ISSUE_WINDOW), "--json", ISSUE_FIELDS]);
+  if (listed.error) errors.push(listed.error);
+  else if (!Array.isArray(listed.value)) errors.push("`gh issue list` printed no JSON array");
+  else issues.push(...listed.value.filter((issue) => issue && Number.isInteger(issue.number)));
+  for (const number of waited) {
+    if (issues.some((issue) => issue.number === number)) continue;
+    const viewed = runGh(worktree, ["issue", "view", String(number), "--json", ISSUE_FIELDS]);
+    if (viewed.error) errors.push(viewed.error);
+    else if (viewed.value && Number.isInteger(viewed.value.number)) issues.push(viewed.value);
+    else errors.push(`\`gh issue view ${number}\` printed no issue`);
+  }
+  let file = null;
+  if (issues.length || !errors.length) {
+    file = path.join(where.root, "tick", "issues.json");
+    store.writeJsonAtomic(where, file, issues);
+  }
+  if (errors.length) return { state: "failed", file, text: `issue checks are not run: ${errors.join("; ")}` };
+  return { state: "read", file, text: `issue checks: read ${issues.length} issue(s) with gh at ${store.isoLocal(now)}` };
+}
+
 function patrolWorktree(where) {
   const all = patrolWorktrees(where);
   return all.find((found) => found.worktree) || all[0];
@@ -136,6 +192,8 @@ function tick(where, now = new Date()) {
     state.quota_state = quota.state;
     store.writeJsonAtomic(where, stateFile(where), state);
   }
+  // Fetched once per step, before the first due patrol (#473 D1).
+  let issues = null;
   result.patrols = all.map((found) => {
     if (!found.worktree) return { role: found.declaration ? found.declaration.role : null, ran: false, why: found.why };
     const role = found.declaration.role;
@@ -153,6 +211,8 @@ function tick(where, now = new Date()) {
     if (disk.gb !== null) args.push("--disk-free-gb", String(disk.gb));
     if (diskMinGb) args.push("--disk-min-gb", String(diskMinGb));
     if (quota.percent !== null) args.push("--quota", String(quota.percent));
+    if (!issues) issues = fetchIssues(where, found.worktree, now);
+    if (issues.file) args.push("--issues", issues.file);
     const ran = spawnSync(process.execPath, args, { cwd: found.worktree, encoding: "utf8" });
     let payload = {};
     try {

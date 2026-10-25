@@ -1,0 +1,137 @@
+# Tasks
+
+## 1. Issue state for the tick's patrol
+
+- [x] 1.1 Fetch issue state with `gh` in `keel tick` when something needs it, and pass it as `--issues`
+  - Covers:
+    - keel-coordinator-patrol / The tick fetches issue state for the patrol when something needs it / A tick routes a labelled issue and meets an issue wait
+    - keel-coordinator-patrol / The tick fetches issue state for the patrol when something needs it / Nothing needs issues, so no gh runs
+    - D1
+    - D4
+  - Read:
+    - openspec/changes/tick-checks-issues/design.md
+    - src/core/tick.js
+    - src/core/patrol.js
+  - Touch:
+    - src/core/tick.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-checks-issues`: with a stub `gh` first on `PATH` that logs its arguments, `patrol:` listing scoped pm-a and pm-b with `runner: tick`, `issue_roles:` routing `dev` to `dev-b`, and dev-a waiting in team-a for issue 42 to close, a due run of the real `keel tick` whose stub list returns issue 7 labelled `dev` and whose stub view returns issue 42 `CLOSED` leaves dev-b exactly one `keel-patrol` message containing `#7` and dev-a exactly one message containing `issue #42 closed`; a second due tick adds neither; and in a repository with no `issue_roles:` and no wait, a due tick leaves the stub's log empty. Fails with: `tick-checks-issues:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, `tick-runs-due-patrol`, `tick-runs-each-patrol`, `tick-passes-free-disk`, and `tick-reads-quota-file` among them, and so does `--scenario assertion-shape-count`, run on its own.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a299898179c114ae10bc89096712b63f21f24e05dddd5d71631617ce53bbd28a (keel 5.204.0)
+    - M1: pass. `tick-checks-issues scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `tick-checks-issues: dev-b was told of #7 0 times and dev-a of issue #42 0 times, not once each: … gh calls ''` (exit 1). The tick ran both patrols and never called the stub `gh`.
+    - M1.green: pass. `fetchIssues` in `src/core/tick.js` runs only when `readIssueRoles` has a route or `store.openWaits` holds an `issue #<n> closed` wait. It runs `gh issue list --state all --search "sort:updated-desc" --limit 100 --json number,title,state,labels,updatedAt`, then `gh issue view <n>` for each waited issue the list left out. It writes `tick/issues.json` in the chat store, and the tick passes `--issues` to every patrol it runs in that step. The fetch runs once per step, before the first due patrol (D1, D4). Issue 42 was met only through `gh issue view 42`, since the stub list did not return it.
+    - M2: pass. `validation --group shift passed: 63 scenarios.` (exit 0). `assertion-shape-count` passed on its own at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel tick` with a stub `gh` on `PATH`, a labelled issue reached dev-b once and a closed waited issue met dev-a's wait once; a second due tick sent neither again; with no `issue_roles:` and no wait, the stub logged no call.
+      - Scope check: `git status --short` lists `src/core/tick.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 Say once in `keel tick` when issue checks are not run, and show it in `keel --doctor`
+  - Covers:
+    - keel-coordinator-patrol / The tick fetches issue state for the patrol when something needs it / A failed fetch is said once and shown by the doctor
+    - D2
+    - D3
+  - Read:
+    - openspec/changes/tick-checks-issues/design.md
+    - src/core/tick.js
+    - bin/keel.js
+  - Touch:
+    - src/core/tick.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/cli-team.md
+    - keel/config.yaml
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-reports-issue-checks`: with a stub `gh` first on `PATH` that prints `gh: not logged in` and exits 1, in a repository declaring `issue_roles:`, the first due run of the real `keel tick` prints a line containing `issue checks are not run` and `not logged in`, the second due tick prints no line containing `issue checks`, and `keel --doctor` prints a line containing `issue checks` and `not checked`; after the stub succeeds, the next due tick prints a line containing `issue checks` and `read`. Fails with: `tick-reports-issue-checks:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, and so do `--scenario readme-zh-matches-english`, `--scenario config-documents-in-declaration-order`, `--scenario surfaces-agree-with-code`, and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-coordinator-patrol`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Without `--issues`, issue conditions MUST be reported unchecked" and "`keel patrol` … MUST NOT fetch" — `openspec/specs/keel-coordinator-patrol/spec.md`. Discard reason: still true; the patrol still fetches nothing, and the tick is what now passes `--issues`.
+- I2: "Keel MUST NOT fetch issue data itself" — `openspec/specs/keel-worktree-overview/spec.md`. Discard reason: scoped to `keel worktrees`, which still fetches nothing.
+- I3: "With `--issues`, patrol also routes issue updates" — the README patrol sections in both languages, the `issue_roles` comment in `keel/config.yaml` ("`keel patrol --issues <gh output>`"), and `docs/cli-team.md`, none of which says the tick now supplies `--issues`. Updated by: 1.2.
+- I4: "Keel runs no command to get quota" — the README tick paragraph in both languages. Discard reason: still true for quota; 1.2 adds that the tick runs `gh` for issues beside it, so a reader does not generalize the quota sentence.
+
+## Expectation Coverage
+
+- E1: A patrol run by `keel tick` routes `issue_roles:` updates and checks issue waits from issue state the tick fetches with `gh` when something needs it (D1, D4), and the tick and `keel --doctor` say when those checks are not running (D2, D3) (#473). Covered by: 1.1, 1.2
+- E2: The release carries it. Covered by: 2.1

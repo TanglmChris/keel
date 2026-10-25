@@ -1069,6 +1069,77 @@ def validate_tick_reads_quota_file_scenario() -> int:
     return 0
 
 
+def stub_gh(base: Path) -> tuple[Path, Path]:
+    """A `gh` that logs its arguments and prints `list.json` or `view-<n>.json`.
+
+    With a `fail` file beside it, it prints `gh: not logged in` and exits 1.
+    """
+    bin_dir = base / "stub-bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    log = base / "gh.log"
+    script = bin_dir / "gh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{log}"\n'
+        f'if [ -f "{bin_dir}/fail" ]; then echo "gh: not logged in" >&2; exit 1; fi\n'
+        'case "$1 $2" in\n'
+        f'  "issue list") cat "{bin_dir}/list.json" ;;\n'
+        f'  "issue view") cat "{bin_dir}/view-$3.json" ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return bin_dir, log
+
+
+def told_by(repo: Path, sender: str, role: str, needle: str) -> int:
+    return len(chat_records_with(repo, "dm-" + "--".join(sorted((sender, role))), needle))
+
+
+def validate_tick_checks_issues_scenario() -> int:
+    """Issue #473 D1, D4: `keel tick` fetches issue state with `gh` when something needs it.
+
+    A labelled issue reaches the role `issue_roles:` names, and an issue wait
+    is met from a closed issue the list left out; with neither declared, no
+    `gh` runs.
+    """
+    label = "tick-checks-issues:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-issues-") as raw:
+        base = Path(raw)
+        bin_dir, log = stub_gh(base)
+        (bin_dir / "list.json").write_text(json.dumps([{
+            "number": 7, "title": "dev handoff", "state": "OPEN",
+            "labels": [{"name": "dev"}], "updatedAt": "2026-10-26T01:00:00Z",
+        }]), encoding="utf-8")
+        (bin_dir / "view-42.json").write_text(json.dumps({
+            "number": 42, "title": "clock fix", "state": "CLOSED", "labels": [], "updatedAt": "2026-10-26T00:30:00Z",
+        }), encoding="utf-8")
+        repo, env, wt, state = tick_scopes_scratch(base / "declared", tail="issue_roles:\n  dev: dev-b\n")
+        env = {**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"}
+        run_keel(wt["dev-a"], "chat", "wait", "team-a", "--issue", "42", "--closed", env=env)
+        for _ in range(2):
+            ran = due_tick(repo, env, wt, state)
+            if ran.returncode != 0:
+                report(f"{label} keel tick exited {ran.returncode}: {ran.stdout!r} {ran.stderr!r}")
+                return 1
+            routed = told_by(repo, "pm-b", "dev-b", "#7")
+            met = told_by(repo, "pm-a", "dev-a", "issue #42 closed")
+            if (routed, met) != (1, 1):
+                calls = log.read_text(encoding="utf-8") if log.exists() else ""
+                report(f"{label} dev-b was told of #7 {routed} times and dev-a of issue #42 {met} times, not once each: {ran.stdout!r} gh calls {calls!r}")
+                return 1
+
+        log.unlink(missing_ok=True)
+        repo, env, wt, state = tick_scopes_scratch(base / "undeclared")
+        env = {**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"}
+        due_tick(repo, env, wt, state)
+        if log.exists() and log.read_text(encoding="utf-8").strip():
+            report(f"{label} with no issue_roles and no issue wait the tick ran gh: {log.read_text(encoding='utf-8')!r}")
+            return 1
+    report("tick-checks-issues scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 
