@@ -416,6 +416,7 @@ SCENARIOS: tuple = (
     ("shift-self-wake", shift.validate_shift_self_wake_scenario),
     ("shift-cli-self-shift", shift.validate_shift_cli_self_shift_scenario),
     ("shift-cli-keeps-old-sessions", shift.validate_shift_cli_keeps_old_sessions_scenario),
+    ("shift-resume-removes-old-sessions", shift.validate_shift_resume_removes_old_sessions_scenario),
     ("shift-cli-removes-after-exit", shift.validate_shift_cli_removes_after_exit_scenario),
     ("shift-cli-names-host-failure", shift.validate_shift_cli_names_host_failure_scenario),
     ("tick-retries-failed-wake", shift.validate_tick_retries_failed_wake_scenario),
