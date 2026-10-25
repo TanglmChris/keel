@@ -1605,9 +1605,12 @@ function runShift(argv) {
       case "status": {
         const rows = status(where);
         const queue = handOffs(where);
+        // Roles whose ended CLI session ran in a worktree that is gone (#465 D4).
+        const unresumable = require("./chat/notice").movedSessionRisks(where);
         const text = [rows.length ? rows.map(describe).join("\n") : "No shift change recorded.",
-          ...(queue.length ? ["", "Hand-offs (CLI, run by `keel tick`):", ...queue.map(describeHandOff)] : [])].join("\n");
-        out({ roles: rows, handOffs: queue }, text);
+          ...(queue.length ? ["", "Hand-offs (CLI, run by `keel tick`):", ...queue.map(describeHandOff)] : []),
+          ...(unresumable.length ? ["", "Sessions that cannot be resumed:", ...unresumable.map((line) => `- ${line}`)] : [])].join("\n");
+        out({ roles: rows, handOffs: queue, unresumable }, text);
         return 0;
       }
       default:

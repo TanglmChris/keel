@@ -96,13 +96,14 @@ function wakeEnded(where, state) {
     const waiting = store.unread(where, role).filter((record) => store.wakes(record, role)).map((record) => record.id).sort();
     const newest = waiting[waiting.length - 1];
     if (!newest || (state.woken[role] && state.woken[role] >= newest)) continue;
-    const resumed = notice.resumeCli(entry);
-    // Marked woken only once it worked, the session is gone, or three tries
-    // failed for this record (#408 D3); a newer record starts the count again.
+    const resumed = notice.resumeCli(entry, where);
+    // Marked woken only once it worked, the session or its directory is gone
+    // (#465 D2), or three tries failed for this record (#408 D3); a newer
+    // record starts the count again.
     const before = (state.wake_attempts || {})[role];
     const count = before && before.record === newest ? before.count + 1 : 1;
     state.wake_attempts = { ...(state.wake_attempts || {}), [role]: { record: newest, count } };
-    if (resumed.ok || resumed.removed || count >= 3) state.woken[role] = newest;
+    if (resumed.ok || resumed.removed || resumed.moved || count >= 3) state.woken[role] = newest;
     woken.push({ role, session: entry.session, record: newest, ok: resumed.ok, output: resumed.output });
   }
   return woken;
