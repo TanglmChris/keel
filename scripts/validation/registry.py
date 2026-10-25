@@ -395,6 +395,7 @@ SCENARIOS: tuple = (
     ("update-covers-installed-hosts", hosts.validate_update_covers_installed_hosts_scenario),
     ("update-codex-refresh-retry", hosts.validate_update_codex_refresh_retry_scenario),
     ("update-host-query-retry", hosts.validate_update_host_query_retry_scenario),
+    ("update-verifies-installed-cli", hosts.validate_update_verifies_installed_cli_scenario),
     ("update-claude-refresh-retry", hosts.validate_update_claude_refresh_retry_scenario),
     ("update-host-query-timeout", hosts.validate_update_host_query_timeout_scenario),
     ("update-codex-from-disk", hosts.validate_update_codex_from_disk_scenario),

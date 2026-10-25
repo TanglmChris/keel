@@ -1300,6 +1300,27 @@ function updateCodexPlugin(options) {
   return true;
 }
 
+// The version the global prefix holds (#459 D1): what `npm install -g` wrote,
+// read rather than assumed, since an install that exits 0 once left the
+// prefix a release behind while the line said `updated`.
+function installedCli(npm) {
+  const root = spawnSync(npm, ["root", "-g"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: Number(process.env.KEEL_UPDATE_QUERY_TIMEOUT_MS) || 30 * 1000,
+  });
+  const dir = String(root.stdout || "").trim().split(/\r?\n/).pop();
+  if (root.error || root.status !== 0 || !dir) {
+    return { version: null, why: `npm root -g ${root.error ? root.error.message : `exited ${root.status} with ${dir ? "output" : "no output"}`}` };
+  }
+  const file = path.join(dir, "@christang", "keel", "package.json");
+  try {
+    return { version: JSON.parse(fs.readFileSync(file, "utf8")).version || null, file, why: `${file} names no version` };
+  } catch (error) {
+    return { version: null, file, why: `${file} cannot be read (${error.code || error.message})` };
+  }
+}
+
 function updateGlobalCli(options, npm, source) {
   if (options.dryRun) {
     process.stdout.write(
@@ -1321,6 +1342,7 @@ function updateGlobalCli(options, npm, source) {
     return true;
   }
 
+  const before = installedCli(npm);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "keel-update-"));
   try {
     const packArgs = [
@@ -1358,10 +1380,17 @@ function updateGlobalCli(options, npm, source) {
     const latest = packed && source === DEFAULT_UPDATE_SOURCE
       ? `the npm registry's latest here is ${packed[1]}; `
       : "";
+    // What the prefix holds now decides the line (#459 D2–D4).
+    const after = installedCli(npm);
+    if (after.version && packed && after.version !== packed[1]) {
+      updateLine("cli", "failed", `npm install -g ${path.basename(tarball)} exited 0, but ${after.file} holds ${after.version}`);
+      return false;
+    }
+    const unverified = after.version ? "" : `; not verified: ${after.why}`;
     updateLine(
       "cli",
-      versionChange(PACKAGE_JSON.version, packed ? packed[1] : null),
-      `${latest}applies to the next command that runs keel`
+      versionChange(before.version || PACKAGE_JSON.version, after.version || (packed ? packed[1] : null)),
+      `${latest}applies to the next command that runs keel${unverified}`
     );
     return true;
   } catch (error) {

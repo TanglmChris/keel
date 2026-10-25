@@ -484,8 +484,15 @@ def validate_update_pack_install_scenario() -> int:
             for line in call_log.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
+        # `npm root -g` is read before packing and after installing (#459), and
+        # changes nothing; the calls that change something are still two.
+        reads = [call for call in calls if call[:2] == ["root", "-g"]]
+        calls = [call for call in calls if call[:2] != ["root", "-g"]]
+        if len(reads) != 2:
+            report(f"update-pack-install scenario read the global prefix {len(reads)} time(s), not before and after.")
+            return 1
         if len(calls) != 2:
-            report("update-pack-install scenario expected exactly two npm calls.")
+            report("update-pack-install scenario expected exactly two npm calls that change something.")
             report(json.dumps(calls, indent=2))
             return 1
 
@@ -2568,6 +2575,14 @@ if (host === "npm") {
     fs.writeFileSync(path.join(dest, "christang-keel-5.1.0.tgz"), "");
     process.stdout.write(JSON.stringify([{ filename: "christang-keel-5.1.0.tgz" }]));
   }
+  // FAKE_NPM_ROOT is the global prefix `npm root -g` names, and an
+  // `install -g` writes the version FAKE_NPM_INSTALLS names there (#459).
+  if (args[0] === "root" && process.env.FAKE_NPM_ROOT) process.stdout.write(`${process.env.FAKE_NPM_ROOT}\n`);
+  if (args[0] === "install" && process.env.FAKE_NPM_ROOT && process.env.FAKE_NPM_INSTALLS) {
+    const dir = path.join(process.env.FAKE_NPM_ROOT, "@christang", "keel");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@christang/keel", version: process.env.FAKE_NPM_INSTALLS }));
+  }
   // FAKE_NPM_LATEST is what `npm view <package> version` prints, and
   // FAKE_NPM_VIEW_EXIT makes it exit with that status instead (#421).
   if (args[0] === "view") {
@@ -2821,7 +2836,7 @@ def validate_update_covers_installed_hosts_scenario() -> int:
 
         result, calls = update()
         expected = [
-            ["npm", "pack"], ["npm", "install", "-g"],
+            ["npm", "root", "-g"], ["npm", "pack"], ["npm", "install", "-g"], ["npm", "root", "-g"],
             ["claude", "plugin", "marketplace", "update", "keel-marketplace"],
             ["claude", "plugin", "update", "keel@keel-marketplace"],
             ["codex", "plugin", "marketplace", "upgrade", "keel-marketplace"],
@@ -3294,6 +3309,60 @@ def validate_update_claude_refresh_retry_scenario() -> int:
         report(f"{label} scenario is not registered.")
         return 1
     report("update-claude-refresh-retry scenario passed.")
+    return 0
+
+
+def validate_update_verifies_installed_cli_scenario() -> int:
+    """Issue #459: the CLI line reports what the global prefix holds.
+
+    An `npm install -g` that exits 0 while the prefix keeps another version
+    is a failure, and the before version comes from the prefix, not from the
+    copy of keel that happens to be running.
+    """
+    label = "update-verifies-installed-cli:"
+    with tempfile.TemporaryDirectory(prefix="keel-update-459-", ignore_cleanup_errors=True) as raw:
+        tmp = Path(raw)
+        fake = tmp / "fake.js"
+        write_text(fake, UPDATE_FAKE)
+        npm = tmp / "fake-npm"
+        write_text(npm, f'#!/bin/sh\nFAKE_HOST=npm exec node "{fake}" "$@"\n')
+        npm.chmod(0o755)
+        prefix = tmp / "global"
+        installed = prefix / "@christang" / "keel" / "package.json"
+
+        def update(installs: str) -> tuple[subprocess.CompletedProcess[str], str]:
+            write_text(installed, json.dumps({"name": "@christang/keel", "version": "5.0.0"}))
+            env = dict(os.environ)
+            env.update({
+                "KEEL_UPDATE_NPM": str(npm), "KEEL_UPDATE_CLAUDE": str(tmp / "no-claude"),
+                "KEEL_UPDATE_CODEX": str(tmp / "no-codex"), "FAKE_LOG": str(tmp / "log.jsonl"),
+                "FAKE_STATE": str(tmp / "state.json"), "FAKE_NPM_ROOT": str(prefix), "FAKE_NPM_INSTALLS": installs,
+            })
+            env.pop("KEEL_UPDATE_SOURCE", None)
+            result = subprocess.run(["node", str(ROOT / "bin/keel.js"), "--update"], cwd=tmp, env=env,
+                                    text=True, capture_output=True, check=False, timeout=120)
+            line = next((l for l in result.stdout.splitlines() if l.startswith("keel update: cli:")), "")
+            return result, line
+
+        result, line = update("5.0.9")
+        if "failed" not in line:
+            report(f"{label} an install that left the prefix at 5.0.9 does not read failed: {line!r}")
+            return 1
+        for needle in (str(installed), "5.0.9"):
+            if needle not in line:
+                report(f"{label} the failed line does not name {needle!r}: {line!r}")
+                return 1
+        if result.returncode == 0:
+            report(f"{label} an install that did not take left keel --update exiting 0.")
+            return 1
+        result, line = update("5.1.0")
+        if "updated 5.0.0 -> 5.1.0" not in line:
+            report(f"{label} an install that took does not read updated 5.0.0 -> 5.1.0: {line!r}")
+            return 1
+        if result.returncode != 0:
+            report(f"{label} an install that took left keel --update exiting {result.returncode}: {result.stdout!r}")
+            return 1
+    report("update-verifies-installed-cli scenario passed.")
     return 0
 
 
