@@ -462,6 +462,7 @@ SCENARIOS: tuple = (
     ("chat-wake-skips-removed-session", chat.validate_chat_wake_skips_removed_session_scenario),
     ("chat-wake-moved-worktree", chat.validate_chat_wake_moved_worktree_scenario),
     ("chat-ack", chat.validate_chat_ack_scenario),
+    ("chat-reply-addresses-author", chat.validate_chat_reply_addresses_author_scenario),
     ("coordinator-patrol", shift.validate_coordinator_patrol_scenario),
     ("patrol-since-last", shift.validate_patrol_since_last_scenario),
     ("patrol-next", shift.validate_patrol_next_scenario),

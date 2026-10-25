@@ -1042,6 +1042,61 @@ def validate_chat_stamp_default_scenario() -> int:
     return 0
 
 
+def validate_chat_reply_addresses_author_scenario() -> int:
+    """Issue #468 (kaiwu-ip, 2026-10-25): a reply without @ never reached the role it answered.
+
+    verify answered PM's request with `--reply-to` and no `@kaiwu-pm-iecc`; the
+    record carried `reply_to` and no mentions, so PM's idle session was never
+    woken. A reply now mentions the author of the record it answers.
+    """
+    label = "chat-reply-addresses-author:"
+    with tempfile.TemporaryDirectory(prefix="keel-chat-468-") as raw:
+        base = Path(raw)
+        rtl, verify, env = chat_scratch_group(base)
+
+        def post(cwd: Path, *args: str) -> dict:
+            done = run_keel(cwd, "chat", "post", "soc", *args, "--json", env=env)
+            if done.returncode != 0:
+                raise RuntimeError(f"post {args!r} failed: {done.stderr!r}")
+            return json.loads(done.stdout)
+
+        asked = post(rtl, "please close R14 and R15")
+        run_keel(verify, "chat", "read", "soc", env=env)
+        answer = post(verify, "closed both", "--reply-to", asked["id"])
+        if "rtl" not in answer.get("mentions", []):
+            report(f"{label} a reply without @ does not mention the role it answers: {answer!r}")
+            return 1
+        notice = run_keel(rtl, "chat", "notice", env=env).stdout
+        if answer["id"] not in notice:
+            report(f"{label} rtl's notice does not list the reply addressed to it: {notice!r}")
+            return 1
+        if run_keel(rtl, "chat", "notice", "--check", env=env).returncode != 0:
+            report(f"{label} `keel chat notice --check` in rtl's worktree does not report the reply.")
+            return 1
+
+        run_keel(rtl, "chat", "read", "soc", env=env)
+        own = post(verify, "a note to self")
+        self_reply = post(verify, "and a follow-up", "--reply-to", own["id"])
+        plain = post(verify, "status: green")
+        for record, what in ((self_reply, "a reply to verify's own record"), (plain, "a plain message")):
+            if record.get("mentions"):
+                report(f"{label} {what} mentions {record['mentions']!r}.")
+                return 1
+        if run_keel(rtl, "chat", "notice", "--check", env=env).returncode != 1:
+            report(f"{label} rtl is addressed by a self-reply or a plain message.")
+            return 1
+
+        acked = run_keel(verify, "chat", "post", "soc", "on it", "--reply-to", asked["id"], "--ack", env=env)
+        if acked.returncode != 0:
+            report(f"{label} a --reply-to --ack with no @ was refused: {acked.stderr!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_chat_ack_scenario() -> int:
     """Issue #253: a record asks for an acknowledgement and the sender sees who gave it.
 
