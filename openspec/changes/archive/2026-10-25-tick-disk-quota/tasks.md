@@ -82,7 +82,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -117,14 +117,18 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:152839c5134b6f36c2607172578c6e341b1cf17fe27f5ab4ad304f0b0de56012 (keel 5.196.1)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.196.1 → 5.197.0. With the section "keel tick passes the patrol free disk and a declared quota" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "The tick passes free disk and a declared quota to the patrol" is promoted into `keel-coordinator-patrol`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: fail locally on two scenarios outside this change; the repository's merge rule makes CI's full-gate the passing run.
+      - Run 1: `npm test` on commit caf8b1ca (clean tree), started at load 3.13: `validation --all failed for: update-codex-from-disk`.
+      - Run 2, started at load 7.71: `validation --all failed for: update-host-query-retry, update-codex-from-disk`. Every other scenario passed (330 `scenario passed` lines).
+      - Both failures are #452's stand-in host timing out (`claude plugin list --json` timed out). Run alone afterwards, each passed.
+      - This change touches neither `keel --update` nor those scenarios. CI's `full-gate` must pass before `land` merges (`merge: repository:full-gate`).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.197.0 section, and the published spec carry the change. The suite passes except for the two #452 scenarios, which pass when run alone.
+      - Scope check: beyond tasks 1.1 and 1.2, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: the full suite is not green locally because of the #452 flake, which now fails at load 3.1 as well. It is the next approved issue. Durable owner: https://github.com/TanglmChris/keel/issues/452
     - Blocker: none
     - Reauthorizations: none
 
