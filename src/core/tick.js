@@ -55,6 +55,28 @@ function freeDiskGb(dir) {
   }
 }
 
+const QUOTA_MAX_AGE_MS = 6 * 3600 * 1000;
+
+function readQuota(where, declared, now) {
+  if (!declared) return { state: "unchecked", percent: null, text: "quota is not checked: no `patrol:` item declares quota_file" };
+  const file = path.resolve(where.worktree, declared.replace(/^~(?=\/|$)/, os.homedir()));
+  let stat;
+  let body;
+  try {
+    stat = fs.statSync(file);
+    body = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    return { state: "unreadable", percent: null, text: `quota file ${file} cannot be read (${error.code || error.message}), so quota is not checked` };
+  }
+  if (now.getTime() - stat.mtimeMs > QUOTA_MAX_AGE_MS) {
+    return { state: "stale", percent: null, text: `quota file ${file} is stale, last written ${store.isoLocal(stat.mtime)}, so quota is not checked` };
+  }
+  const number = body.match(/\d+(?:\.\d+)?/);
+  if (!number) return { state: "unreadable", percent: null, text: `quota file ${file} holds no number, so quota is not checked` };
+  const percent = Math.round(Number(number[0]));
+  return { state: "read", percent, text: `quota is read from ${file} (${percent}%)` };
+}
+
 function patrolWorktree(where) {
   const all = patrolWorktrees(where);
   return all.find((found) => found.worktree) || all[0];
@@ -103,6 +125,16 @@ function tick(where, now = new Date()) {
   // every run gets them, and the patrol decides who reports (#434 D4).
   const declared = all.map((found) => found.declaration).filter(Boolean);
   const diskMinGb = (declared.find((d) => d.diskMinGb) || {}).diskMinGb || null;
+  // Quota comes from a file the repository names, never from a command Keel
+  // runs (#456 D3, D4); its state is said when it changes, not every tick.
+  const quota = declared.length
+    ? readQuota(where, (declared.find((d) => d.quotaFile) || {}).quotaFile || null, now)
+    : { state: null, percent: null };
+  if (quota.state && quota.state !== state.quota_state) {
+    result.quota = quota;
+    state.quota_state = quota.state;
+    store.writeJsonAtomic(where, stateFile(where), state);
+  }
   result.patrols = all.map((found) => {
     if (!found.worktree) return { role: found.declaration ? found.declaration.role : null, ran: false, why: found.why };
     const role = found.declaration.role;
@@ -119,6 +151,7 @@ function tick(where, now = new Date()) {
     const disk = freeDiskGb(found.worktree);
     if (disk.gb !== null) args.push("--disk-free-gb", String(disk.gb));
     if (diskMinGb) args.push("--disk-min-gb", String(diskMinGb));
+    if (quota.percent !== null) args.push("--quota", String(quota.percent));
     const ran = spawnSync(process.execPath, args, { cwd: found.worktree, encoding: "utf8" });
     let payload = {};
     try {
@@ -143,7 +176,8 @@ function tick(where, now = new Date()) {
 function render(result) {
   const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
   const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
-  return [...handed, ...woke, ...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
+  const quota = result.quota ? [`keel tick: ${result.quota.text}`] : [];
+  return [...handed, ...woke, ...quota, ...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
 }
 
 function renderPatrol(p) {

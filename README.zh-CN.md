@@ -802,6 +802,16 @@ patrol:
 下一次运行时间，就运行巡查。声明 `runner: tick`，再加上 `cadence: adaptive` 让巡查根据所见来选择下一次运行时间；
 `keel tick task` 会打印 launchd 任务。见 [docs/cli-team.zh-CN.md](docs/cli-team.zh-CN.md)。
 
+tick 还会把以前由宿主任务传的数字交给巡查（#456）。它测量每个巡查 worktree 所在文件系统的剩余磁盘空间，对照
+`disk_min_gb:`（默认 20）。它从 `quota_file:` 指定的文件里读取周配额百分比，前提是这个文件在 6 小时内写过。Keel
+不会为了配额去执行任何命令；可以由 status line 来写这个文件，因为只有 status line 能拿到 `rate_limits`。文件过期，
+或者根本没有声明时，tick 只说一次。两项都可以声明在任意一个 `patrol:` 项上，由负责全仓库风险的协调者报告。
+
+```bash
+# 在 ~/.claude/statusline-command.sh 里，把 JSON 读进 $input 之后
+echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' > ~/.claude/keel-quota.txt
+```
+
 ## 负责人的语言
 
 agent 读到的大多是英文——工具输出、issue、spec、Keel 自己的输出——回答你时也会滑向英文。声明你希望被使用的语言，这条规则就会在写回复的地方被重申：在 `keel context`、会话启动提示，以及每个 worktree 里每次提示时的 chat hook 中（#305）——在 Claude 上，还会在每 15 次工具调用或连续 10 分钟的工具调用之后重申，因为回合中途写的状态更新并不跟在某次提示之后（#311）。agent 仍可以用任何语言工作；标识符、命令、路径和引用的输出保持原样。

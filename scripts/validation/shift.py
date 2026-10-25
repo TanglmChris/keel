@@ -1028,6 +1028,47 @@ def validate_tick_passes_free_disk_scenario() -> int:
     return 0
 
 
+def validate_tick_reads_quota_file_scenario() -> int:
+    """Issue #456 D2, D3: `keel tick` passes the quota a declared file holds.
+
+    A status line writes the weekly percent; the tick reads it while fresh,
+    says once when it is stale, and says once when no file is declared. Keel
+    runs no command for it.
+    """
+    label = "tick-reads-quota-file:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-quota-") as raw:
+        base = Path(raw)
+        quota = base / "quota.txt"
+        quota.write_text("91\n", encoding="utf-8")
+        repo, env, wt, state = tick_scopes_scratch(base / "declared", extra_a=f"    quota_file: {quota}\n")
+        due_tick(repo, env, wt, state)
+        quota.write_text("96.4\n", encoding="utf-8")
+        due_tick(repo, env, wt, state)
+        for needle in ("past 90%", "past 95%"):
+            told = {role: patrol_told(repo, role, needle) for role in ("pm-a", "pm-b")}
+            if told != {"pm-a": 1, "pm-b": 0}:
+                report(f"{label} the {needle!r} quota risk reached {told}, not pm-a once.")
+                return 1
+        old = time.time() - 7 * 3600
+        os.utime(quota, (old, old))
+        stale = due_tick(repo, env, wt, state)
+        if not any("quota" in line and "stale" in line for line in stale.stdout.splitlines()):
+            report(f"{label} a quota file 7 hours old is not reported stale: {stale.stdout!r}")
+            return 1
+
+        repo, env, wt, state = tick_scopes_scratch(base / "undeclared")
+        first = due_tick(repo, env, wt, state)
+        if "quota is not checked" not in first.stdout:
+            report(f"{label} with no quota_file the tick does not say quota is not checked: {first.stdout!r}")
+            return 1
+        second = due_tick(repo, env, wt, state)
+        if any("quota" in line for line in second.stdout.splitlines()):
+            report(f"{label} the tick repeats an unchanged quota state: {second.stdout!r}")
+            return 1
+    report("tick-reads-quota-file scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 

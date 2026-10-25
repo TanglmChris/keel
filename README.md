@@ -963,6 +963,18 @@ minutes, which runs the patrol once its recommended next run has passed. Declare
 `cadence: adaptive` to let the patrol choose that next run by what it saw; `keel tick task` prints the
 launchd job. See [docs/cli-team.md](docs/cli-team.md).
 
+The tick also passes the patrol what a host task used to (#456). It measures free disk on each patrol
+worktree's filesystem, against `disk_min_gb:` (default 20). It reads the weekly quota percent from the
+file `quota_file:` names, if that file was written in the last 6 hours. Keel runs no command to get
+quota; a status line can write it, since only status lines receive `rate_limits`. When the file is
+stale, or none is declared, the tick says so once. Declare both on any `patrol:` item; the coordinator
+that owns repository-wide risks reports them.
+
+```bash
+# in ~/.claude/statusline-command.sh, after reading the JSON into $input
+echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' > ~/.claude/keel-quota.txt
+```
+
 ## The owner's language
 
 An agent reads mostly English — tool output, issues, specs, Keel's own output — and drifts into it when it answers you. Declare the language you want to be addressed in, and the rule is restated where replies are written: in `keel context`, the session-start note, and the chat hook on every prompt, in every worktree (#305) — and, on Claude, after every 15 tool calls or 10 minutes of them, since a status update written mid-turn follows no prompt (#311). The agent may still work in any language; identifiers, commands, paths, and quoted output stay as they are.

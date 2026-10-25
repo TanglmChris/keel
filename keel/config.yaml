@@ -292,7 +292,10 @@ external_agents:
 # prints the task to install with the host's own tool (#295). Without the
 # desktop app, `runner: tick` lets launchd run `keel tick`, which runs the
 # patrol once its recommended next run has passed, and `cadence: adaptive` lets
-# the patrol choose that next run by what it saw (#356; docs/cli-team.md).
+# the patrol choose that next run by what it saw (#356; docs/cli-team.md). The
+# tick passes free disk against `disk_min_gb:` (default 20), and the weekly
+# quota read from the file `quota_file:` names when it is under 6 hours old;
+# Keel runs no command to get quota (#456).
 #
 # Example:
 #   patrol:

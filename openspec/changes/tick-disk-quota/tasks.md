@@ -39,7 +39,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Read a declared `quota_file:` in `keel tick` and say once when quota is stale or unchecked
+- [x] 1.2 Read a declared `quota_file:` in `keel tick` and say once when quota is stale or unchecked
   - Covers:
     - keel-coordinator-patrol / The tick passes free disk and a declared quota to the patrol / A quota file drives the quota risk, and its absence is said once
     - D2
@@ -64,7 +64,19 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
+    - Contract: keel-task-capsule/v1 sha256:bf0287f6c0e0fb2f2407f78d90ccc09b3b33cc4df77ae6f23fded7c054d0595c (keel 5.196.1)
+    - M1: pass. `tick-reads-quota-file scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `tick-reads-quota-file: the 'past 90%' quota risk reached {'pm-a': 0, 'pm-b': 0}, not pm-a once.` (exit 1).
+    - M1.green: pass.
+      - `readQuota` resolves `quota_file:` from the first item declaring it, relative to the worktree, with `~` expanded. It passes the file's first number, rounded, as `--quota` when the file is under 6 hours old (D2, D3). It runs no command (D4).
+      - The quota state (`read`, `stale`, `unreadable`, `unchecked`) is kept in `tick/state.json` as `quota_state`, and printed only when it changes.
+      - A repository declaring no `patrol:` gets no quota line at all.
+    - M2: pass. `validation --group shift passed: 58 scenarios.` (exit 0). `readme-zh-matches-english`, `config-documents-in-declaration-order`, and `surfaces-agree-with-code` each passed on its own, and `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel tick`, quota files reading 91 and then 96.4 reach pm-a, the owning coordinator, as `past 90%` and `past 95%` once each, and reach pm-b never. A file 7 hours old is reported stale. With none declared, the first tick says quota is not checked, and the second says nothing about quota.
+      - Scope check: `git status --short` lists `src/core/tick.js`, the two validation files, both READMEs, `keel/config.yaml`, and this change's directory. `src/core/config.js` was already changed by 1.1 and is in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
