@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.200.0 - The bridge logs a repeating failure once and names a missing scope
+
+Issue #460, scheduled by the owner on 2026-10-25. On this Mac `~/.keel/chat/bridge/bridge.log` had 4431 lines, mostly copies of two. A project with no remote logged `this repository has no remote` at every 10-minute archive sync, 2944 times. Every reconnect logged `catch-up failed: … missing_scope`, 278 times, and none of those lines said which scope was missing.
+
+- **A repeating failure is logged once.** An archive sync's refusal or error, and a connection's catch-up failure, are logged when they first occur, again only when the line changes, and once more as `… works again` when the failure clears.
+- **A missing scope is named.** A Slack error keeps the response's `needed` and `provided` scopes, and its message reads `missing_scope: needs <scopes>`.
+- **Checks.** The new `chat-bridge-logs-once` runs a real bridge against the fake Slack. The fake server can now answer a method with a chosen error, and `KEEL_CHAT_ARCHIVE_EVERY_MS` shortens the archive interval for the test.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.200.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.199.0 - Resume removes the old shift's sessions too
 
 Issue #462, approved by the owner on 2026-10-25. Since 5.178.0 (#418) a hand-over removes the old shift's session by default, yet `claude agents` still listed old shifts. Only a delivered hand-over removed them, and it matched each session by a working directory. After the workspace rename (`my_github` → `my-github`), the owner opened a session by hand, and it resumed the note, so `keel-maint · 10-21 22:06` stayed listed. kaiwu-ip's roles still listed pairs of sessions left from before 5.178.0. And every pre-rename session named a directory no binding names any more.

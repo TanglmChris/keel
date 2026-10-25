@@ -64,6 +64,9 @@ class FakeSlack:
         # (token, channel) pairs `chat.postMessage` answers with
         # `not_in_channel`, for a bot nobody invited.
         self.not_in_channel: set[tuple[str, str]] = set()
+        # Methods answered with a chosen error body until cleared, such as a
+        # `missing_scope` with its `needed` field.
+        self.failing: dict[str, dict] = {}
         # Which app token each Socket Mode connection was opened with.
         self.socket_apps: dict[socket.socket, str] = {}
         self.pending_apps: dict[str, str] = {}
@@ -92,6 +95,14 @@ class FakeSlack:
         """Answer the next call of `method` with HTTP 429 and Retry-After."""
         with self.lock:
             self.rate_limit_next.append((method, retry_after))
+
+    def fail(self, method: str, body: dict | None) -> None:
+        """Answer every call of `method` with `body` (HTTP 200), or normally again when `body` is None."""
+        with self.lock:
+            if body is None:
+                self.failing.pop(method, None)
+            else:
+                self.failing[method] = body
 
     def calls_to(self, method: str) -> list[dict]:
         with self.lock:
@@ -168,6 +179,8 @@ class FakeSlack:
                     self.calls.append({"method": method, "params": params, "rate_limited": True, "at": time.time()})
                     return 429, {"Retry-After": str(retry_after)}, {"ok": False, "error": "ratelimited"}
             self.calls.append({"method": method, "params": params, "at": time.time()})
+            if method in self.failing:
+                return 200, {}, dict(self.failing[method])
             token = str(params.get("_auth", "")).removeprefix("Bearer ")
             identity = self.identities.get(token, {"user_id": "UBOT", "bot_id": "BBOT"})
             if method == "auth.test":

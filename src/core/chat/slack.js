@@ -16,13 +16,17 @@ const FORM_METHODS = new Set([
   "conversations.replies",
 ]);
 
+// Slack names the scopes a `missing_scope` call needed and those the token
+// has; the message names the needed ones, which is what the fix takes (#460 D2).
 class SlackError extends Error {
-  constructor(method, error, { retryAfter = null, status = null } = {}) {
-    super(`Slack ${method} failed: ${error}${status ? ` (HTTP ${status})` : ""}`);
+  constructor(method, error, { retryAfter = null, status = null, needed = null, provided = null } = {}) {
+    super(`Slack ${method} failed: ${error}${needed ? `: needs ${needed}` : ""}${status ? ` (HTTP ${status})` : ""}`);
     this.method = method;
     this.error = error;
     this.retryAfter = retryAfter;
     this.status = status;
+    this.needed = needed;
+    this.provided = provided;
   }
 }
 
@@ -69,7 +73,9 @@ async function call(method, params, token) {
     throw new SlackError(method, "response was not JSON", { status: response.status });
   }
   if (!parsed || parsed.ok !== true) {
-    throw new SlackError(method, (parsed && parsed.error) || "unknown_error", { status: response.status });
+    throw new SlackError(method, (parsed && parsed.error) || "unknown_error", {
+      status: response.status, needed: (parsed && parsed.needed) || null, provided: (parsed && parsed.provided) || null,
+    });
   }
   return parsed;
 }
