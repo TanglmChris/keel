@@ -584,6 +584,7 @@ SCENARIOS: tuple = (
     ("external-agents-are-documented", docs.validate_external_agents_are_documented_scenario),
     ("external-agent-exit-status", guard.validate_external_agent_exit_status_scenario),
     ("validation-runner", selfcheck.validate_validation_runner_scenario),
+    ("runner-refuses-what-it-would-not-run", selfcheck.validate_runner_refuses_what_it_would_not_run_scenario),
     ("section-boundary", contract.validate_section_boundary_scenario),
     ("review-entry-extent", contract.validate_review_entry_extent_scenario),
     ("reauthorizations-shape", contract.validate_reauthorizations_shape_scenario),

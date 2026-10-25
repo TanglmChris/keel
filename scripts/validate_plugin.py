@@ -145,13 +145,27 @@ def run_group(group: str, jobs: int) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) == 3 and sys.argv[1] == "--scenario":
-        registry = dict(SCENARIOS)
-        runner = registry.get(sys.argv[2])
-        if runner is None:
-            report(f"unknown validation scenario: {sys.argv[2]}")
+    # One or more `--scenario NAME` pairs (#444): each named scenario runs, and
+    # the result fails when any of them does.
+    if sys.argv[1:2] == ["--scenario"]:
+        rest = sys.argv[1:]
+        if len(rest) % 2 or any(flag != "--scenario" for flag in rest[0::2]):
+            report(f"usage: validate_plugin.py --scenario NAME [--scenario NAME ...], got: {' '.join(rest)}")
             return 2
-        return runner()
+        registry = dict(SCENARIOS)
+        names = rest[1::2]
+        unknown = [name for name in names if name not in registry]
+        if unknown:
+            report(f"unknown validation scenario: {', '.join(unknown)}")
+            return 2
+        if len(names) == 1:
+            return registry[names[0]]()
+        failures = [name for name in names if registry[name]() != 0]
+        if failures:
+            report(f"validation --scenario failed for: {', '.join(failures)}")
+            return 1
+        report(f"validation --scenario passed: {len(names)} scenarios.")
+        return 0
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--all":
         jobs = os.cpu_count() or 2
@@ -182,6 +196,11 @@ def main() -> int:
         print(evidence.render_markdown(classes) if rest else evidence.render(classes))
         return 0
 
+    # Only no arguments at all means the baseline: an argument it does not
+    # recognize used to fall through here and exit 0 having run nothing asked (#444).
+    if sys.argv[1:]:
+        report(f"usage: validate_plugin.py [--all [--jobs N] | --group NAME [--jobs N] | --scenario NAME ... | --evidence [--markdown]], got: {' '.join(sys.argv[1:])}")
+        return 2
     return run_baseline()
 
 

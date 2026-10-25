@@ -3015,6 +3015,15 @@ OVERLAY_BLOCK_RE = re.compile(
 )
 
 
+# The host-query limit the `keel --update` scenarios set (#452). Every stand-in
+# host, the ones meant to answer as well as the one meant to hang, is a node
+# program that must start and answer inside it. Under the full suite's own
+# parallel load, starting one took longer than 2–4 s, so the limit is set well
+# above that, and the hung stand-in sleeps well past two of them.
+QUERY_LIMIT_S = 12
+QUERY_LIMIT_MS = str(QUERY_LIMIT_S * 1000)
+
+
 def validate_update_host_query_timeout_scenario() -> int:
     """Issue #354: a hung or failed host query is `failed`, never `absent`.
 
@@ -3073,12 +3082,12 @@ def validate_update_host_query_timeout_scenario() -> int:
             return 1
 
         # Only the hung case needs a short limit; the others keep 30 s, so load cannot trip them.
-        result, calls, took = update(env_extra={"FAKE_LIST_SLEEP_CODEX": "15", "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000"})
+        result, calls, took = update(env_extra={"FAKE_LIST_SLEEP_CODEX": "40", "KEEL_UPDATE_QUERY_TIMEOUT_MS": QUERY_LIMIT_MS})
         codex = line(result.stdout, "codex plugin")
         if "absent" in codex:
             report(f"{label} a hung codex plugin list --json was reported absent: {codex!r}")
             return 1
-        for needle in ("failed", "codex plugin list --json", "4 s"):
+        for needle in ("failed", "codex plugin list --json", f"{QUERY_LIMIT_S} s"):
             if needle not in codex:
                 report(f"{label} the hung-query line does not name {needle!r}: {codex!r}")
                 return 1
@@ -3091,8 +3100,8 @@ def validate_update_host_query_timeout_scenario() -> int:
         if result.returncode == 0:
             report(f"{label} a failed query left keel --update exiting 0.")
             return 1
-        if took > 20:
-            report(f"{label} the hung query held keel --update for {took:.1f} s, past two 4 s attempts.")
+        if took > 2 * QUERY_LIMIT_S + 15:
+            report(f"{label} the hung query held keel --update for {took:.1f} s, past two {QUERY_LIMIT_S} s attempts.")
             return 1
 
         result, _, _ = update(env_extra={"KEEL_UPDATE_CODEX": str(tmp / "no-such-codex")})
@@ -3100,7 +3109,7 @@ def validate_update_host_query_timeout_scenario() -> int:
             report(f"{label} a missing codex executable no longer reads absent: {result.stdout!r}")
             return 1
 
-        result, _, _ = update("--dry-run", env_extra={"FAKE_LIST_SLEEP_CODEX": "15", "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000"})
+        result, _, _ = update("--dry-run", env_extra={"FAKE_LIST_SLEEP_CODEX": "40", "KEEL_UPDATE_QUERY_TIMEOUT_MS": QUERY_LIMIT_MS})
         if result.returncode != 0:
             report(f"{label} --dry-run with a hung query exited {result.returncode}: {result.stdout!r}")
             return 1
@@ -3150,7 +3159,7 @@ def validate_update_codex_from_disk_scenario() -> int:
             env.update({
                 "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
                 "KEEL_UPDATE_CODEX": str(launchers["codex"]), "CODEX_HOME": str(codex_home),
-                "KEEL_UPDATE_QUERY_TIMEOUT_MS": "2000", "FAKE_LIST_SLEEP_CODEX": "15",
+                "KEEL_UPDATE_QUERY_TIMEOUT_MS": QUERY_LIMIT_MS, "FAKE_LIST_SLEEP_CODEX": "40",
                 "FAKE_LOG": str(log), "FAKE_STATE": str(state), "FAKE_CODEX_SOURCE": str(tmp / "codex-source"),
                 "FAKE_CODEX_CACHE": str(cache),
             })
@@ -3319,10 +3328,10 @@ def validate_update_host_query_retry_scenario() -> int:
             env = dict(os.environ)
             env.update({
                 "KEEL_UPDATE_NPM": str(launchers["npm"]), "KEEL_UPDATE_CLAUDE": str(launchers["claude"]),
-                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "KEEL_UPDATE_QUERY_TIMEOUT_MS": "4000",
+                "KEEL_UPDATE_CODEX": str(launchers["codex"]), "KEEL_UPDATE_QUERY_TIMEOUT_MS": QUERY_LIMIT_MS,
                 "CODEX_HOME": str(tmp / "codex-home"), "FAKE_LOG": str(log), "FAKE_STATE": str(state),
                 "FAKE_CODEX_SOURCE": str(source),
-                "FAKE_LIST_SLEEP_CODEX": "15", "FAKE_LIST_SLEEP_TIMES_CODEX": times,
+                "FAKE_LIST_SLEEP_CODEX": "40", "FAKE_LIST_SLEEP_TIMES_CODEX": times,
             })
             env.pop("KEEL_UPDATE_SOURCE", None)
             started = time.monotonic()
@@ -3341,7 +3350,7 @@ def validate_update_host_query_retry_scenario() -> int:
             return 1
 
         result, calls, line, took = update("9")
-        for needle in ("failed", "codex plugin list --json", "timed out twice", "4 s"):
+        for needle in ("failed", "codex plugin list --json", "timed out twice", f"{QUERY_LIMIT_S} s"):
             if needle not in line:
                 report(f"{label} a lasting hang's line does not name {needle!r}: {line!r}")
                 return 1
@@ -3349,8 +3358,8 @@ def validate_update_host_query_retry_scenario() -> int:
         if runs != 2:
             report(f"{label} a lasting hang ran the query {runs} time(s), not 2: {calls!r}")
             return 1
-        if took > 25:
-            report(f"{label} two 4 s attempts held keel --update for {took:.1f} s.")
+        if took > 2 * QUERY_LIMIT_S + 15:
+            report(f"{label} two {QUERY_LIMIT_S} s attempts held keel --update for {took:.1f} s.")
             return 1
     if "update-host-query-retry" not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} scenario is not registered.")
