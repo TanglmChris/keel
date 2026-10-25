@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.197.0 - keel tick passes the patrol free disk and a declared quota
+
+Issue #456, approved by the owner on 2026-10-25. `keel patrol` reports low disk and weekly quota steps only when its caller passes the numbers, and `keel tick` passed neither. kaiwu-ip moved its patrol from a desktop host task to `keel tick` on 2026-10-22, because background CLI coordinators cannot create host tasks, and lost both risks. That machine has filled its disk before.
+
+- **Free disk.** The tick measures each patrol worktree's filesystem (`fs.statfsSync`, in GiB as `df -g` reports) and passes `--disk-free-gb`. It also passes `--disk-min-gb`, from `disk_min_gb:` on any `patrol:` item, or 20 by default.
+- **Weekly quota, from a file** (owner, 2026-10-25). Only status-line scripts receive `rate_limits`, so the tick reads the first number in the file named by `quota_file:` and passes it as `--quota` while the file is under 6 hours old. Keel runs no command for it, and the README shows the one-line status-line addition.
+- **When quota isn't passed.** A stale or unreadable file, or no `quota_file:` at all, is said once in the tick output, and again only when that state changes.
+- **Who reports.** These risks still go only to the coordinator that owns repository-wide risks (#434).
+- **Checks.** `tick-passes-free-disk` raises the floor above the machine's real free space, so nothing is faked. `tick-reads-quota-file` covers 91 then 96.4, a stale file, and no declaration.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.197.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.196.1 - A hand-off note leaves out what the next session gets anyway
 
 Issue #448, approved by the owner on 2026-10-21 under the shift freeze. This is guidance only. In the 19 keel-maint notes, 14 restate the owner language and 7 restate memory items, such as the shift freeze and the load rule. Restated facts go stale in the note while their source moves on.
