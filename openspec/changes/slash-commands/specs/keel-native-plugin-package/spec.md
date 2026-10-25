@@ -1,11 +1,15 @@
 ## MODIFIED Requirements
 
 ### Requirement: A skill's plugin copy carries every file of its source
-For every Keel skill, the plugin copy under `plugins/keel/skills/<skill>/` MUST hold the same set of files as `src/skills/<skill>/`, and each file in the copy MUST have the same bytes as its source. `native-plugin-manifests` MUST fail and name the file when one is missing from the copy or differs from its source.
+For every Keel skill, the plugin copy under `plugins/keel/skills/<skill>/` MUST hold the same set of files as `src/skills/<skill>/`, and each file in the copy MUST have the same bytes as its source, except that a copy's `SKILL.md` MAY add the Claude-only frontmatter fields `user-invocable` and `argument-hint`, which the portable source MUST NOT carry; with those lines removed, its bytes MUST equal the source's. `native-plugin-manifests` and `skill-portability-policy` MUST fail and name the file when one is missing from the copy or differs from its source by anything else.
 
 #### Scenario: A split-out file missing from the plugin copy is caught
 - **WHEN** `src/skills/review-checklist/conditional-checks.md` exists and the plugin copy lacks it
 - **THEN** `native-plugin-manifests` fails, naming `conditional-checks.md`
+
+#### Scenario: Claude-only fields stay in the plugin copy
+- **WHEN** the plugin copy of `review-checklist/SKILL.md` adds `user-invocable: false` to the source's frontmatter, and the source carries neither Claude-only field
+- **THEN** both checks pass, and they fail when the source carries `user-invocable` or the copy differs by any other line
 
 ## ADDED Requirements
 

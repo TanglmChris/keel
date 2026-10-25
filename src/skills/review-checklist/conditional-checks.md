@@ -1,4 +1,4 @@
-# keel-review-checklist: conditional checks
+# review-checklist: conditional checks
 
 Read the section whose condition holds, as `SKILL.md` lists them. Each states a criterion of the review.
 

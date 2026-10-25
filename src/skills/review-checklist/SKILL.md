@@ -1,9 +1,9 @@
 ---
-name: keel-review-checklist
+name: review-checklist
 description: Run the current agent's thin semantic consistency review after shared Keel Core gates and before task completion, sync, archive, or meaningful handoff.
 ---
 
-# keel-review-checklist
+# review-checklist
 
 ## Purpose
 

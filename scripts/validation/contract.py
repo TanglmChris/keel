@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    portable_projection_bytes,
     OPENSPEC_SCHEMA_NAME,
     OPENSPEC_SEARCH_ORDER,
     OPENSPEC_SURFACE_OVERLAY_START,
@@ -1046,14 +1047,14 @@ def validate_review_checklist_defers_to_gate_scenario() -> int:
     """
     label = "review-checklist-defers-to-gate:"
     for root in ("src/skills", f"{PLUGIN_ROOT}/skills"):
-        text = (ROOT / root / "keel-review-checklist" / "SKILL.md").read_text(encoding="utf-8")
+        text = (ROOT / root / "review-checklist" / "SKILL.md").read_text(encoding="utf-8")
         flat = " ".join(text.split())
         for restated in (
             "Evidence `Contract` line records the task-start capsule fingerprint",
             "confirm concrete per-label `.red` and `.green` Evidence exists",
         ):
             if restated in flat:
-                report(f"{label} {root} keel-review-checklist still restates a gate refusal: {restated!r}")
+                report(f"{label} {root} review-checklist still restates a gate refusal: {restated!r}")
                 return 1
         for kept in (
             "evidence-first tasks",
@@ -1062,7 +1063,7 @@ def validate_review_checklist_defers_to_gate_scenario() -> int:
             "not build-only or shape-only",
         ):
             if kept not in flat:
-                report(f"{label} {root} keel-review-checklist lost the judgment {kept!r}.")
+                report(f"{label} {root} review-checklist lost the judgment {kept!r}.")
                 return 1
     if "review-checklist-defers-to-gate" not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} scenario is not registered.")
@@ -1250,7 +1251,7 @@ def validate_expectation_completion_gates_scenario() -> int:
 
     checks: list[tuple[str, Path, list[str]]] = [
         ("root AGENTS.md", ROOT / "AGENTS.md", protocol_snippets),
-        ("source review-checklist skill", ROOT / "src/skills/keel-review-checklist/SKILL.md", review_snippets),
+        ("source review-checklist skill", ROOT / "src/skills/review-checklist/SKILL.md", review_snippets),
         (
             "source tasks Review template",
             ROOT / "assets/openspec/schemas/keel-spec-driven/templates/tasks.md",
@@ -1266,7 +1267,7 @@ def validate_expectation_completion_gates_scenario() -> int:
             ROOT / "assets/openspec/schemas/keel-spec-driven/templates/tasks.md",
             task_template_review_snippets,
         ),
-        ("source handoff skill", ROOT / "src/skills/keel-handoff/SKILL.md", handoff_skill_snippets),
+        ("source handoff skill", ROOT / "src/skills/handoff/SKILL.md", handoff_skill_snippets),
         ("OpenSpec archive overlay generator", ROOT / "bin/keel.js", archive_overlay_snippets),
     ]
 
@@ -1289,7 +1290,7 @@ def validate_expectation_completion_gates_scenario() -> int:
 
 def validate_authoring_continuity_scenario() -> int:
     protocol_snippets = [
-        "keel-align-expectations",
+        "align-expectations",
         "risk-triggered deep path",
         "hidden-knowledge risk",
         "domain lenses",
@@ -4591,9 +4592,9 @@ def validate_task_shape_warning_scenario() -> int:
             return 1
 
     # M4 — the same question at completion, in both copies.
-    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
-    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
-    if canonical.read_bytes() != projected.read_bytes():
+    canonical = ROOT / "src/skills/review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/review-checklist/SKILL.md"
+    if canonical.read_bytes() != portable_projection_bytes(projected):
         report(
             f"{label} M4 the portable checklist and its plugin projection are "
             "not byte-identical."
@@ -4602,7 +4603,7 @@ def validate_task_shape_warning_scenario() -> int:
     checklist = canonical.read_text(encoding="utf-8")
     if "one behavior" not in checklist:
         report(
-            f"{label} M4 keel-review-checklist does not ask whether two tasks "
+            f"{label} M4 review-checklist does not ask whether two tasks "
             "turned out to be one behavior."
         )
         return 1
@@ -6184,7 +6185,7 @@ def validate_findings_resolved_here_scenario() -> int:
     """A finding fixed in its own task is recorded as fixed, not as discarded.
 
     The gate required a durable owner for every non-`none` Findings value, while
-    the spec and `keel-review-checklist` both scope that requirement to
+    the spec and `review-checklist` both scope that requirement to
     *unresolved* findings. A finding found and repaired inside one task had no
     accepted form, so the only text that passed was `Discard reason:` — which
     files a repair as a dismissal. `## Invalidates` has carried the same third
@@ -6385,9 +6386,9 @@ def validate_findings_resolved_here_scenario() -> int:
 
     # M4 — the criterion is stated where the author reads it, and the portable
     # skill and its projection do not disagree about it.
-    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
-    projected = ROOT / "plugins/keel/skills/keel-review-checklist/SKILL.md"
-    if canonical.read_bytes() != projected.read_bytes():
+    canonical = ROOT / "src/skills/review-checklist/SKILL.md"
+    projected = ROOT / "plugins/keel/skills/review-checklist/SKILL.md"
+    if canonical.read_bytes() != portable_projection_bytes(projected):
         report(
             "findings-resolved-here: M4 the portable checklist and its plugin "
             "projection are not byte-identical."
@@ -6397,7 +6398,7 @@ def validate_findings_resolved_here_scenario() -> int:
     for phrase in ("Resolved here:", "Durable owner:", "Discard reason:"):
         if phrase not in checklist:
             report(
-                "findings-resolved-here: M4 keel-review-checklist does not name "
+                "findings-resolved-here: M4 review-checklist does not name "
                 f"the {phrase!r} disposition."
             )
             return 1
@@ -8712,7 +8713,7 @@ def validate_expectation_alignment_skill_scenario() -> int:
     named sibling) requirement or scenario that names it; editorial wording
     no durable authority names must stay rewritable without validator edits.
     """
-    skill_path = ROOT / "src/skills/keel-align-expectations/SKILL.md"
+    skill_path = ROOT / "src/skills/align-expectations/SKILL.md"
     if not skill_path.is_file():
         report("expectation-alignment-skill canonical SKILL.md is missing.")
         return 1
@@ -8722,7 +8723,7 @@ def validate_expectation_alignment_skill_scenario() -> int:
     frontmatter = re.match(r"---\n([\s\S]*?)\n---\n", skill)
     if (
         frontmatter is None
-        or "name: keel-align-expectations" not in frontmatter.group(1)
+        or "name: align-expectations" not in frontmatter.group(1)
         or "description:" not in frontmatter.group(1)
     ):
         report("expectation-alignment-skill lacks portable trigger metadata.")
@@ -8830,7 +8831,7 @@ def validate_authoring_alignment_overlay_scenario() -> int:
             if (
                 content.count(OPENSPEC_SURFACE_OVERLAY_START) != 1
                 or "Keel Authoring Overlay" not in content
-                or "keel-align-expectations" not in content
+                or "align-expectations" not in content
             ):
                 report(
                     "authoring-alignment-overlay Claude propose surface lacks "
@@ -8856,7 +8857,7 @@ def validate_authoring_alignment_overlay_scenario() -> int:
             if (
                 content.count(OPENSPEC_SURFACE_OVERLAY_START) != 1
                 or "Keel Authoring Overlay" not in content
-                or "keel-align-expectations" not in content
+                or "align-expectations" not in content
             ):
                 report(
                     "authoring-alignment-overlay Codex propose surface lacks "
@@ -8882,7 +8883,7 @@ def validate_authoring_alignment_overlay_scenario() -> int:
             codex_repo / ".agents/skills/openspec-apply-change/SKILL.md"
         ).read_text(encoding="utf-8")
         if (
-            "rerun `keel-align-expectations`" not in apply_skill
+            "rerun `align-expectations`" not in apply_skill
             or "repository fact" not in apply_skill
         ):
             report(
@@ -10240,7 +10241,7 @@ def validate_a_task_field_cites_its_provenance_scenario() -> int:
     The contextual-hash rule matched a context word and a hash-shaped token
     anywhere on one line, and the dirty rule matched the bare word. Inside a
     task field that reads cited provenance as recorded state: the base a Scope
-    check compared against (which keel-review-checklist asks it to name), the
+    check compared against (which review-checklist asks it to name), the
     commit a result ran on, a cache buffer's `dirty groups`, and a negation
     about another checkout. Each accepted line below is one rtl_ppa_prj wrote,
     shortened; line 262's shape is an Acceptance criterion of a checked task,

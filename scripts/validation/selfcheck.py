@@ -470,7 +470,7 @@ def validate_resident_topic_matching_scenario() -> int:
 
 # The one-message-many-failures shape, counted rather than forbidden.
 #
-# Issue #43 records it caught by `keel-review-checklist` in three consecutive
+# Issue #43 records it caught by `review-checklist` in three consecutive
 # changes, every time in this file: `if <the run did not work> or <the output
 # lacks a specific thing>:` followed by one `report(...)` describing only the
 # second operand. When the first fires the sentence is false, and it sends the
@@ -479,7 +479,7 @@ def validate_resident_topic_matching_scenario() -> int:
 # This number bounds a SHAPE. It is not a count of defects: many of the sites
 # it counts carry a message that genuinely covers every operand, and deciding
 # whether a particular sentence misleads needs a model, so that judgment stays
-# in `keel-review-checklist`. What the number does is make a *new* one visible
+# in `review-checklist`. What the number does is make a *new* one visible
 # when it is written, which is earlier than a review that only runs at a
 # completion gate.
 #
@@ -630,7 +630,7 @@ def probe():
 def validate_assertion_shape_count_scenario() -> int:
     """Issue #43: one condition guarding two failures, caught three times.
 
-    `keel-review-checklist` catches it, but only at a completion gate and only
+    `review-checklist` catches it, but only at a completion gate and only
     because a human wrote a checklist entry pointing the model at it. This
     counts the shape so a new one is visible when it is written.
     """
@@ -1170,7 +1170,7 @@ def validate_authored_scenario_names_scenario() -> int:
         "--scenario gate-diagnostics` passes\n"
         "    - M2 (regression): `core-gates` and `target-surface-doctor` stay "
         "green\n"
-        "    - M3 (regression): `task-start`, `keel-review-checklist`, "
+        "    - M3 (regression): `task-start`, `review-checklist`, "
         "`contract-drift`, `subagent-stop`, and `keel-task-capsule` are "
         "unchanged\n"
         "    - M4: `cli` and "

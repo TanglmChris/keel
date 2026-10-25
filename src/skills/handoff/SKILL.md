@@ -1,9 +1,9 @@
 ---
-name: keel-handoff
+name: handoff
 description: Create, validate, or clear the optional keel-handoff/v1 pointer override when human intent cannot be inferred uniquely.
 ---
 
-# keel-handoff
+# handoff
 
 ## Purpose
 

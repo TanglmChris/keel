@@ -1,9 +1,10 @@
 ---
-name: keel-tdd-or-test-first
+name: tdd-or-test-first
 description: Drive Keel agent test-first or evidence-first execution for a selected OpenSpec task. Use when a task needs software tests, hardware testbench, assertions, lint, new behavior proof, regression coverage, or red/green evidence before implementation.
+user-invocable: false
 ---
 
-# keel-tdd-or-test-first
+# tdd-or-test-first
 ## Purpose
 
 Use this skill when Keel execution should start with evidence: software tests first, or hardware testbench, assertion, lint, or equivalent static evidence first. This skill owns the Verify strategy taxonomy, the evidence contract, and their binding to the task capsule; generic test-writing mechanics (how to loop red-green, what to mock) belong to the host runtime and are not restated here.

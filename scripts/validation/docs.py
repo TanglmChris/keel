@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    portable_projection_bytes,
     OPENSPEC_SEARCH_ORDER,
     OPENSPEC_SURFACE_OVERLAY_END,
     OPENSPEC_SURFACE_OVERLAY_START,
@@ -77,16 +78,16 @@ def validate_decisions_are_selectable_scenario() -> int:
         )
         return 1
     for root in ("src/skills", f"{PLUGIN_ROOT}/skills"):
-        path = ROOT / root / "keel-align-expectations" / "SKILL.md"
+        path = ROOT / root / "align-expectations" / "SKILL.md"
         text = path.read_text(encoding="utf-8")
         if not offers_choices(section(text, "## Deep path")):
             report(
-                f"{label} {root} keel-align-expectations Deep path does not "
+                f"{label} {root} align-expectations Deep path does not "
                 "offer decisions as selectable options."
             )
             return 1
         if "AskUserQuestion" in text:
-            report(f"{label} {root} keel-align-expectations names a host tool.")
+            report(f"{label} {root} align-expectations names a host tool.")
             return 1
     if "decisions-are-selectable" not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} scenario is not registered.")
@@ -695,8 +696,8 @@ def validate_continuation_docs_scenario() -> int:
 def validate_plan_funnel_guidance_scenario() -> int:
     # The funnel is a conditional check, read on demand since #411.
     skill_copies = (
-        ROOT / "src/skills/keel-review-checklist/conditional-checks.md",
-        ROOT / PLUGIN_ROOT / "skills/keel-review-checklist/conditional-checks.md",
+        ROOT / "src/skills/review-checklist/conditional-checks.md",
+        ROOT / PLUGIN_ROOT / "skills/review-checklist/conditional-checks.md",
     )
     for copy in skill_copies:
         text = copy.read_text(encoding="utf-8")
@@ -713,7 +714,7 @@ def validate_plan_funnel_guidance_scenario() -> int:
                 return 1
     if skill_copies[0].read_bytes() != skill_copies[1].read_bytes():
         report(
-            "plan-funnel-guidance: shipped keel-review-checklist copy diverges "
+            "plan-funnel-guidance: shipped review-checklist copy diverges "
             "from the canonical source."
         )
         return 1
@@ -1432,8 +1433,8 @@ def validate_surfaces_agree_with_code_scenario() -> int:
         ROOT / "assets/bootstrap/AGENTS.md": [
             "No commit, push, sync, or archive unless the task, the owner, or `keel/config.yaml` authorizes it.",
         ],
-        ROOT / "src/skills/keel-debug-failure/SKILL.md": ["expected rather than a stop"],
-        ROOT / PLUGIN_ROOT / "skills/keel-debug-failure/SKILL.md": ["expected rather than a stop"],
+        ROOT / "src/skills/debug-failure/SKILL.md": ["expected rather than a stop"],
+        ROOT / PLUGIN_ROOT / "skills/debug-failure/SKILL.md": ["expected rather than a stop"],
         ROOT / "bin/keel.js": [],
         ROOT / "src/core/config.js": [],
     }
@@ -1709,11 +1710,11 @@ def validate_tdd_strategy_guide_scenario() -> int:
     enforces; before #389 the skill named two of them and `AGENTS.md` the rest.
     """
     label = "tdd-strategy-guide"
-    skill_dir = ROOT / "src/skills/keel-tdd-or-test-first"
-    plugin_dir = ROOT / PLUGIN_ROOT / "skills/keel-tdd-or-test-first"
+    skill_dir = ROOT / "src/skills/tdd-or-test-first"
+    plugin_dir = ROOT / PLUGIN_ROOT / "skills/tdd-or-test-first"
     guidance = skill_dir / "guidance.md"
     if not guidance.is_file():
-        report(f"{label}: keel-tdd-or-test-first has no guidance.md beside its SKILL.md.")
+        report(f"{label}: tdd-or-test-first has no guidance.md beside its SKILL.md.")
         return 1
     contract = (ROOT / "src/core/task-contract.js").read_text(encoding="utf-8")
     declared = re.search(
@@ -1752,10 +1753,10 @@ def validate_tdd_strategy_guide_scenario() -> int:
     for name in ("SKILL.md", "guidance.md"):
         shipped = plugin_dir / name
         if not shipped.is_file():
-            report(f"{label}: the plugin has no keel-tdd-or-test-first/{name}.")
+            report(f"{label}: the plugin has no tdd-or-test-first/{name}.")
             return 1
-        if shipped.read_bytes() != (skill_dir / name).read_bytes():
-            report(f"{label}: the plugin's keel-tdd-or-test-first/{name} diverges from the canonical source.")
+        if portable_projection_bytes(shipped) != (skill_dir / name).read_bytes():
+            report(f"{label}: the plugin's tdd-or-test-first/{name} diverges from the canonical source.")
             return 1
     if label not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label}: the scenario registry does not include it.")
@@ -1826,7 +1827,7 @@ def validate_review_checklist_conditional_checks_scenario() -> int:
     the shift note, which selects no task.
     """
     label = "review-checklist-conditional-checks:"
-    skill_dir = ROOT / "src/skills/keel-review-checklist"
+    skill_dir = ROOT / "src/skills/review-checklist"
     base = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     conditional_path = skill_dir / "conditional-checks.md"
     if "conditional-checks.md" not in base:
@@ -1852,7 +1853,7 @@ def validate_review_checklist_conditional_checks_scenario() -> int:
         if needle not in conditional:
             report(f"{label} conditional-checks.md does not hold {needle!r}.")
             return 1
-    handoff = (ROOT / "src/skills/keel-handoff/SKILL.md").read_text(encoding="utf-8")
+    handoff = (ROOT / "src/skills/handoff/SKILL.md").read_text(encoding="utf-8")
     if "keel shift ready" not in handoff:
         report(f"{label} the handoff skill does not name the shift note's `keel shift ready`.")
         return 1

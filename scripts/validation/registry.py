@@ -388,6 +388,7 @@ SCENARIOS: tuple = (
     ),
     ("authoring-alignment-overlay", contract.validate_authoring_alignment_overlay_scenario),
     ("native-plugin-manifests", hosts.validate_native_plugin_manifests_scenario),
+    ("slash-menu-ships", hosts.validate_slash_menu_ships_scenario),
     ("native-plugin-session-start", hosts.validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", hosts.validate_runtime_version_drift_scenario),
     ("session-start-source-repo-protocol", hosts.validate_session_start_source_repo_protocol_scenario),

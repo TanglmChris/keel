@@ -1023,7 +1023,7 @@ function transientOwnerMessage(candidate) {
 // A finding has three dispositions and the gate recognized two. One found and
 // fixed inside the task recording it has no owner to name and nothing to
 // discard, so the only text that passed was `Discard reason:` — filing a repair
-// as a dismissal. This capability and `keel-review-checklist` both already
+// as a dismissal. This capability and `review-checklist` both already
 // scoped the ownership requirement to an *unresolved* finding; only the
 // implementation applied it to all of them. `## Invalidates` has carried the
 // same third slot since it shipped, where `Updated by:` names tasks of this

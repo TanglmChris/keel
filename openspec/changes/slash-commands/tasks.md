@@ -57,7 +57,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Rename the five skills without the `keel-` prefix and mark which are the model's
+- [x] 1.2 Rename the five skills without the `keel-` prefix and mark which are the model's
   - Covers:
     - keel-native-plugin-package / The slash menu offers what a person runs / The plugin ships the renamed skills and the new commands
     - D1
@@ -113,6 +113,7 @@
     - scripts/validation/guard.py
     - scripts/validation/hosts.py
     - scripts/validation/install.py
+    - scripts/validation/registry.py
     - scripts/validation/selfcheck.py
     - scripts/validation/shift.py
     - src/core/context.js
@@ -139,18 +140,26 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:8dc9d4970982e72848e90c01e43fa6d82e8b99d43e21d2f389d9a670d2df2361 (keel 5.201.0)
+    - M1: pass. `slash-menu-ships scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `slash-menu-ships: the plugin's skills are ['keel-align-expectations', 'keel-debug-failure', 'keel-handoff', 'keel-review-checklist', 'keel-tdd-or-test-first'], not ['align-expectations', 'debug-failure', 'handoff', 'review-checklist', 'tdd-or-test-first'].` (exit 1).
+    - M1.green: pass.
+      - The five skill directories were moved in both `src/skills/` and `plugins/keel/skills/`.
+      - A rename pass rewrote `keel-<skill>` to `<skill>` in 39 tracked files, leaving out `keel/CHANGELOG.md`, `openspec/specs/`, `openspec/changes/`, and archives. It kept `keel-handoff/v1` and the `keel-handoff-` tempdir prefixes.
+      - The pass also rewrote an archived file name, `keel/archive/skill-evidence/keel-align-expectations-v1.md`, inside `contract.py`. It was restored, and the scan now skips `…-v<digit>`.
+      - On the owner's decision (2026-10-25: "只加在插件副本里"), only the plugin copies carry the Claude fields: `user-invocable: false` on debug-failure, review-checklist, and tdd-or-test-first, and an `argument-hint` on align-expectations and handoff. The portable sources carry neither.
+      - `portable_projection_bytes` in `common.py` drops exactly those two frontmatter lines before the source/copy comparison. It is used by `skill-portability-policy`, `native-plugin-manifests`, and the seven scenarios that compared bytes themselves.
+      - Mutation probe: a source carrying `user-invocable` fails the baseline with `canonical skill uses non-portable frontmatter fields: review-checklist: user-invocable`. A copy adding `model: haiku` fails `native-plugin-manifests` (`plugin copy diverges from canonical source: review-checklist/SKILL.md`) and the baseline. Both files were restored afterwards.
+    - M2: pass. `npm test` (load 4.09): `validation --all passed: baseline plus 337 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+      - Two earlier full runs failed. One was on the portability policy, the 80-line checklist bound, and the rewritten archive path. The next was on seven scenarios that compared bytes themselves. All three causes were fixed as above.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: the packaged plugin's skills are the five bare names, each naming itself; the three model-only ones are hidden from the slash menu by `user-invocable: false`; the other two carry an `argument-hint`; and no tracked file outside the changelog, specs, changes, and archives names a skill the old way. Codex tolerates the two fields (design F2).
+      - Scope check: after the reauthorization, every changed path is in Touch: the moved skill files, the 39 rewritten files, `scripts/validation/registry.py`, and this change's directory. The `keel-native-plugin-package` delta in this change's directory gained the Claude-only exception and its scenario.
+      - Findings: the owner's choice changes how Keel reads its own portability rule. It does not change the rule, because the portable source still carries no target metadata. Resolved here: M2.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations:
+      - 2026-10-25: Touch gains `scripts/validation/registry.py`, which registers M1's new `slash-menu-ships` and was left out when the Touch list was generated from the files naming the old skills. No other contract field changed, and task-start was re-run for the new fingerprint.
 
 - [ ] 1.3 Add `/keel:context`, `/keel:start`, `/keel:done`, and `/keel:chat`, and list every command
   - Covers:

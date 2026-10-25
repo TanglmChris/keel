@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    portable_projection_bytes,
     BOOTSTRAP_BLOCK_BYTE_BUDGET,
     PLUGIN_ROOT,
     ROOT,
@@ -2055,8 +2056,8 @@ def validate_triage_admits_from_the_repository_scenario() -> int:
             )
             return 1
 
-    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
-    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+    canonical = ROOT / "src/skills/align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/align-expectations/SKILL.md"
     for label, path in (("canonical skill", canonical), ("distributed skill", distributed)):
         if not path.is_file():
             report(f"M5 missing surface: {path}")
@@ -2068,7 +2069,7 @@ def validate_triage_admits_from_the_repository_scenario() -> int:
                 f"statement: {path}"
             )
             return 1
-    if canonical.read_bytes() != distributed.read_bytes():
+    if canonical.read_bytes() != portable_projection_bytes(distributed):
         report("M5 the canonical and distributed skills diverged.")
         return 1
 
@@ -2461,8 +2462,8 @@ def validate_review_checks_content_scenario() -> int:
         # Neither belongs in a gate.
         "not a deterministic gate check",
     ]
-    canonical = ROOT / "src/skills/keel-review-checklist/SKILL.md"
-    distributed = ROOT / PLUGIN_ROOT / "skills/keel-review-checklist/SKILL.md"
+    canonical = ROOT / "src/skills/review-checklist/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/review-checklist/SKILL.md"
 
     for label, path in (("canonical", canonical), ("distributed", distributed)):
         if not path.is_file():
@@ -2474,7 +2475,7 @@ def validate_review_checks_content_scenario() -> int:
                 report(f"review-checks-content: {label} skill omits: {phrase}")
                 return 1
 
-    if canonical.read_bytes() != distributed.read_bytes():
+    if canonical.read_bytes() != portable_projection_bytes(distributed):
         report("review-checks-content: the canonical and distributed skills diverged.")
         return 1
 
@@ -2509,8 +2510,8 @@ def validate_unattended_boundary_scenario() -> int:
         "Unattended runs",
         "states no separate copy",
     ]
-    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
-    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+    canonical = ROOT / "src/skills/align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/align-expectations/SKILL.md"
     protocol = ROOT / "AGENTS.md"
 
     if not protocol.is_file():
@@ -2537,7 +2538,7 @@ def validate_unattended_boundary_scenario() -> int:
                 report(f"unattended-boundary: {label} omits: {phrase}")
                 return 1
 
-    if canonical.read_bytes() != distributed.read_bytes():
+    if canonical.read_bytes() != portable_projection_bytes(distributed):
         report("unattended-boundary: the canonical and distributed skills diverged.")
         return 1
 
@@ -2687,8 +2688,8 @@ def validate_precedent_rules_scenario() -> int:
         # Recording: the rationale is the load-bearing field.
         "reasoning transfers",
     ]
-    canonical = ROOT / "src/skills/keel-align-expectations/SKILL.md"
-    distributed = ROOT / PLUGIN_ROOT / "skills/keel-align-expectations/SKILL.md"
+    canonical = ROOT / "src/skills/align-expectations/SKILL.md"
+    distributed = ROOT / PLUGIN_ROOT / "skills/align-expectations/SKILL.md"
 
     for label, path in (("canonical", canonical), ("distributed", distributed)):
         if not path.is_file():
@@ -2704,7 +2705,7 @@ def validate_precedent_rules_scenario() -> int:
                 report(f"precedent-rules: {label} skill omits: {phrase}")
                 return 1
 
-    if canonical.read_bytes() != distributed.read_bytes():
+    if canonical.read_bytes() != portable_projection_bytes(distributed):
         report("precedent-rules: the canonical and distributed skills diverged.")
         return 1
 

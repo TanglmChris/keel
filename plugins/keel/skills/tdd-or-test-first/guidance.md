@@ -1,4 +1,4 @@
-# keel-tdd-or-test-first — guidance
+# tdd-or-test-first — guidance
 
 How to pick a strategy and which evidence form fits it. Every criterion is in `SKILL.md`; nothing here
 decides whether a task may start, pass, or complete.

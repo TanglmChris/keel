@@ -506,7 +506,7 @@ the words Keel states criteria in, so a tier can only ever skip a file that deci
 what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
 the judgement a weak executor gets most wrong, and it would be answering it about itself.
 
-One skill carries a guidance file today: `keel-tdd-or-test-first`, a table that picks a Verify
+One skill carries a guidance file today: `tdd-or-test-first`, a table that picks a Verify
 strategy by what would make the Acceptance false, with right and wrong choices and when each evidence
 form pays (#389). The other four are almost entirely criteria, so splitting them would move the
 half that has to stay.

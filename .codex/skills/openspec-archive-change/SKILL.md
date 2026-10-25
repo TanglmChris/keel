@@ -125,7 +125,7 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 - Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 - A subagent is the model's choice and is treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step.
-- Archive completion is gated by `keel gate change-close --action archive` plus `keel-review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.
+- Archive completion is gated by `keel gate change-close --action archive` plus `review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.
 - Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.
 - When the `openspec-sync-specs` skill has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.
 - After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.

@@ -1,9 +1,9 @@
 ---
-name: keel-align-expectations
+name: align-expectations
 description: Align explicit requirements, implicit expectations, non-goals, observable acceptance, evidence, and decision authority before OpenSpec specs and executable tasks finalize. Use when authoring or updating a proposal, design, specs, or tasks, or when a request hides a material product choice. Do not use for routine implementation of an already-authorized task, unrelated conversation, or facts the repository can answer.
 ---
 
-# keel-align-expectations
+# align-expectations
 
 ## Purpose
 
@@ -84,4 +84,4 @@ When the change signals a specific domain, look in `keel/lenses/` for a lens who
 
 ## Boundaries
 
-Alignment does not implement code, expand Touch, change selected-task acceptance, replace `keel-review-checklist`, or own follow-ups. If implementation later discovers a new material expectation, stop and return to OpenSpec authoring before continuing.
+Alignment does not implement code, expand Touch, change selected-task acceptance, replace `review-checklist`, or own follow-ups. If implementation later discovers a new material expectation, stop and return to OpenSpec authoring before continuing.

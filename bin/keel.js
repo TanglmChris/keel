@@ -49,11 +49,11 @@ const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install_to_repo.py");
 const DEFAULT_UPDATE_SOURCE = "@christang/keel";
 const VALID_TARGETS = new Set(["claude", "codex", "opencode", "both"]);
 const KEEL_SKILLS = [
-  "keel-align-expectations",
-  "keel-debug-failure",
-  "keel-handoff",
-  "keel-review-checklist",
-  "keel-tdd-or-test-first",
+  "align-expectations",
+  "debug-failure",
+  "handoff",
+  "review-checklist",
+  "tdd-or-test-first",
 ];
 const OPENSPEC_COMMAND_IDS = ["propose", "explore", "apply", "sync", "archive"];
 const OPENSPEC_SKILLS = [
@@ -64,7 +64,7 @@ const OPENSPEC_SKILLS = [
   "openspec-archive-change",
 ];
 // `sync` is here because `AGENTS.md` gates it exactly as it gates archive —
-// `keel gate change-close --action sync|archive` plus `keel-review-checklist`.
+// `keel gate change-close --action sync|archive` plus `review-checklist`.
 // Archive's surface said so and sync's said nothing, so an agent invoking
 // the sync workflow read generic upstream instructions with no mention of the gate
 // that decides whether the sync may complete. `explore` is deliberately absent:
@@ -1921,7 +1921,7 @@ function keelOpenSpecOverlay(action) {
       "",
       "### Expectation alignment before specs and tasks finalize",
       "",
-      "- Before specs and executable tasks are finalized, run `keel-align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.",
+      "- Before specs and executable tasks are finalized, run `align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.",
       "- Inspect repository code, tests, docs, and existing OpenSpec authority before asking the user a question those sources can answer; record verified facts as F<n> and escalate only user-owned product choices.",
       "- Label inferred expectations as candidates; user silence never authorizes a material product decision, and unaccepted material candidates stay Q<n> or are explicitly discarded.",
       "- In deep mode ask one material decision at a time, explain why it matters, and provide a recommended answer; stop once executable authority is clear.",
@@ -1940,7 +1940,7 @@ function keelOpenSpecOverlay(action) {
   // one of the two surfaces still learns the pairing.
   const syncBody = [
     "- Verify task evidence, follow-up ownership, and completion gates before syncing.",
-    "- Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.",
+    "- Sync completion is gated by `keel gate change-close --action sync` plus `review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.",
     "- Before syncing, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
     SUBAGENT_SENTENCE,
     "- Syncing promotes the change's spec delta into `openspec/specs/`. A later archive of the same change must use `--skip-specs`, because archive is not idempotent over an already-promoted delta.",
@@ -1967,13 +1967,13 @@ function keelOpenSpecOverlay(action) {
           "- Run the Slice Start Gate: selected current slices must name source expectations and compile to a capsule whose Read, Touch, Acceptance, Verify checks, and Stop/Autonomy boundaries are complete before implementation.",
           "- Rough future slices may remain drafts, but cannot be selected for implementation or marked complete.",
           "- Obey the selected task contract: Read is required starting context, Touch is the write boundary, Verify checks prove Acceptance, and the Autonomy boundary controls fallback decisions.",
-          "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
+          "- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `align-expectations`, and reauthor the affected proposal/design/spec/task authority first.",
           "- A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.",
           "- Consult the repository's standing authorization in `keel/config.yaml` before asking the user to confirm a repository action: a standing-authorized action proceeds without a per-occurrence confirmation, and an undeclared action still requires the confirmation it requires today.",
           "- A standing authorization covers the action and never substitutes for a gate, evidence, or Review; it removes the confirmation, not the record, and it is not a trigger to perform the action.",
         ]
       : [
-          "- Archive completion is gated by `keel gate change-close --action archive` plus `keel-review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.",
+          "- Archive completion is gated by `keel gate change-close --action archive` plus `review-checklist`; verify task evidence, follow-up ownership, and completion gates before proceeding.",
           "- Before final sync/archive, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.",
           "- When the `openspec-sync-specs` skill has already promoted the change's spec delta, run the archive with `--skip-specs` so the promoted delta is not re-applied; archive is not idempotent over an already-synced delta.",
           "- After archiving, run `keel guard clear` to drop the change's guard manifest; the read-only gate never clears it for you.",

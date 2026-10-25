@@ -122,7 +122,7 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 
 ### Expectation alignment before specs and tasks finalize
 
-- Before specs and executable tasks are finalized, run `keel-align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.
+- Before specs and executable tasks are finalized, run `align-expectations`: quick path for complete low-risk requests, deep path when a material choice can change user-visible behavior, an external interface, acceptance, security/privacy/permission boundaries, data migration, protocol/state/timing/reset semantics, generated equivalence, irreversible cost, or a dependency commitment.
 - Inspect repository code, tests, docs, and existing OpenSpec authority before asking the user a question those sources can answer; record verified facts as F<n> and escalate only user-owned product choices.
 - Label inferred expectations as candidates; user silence never authorizes a material product decision, and unaccepted material candidates stay Q<n> or are explicitly discarded.
 - In deep mode ask one material decision at a time, explain why it matters, and provide a recommended answer; stop once executable authority is clear.
