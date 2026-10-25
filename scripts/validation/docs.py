@@ -612,7 +612,8 @@ def validate_verification_layering_docs_scenario() -> int:
 ACCEPTED_AUTHORIZE_NAMES = (
     "commit, push, push:<branch glob>[@<role>], release, archive, continuation, "
     "issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], "
-    "issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift"
+    "issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, "
+    "delete-branch:merged[@<role>]"
 )
 
 
@@ -640,7 +641,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The thirteen names above are the whole vocabulary.",
+        "The fourteen names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:
@@ -648,7 +649,7 @@ def validate_continuation_docs_scenario() -> int:
             return 1
 
     config_text = (ROOT / "keel/config.yaml").read_text(encoding="utf-8")
-    if "commit, push, push:<branch glob>[@<role>],\n# release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,\n# chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],\n# push-protected:<branch glob>[@<role>], shift-restore, self-shift" not in config_text:
+    if "commit, push, push:<branch glob>[@<role>],\n# release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,\n# chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],\n# push-protected:<branch glob>[@<role>], shift-restore, self-shift,\n# delete-branch:merged[@<role>]" not in config_text:
         report(
             f"{label}: keel/config.yaml's comment lacks: protocol-refresh in the "
             "seven-name vocabulary."

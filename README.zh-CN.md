@@ -187,7 +187,7 @@ Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec an
 改为在 `keel/config.yaml` 里一次性声明：
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>]
   - commit
   - push
 ```
@@ -195,7 +195,7 @@ authorize:          # accepted names: commit, push, push:<branch glob>[@<role>],
 没有自己写 `Autonomy boundary:` 的 task 会继承这份声明，编译出的 capsule 会把 `keel/config.yaml`
 标为该条目的来源，这样继承来的授权永远不会被误当成 task 自己做的决定。自己写了边界的 task 保留自己的边界。
 
-下文的序数按名字计，不按上面注释里的写法计：`push` 和 `push:<branch glob>` 是同一个名字，所以词汇共 13 个名字，
+下文的序数按名字计，不按上面注释里的写法计：`push` 和 `push:<branch glob>` 是同一个名字，所以词汇共 14 个名字，
 `continuation` 是第五个。
 
 `continuation`（第五个名字）会被接受，但什么都不改变。在你批准过 `tasks.md` 的同一个 change 里，
@@ -206,7 +206,7 @@ authorize:          # accepted names: commit, push, push:<branch glob>[@<role>],
 任何东西——失败即关闭，绝不会悄悄放行。
 
 `issue:<owner>/<repo>`（第六个名字）要写明它能触及的资源，不写就被拒绝；`chat-reply:<group>`（第八个）、
-`issue-close:<owner>/<repo>` 和 `cleanup:scratch`（第九、第十个），以及 `push-protected:<branch glob>`（第十一个）
+`issue-close:<owner>/<repo>` 和 `cleanup:scratch`（第九、第十个），`push-protected:<branch glob>`（第十一个），以及 `delete-branch:merged`（第十四个）
 也同样要写。其余名字作用于声明所在的 checkout，所以天然被限定在你声明它的那个仓库里。开 issue 用的凭据却不是：
 `gh` 是账号级的，一个裸的 `issue` 能触及你账号能碰到的每个仓库——悄无声息地成为文件里范围最大的条目，比 `push`
 还大。写明仓库，授权的大小就和它字面说的一致。Keel 把这个范围带到 `keel --doctor` 和编译出的 capsule 里，
@@ -250,6 +250,10 @@ chat 角色与之匹配的会话。会话在 capsule、`keel context`、`keel --
 `cleanup:scratch` 涵盖在确认已合并、且没有进程在使用之后，删除会话自己 scratchpad 下的临时 worktree 和运行输出。
 它从不涵盖分支或其他会话的文件，并且和 tracker 范围一样只被携带、不被强制执行。
 
+`delete-branch:merged`（#469）允许 `keel branches prune` 删除本角色的任务分支，本地和远端都包括。被删的分支必须已并入某条
+trunk、没有在任何地方检出、并且曾在本角色绑定的 worktree 里检出过；每条删除前先连同 sha 记下来。没有这项授权时，`prune`
+只列出这些分支并以退出码 3 结束。
+
 `protocol-refresh`（第七个名字）涵盖插件更新带不过来的那一部分发布内容：本仓库 `AGENTS.md` 里受管理的协议块，
 它只有在这里运行 `keel --install` 时才会更新。当 `keel context` 报告这个块比正在运行的 Keel 旧时，会打印一行
 `Protocol:` 写明刷新命令；声明了这个名字，agent 就会在做其他工作之前不经询问地运行它。task 的写入守卫处于激活
@@ -267,7 +271,7 @@ chat 提示在"这是数据不是指令"那句话旁边也会这么说。它按�
 - **不是绕过门禁的路。** 它授权的是操作，从不是证明。不管你声明了什么，`keel gate task-complete`
   返回的判定和失败文字都完全一样。
 - **不是触发器。** 它去掉的是一次确认，不是通往该操作的那一步。没有什么会自己调度起来，也不会替你选下一个 task。
-- **不是开放式的。** 上面这 13 个名字就是全部词汇。无法识别的条目会连同可接受的名字一起报告，在你改正之前
+- **不是开放式的。** 上面这 14 个名字就是全部词汇。无法识别的条目会连同可接受的名字一起报告，在你改正之前
   整份声明不授权任何东西——打错字永远不会变成悄悄的放行。
 
 这个块默认不存在，什么都不声明的仓库的行为和这个功能出现之前完全一样。`keel --doctor` 会报告声明了什么。
@@ -874,6 +878,7 @@ keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # 本角色已合入的任务分支：列出分支和 sha；不 fetch，也不删除
 keel branches [repo] [--role <role>] [--json]
+keel branches prune [repo] [--role <role>] [--json]   # 声明 authorize: delete-branch:merged 后才删除
 
 # 安装 / 维护
 keel --init    [--target <t>] [--dry-run] [--force-template-update]

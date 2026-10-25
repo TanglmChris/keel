@@ -54,7 +54,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Prune under `delete-branch:merged`, with a record and restore commands
+- [x] 1.2 Prune under `delete-branch:merged`, with a record and restore commands
   - Covers:
     - keel-merged-branches / Pruning deletes only under the standing authorization / Without the declaration nothing is deleted
     - keel-merged-branches / Pruning deletes only under the standing authorization / With the declaration the merged branches go, with a record
@@ -68,26 +68,43 @@
     - bin/keel.js
     - scripts/validation/shift.py
     - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - keel/config.yaml
+    - openspec/specs/keel-standing-authorization/spec.md
+    - scripts/validation/docs.py
   - Verify:
     - Strategy: vertical-tdd
     - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario branches-prune-under-authorization`: without `delete-branch:merged`, `keel branches prune` exits 3, names the declaration, and leaves every local and remote branch; with it, `done-a` and `done-b` are gone locally and on the bare remote, the others remain, `keel-chat/branches/deleted.jsonl` holds one line per deletion with its sha, and running the printed restore command recreates `done-a` at that sha. Fails with: `branches-prune-under-authorization: keel branches prune`
-    - M2 (regression): `--scenario branches-lists-merged` and `--scenario assertion-shape-count` pass.
+    - M2 (regression): `--scenario branches-lists-merged` and `--scenario assertion-shape-count` pass, and so does `--group docs --jobs 4`, which holds `delete-branch` to the closed vocabulary in `keel-standing-authorization` and to both READMEs.
   - Autonomy boundary:
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:7b097790744c75655b20454638ca76493e798794045e3a2bd28cf72dde81a09f (keel 5.203.0)
+    - M1: pass. `branches-prune-under-authorization scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `branches-prune-under-authorization: keel branches prune without delete-branch:merged exited 1, not 3: '' 'keel branches: keel chat needs a git repository: …'` (exit 1). The listing command read `prune` as a repository path.
+    - M1.green: pass.
+      - `prune()` refuses without `delete-branch:merged`: it returns the list with `refused` set, and the CLI exits 3 and names the declaration.
+      - With the declaration, it runs `fetch --prune origin` and recomputes. For each qualifying branch, it appends `{at, role, side, branch, sha}` to `keel-chat/branches/deleted.jsonl` before deleting the branch, locally with `branch -D` or remotely with `push --delete`, and prints the restore command. A failure is reported and the others continue; the command then exits 1 (D4).
+      - `delete-branch` is a scoped action whose one scope is `merged`, beside `cleanup:scratch` (F4).
+      - The vocabulary grew to fourteen names. That is now reflected in `keel-standing-authorization` (published, mirrored as a delta in this change), both READMEs, `keel/config.yaml`, and `continuation-docs`, under the two reauthorizations below.
+      - Both READMEs, `keel --help`, and `keel/config.yaml` name `keel branches prune`.
+    - M2: pass. `branches-lists-merged`, `branches-prune-under-authorization`, and `assertion-shape-count` passed (`validation --scenario passed: 3 scenarios.`). `validation --group docs passed: 23 scenarios.`
+      - Its first run failed `surfaces-agree-with-code`, `readme-states-the-cli`, and `readme-zh-matches-english` on the missing `delete-branch`.
+      - The second run failed `continuation-docs` on its pinned sentence `The thirteen names above are the whole vocabulary.`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: through the real `keel branches prune` against a bare remote:
+        - without the declaration, exit 3, `delete-branch:merged` named, and every local and remote head unchanged;
+        - with it, exactly `done-a` and `done-b` gone on both sides, everything else present, and four record lines with shas;
+        - the printed `git branch done-a <sha>` recreates `done-a` at the recorded sha.
+      - Scope check: after the two reauthorizations, every changed path is in Touch: `src/core/branches.js`, `src/core/config.js`, `bin/keel.js`, `keel/config.yaml`, both READMEs, `openspec/specs/keel-standing-authorization/spec.md`, `scripts/validation/{docs,registry,shift}.py`, and this change's directory.
+      - Findings: the published `keel-standing-authorization` spec was edited inside the task rather than at release, because `surfaces-agree-with-code` reads the published vocabulary. The same text is in this change's delta, so promotion at release is a no-op for it. Resolved here: M2.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations:
+      - 2026-10-25: Touch gains `README.md`, `README.zh-CN.md`, `keel/config.yaml`, and `openspec/specs/keel-standing-authorization/spec.md`, and M2 gains `--group docs`. Adding the action `delete-branch` to the closed vocabulary makes `surfaces-agree-with-code`, `readme-states-the-cli`, and `readme-zh-matches-english` require it in the published vocabulary requirement and in both READMEs. The first `--group docs` run named all three, and the authoring had not foreseen them. task-start was re-run, and the M1 red and green are unaffected.
+      - 2026-10-25: Touch gains `scripts/validation/docs.py`. `continuation-docs` pins the README sentence `The thirteen names above are the whole vocabulary.` and the full accepted-names string, so the fourteenth name has to be added there too, or the check stops checking the whole vocabulary. task-start was re-run.
 
 - [ ] 1.3 Point at merged branches from the shift check, resume, and doctor
   - Covers:

@@ -219,7 +219,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>]
   - commit
   - push
 ```
@@ -229,7 +229,7 @@ names `keel/config.yaml` as that entry's source so an inherited authorization is
 for one the task decided. A task that authors its own boundary keeps it.
 
 The ordinals below count names, not the forms in that comment: `push` and `push:<branch glob>` are
-one name, so the vocabulary is thirteen names long and `continuation` is the fifth.
+one name, so the vocabulary is fourteen names long and `continuation` is the fifth.
 
 `continuation`, the fifth name, is accepted and changes nothing. Moving from a durably complete
 task to the next unchecked task of the same change, inside a change whose `tasks.md` you approved,
@@ -243,7 +243,7 @@ nothing until corrected — fail-closed, never a silent grant.
 
 `issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
 one; `chat-reply:<group>`, the eighth, `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
-and tenth, and `push-protected:<branch glob>`, the eleventh, are the others that do. The other names, `push` included, act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+and tenth, `push-protected:<branch glob>`, the eleventh, and `delete-branch:merged`, the fourteenth, are the others that do. The other names, `push` included, act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
@@ -303,6 +303,10 @@ scope.
 scratchpad, after checking that they are merged and that no process is using them. It never covers
 a branch or another session's files, and like the tracker scopes it is carried, not enforced.
 
+`delete-branch:merged` (#469) lets `keel branches prune` delete the role's task branches that are
+merged into a trunk, checked out nowhere, and checked out before in a worktree bound to the role,
+local and remote, recording each with its sha before it goes. Without it, `prune` lists them and exits 3.
+
 `protocol-refresh`, the seventh name, covers the one piece of a release that a plugin update cannot
 carry: the managed protocol block in this repository's `AGENTS.md`, which moves only when
 `keel --install` runs here. When `keel context` reports that block as older than the running Keel,
@@ -327,7 +331,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The thirteen names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The fourteen names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 
@@ -1037,6 +1041,7 @@ keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
 # A role's merged task branches: listed with their sha; fetches and deletes nothing
 keel branches [repo] [--role <role>] [--json]
+keel branches prune [repo] [--role <role>] [--json]   # deletes them under authorize: delete-branch:merged
 
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]

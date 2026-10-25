@@ -40,6 +40,10 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // and the clear (#319; Remote Control stays on since #324). Never the
   // decision to change shift.
   "self-shift",
+  // Deleting the role's task branches merged into a trunk, local and remote,
+  // through `keel branches prune` (#469). Its one scope, `merged`, says which
+  // branches it reaches; each deletion is recorded with its sha first.
+  "delete-branch",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -49,7 +53,7 @@ const STANDING_AUTHORIZATION_ACTIONS = [
 // actions are declared with the resource they may reach and refused bare —
 // accepting the bare form as a convenience would make the narrow form optional
 // and the wide one the default, which is the decision inverted.
-const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup", "push-protected"]);
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup", "push-protected", "delete-branch"]);
 
 // Actions whose scope narrows them but is not required (#257). A bare `push`
 // keeps the meaning it always had; `push:<branch glob>` limits it to matching
@@ -70,6 +74,7 @@ const AUTHORIZATION_SCOPES = {
   "chat-reply": { form: "<group>", pattern: /^(?:[a-z0-9][a-z0-9-]{0,31}|dm-[a-z0-9][a-z0-9-]{0,31}--[a-z0-9][a-z0-9-]{0,31})$/ },
   "issue-close": { form: "<owner>/<repo>", pattern: AUTHORIZATION_SCOPE_PATTERN },
   cleanup: { form: "scratch", pattern: /^scratch$/ },
+  "delete-branch": { form: "merged", pattern: /^merged$/ },
   // Branch-name characters and `*`; `*` matches within one `/` segment and
   // `**` across them, as Touch globs do.
   push: { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },

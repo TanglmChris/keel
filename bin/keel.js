@@ -97,6 +97,7 @@ Usage:
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
   keel branches [repo] [--role <role>] [--json]   (a role's merged task branches, with their sha; fetches and deletes nothing)
+  keel branches prune [repo] [--role <role>] [--json]   (delete them, local and remote, under authorize: delete-branch:merged; exit 3 without it)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)

@@ -30,7 +30,8 @@
 # accepted names are the whole vocabulary — commit, push, push:<branch glob>[@<role>],
 # release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,
 # chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],
-# push-protected:<branch glob>[@<role>], shift-restore, self-shift — and an unrecognized entry is reported
+# push-protected:<branch glob>[@<role>], shift-restore, self-shift,
+# delete-branch:merged[@<role>] — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
@@ -337,7 +338,9 @@ patrol:
 # globs never to delete (`*` within a `/` segment, `**` across them).
 # `keel branches` lists the role's branches merged into a trunk, checked out
 # nowhere, and checked out before in a worktree bound to the role; it fetches
-# and deletes nothing.
+# and deletes nothing. `keel branches prune` deletes them, local and remote,
+# only under `authorize: delete-branch:merged`, recording each with its sha
+# first in the chat store's branches/deleted.jsonl.
 #
 # Example:
 #   branches:

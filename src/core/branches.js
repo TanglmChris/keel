@@ -162,8 +162,46 @@ function describe(result) {
   return lines.join("\n");
 }
 
+// Delete the role's merged task branches (D4), only under
+// `delete-branch:merged`. Each deletion is recorded before it happens, so a
+// mistaken one is restored from the record's sha.
+function prune(where, role, authorized) {
+  const cwd = where.worktree;
+  if (!authorized) return { ...merged(where, role), refused: "delete-branch:merged", deleted: [], failed: [] };
+  const fetched = git(cwd, ["fetch", "--prune", "--quiet", REMOTE]);
+  if (!fetched.ok) throw new BranchesError(`git fetch --prune ${REMOTE} failed, so nothing was deleted: ${fetched.err}`);
+  const result = merged(where, role);
+  const ledger = path.join(where.root, "branches", "deleted.jsonl");
+  fs.mkdirSync(path.dirname(ledger), { recursive: true });
+  const deleted = [];
+  const failed = [];
+  for (const b of result.branches) {
+    fs.appendFileSync(ledger, `${JSON.stringify({ at: new Date().toISOString(), role, side: b.side, branch: b.branch, sha: b.sha })}\n`);
+    const done = b.side === "local"
+      ? git(cwd, ["branch", "-D", b.branch])
+      : git(cwd, ["push", "--quiet", REMOTE, "--delete", b.branch]);
+    const restore = b.side === "local" ? `git branch ${b.branch} ${b.sha}` : `git push ${REMOTE} ${b.sha}:refs/heads/${b.branch}`;
+    if (done.ok) deleted.push({ ...b, restore });
+    else failed.push({ ...b, error: done.err || "failed" });
+  }
+  return { ...result, refused: null, deleted, failed, ledger };
+}
+
+function describePrune(result) {
+  if (result.refused) {
+    return `${describe(result)}\nNothing was deleted: keel/config.yaml does not declare \`${result.refused}\` under authorize:, which is what lets \`keel branches prune\` delete them.`;
+  }
+  const lines = [];
+  if (!result.deleted.length && !result.failed.length) lines.push(`No merged task branch of ${result.role} to delete.`);
+  for (const b of result.deleted) lines.push(`Deleted ${b.side} ${b.branch} ${b.sha.slice(0, 12)} (in ${b.trunk}); restore: ${b.restore}`);
+  for (const b of result.failed) lines.push(`Could not delete ${b.side} ${b.branch}: ${b.error}`);
+  if (result.deleted.length) lines.push(`Recorded in ${result.ledger}.`);
+  return lines.join("\n");
+}
+
 const USAGE = [
-  "keel branches [repo] [--role <role>] [--json]   a role's merged task branches, with their sha; fetches and deletes nothing",
+  "keel branches [repo] [--role <role>] [--json]         a role's merged task branches, with their sha; fetches and deletes nothing",
+  "keel branches prune [repo] [--role <role>] [--json]   delete them, under authorize: delete-branch:merged, recording each first",
 ].join("\n");
 
 function parse(argv) {
@@ -190,14 +228,24 @@ function runBranches(argv) {
     process.stderr.write(`keel branches: unknown option ${options.unknown}\n${USAGE}\n`);
     return 2;
   }
+  const pruning = options.positionals[0] === "prune";
+  if (pruning) options.positionals.shift();
   const store = require("./chat/store");
   try {
     const where = store.requireLocation(path.resolve(options.positionals[0] || process.cwd()));
     const role = options.role || store.currentRole(where);
     if (!role) throw new BranchesError("This worktree is bound to no role; name one with --role.", 2);
-    const result = merged(where, role);
-    process.stdout.write(options.json ? `${JSON.stringify(result)}\n` : `${describe(result)}\n`);
-    return 0;
+    if (!pruning) {
+      const result = merged(where, role);
+      process.stdout.write(options.json ? `${JSON.stringify(result)}\n` : `${describe(result)}\n`);
+      return 0;
+    }
+    const { readStandingAuthorization } = require("./config");
+    const authorized = readStandingAuthorization(where.worktree, { role }).scopes.get("delete-branch") === "merged";
+    const result = prune(where, role, authorized);
+    process.stdout.write(options.json ? `${JSON.stringify(result)}\n` : `${describePrune(result)}\n`);
+    if (result.refused) return 3;
+    return result.failed.length ? 1 : 0;
   } catch (error) {
     if (error instanceof BranchesError || error instanceof store.ChatError) {
       process.stderr.write(`keel branches: ${error.message}\n`);
@@ -207,4 +255,4 @@ function runBranches(argv) {
   }
 }
 
-module.exports = { BranchesError, readBranchesDeclaration, merged, describe, runBranches, globRegExp, REMOTE, USAGE };
+module.exports = { BranchesError, readBranchesDeclaration, merged, describe, prune, runBranches, globRegExp, REMOTE, USAGE };

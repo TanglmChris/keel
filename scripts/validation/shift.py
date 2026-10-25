@@ -5341,3 +5341,71 @@ def validate_branches_lists_merged_scenario() -> int:
         return 1
     report(f"{label.rstrip(':')} scenario passed.")
     return 0
+
+
+def validate_branches_prune_under_authorization_scenario() -> int:
+    """Issue #469: merged task branches are deleted only under `delete-branch:merged`, with a record.
+
+    Without the declaration nothing is deleted and the command says which one
+    would allow it. With it, the role's merged, unused branches go on both
+    sides, each recorded with its sha first, and the printed command restores one.
+    """
+    label = "branches-prune-under-authorization:"
+    with tempfile.TemporaryDirectory(prefix="keel-branches-469p-") as raw:
+        base = Path(raw)
+        rtl, verify, env, remote = branches_scratch(base)
+
+        def heads(where: Path, prefix: str) -> set[str]:
+            listed = subprocess.run(["git", "for-each-ref", "--format=%(refname)", prefix], cwd=where,
+                                    check=True, capture_output=True, text=True).stdout.split()
+            return {ref[len(prefix):] for ref in listed}
+
+        local_before, remote_before = heads(verify, "refs/heads/"), heads(remote, "refs/heads/")
+        refused = run_keel(verify, "branches", "prune", env=env)
+        if refused.returncode != 3:
+            report(f"{label} keel branches prune without delete-branch:merged exited {refused.returncode}, not 3: {refused.stdout!r} {refused.stderr!r}")
+            return 1
+        if "delete-branch:merged" not in refused.stdout:
+            report(f"{label} the refusal does not name delete-branch:merged: {refused.stdout!r}")
+            return 1
+        if heads(verify, "refs/heads/") != local_before or heads(remote, "refs/heads/") != remote_before:
+            report(f"{label} a branch was deleted without the declaration.")
+            return 1
+
+        config = verify / "keel" / "config.yaml"
+        config.write_text(config.read_text(encoding="utf-8") + "authorize:\n  - delete-branch:merged\n", encoding="utf-8")
+        sha = subprocess.run(["git", "rev-parse", "done-a"], cwd=verify, check=True, capture_output=True, text=True).stdout.strip()
+        pruned = run_keel(verify, "branches", "prune", env=env)
+        if pruned.returncode != 0:
+            report(f"{label} keel branches prune with the declaration exited {pruned.returncode}: {pruned.stdout!r} {pruned.stderr!r}")
+            return 1
+        gone = {"done-a", "done-b"}
+        if heads(verify, "refs/heads/") != local_before - gone:
+            report(f"{label} the local branches left are {sorted(heads(verify, 'refs/heads/'))!r}, not all but done-a and done-b.")
+            return 1
+        if heads(remote, "refs/heads/") != remote_before - gone:
+            report(f"{label} the remote branches left are {sorted(heads(remote, 'refs/heads/'))!r}, not all but done-a and done-b.")
+            return 1
+        ledger = mailbox_common_dir(rtl) / "keel-chat" / "branches" / "deleted.jsonl"
+        lines = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()] if ledger.is_file() else []
+        if sorted((l["side"], l["branch"]) for l in lines) != sorted((s, n) for s in ("local", "remote") for n in gone):
+            report(f"{label} the record holds {lines!r}, not one line per deletion.")
+            return 1
+        if not any(l["branch"] == "done-a" and l["side"] == "local" and l["sha"] == sha for l in lines):
+            report(f"{label} the record does not hold done-a's sha {sha}: {lines!r}")
+            return 1
+        restore = next((line.split("restore: ", 1)[1] for line in pruned.stdout.splitlines()
+                        if line.startswith("Deleted local done-a") and "restore: " in line), "")
+        if restore != f"git branch done-a {sha}":
+            report(f"{label} the restore command printed for done-a is {restore!r}: {pruned.stdout!r}")
+            return 1
+        subprocess.run(restore.split(), cwd=verify, check=True, capture_output=True)
+        back = subprocess.run(["git", "rev-parse", "done-a"], cwd=verify, check=True, capture_output=True, text=True).stdout.strip()
+        if back != sha:
+            report(f"{label} the restore command recreated done-a at {back}, not {sha}.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
