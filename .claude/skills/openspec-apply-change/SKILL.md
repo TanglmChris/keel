@@ -159,7 +159,7 @@ This skill supports the "actions on a change" model:
 - **Can be invoked anytime**: Before all artifacts are done (if tasks exist), after partial implementation, interleaved with other actions
 - **Allows artifact updates**: If implementation reveals design issues, suggest updating artifacts - not phase-locked, work fluidly
 
-<!-- keel:openspec-surface-overlay version=5.201.0 -->
+<!-- keel:openspec-surface-overlay version=5.202.0 -->
 ## Keel Apply Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
@@ -172,7 +172,7 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 - Run the Slice Start Gate: selected current slices must name source expectations and compile to a capsule whose Read, Touch, Acceptance, Verify checks, and Stop/Autonomy boundaries are complete before implementation.
 - Rough future slices may remain drafts, but cannot be selected for implementation or marked complete.
 - Obey the selected task contract: Read is required starting context, Touch is the write boundary, Verify checks prove Acceptance, and the Autonomy boundary controls fallback decisions.
-- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `keel-align-expectations`, and reauthor the affected proposal/design/spec/task authority first.
+- When implementation exposes a material expectation, acceptance boundary, or user-owned decision absent from durable authority, stop before implementing that choice, rerun `align-expectations`, and reauthor the affected proposal/design/spec/task authority first.
 - A discovered repository fact that does not change accepted behavior or scope may be recorded and execution continues inside the existing task boundary without a product interview.
 - Consult the repository's standing authorization in `keel/config.yaml` before asking the user to confirm a repository action: a standing-authorized action proceeds without a per-occurrence confirmation, and an undeclared action still requires the confirmation it requires today.
 - A standing authorization covers the action and never substitutes for a gate, evidence, or Review; it removes the confirmation, not the record, and it is not a trigger to perform the action.

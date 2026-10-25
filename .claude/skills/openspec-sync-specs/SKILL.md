@@ -147,7 +147,7 @@ Main specs are now updated. The change remains active - archive when implementat
 - Show what you're changing as you go
 - The operation should be idempotent - running twice should give same result
 
-<!-- keel:openspec-surface-overlay version=5.201.0 -->
+<!-- keel:openspec-surface-overlay version=5.202.0 -->
 ## Keel Sync Overlay
 
 Keel rules below take precedence over conflicting generic OpenSpec instructions in this file.
@@ -155,7 +155,7 @@ Keel rules below take precedence over conflicting generic OpenSpec instructions 
 - Invoke the OpenSpec CLI as `keel openspec …` throughout this file. The commands below are written as a bare `openspec`, which resolves only where OpenSpec is separately installed on PATH; `keel openspec` resolves either way, and `keel --doctor` reports which case this repository is.
 
 - Verify task evidence, follow-up ownership, and completion gates before syncing.
-- Sync completion is gated by `keel gate change-close --action sync` plus `keel-review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.
+- Sync completion is gated by `keel gate change-close --action sync` plus `review-checklist`; there is no runtime hook for it, so running the gate is the agent's own step.
 - Before syncing, each related critical expectation must have behavior evidence, a durable follow-up owner, or an explicit discard reason.
 - A subagent is the model's choice and is treated as the main agent is: the gates, the `Touch` write guard, and the evidence rules apply to whoever runs a step.
 - Syncing promotes the change's spec delta into `openspec/specs/`. A later archive of the same change must use `--skip-specs`, because archive is not idempotent over an already-promoted delta.

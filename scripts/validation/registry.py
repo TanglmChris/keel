@@ -388,6 +388,7 @@ SCENARIOS: tuple = (
     ),
     ("authoring-alignment-overlay", contract.validate_authoring_alignment_overlay_scenario),
     ("native-plugin-manifests", hosts.validate_native_plugin_manifests_scenario),
+    ("slash-menu-ships", hosts.validate_slash_menu_ships_scenario),
     ("native-plugin-session-start", hosts.validate_native_plugin_session_start_scenario),
     ("runtime-version-drift", hosts.validate_runtime_version_drift_scenario),
     ("session-start-source-repo-protocol", hosts.validate_session_start_source_repo_protocol_scenario),
@@ -660,8 +661,5 @@ SCENARIOS: tuple = (
         "a-count-is-derived-from-what-it-counts",
         docs.validate_a_count_is_derived_from_what_it_counts_scenario,
     ),
-    ("docx-skill-ships", export.validate_docx_skill_ships_scenario),
-    ("docx-setup-asks-first", export.validate_docx_setup_asks_first_scenario),
-    ("docx-convert-refuses-first", export.validate_docx_convert_refuses_first_scenario),
-    ("docx-converts-markdown-with-svg", export.validate_docx_converts_markdown_with_svg_scenario),
+    ("docx-retired", export.validate_docx_retired_scenario),
 )

@@ -1,0 +1,57 @@
+---
+name: tdd-or-test-first
+description: Drive Keel agent test-first or evidence-first execution for a selected OpenSpec task. Use when a task needs software tests, hardware testbench, assertions, lint, new behavior proof, regression coverage, or red/green evidence before implementation.
+user-invocable: false
+---
+
+# tdd-or-test-first
+## Purpose
+
+Use this skill when Keel execution should start with evidence: software tests first, or hardware testbench, assertion, lint, or equivalent static evidence first. This skill owns the Verify strategy taxonomy, the evidence contract, and their binding to the task capsule; generic test-writing mechanics (how to loop red-green, what to mock) belong to the host runtime and are not restated here.
+
+## Context to read
+
+Read the selected task's compiled capsule: resolved Acceptance, Verify strategy and M<n> checks, Mode, Read, and Touch. `keel gate task-start` returns that capsule and its fingerprint; the fingerprint belongs in the task's Evidence `Contract` line before implementation. Inspect the public interface under test and keep new tests inside the authorized Touch scope. When authoring checks, write each `M<n>` as one bullet: `keel gate task-start` refuses a nested list under a check, so sub-cases belong in its sentences.
+
+## Strategy selection
+
+`Verify` names one supported strategy chosen at authoring time as the least-cost proof of the resolved Acceptance. Choose it by what would make the Acceptance false: the task's size, its apparent risk, the model executing it, and the cost of running a red do not choose it. Read `guidance.md` beside this file before choosing, unless `keel/config.yaml` declares `executor_tier: high` — it holds a selection table, right and wrong choices, and when each evidence form pays. Every criterion is here, so an absent or unreadable declaration costs a read and nothing else.
+
+- `vertical-tdd`: new independently testable deterministic behavior; one check red then green at a time.
+- `regression-first`: an observable defect; reproduce it through the public interface first, then prove the fix with the same check.
+- `characterization` / `snapshot-characterization`: deterministic or generated outputs kept stable by byte or snapshot comparison; not downgraded to build success.
+- `rendered-behavior`: interactive surfaces exercised through the real rendered interface; strict red-green optional by cost.
+- `equivalence`: work whose criterion is that a measured result does not change — a refactor, a move, a flow upgrade claiming the numbers hold. It declares `Base:` (a resolvable git ref) and `Fields:` (the compared field set) beside `Strategy:` and owes no red; the A/B command is an ordinary `M<n>` check. `keel gate task-start` refuses a missing `Base:` or `Fields:`, an empty field set, an unresolvable ref, and a `Base:` that is HEAD, because an A/B against itself always agrees. A task covering a scenario its own change *adds* is refused unless a sibling task covers that same entry under a red-green strategy: behavior that is new is not behavior that is unchanged.
+- `evidence-first`: docs, configuration, or diagnosis work whose checks state the observable artifact or evidence instead of a red-green loop. It is scoped by an absence — nothing here can fail first — which is why it is not the home for `equivalence` work, whose criterion is stronger than red-green rather than missing.
+
+Red-green strategies (`vertical-tdd`, `regression-first`) must record concrete per-label `.red` and `.green` Evidence entries for the same check; `keel gate task-complete` rejects absent or pending entries.
+
+A check's `Fails with:` declares one literal its red must show. Declare one that every red of the check shares — the scenario or test label the check prints, a stable message prefix — rather than one exception type: a first red is often mixed, mostly one error with a few others, and a literal only some of them carry forces a re-record that predicts nothing new.
+
+A check's `Detects:` names, as two inline-code literals joined by `->`, a mutation that puts a defect in and the failure it must produce; `keel gate task-complete` requires that failure literal in the check's `.detects` Evidence. It answers what a red cannot — a red shows the feature was absent, not that the check notices it broken — and a `(regression)` check, which has no red, may carry one. Keel neither runs nor judges the mutation.
+
+A check's `Measured:` names one inline-code literal that `keel gate task-complete` requires in the check's own `M<n>` Evidence, binding a number to the output it came from. A number nobody declared is not checked.
+
+A `(regression)` check asserts that something already green stays green; it owes bare Evidence and no `.red`/`.green`, and a red-green strategy keeps at least one untagged check. Its Evidence may read `deferred to C<n>`, naming a check declared once under `## Change Verify` and recorded under `## Change Evidence` before the change closes.
+
+A check's Evidence may read `artifact <path> sha256:<digest>` instead of retelling the output. `keel gate task-complete` checks the file exists and the digest matches, and refuses a path outside the change's own directory — archiving moves that directory, so a pointer outside it breaks. Keel hashes the bytes and reads nothing inside them: the claim the artifact supports stays yours.
+
+## Domain lenses
+
+When the change's proposal/design/specs or the task's Touch extensions signal a domain, consult the matching lens's `Execution and review checks` section from `keel/lenses/` — the lens whose `Applies when:` header matches — before finalizing the strategy and the first check. When no lens matches, load nothing.
+
+## Coupled-task preflight
+
+When the selected task declares `Coupling: required`, also read design.md's
+Coupled Iteration Contract plus the task's Candidate Boundary, Stop Rules, and
+Evidence. Before modifying files, run the task's preflight evidence command or
+inspect the explicitly named evidence. If the contract is incomplete or task
+and design disagree, stop and report the gap; do not infer the missing decision.
+
+## TASK boundary
+
+Align every test or check with the selected OpenSpec task's acceptance criteria or verification evidence. Prove behavior through the public interface: evidence that only shows build success or internal shape does not satisfy a behavioral Acceptance, and mocking your own modules invalidates the proof — mock only at true system boundaries. A green shows the code matches the check; whether the check matches the Acceptance stays Review's to judge, and a red-green pass does not stand in for timing, CDC, reset, or security evidence a domain lens names.
+
+## Standalone use
+
+When used alone, name the public interface under test, the behavior being checked, the command used, and the red/green evidence.

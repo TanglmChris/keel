@@ -232,7 +232,7 @@ The validation suite MUST report how many assertion sites in `scripts/validate_p
 
 The comparison MUST fail when the count rises, naming the sites that are not in the recorded set so the author sees which assertion they just wrote. It MUST also fail when the count falls without the recorded number being lowered, because a number that only rises-checks becomes false the first time a site is fixed.
 
-Keel MUST NOT present the count as a defect count. The shape is a signal that one message covers more than one failure; whether a given message misleads is a semantic judgment that stays with `keel-review-checklist`.
+Keel MUST NOT present the count as a defect count. The shape is a signal that one message covers more than one failure; whether a given message misleads is a semantic judgment that stays with `review-checklist`.
 
 #### Scenario: A newly added site fails the suite and is named
 - **WHEN** an assertion of the counted shape is added to any validation module

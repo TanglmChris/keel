@@ -34,7 +34,7 @@ An accepted native plan-mode artifact MUST NOT serve as execution authority; its
 - **AND THEN** decisions found only in session state are treated as missing authority returning to OpenSpec authoring
 
 ### Requirement: Deep alignment is the only question-loop entry
-Keel MUST use `keel-align-expectations` during OpenSpec authoring so explicit and implicit expectations are aligned before specs and tasks finalize. Deep alignment MUST be the only question-loop entry point: Keel MUST NOT install or document a separate `keel-grill-open-questions` skill or maintain any second authoritative question loop.
+Keel MUST use `align-expectations` during OpenSpec authoring so explicit and implicit expectations are aligned before specs and tasks finalize. Deep alignment MUST be the only question-loop entry point: Keel MUST NOT install or document a separate `keel-grill-open-questions` skill or maintain any second authoritative question loop.
 
 #### Scenario: Quick alignment is sufficient
 - **WHEN** proposal context and repository evidence establish complete low-risk authority
@@ -49,7 +49,7 @@ Keel MUST use `keel-align-expectations` during OpenSpec authoring so explicit an
 #### Scenario: Retired grill surface is removed conservatively
 - **WHEN** `keel --install` or `keel --init` runs against a target repo carrying a previously packaged `keel-grill-open-questions` skill copy
 - **THEN** a byte-identical packaged copy is removed and a user-modified copy is preserved with a manual migration warning
-- **AND THEN** installed documentation and schema guidance reference only `keel-align-expectations` deep alignment
+- **AND THEN** installed documentation and schema guidance reference only `align-expectations` deep alignment
 
 #### Scenario: Missing authority returns to authoring
 - **WHEN** implementation discovers an accepted behavior, boundary, or assumption that is not authorized by OpenSpec artifacts

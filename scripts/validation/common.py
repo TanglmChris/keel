@@ -35,10 +35,10 @@ os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite
 os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 
-PACKAGE_VERSION = "5.201.0"
+PACKAGE_VERSION = "5.202.0"
 
 
-PROTOCOL_VERSION = "5.201.0"
+PROTOCOL_VERSION = "5.202.0"
 
 
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
@@ -189,7 +189,7 @@ RESIDENT_FORBIDDEN_SNIPPETS = [
 SKILL_DOC_REQUIREMENTS = [
     {
         "name": "review-checklist skill",
-        "path": "src/skills/keel-review-checklist/SKILL.md",
+        "path": "src/skills/review-checklist/SKILL.md",
         "required": [
             "completion gates",
             "openspec-apply-change",
@@ -220,7 +220,7 @@ SKILL_DOC_REQUIREMENTS = [
     {
         # #411: criteria that apply only under a condition, read on demand.
         "name": "review-checklist conditional checks",
-        "path": "src/skills/keel-review-checklist/conditional-checks.md",
+        "path": "src/skills/review-checklist/conditional-checks.md",
         "required": [
             "Coupling: required",
             "## Domain lenses",
@@ -236,7 +236,7 @@ SKILL_DOC_REQUIREMENTS = [
     },
     {
         "name": "handoff skill",
-        "path": "src/skills/keel-handoff/SKILL.md",
+        "path": "src/skills/handoff/SKILL.md",
         "required": [
             "Lite mode does not create HANDOFF",
             "not a durable follow-up owner",
@@ -264,7 +264,7 @@ SKILL_DOC_REQUIREMENTS = [
         # expectation-alignment-skill scenario owns the full structural and
         # cross-file behavioral checks, so this entry stays anchor-level.
         "name": "align-expectations skill",
-        "path": "src/skills/keel-align-expectations/SKILL.md",
+        "path": "src/skills/align-expectations/SKILL.md",
         "required": [
             "quick path",
             "deep path",
@@ -279,7 +279,7 @@ SKILL_DOC_REQUIREMENTS = [
     },
     {
         "name": "tdd-or-test-first skill",
-        "path": "src/skills/keel-tdd-or-test-first/SKILL.md",
+        "path": "src/skills/tdd-or-test-first/SKILL.md",
         "required": [
             "selected OpenSpec task",
             "acceptance criteria",
@@ -291,7 +291,7 @@ SKILL_DOC_REQUIREMENTS = [
     },
     {
         "name": "debug-failure skill",
-        "path": "src/skills/keel-debug-failure/SKILL.md",
+        "path": "src/skills/debug-failure/SKILL.md",
         "required": [
             "Follow-ups are limited to directly observed blockers, risks, missing scope, or escalation needs",
             "Do not include roadmap suggestions, new feature suggestions, unrelated architecture critique, or opportunistic refactor suggestions",
@@ -485,7 +485,7 @@ def validate_openspec_schema(errors: list[str]) -> None:
             "description: Keel OpenSpec workflow",
             "apply:",
             "openspec-apply-change",
-            "keel-review-checklist",
+            "review-checklist",
             "Mode",
             "Covers",
             "Read",
@@ -631,6 +631,27 @@ def parse_skill_frontmatter(path: Path, errors: list[str]) -> dict[str, str]:
     return fields
 
 
+# Frontmatter fields only Claude Code reads (#464 D1). The plugin copy of a
+# skill may add them on top of the portable source, which must not carry them:
+# Keel keeps target metadata additive and outside the portable authority.
+CLAUDE_ADDITIVE_SKILL_FIELDS = ("user-invocable", "argument-hint")
+
+
+def portable_projection_bytes(path: Path) -> bytes:
+    """A plugin copy's bytes with the Claude-only frontmatter lines removed."""
+    data = path.read_bytes()
+    if path.name != "SKILL.md" or not data.startswith(b"---\n"):
+        return data
+    end = data.find(b"\n---\n", 4)
+    if end < 0:
+        return data
+    head = b"".join(
+        line for line in data[4:end + 1].splitlines(keepends=True)
+        if not any(line.startswith(f"{field}:".encode()) for field in CLAUDE_ADDITIVE_SKILL_FIELDS)
+    )
+    return b"---\n" + head + data[end + 1:]
+
+
 def validate_skill_portability(root: Path, errors: list[str]) -> None:
     source_root = root / "src" / "skills"
     plugin_root = root / "plugins" / "keel" / "skills"
@@ -703,7 +724,7 @@ def validate_skill_portability(root: Path, errors: list[str]) -> None:
         }
         projection_files = {
             path.relative_to(projection).as_posix(): hashlib.sha256(
-                path.read_bytes()
+                portable_projection_bytes(path)
             ).hexdigest()
             for path in sorted(projection.rglob("*"))
             if path.is_file()

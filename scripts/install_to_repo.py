@@ -176,7 +176,7 @@ TASKS_CONTEXTUAL_HASH_RE = re.compile(
 )
 # Inside a task field the two rules above read a claim, not a line (#213). A
 # field cites its provenance — the base a Scope check compared against, which
-# keel-review-checklist asks it to name, the commit a result ran on, the inputs
+# review-checklist asks it to name, the commit a result ran on, the inputs
 # a hash identifies — and a context word elsewhere on that line does not make
 # the token a record. So a field refuses a token only where a state claim binds
 # it: a context word naming it directly, or the token followed by the act.

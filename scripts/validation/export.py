@@ -1,12 +1,7 @@
-"""Keel validation: export — Markdown with SVG to Word (#405)."""
+"""Keel validation: export — the retired Markdown-to-Word export (#405, retired by #464)."""
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -18,432 +13,44 @@ from validation.common import (
 from validation import registry
 
 
-DOCX_SKILL = "keel-md-docx"
-DOCX_SCRIPTS = ("md2word.py", "runtime.mjs", "fonts-macos.conf", "requirements.txt", "package.json")
-# The SHA-256 #405 states for the prototype files that ship unchanged.
-DOCX_PROTOTYPE_SUMS = {
-    "md2word.py": "73331af530b524eeafe465a9d50bc6434d64abadc2f64e2140826a68b9a1bd1f",
-    "runtime.mjs": "7fa52c333d16f92bb2c7eb54ad5c5e25d04ee71c13f2501927fd53492eb381a2",
-}
-DOCX_LICENCES = {
-    "python-docx": "MIT",
-    "lxml": "BSD-3-Clause",
-    "Pillow": "MIT-CMU",
-    "marked": "MIT",
-    "sharp": "Apache-2.0",
-}
+def validate_docx_retired_scenario() -> int:
+    """Issue #464 (owner, 2026-10-25): Markdown-to-Word export is not Keel's job.
 
-
-# One stand-in for the interpreter Keel resolves, the environment's own Python,
-# and npm. Each call appends `[role, ...argv]` to FAKE_LOG. `-m venv DIR`
-# creates DIR's interpreter as another launcher of this file in the role
-# `venv`; FAKE_PIP_EXIT and FAKE_NPM_EXIT make those steps fail; FAKE_CONVERT
-# makes the venv Python act as the converter, writing its `-o` target and
-# recording its environment.
-DOCX_FAKE = r"""const fs = require("fs");
-const path = require("path");
-const role = process.env.FAKE_ROLE;
-const args = process.argv.slice(2);
-fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify([role, ...args]) + "\n");
-if (args[0] === "--version") { process.stdout.write("Python 3.12.0\n"); process.exit(0); }
-if (role === "python" && args[0] === "-m" && args[1] === "venv") {
-  const bin = path.join(args[2], process.platform === "win32" ? "Scripts" : "bin");
-  fs.mkdirSync(bin, { recursive: true });
-  const launcher = path.join(bin, "python");
-  fs.writeFileSync(launcher, `#!/bin/sh\nFAKE_ROLE=venv exec node "${__filename}" "$@"\n`);
-  fs.chmodSync(launcher, 0o755);
-  process.exit(0);
-}
-if (role === "venv" && args[0] === "-m" && args[1] === "pip") process.exit(Number(process.env.FAKE_PIP_EXIT || 0));
-if (role === "venv" && process.env.FAKE_CONVERT) {
-  const output = args[args.indexOf("-o") + 1];
-  fs.writeFileSync(output, "converted\n");
-  fs.writeFileSync(process.env.FAKE_CONVERT, JSON.stringify({
-    MD2WORD_NODE: process.env.MD2WORD_NODE || null,
-    MD2WORD_NODE_MODULES: process.env.MD2WORD_NODE_MODULES || null,
-  }));
-  process.exit(Number(process.env.FAKE_CONVERT_EXIT || 0));
-}
-if (role === "npm") {
-  const code = Number(process.env.FAKE_NPM_EXIT || 0);
-  if (code === 0) fs.mkdirSync(path.join(args[args.indexOf("--prefix") + 1], "node_modules"), { recursive: true });
-  process.exit(code);
-}
-process.exit(0);
-"""
-
-
-def docx_fakes(tmp: Path) -> dict[str, str]:
-    """The environment that points `keel docx` at the stand-ins and a scratch KEEL_HOME."""
-    fake = tmp / "docx-fake.js"
-    write_text(fake, DOCX_FAKE)
-    env = dict(os.environ)
-    for role in ("python", "npm"):
-        launcher = tmp / f"fake-{role}"
-        write_text(launcher, f'#!/bin/sh\nFAKE_ROLE={role} exec node "{fake}" "$@"\n')
-        launcher.chmod(0o755)
-    env.update({
-        "KEEL_HOME": str(tmp / "home"),
-        "KEEL_PYTHON": str(tmp / "fake-python"),
-        "KEEL_DOCX_NPM": str(tmp / "fake-npm"),
-        "FAKE_LOG": str(tmp / "log.jsonl"),
-    })
-    (tmp / "log.jsonl").write_text("")
-    return env
-
-
-def run_docx(tmp: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["node", str(ROOT / "bin/keel.js"), "docx", *args],
-        cwd=tmp, env=env, text=True, encoding="utf-8", errors="replace",
-        capture_output=True, check=False, timeout=60,
-    )
-
-
-def fake_calls(tmp: Path) -> list[list[str]]:
-    lines = (tmp / "log.jsonl").read_text().splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
-
-
-def validate_docx_setup_asks_first_scenario() -> int:
-    """Issue #405: nothing is installed until the user has seen the list and said yes."""
-    label = "docx-setup-asks-first:"
-    with tempfile.TemporaryDirectory(prefix="keel-405-setup-") as raw:
-        tmp = Path(raw)
-        env = docx_fakes(tmp)
-        home = tmp / "home/docx"
-
-        plan = run_docx(tmp, env, "setup")
-        said = plan.stdout + plan.stderr
-        if plan.returncode != 0:
-            report(f"{label} `keel docx setup` without --yes exited {plan.returncode}: {said!r}")
-            return 1
-        for needle in (*DOCX_LICENCES, *DOCX_LICENCES.values(), str(home), "--yes"):
-            if needle not in said:
-                report(f"{label} the setup plan does not name {needle!r}: {said!r}")
-                return 1
-        if fake_calls(tmp):
-            report(f"{label} the setup plan ran an installer or probe: {fake_calls(tmp)!r}")
-            return 1
-        if home.exists():
-            report(f"{label} the setup plan created {home}.")
-            return 1
-
-        installed = run_docx(tmp, env, "setup", "--yes")
-        said = installed.stdout + installed.stderr
-        if installed.returncode != 0:
-            report(f"{label} `keel docx setup --yes` exited {installed.returncode}: {said!r}")
-            return 1
-        steps = [call for call in fake_calls(tmp) if call[1:2] != ["--version"]]
-        requirements = ROOT / "plugins/keel/skills" / DOCX_SKILL / "scripts/requirements.txt"
-        expected = [
-            ["python", "-m", "venv", str(home / "python")],
-            ["venv", "-m", "pip", "install", "-r", str(requirements)],
-            ["npm", "install", "--prefix", str(home / "node")],
-        ]
-        got = [call[:len(want)] for call, want in zip(steps, expected)]
-        if got != expected or len(steps) != len(expected):
-            report(f"{label} setup --yes did not create the venv, pip-install the requirements, and npm-install into the environment, in order: {steps!r}")
-            return 1
-        if not (home / "node/package.json").is_file():
-            report(f"{label} setup --yes did not place the pinned package.json in {home / 'node'}.")
-            return 1
-        if not (home / "ready.json").is_file():
-            report(f"{label} a successful setup did not mark the environment ready.")
-            return 1
-
-        failing = dict(env, FAKE_NPM_EXIT="1")
-        broken = run_docx(tmp, failing, "setup", "--yes")
-        said = broken.stdout + broken.stderr
-        if broken.returncode != 1:
-            report(f"{label} a failed npm step exited {broken.returncode}, not 1: {said!r}")
-            return 1
-        if "npm" not in said:
-            report(f"{label} a failed npm step is not named: {said!r}")
-            return 1
-        if (home / "ready.json").exists():
-            report(f"{label} a failed setup left the environment marked ready.")
-            return 1
-
-    if "docx-setup-asks-first" not in {name for name, _ in registry.SCENARIOS}:
-        report(f"{label} the scenario registry does not include it.")
-        return 1
-    report("docx-setup-asks-first scenario passed.")
-    return 0
-
-
-def validate_docx_convert_refuses_first_scenario() -> int:
-    """Issue #405: convert refuses rather than overwrites, and hands a ready environment the converter."""
-    label = "docx-convert-refuses-first:"
-    with tempfile.TemporaryDirectory(prefix="keel-405-convert-") as raw:
-        tmp = Path(raw)
-        env = docx_fakes(tmp)
-        source = tmp / "in.md"
-        target = tmp / "in.docx"
-        write_text(source, "# 标题\n\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n")
-
-        before = run_docx(tmp, env, "convert", "in.md")
-        said = before.stdout + before.stderr
-        if before.returncode == 0:
-            report(f"{label} convert before setup exited 0: {said!r}")
-            return 1
-        if "run `keel docx setup`" not in said:
-            report(f"{label} convert before setup does not say to run `keel docx setup`: {said!r}")
-            return 1
-        if target.exists():
-            report(f"{label} convert before setup wrote {target.name}.")
-            return 1
-
-        if run_docx(tmp, env, "setup", "--yes").returncode != 0:
-            report(f"{label} the stand-in setup failed, so the ready environment could not be built.")
-            return 1
-        record = tmp / "converter-env.json"
-        env = dict(env, FAKE_CONVERT=str(record))
-
-        target.write_bytes(b"previous output")
-        kept = run_docx(tmp, env, "convert", "in.md")
-        said = kept.stdout + kept.stderr
-        if kept.returncode == 0:
-            report(f"{label} an existing output without --replace exited 0: {said!r}")
-            return 1
-        if "--replace" not in said:
-            report(f"{label} an existing output's refusal does not name --replace: {said!r}")
-            return 1
-        if target.read_bytes() != b"previous output":
-            report(f"{label} an existing output was changed without --replace.")
-            return 1
-        for case, args in (("a missing input", ("convert", "nope.md")),
-                           ("an output that is the input", ("convert", "in.md", "-o", "in.md")),
-                           ("a missing template", ("convert", "in.md", "-o", "x.docx", "--template", "none.docx"))):
-            refused = run_docx(tmp, env, *args)
-            if refused.returncode == 0:
-                report(f"{label} {case} was not refused: {refused.stdout + refused.stderr!r}")
-                return 1
-        if any(call[0] == "venv" and "md2word.py" in " ".join(call) for call in fake_calls(tmp)):
-            report(f"{label} a refused conversion still ran the converter: {fake_calls(tmp)!r}")
-            return 1
-
-        replaced = run_docx(tmp, env, "convert", "in.md", "--replace")
-        said = replaced.stdout + replaced.stderr
-        if replaced.returncode != 0:
-            report(f"{label} convert --replace with a ready environment exited {replaced.returncode}: {said!r}")
-            return 1
-        converter = str(ROOT / "plugins/keel/skills" / DOCX_SKILL / "scripts/md2word.py")
-        runs = [call[1:] for call in fake_calls(tmp) if call[0] == "venv" and converter in call]
-        if runs[-1:] != [[converter, str(source.resolve()), "-o", str(target.resolve())]]:
-            report(f"{label} the environment's Python did not run the shipped converter on the input and output: {runs!r}")
-            return 1
-        handed = json.loads(record.read_text())
-        if not handed.get("MD2WORD_NODE"):
-            report(f"{label} the converter was not given MD2WORD_NODE: {handed!r}")
-            return 1
-        if handed.get("MD2WORD_NODE_MODULES") != str(tmp / "home/docx/node/node_modules"):
-            report(f"{label} the converter was not given the environment's node_modules: {handed!r}")
-            return 1
-
-        write_text(tmp / "t.docx", "template")
-        templated = run_docx(tmp, env, "convert", "in.md", "-o", "out.docx", "--template", "t.docx")
-        runs = [call[1:] for call in fake_calls(tmp) if call[0] == "venv" and converter in call]
-        if templated.returncode != 0:
-            report(f"{label} convert --template exited {templated.returncode}: {templated.stdout + templated.stderr!r}")
-            return 1
-        if runs[-1][-2:] != ["--template", str((tmp / "t.docx").resolve())]:
-            report(f"{label} --template did not reach the converter: {runs[-1:]!r}")
-            return 1
-
-        failing = run_docx(tmp, dict(env, FAKE_CONVERT_EXIT="1"), "convert", "in.md", "-o", "fail.docx")
-        if failing.returncode != 1:
-            report(f"{label} a failing converter's status 1 was not returned: exit={failing.returncode}")
-            return 1
-
-    if "docx-convert-refuses-first" not in {name for name, _ in registry.SCENARIOS}:
-        report(f"{label} the scenario registry does not include it.")
-        return 1
-    report("docx-convert-refuses-first scenario passed.")
-    return 0
-
-
-DOCX_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect width="100" height="50" fill="blue"/></svg>'
-DOCX_NAMESPACES = {
-    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "asvg": "http://schemas.microsoft.com/office/drawing/2016/SVG/main",
-    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
-}
-
-
-def validate_docx_converts_markdown_with_svg_scenario() -> int:
-    """Issue #405: the prototype's conversion checks, against a provisioned environment.
-
-    The third-party packages are an external runtime the suite does not
-    install, so this runs only when KEEL_DOCX_TEST_ENV names a KEEL_HOME whose
-    `docx/` environment is ready, and otherwise reports itself skipped. It never
-    reads the user's own ~/.keel.
+    `keel docx` stays a recognized word so that a caller learns the export was
+    retired instead of reading the general usage, and it installs and converts
+    nothing. The plugin no longer ships the skill.
     """
-    import xml.etree.ElementTree as ElementTree
-    from zipfile import ZipFile
-
-    label = "docx-converts-markdown-with-svg:"
-    provided = os.environ.get("KEEL_DOCX_TEST_ENV", "")
-    if not provided or not (Path(provided) / "docx/ready.json").is_file():
-        report(f"{label} skipped: no ready docx environment; set KEEL_DOCX_TEST_ENV to a KEEL_HOME where `keel docx setup --yes` has run.")
-        return 3
-    env = dict(os.environ, KEEL_HOME=provided)
-    with tempfile.TemporaryDirectory(prefix="keel-405-real-") as raw:
+    label = "docx-retired:"
+    with tempfile.TemporaryDirectory(prefix="keel-docx-464-") as raw:
         tmp = Path(raw)
-
-        def convert(markdown: str, *extra: str) -> subprocess.CompletedProcess[str]:
-            write_text(tmp / "input.md", markdown)
-            return subprocess.run(
-                ["node", str(ROOT / "bin/keel.js"), "docx", "convert", "input.md", "-o", "output.docx", *extra],
-                cwd=tmp, env=env, text=True, encoding="utf-8", errors="replace",
-                capture_output=True, check=False, timeout=180,
-            )
-
-        write_text(tmp / "images/图.svg", DOCX_SVG)
-        made = convert(
-            "# 中文标题\n\n" + DOCX_SVG + "\n\n```svg\n" + DOCX_SVG + "\n```\n\n"
-            "![中文图片](images/图.svg)\n\n"
-            "行内代码 `<svg>not a figure</svg>` 保留为代码。\n\n"
-            "```python\ntext = \"<svg>leave as code</svg>\"\n```\n\n"
-            "| 项目 | 值 |\n|---|---|\n| 中文 | 123 |\n"
-        )
-        if made.returncode != 0:
-            report(f"{label} the three SVG forms did not convert: {made.stderr!r}")
-            return 1
-        with ZipFile(tmp / "output.docx") as archive:
-            document = ElementTree.fromstring(archive.read("word/document.xml"))
-            names = archive.namelist()
-        vectors = document.findall(".//asvg:svgBlip", DOCX_NAMESPACES)
-        if len(vectors) != 3:
-            report(f"{label} {len(vectors)} SVG images were embedded, not 3.")
-            return 1
-        if len([n for n in names if n.endswith(".svg")]) != 3:
-            report(f"{label} the package does not hold three SVG parts: {names!r}")
-            return 1
-        if not any(n.endswith(".png") for n in names):
-            report(f"{label} no PNG fallback was embedded: {names!r}")
-            return 1
-        text = "".join(document.itertext())
-        for needle in ("中文标题", "leave as code", "not a figure"):
-            if needle not in text:
-                report(f"{label} the document text lacks {needle!r}.")
+        home = tmp / "home"
+        source = tmp / "a.md"
+        write_text(source, "# A\n")
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp), "KEEL_HOME": str(home)}
+        node = subprocess.run(["which", "node"], text=True, capture_output=True).stdout.strip() or "node"
+        for args in (("setup", "--yes"), ("convert", str(source))):
+            ran = subprocess.run([node, str(ROOT / "bin/keel.js"), "docx", *args], cwd=tmp, env=env,
+                                 text=True, capture_output=True, check=False)
+            said = ran.stdout + ran.stderr
+            if "keel docx was retired" not in said:
+                report(f"{label} keel docx {' '.join(args)} does not say it was retired (exit {ran.returncode}): {said[:300]!r}")
                 return 1
-        if len(document.findall(".//w:tbl", DOCX_NAMESPACES)) != 1:
-            report(f"{label} the table did not convert.")
-            return 1
-        for extent in document.findall(".//wp:extent", DOCX_NAMESPACES):
-            if int(extent.get("cx")) > 6120635:
-                report(f"{label} an image is wider than the page: {extent.attrib!r}")
+            if ran.returncode != 2:
+                report(f"{label} keel docx {' '.join(args)} exited {ran.returncode}, not 2.")
                 return 1
-            if int(extent.get("cy")) > 8900000:
-                report(f"{label} an image is taller than the page: {extent.attrib!r}")
-                return 1
-
-        (tmp / "output.docx").write_bytes(b"previous output")
-        bad = convert("```svg\n<svg><invalid></svg>\n```\n", "--replace")
-        if bad.returncode == 0:
-            report(f"{label} an invalid SVG converted: {bad.stderr!r}")
+        if (home / "docx").exists():
+            report(f"{label} keel docx wrote {home / 'docx'}.")
             return 1
-        if "Conversion failed" not in bad.stderr:
-            report(f"{label} an invalid SVG's failure does not say `Conversion failed`: {bad.stderr!r}")
+        written = sorted(p.name for p in tmp.iterdir() if p.suffix == ".docx")
+        if written:
+            report(f"{label} keel docx convert wrote {written!r}.")
             return 1
-        if (tmp / "output.docx").read_bytes() != b"previous output":
-            report(f"{label} a failed conversion changed the previous output.")
+    for shipped in (ROOT / "plugins/keel/skills/keel-md-docx", ROOT / "src/skills/keel-md-docx"):
+        if shipped.exists():
+            report(f"{label} {shipped.relative_to(ROOT)} still ships the export skill.")
             return 1
-        (tmp / "output.docx").unlink()
-        for case, markdown, needle in (
-            ("a missing image", "![missing](does-not-exist.svg)\n", "Conversion failed"),
-            ("a remote image", "![remote](https://example.com/diagram.svg)\n", "save it locally first"),
-            ("a foreignObject label",
-             DOCX_SVG.replace("</svg>", '<foreignObject width="20" height="20"><div>label</div></foreignObject></svg>') + "\n",
-             "text/path labels"),
-        ):
-            failed = convert(markdown)
-            if failed.returncode == 0:
-                report(f"{label} {case} converted: {failed.stderr!r}")
-                return 1
-            if needle not in failed.stderr:
-                report(f"{label} {case}'s failure does not say {needle!r}: {failed.stderr!r}")
-                return 1
-            if (tmp / "output.docx").exists():
-                report(f"{label} {case} left an output.")
-                return 1
-        marker = DOCX_SVG.replace("<rect", '<defs><marker id="x"/></defs><rect').replace(
-            'fill="blue"', "fill=\"blue\" style=\"marker-end: url(' #x ')\"")
-        quoted = convert(marker + "\n")
-        if quoted.returncode != 0:
-            report(f"{label} a quoted local marker reference did not convert: {quoted.stderr!r}")
-            return 1
-
-    if "docx-converts-markdown-with-svg" not in {name for name, _ in registry.SCENARIOS}:
-        report(f"{label} the scenario registry does not include it.")
+    if "docx-retired" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
         return 1
-    report("docx-converts-markdown-with-svg scenario passed.")
-    return 0
-
-
-def skill_description(text: str) -> str:
-    match = re.search(r"^description:\s*(?:[>|]-?\s*\n((?:[ \t]+.*\n?)+)|(.+))$", text, re.M)
-    if not match:
-        return ""
-    return " ".join((match.group(1) or match.group(2) or "").split())
-
-
-def validate_docx_skill_ships_scenario() -> int:
-    """Issue #405: the plugin carries the export skill and the converter it runs."""
-    label = "docx-skill-ships:"
-    source = ROOT / "src/skills" / DOCX_SKILL
-    shipped = ROOT / "plugins/keel/skills" / DOCX_SKILL
-    for relative in ("SKILL.md", *(f"scripts/{name}" for name in DOCX_SCRIPTS)):
-        plugin_file = shipped / relative
-        if not plugin_file.is_file():
-            report(f"{label} the plugin does not ship {DOCX_SKILL}/{relative}.")
-            return 1
-        source_file = source / relative
-        if not source_file.is_file() or source_file.read_bytes() != plugin_file.read_bytes():
-            report(f"{label} plugins/keel/skills/{DOCX_SKILL}/{relative} is not byte-identical to src/skills.")
-            return 1
-    for name, expected in DOCX_PROTOTYPE_SUMS.items():
-        actual = hashlib.sha256((shipped / "scripts" / name).read_bytes()).hexdigest()
-        if actual != expected:
-            report(f"{label} scripts/{name} is not the #405 prototype file: sha256 {actual}, expected {expected}.")
-            return 1
-
-    text = (shipped / "SKILL.md").read_text(encoding="utf-8")
-    description = skill_description(text).lower()
-    for word in ("markdown", "svg", "word"):
-        if word not in description:
-            report(f"{label} the description does not name {word!r}, so a request for this export may not load it: {description!r}")
-            return 1
-    for needle in ("keel docx setup", "--yes", "--replace", "unverified"):
-        if needle not in text:
-            report(f"{label} SKILL.md does not name {needle!r}.")
-            return 1
-    for package, licence in DOCX_LICENCES.items():
-        if package not in text or licence not in text:
-            report(f"{label} SKILL.md does not state {package} and its licence {licence}.")
-            return 1
-
-    evidence_path = ROOT / "keel/archive/skill-evidence" / f"{DOCX_SKILL}-v1.md"
-    if not evidence_path.is_file():
-        report(f"{label} {evidence_path.relative_to(ROOT)} is missing.")
-        return 1
-    evidence = evidence_path.read_text(encoding="utf-8")
-    positives = re.findall(r"^## Positive case P\d+", evidence, re.M)
-    negatives = re.findall(r"^## Negative control N\d+", evidence, re.M)
-    if len(positives) < 2:
-        report(f"{label} the evidence carries {len(positives)} positive trigger case(s), fewer than 2.")
-        return 1
-    if len(negatives) < 2:
-        report(f"{label} the evidence carries {len(negatives)} negative control(s), fewer than 2.")
-        return 1
-    for package, licence in DOCX_LICENCES.items():
-        if not re.search(rf"^- {re.escape(package)}\b.*{re.escape(licence)}", evidence, re.M):
-            report(f"{label} the evidence has no licence line for {package} ({licence}).")
-            return 1
-
-    if "docx-skill-ships" not in {name for name, _ in registry.SCENARIOS}:
-        report(f"{label} the scenario registry does not include it.")
-        return 1
-    report("docx-skill-ships scenario passed.")
+    report("docx-retired scenario passed.")
     return 0

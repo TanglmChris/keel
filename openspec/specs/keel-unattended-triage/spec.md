@@ -39,7 +39,7 @@ require at least one of them rather than requiring labels specifically. Keel MUS
 
 A repository's own admission list is a declaration the owner writes; Keel MUST NOT add to it, and an
 unattended run MUST NOT widen it. A surface other than `keel/config.yaml` and the unattended-run
-protocol itself — such as the `keel-align-expectations` skill — MAY point to the protocol's
+protocol itself — such as the `align-expectations` skill — MAY point to the protocol's
 statement of the two sources instead of repeating it, provided the protocol itself still states
 both in full.
 
@@ -81,7 +81,7 @@ both in full.
 
 #### Scenario: A secondary surface points instead of repeating
 - **WHEN** a surface other than `keel/config.yaml` and the unattended-run protocol, such as the
-  `keel-align-expectations` skill, needs to state how the two admission sources work
+  `align-expectations` skill, needs to state how the two admission sources work
 - **THEN** it may point to the protocol's own statement instead of restating it
 - **AND THEN** `keel/config.yaml`'s comments and the protocol's own statement remain complete, so
   the pointer has a stable target
@@ -185,7 +185,7 @@ statement itself remains fully stated at the surface being pointed to.
 
 #### Scenario: A secondary surface points instead of repeating
 - **WHEN** a surface other than the unattended-run protocol itself, such as the
-  `keel-align-expectations` skill, needs to state this boundary
+  `align-expectations` skill, needs to state this boundary
 - **THEN** it may point to the protocol's own statement instead of restating its phrases
 - **AND THEN** the protocol's own statement remains complete, so the pointer has a stable target
   and removing that target would surface as a missing statement there, not a silently absent

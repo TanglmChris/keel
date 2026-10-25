@@ -3342,7 +3342,7 @@ def validate_collected_feedback_is_recorded_scenario() -> int:
     if "silently" not in lens or "missing signal" not in lens:
         report(f"{label} the hardware lens does not name tools that silently accept a missing signal.")
         return 1
-    skill = (ROOT / PLUGIN_ROOT / "skills/keel-tdd-or-test-first/SKILL.md").read_text(encoding="utf-8")
+    skill = (ROOT / PLUGIN_ROOT / "skills/tdd-or-test-first/SKILL.md").read_text(encoding="utf-8")
     if "Fails with:" not in skill or "every red" not in skill:
         report(f"{label} the tdd skill does not advise a Fails with: literal every red shares.")
         return 1

@@ -1,5 +1,19 @@
 # Keel Changelog
 
+## 5.202.0 - Slash commands: skills named once, model-only ones hidden, four new commands, export retired
+
+Issue #464, scoped by the owner on 2026-10-25.
+
+- **Markdown-to-Word export is retired** ("这不是keel该做的"). This removes the `keel-md-docx` skill, `keel docx setup|convert`, `src/core/docx.js`, and the converter scripts. `keel docx` now prints `keel docx was retired in 5.202.0 …` and exits 2. A `~/.keel/docx` environment can be deleted. **Breaking** for anyone calling `keel docx`.
+- **Skills drop the repeated prefix.** They are now `align-expectations`, `debug-failure`, `handoff`, `review-checklist`, and `tdd-or-test-first`, so each reads `/keel:<name>` on Claude and `keel:<name>` on Codex. A downstream repository's protocol block names the old skills until its next `keel --init`, which `keel context` asks for. `keel-handoff/v1`, the HANDOFF file format, keeps its name.
+- **The slash menu shows what a person runs.** `debug-failure`, `review-checklist`, and `tdd-or-test-first` declare `user-invocable: false`, so only the model invokes them. `align-expectations` and `handoff` declare an `argument-hint`.
+  - These two fields are Claude Code's, so only the plugin copy carries them, on the owner's decision. The portable source in `src/skills/` keeps standard fields only, and the copy checks drop exactly those two lines before they compare.
+  - Codex CLI 0.164.0 loads a skill carrying them (measured).
+- **Four new commands**: `/keel:context`, `/keel:start [change] [task]`, `/keel:done [change] [task]`, and `/keel:chat`. They order `keel context`, `keel gate task-start`, `keel gate task-complete` with the review checklist, and `keel chat unread`. They are Claude-only, because Codex plugins carry no commands.
+- **A command list**, `docs/commands.md` (and `.zh-CN`), linked from both READMEs.
+- **Checks.** The new `slash-menu-ships` and `docx-retired` replace the four `docx-*` scenarios. `portable_projection_bytes` is the one place the Claude-only exception lives.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.202.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.201.0 - Wake now explains a session whose directory is gone
 
 Issue #465, decided by the owner on 2026-10-25. After the workspace was renamed from `~/my_github` to `~/my-github`, no role's ended CLI session could be woken. Presence and `claude agents` still recorded the old path, and Claude Code resumes a session only in the directory it ran in. `keel chat wake now` reported `claude was not found`, because the missing working directory made the spawn fail. Resumed by hand from the new path, the host answered `Workspace not trusted … could not be resolved on disk`. All 16 kaiwu-ip roles with a recorded session were recovered by hand, with a fork.

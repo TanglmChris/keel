@@ -182,7 +182,8 @@ model toward or away from using one (#414).
 
 Do the spec work through OpenSpec's workflow skills (`openspec-propose`, `openspec-apply-change`,
 `openspec-sync-specs`, `openspec-archive-change`); Keel generates them as skills only, with no OpenSpec
-slash commands (#406). Keel's gates run at the task boundaries. The whole loop:
+slash commands (#406). Keel's own commands and the skills a person can invoke are listed in
+[docs/commands.md](docs/commands.md). Keel's gates run at the task boundaries. The whole loop:
 
 ```
 keel --init  →  keel context  →  openspec-apply-change (tasks in order)
@@ -506,11 +507,10 @@ the words Keel states criteria in, so a tier can only ever skip a file that deci
 what to skip is a declaration rather than the agent's own call on purpose — "do I need this help?" is
 the judgement a weak executor gets most wrong, and it would be answering it about itself.
 
-One skill carries a guidance file today: `keel-tdd-or-test-first`, a table that picks a Verify
+One skill carries a guidance file today: `tdd-or-test-first`, a table that picks a Verify
 strategy by what would make the Acceptance false, with right and wrong choices and when each evidence
-form pays (#389). Four of the others are almost entirely criteria, so splitting them would move the
-half that has to stay; the fifth, `keel-md-docx`, is a short export procedure loaded only when you ask
-to turn Markdown with SVG into Word (#405).
+form pays (#389). The other four are almost entirely criteria, so splitting them would move the
+half that has to stay.
 
 ## How the agent uses these
 
@@ -1035,10 +1035,6 @@ keel tick [--json] | keel tick task                # one step; print the launchd
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
-# Markdown with SVG to Word, on request (packages installed only with --yes, into ~/.keel/docx)
-keel docx setup [--yes]
-keel docx convert <input.md> [-o <output.docx>] [--template <template.docx>] [--replace]   # an existing output is kept without --replace
-
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]
@@ -1053,7 +1049,7 @@ keel openspec <args>
 
 Commands take the repository as a positional path or as `--repo <path>`; `keel --help` shows which.
 Each group prints its full subcommand list: `keel chat help`, `keel mail help`, `keel shift --help`,
-`keel lock --help`, `keel patrol --help`, `keel agents --help`, and `keel docx --help`.
+`keel lock --help`, `keel patrol --help`, and `keel agents --help`.
 
 Exit codes: `0` pass · `1` input error · `2` usage error (an unknown flag or a flag the command refuses) · `3` policy failure · `4` missing semantic review. `keel patrol` uses `2` and `3` for what it found; see Coordinator patrol.
 

@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    portable_projection_bytes,
     BOOTSTRAP_BLOCK_BYTE_BUDGET,
     LEGACY_PROFILE_SKILLS,
     MANAGED_END,
@@ -302,7 +303,7 @@ def validate_target_surface_scenario() -> int:
 
 def validate_domain_lenses_scenario() -> int:
     plugin_skills_root = ROOT / PLUGIN_ROOT / "skills"
-    if not (plugin_skills_root / "keel-align-expectations/SKILL.md").is_file():
+    if not (plugin_skills_root / "align-expectations/SKILL.md").is_file():
         report("domain-lenses scenario plugin misses the alignment skill")
         return 1
     lenses_root = ROOT / "assets/lenses"
@@ -459,7 +460,7 @@ def assert_openspec_overlay(path: Path, action: str) -> str | None:
         required.extend(
             [
                 "keel gate change-close --action archive",
-                "keel-review-checklist",
+                "review-checklist",
                 "critical expectation",
                 "behavior evidence",
                 "durable follow-up owner",
@@ -745,7 +746,7 @@ def validate_sync_surface_overlay_scenario() -> int:
     """The surface that performs a gated action never named its gate.
 
     AGENTS.md gates sync and archive identically — `keel gate change-close
-    --action sync|archive` plus `keel-review-checklist`. Archive's command
+    --action sync|archive` plus `review-checklist`. Archive's command
     surface carries a Keel overlay saying so; sync's carried none, because
     `OPENSPEC_OVERLAY_ACTIONS` listed only propose, apply, and archive. An
     agent invoking `/opsx:sync` read generic upstream instructions and was told
@@ -800,7 +801,7 @@ def validate_sync_surface_overlay_scenario() -> int:
                 # M2 — and it says the things that change behavior.
                 for needle, why in (
                     ("keel gate change-close --action sync", "the gate"),
-                    ("keel-review-checklist", "the semantic review"),
+                    ("review-checklist", "the semantic review"),
                     ("keel openspec", "how to invoke OpenSpec off PATH"),
                     ("--skip-specs", "that a following archive must skip specs"),
                 ):
@@ -1435,10 +1436,10 @@ def validate_uninstall_scenario() -> int:
         if not (repo / "keel/templates/TASK.lite.md").is_file():
             report("uninstall scenario deleted user-edited Lite TASK template.")
             return 1
-        if (repo / ".claude/skills/keel-handoff/SKILL.md").exists():
+        if (repo / ".claude/skills/handoff/SKILL.md").exists():
             report("uninstall scenario did not remove packaged Claude skill.")
             return 1
-        if (repo / ".claude/skills/keel-review-checklist/SKILL.md").exists():
+        if (repo / ".claude/skills/review-checklist/SKILL.md").exists():
             report("uninstall scenario did not remove packaged Claude review skill.")
             return 1
         if not (repo / OPENSPEC_CONFIG_PATH).is_file():
@@ -2938,10 +2939,10 @@ def validate_thin_native_install_scenario() -> int:
         tmp = Path(raw_tmp)
 
         forbidden_copies = (
-            ".claude/skills/keel-review-checklist",
-            ".claude/skills/keel-align-expectations",
+            ".claude/skills/review-checklist",
+            ".claude/skills/align-expectations",
             ".claude/hooks/keel-gate",
-            ".agents/skills/keel-review-checklist",
+            ".agents/skills/review-checklist",
             "keel/adapters",
         )
 
@@ -3163,9 +3164,9 @@ def validate_thin_native_install_scenario() -> int:
 
 def validate_domain_execution_references_scenario() -> int:
     consuming_skills = (
-        "keel-tdd-or-test-first",
-        "keel-debug-failure",
-        "keel-review-checklist",
+        "tdd-or-test-first",
+        "debug-failure",
+        "review-checklist",
     )
     templates = ("web.md", "hardware.md", "hardware-dsl.md")
     roots = (ROOT / "src/skills", ROOT / PLUGIN_ROOT / "skills")
@@ -3219,7 +3220,7 @@ def validate_domain_execution_references_scenario() -> int:
 
     for skill in consuming_skills:
         src_text = (roots[0] / skill / "SKILL.md").read_bytes()
-        shipped_text = (roots[1] / skill / "SKILL.md").read_bytes()
+        shipped_text = portable_projection_bytes(roots[1] / skill / "SKILL.md")
         if src_text != shipped_text:
             report(
                 f"domain-execution-references: shipped {skill} copy diverges "

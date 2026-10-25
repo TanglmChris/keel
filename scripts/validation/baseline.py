@@ -50,11 +50,11 @@ REQUIRED_SCRIPTS = [
 
 
 CORE_KEEL_SKILLS = {
-    "keel-align-expectations",
-    "keel-debug-failure",
-    "keel-handoff",
-    "keel-review-checklist",
-    "keel-tdd-or-test-first",
+    "align-expectations",
+    "debug-failure",
+    "handoff",
+    "review-checklist",
+    "tdd-or-test-first",
 }
 
 
@@ -222,8 +222,6 @@ MUTATING_KEEL_COMMANDS = (
     "--clear",
     "--update",
     "--with-git-hooks",
-    # Installs into, and writes from, the Keel-managed environment (#405).
-    "docx",
 )
 
 

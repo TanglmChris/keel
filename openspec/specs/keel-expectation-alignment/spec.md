@@ -117,5 +117,5 @@ When Keel's agent asks the user for a decision whose answers can be enumerated, 
 - **THEN** it directs enumerable decisions through the host's structured-choice surface where one is offered, recommendation first, with prose kept for open questions and hosts without the surface
 
 #### Scenario: The alignment skill states the rule host-neutrally
-- **WHEN** a reader opens `keel-align-expectations`' Deep path, in source and in the shipped plugin copy
+- **WHEN** a reader opens `align-expectations`' Deep path, in source and in the shipped plugin copy
 - **THEN** it carries the same rule and names no host-specific tool such as `AskUserQuestion`

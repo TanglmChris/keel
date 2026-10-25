@@ -1,0 +1,281 @@
+# Tasks
+
+## 1. Retire, rename, and add
+
+- [x] 1.1 Remove the Markdown-to-Word export; `keel docx` says it was retired
+  - Covers:
+    - keel-native-plugin-package / The slash menu offers what a person runs / The retired export says so
+    - D3
+  - Read:
+    - openspec/changes/slash-commands/design.md
+    - bin/keel.js
+    - scripts/validation/export.py
+  - Touch:
+    - plugins/keel/skills/keel-md-docx/SKILL.md
+    - plugins/keel/skills/keel-md-docx/scripts/fonts-macos.conf
+    - plugins/keel/skills/keel-md-docx/scripts/md2word.py
+    - plugins/keel/skills/keel-md-docx/scripts/package.json
+    - plugins/keel/skills/keel-md-docx/scripts/requirements.txt
+    - plugins/keel/skills/keel-md-docx/scripts/runtime.mjs
+    - src/skills/keel-md-docx/SKILL.md
+    - src/skills/keel-md-docx/scripts/fonts-macos.conf
+    - src/skills/keel-md-docx/scripts/md2word.py
+    - src/skills/keel-md-docx/scripts/package.json
+    - src/skills/keel-md-docx/scripts/requirements.txt
+    - src/skills/keel-md-docx/scripts/runtime.mjs
+    - src/core/docx.js
+    - bin/keel.js
+    - scripts/validation/export.py
+    - scripts/validation/registry.py
+    - scripts/validation/baseline.py
+    - scripts/validation/hosts.py
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario docx-retired`: the real `keel docx setup --yes` and `keel docx convert a.md` each print `keel docx was retired` and exit 2, with nothing written under the scratch `KEEL_HOME`'s `docx/` or beside `a.md`; and neither `plugins/keel/skills/keel-md-docx` nor `src/skills/keel-md-docx` exists. Fails with: `docx-retired: keel docx`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py` (the baseline) passes, and so do `--scenario assertion-shape-count` and `--group hosts --jobs 4`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5cb4659d7c32038279b4100107b88be4bcfa759f608493e85ab61560e4388ed3 (keel 5.201.0)
+    - M1: pass. `docx-retired scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `docx-retired: keel docx setup --yes does not say it was retired (exit 1): 'keel docx: Markdown with SVG to Word needs these packages, installed into …/home/docx: …'` (exit 1).
+    - M1.green: pass.
+      - `bin/keel.js` answers `keel docx` with `keel docx was retired in 5.202.0: Markdown-to-Word export is not part of Keel. Use a general document tool.` and returns 2 (D3). Its two usage lines and the unused `keel-md-docx` entry in `KEEL_SKILLS` are gone.
+      - `src/core/docx.js` and both copies of `keel-md-docx` are deleted.
+      - `export.py` holds only `docx-retired`, and the registry lists it in place of the four export scenarios.
+      - `docx` left `MUTATING_KEEL_COMMANDS`, and `keel-md-docx` left `PLUGIN_SKILLS`.
+      - Both READMEs drop the export's paragraph, usage lines, and `--help` mention.
+    - M2: pass. The baseline reported `Keel v4.1.0 baseline validation passed.` (exit 0). `assertion-shape-count scenario passed: 74 sites`. `validation --group hosts passed: 37 scenarios.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `bin/keel.js`, `keel docx setup --yes` and `keel docx convert a.md` each print `keel docx was retired` and exit 2. Nothing is written under `KEEL_HOME/docx` or beside `a.md`, and neither skill directory exists.
+      - Scope check: the worktree's changes are the deleted docx files, `bin/keel.js`, `README.md`, `README.zh-CN.md`, `scripts/validation/{baseline,export,hosts,registry}.py`, and this change's directory, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Rename the five skills without the `keel-` prefix and mark which are the model's
+  - Covers:
+    - keel-native-plugin-package / The slash menu offers what a person runs / The plugin ships the renamed skills and the new commands
+    - D1
+    - D2
+    - D5
+  - Read:
+    - openspec/changes/slash-commands/design.md
+  - Touch:
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - AGENTS.md
+    - README.md
+    - README.zh-CN.md
+    - assets/openspec/schemas/keel-spec-driven/schema.yaml
+    - bin/keel.js
+    - openspec/schemas/keel-spec-driven/schema.yaml
+    - plugins/keel/skills/align-expectations/SKILL.md
+    - plugins/keel/skills/debug-failure/SKILL.md
+    - plugins/keel/skills/handoff/SKILL.md
+    - plugins/keel/skills/keel-align-expectations/SKILL.md
+    - plugins/keel/skills/keel-debug-failure/SKILL.md
+    - plugins/keel/skills/keel-handoff/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/SKILL.md
+    - plugins/keel/skills/keel-review-checklist/conditional-checks.md
+    - plugins/keel/skills/keel-tdd-or-test-first/SKILL.md
+    - plugins/keel/skills/keel-tdd-or-test-first/guidance.md
+    - plugins/keel/skills/review-checklist/SKILL.md
+    - plugins/keel/skills/review-checklist/conditional-checks.md
+    - plugins/keel/skills/tdd-or-test-first/SKILL.md
+    - plugins/keel/skills/tdd-or-test-first/guidance.md
+    - scripts/__pycache__/validate_plugin.cpython-311.pyc
+    - scripts/install_to_repo.py
+    - scripts/validation/__pycache__/chat.cpython-311.pyc
+    - scripts/validation/__pycache__/common.cpython-311.pyc
+    - scripts/validation/__pycache__/contract.cpython-311.pyc
+    - scripts/validation/__pycache__/docs.cpython-311.pyc
+    - scripts/validation/__pycache__/guard.cpython-311.pyc
+    - scripts/validation/__pycache__/hosts.cpython-311.pyc
+    - scripts/validation/__pycache__/install.cpython-311.pyc
+    - scripts/validation/__pycache__/selfcheck.cpython-311.pyc
+    - scripts/validation/__pycache__/shift.cpython-311.pyc
+    - scripts/validation/baseline.py
+    - scripts/validation/chat.py
+    - scripts/validation/common.py
+    - scripts/validation/contract.py
+    - scripts/validation/docs.py
+    - scripts/validation/guard.py
+    - scripts/validation/hosts.py
+    - scripts/validation/install.py
+    - scripts/validation/registry.py
+    - scripts/validation/selfcheck.py
+    - scripts/validation/shift.py
+    - src/core/context.js
+    - src/core/gates.js
+    - src/skills/align-expectations/SKILL.md
+    - src/skills/debug-failure/SKILL.md
+    - src/skills/handoff/SKILL.md
+    - src/skills/keel-align-expectations/SKILL.md
+    - src/skills/keel-debug-failure/SKILL.md
+    - src/skills/keel-handoff/SKILL.md
+    - src/skills/keel-review-checklist/SKILL.md
+    - src/skills/keel-review-checklist/conditional-checks.md
+    - src/skills/keel-tdd-or-test-first/SKILL.md
+    - src/skills/keel-tdd-or-test-first/guidance.md
+    - src/skills/review-checklist/SKILL.md
+    - src/skills/review-checklist/conditional-checks.md
+    - src/skills/tdd-or-test-first/SKILL.md
+    - src/skills/tdd-or-test-first/guidance.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario slash-menu-ships`: the packaged plugin's skill directories are exactly `align-expectations`, `debug-failure`, `handoff`, `review-checklist`, and `tdd-or-test-first`, each `SKILL.md` naming itself; `debug-failure`, `review-checklist`, and `tdd-or-test-first` declare `user-invocable: false`; `align-expectations` and `handoff` declare an `argument-hint` and no `user-invocable: false`; and no file outside `keel/CHANGELOG.md`, `openspec/specs/`, and archives names a `keel-<skill>` other than `keel-handoff/v1`. Fails with: `slash-menu-ships: the plugin's skills are`
+    - M2 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:8dc9d4970982e72848e90c01e43fa6d82e8b99d43e21d2f389d9a670d2df2361 (keel 5.201.0)
+    - M1: pass. `slash-menu-ships scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `slash-menu-ships: the plugin's skills are ['keel-align-expectations', 'keel-debug-failure', 'keel-handoff', 'keel-review-checklist', 'keel-tdd-or-test-first'], not ['align-expectations', 'debug-failure', 'handoff', 'review-checklist', 'tdd-or-test-first'].` (exit 1).
+    - M1.green: pass.
+      - The five skill directories were moved in both `src/skills/` and `plugins/keel/skills/`.
+      - A rename pass rewrote `keel-<skill>` to `<skill>` in 39 tracked files, leaving out `keel/CHANGELOG.md`, `openspec/specs/`, `openspec/changes/`, and archives. It kept `keel-handoff/v1` and the `keel-handoff-` tempdir prefixes.
+      - The pass also rewrote an archived file name, `keel/archive/skill-evidence/keel-align-expectations-v1.md`, inside `contract.py`. It was restored, and the scan now skips `…-v<digit>`.
+      - On the owner's decision (2026-10-25: "只加在插件副本里"), only the plugin copies carry the Claude fields: `user-invocable: false` on debug-failure, review-checklist, and tdd-or-test-first, and an `argument-hint` on align-expectations and handoff. The portable sources carry neither.
+      - `portable_projection_bytes` in `common.py` drops exactly those two frontmatter lines before the source/copy comparison. It is used by `skill-portability-policy`, `native-plugin-manifests`, and the seven scenarios that compared bytes themselves.
+      - Mutation probe: a source carrying `user-invocable` fails the baseline with `canonical skill uses non-portable frontmatter fields: review-checklist: user-invocable`. A copy adding `model: haiku` fails `native-plugin-manifests` (`plugin copy diverges from canonical source: review-checklist/SKILL.md`) and the baseline. Both files were restored afterwards.
+    - M2: pass. `npm test` (load 4.09): `validation --all passed: baseline plus 337 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+      - Two earlier full runs failed. One was on the portability policy, the 80-line checklist bound, and the rewritten archive path. The next was on seven scenarios that compared bytes themselves. All three causes were fixed as above.
+    - Review:
+      - Status: pass
+      - Acceptance check: the packaged plugin's skills are the five bare names, each naming itself; the three model-only ones are hidden from the slash menu by `user-invocable: false`; the other two carry an `argument-hint`; and no tracked file outside the changelog, specs, changes, and archives names a skill the old way. Codex tolerates the two fields (design F2).
+      - Scope check: after the reauthorization, every changed path is in Touch: the moved skill files, the 39 rewritten files, `scripts/validation/registry.py`, and this change's directory. The `keel-native-plugin-package` delta in this change's directory gained the Claude-only exception and its scenario.
+      - Findings: the owner's choice changes how Keel reads its own portability rule. It does not change the rule, because the portable source still carries no target metadata. Resolved here: M2.
+    - Blocker: none
+    - Reauthorizations:
+      - 2026-10-25: Touch gains `scripts/validation/registry.py`, which registers M1's new `slash-menu-ships` and was left out when the Touch list was generated from the files naming the old skills. No other contract field changed, and task-start was re-run for the new fingerprint.
+
+- [x] 1.3 Add `/keel:context`, `/keel:start`, `/keel:done`, and `/keel:chat`, and list every command
+  - Covers:
+    - keel-native-plugin-package / The slash menu offers what a person runs / The plugin ships the renamed skills and the new commands
+    - D4
+  - Read:
+    - openspec/changes/slash-commands/design.md
+    - plugins/keel/commands/shift.md
+  - Touch:
+    - plugins/keel/commands/context.md
+    - plugins/keel/commands/start.md
+    - plugins/keel/commands/done.md
+    - plugins/keel/commands/chat.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+    - README.md
+    - README.zh-CN.md
+    - scripts/validation/hosts.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario slash-menu-ships`: in addition to 1.2's assertions, the plugin's commands are exactly `shift`, `context`, `start`, `done`, and `chat`, and `context.md`, `start.md`, `done.md`, and `chat.md` name `keel context`, `keel gate task-start`, `keel gate task-complete`, and `keel chat unread`; `docs/commands.md` and `docs/commands.zh-CN.md` name every command and every user-invocable skill as `/keel:<name>`; and `claude plugin validate plugins/keel` passes when a `claude` is on PATH. Fails with: `slash-menu-ships: the plugin's commands are`
+    - M2 (regression): `--scenario docs-zh-match-english` and `--scenario assertion-shape-count` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:fb6e7dce1d9dea6a06dff855871e13271a514c578456374cfbb9836891269500 (keel 5.201.0)
+    - M1: pass. `slash-menu-ships scenario passed.` (exit 0). With `claude` at `/Users/my_home_mac/.local/bin/claude` on PATH, the scenario's `claude plugin validate plugins/keel` ran; run by hand, it printed `✔ Validation passed`.
+    - M1.red: fail. Before the change: `slash-menu-ships: the plugin's commands are ['shift'], not ['chat', 'context', 'done', 'shift', 'start'].` (exit 1).
+    - M1.green: pass.
+      - `plugins/keel/commands/` gains `context.md`, `start.md`, `done.md`, and `chat.md`. Each orders the steps of `keel context`, `keel gate task-start`, `keel gate task-complete` with the review checklist, and `keel chat unread` (D4). `start` and `done` take `[change] [task]` as `$ARGUMENTS`.
+      - `docs/commands.md` and `docs/commands.zh-CN.md` list the five commands, the two user-invocable skills, the three model-only skills, and what was retired.
+      - Both READMEs link to the list.
+    - M2: pass. `docs-zh-match-english scenario passed.`, `readme-zh-matches-english scenario passed.`, and `assertion-shape-count scenario passed: 74 sites`.
+    - Review:
+      - Status: pass
+      - Acceptance check: the packaged plugin's commands are exactly the five, and each new one names the `keel` command it orders. Both command lists name every command and user-invocable skill as `/keel:<name>`, and the host's own `claude plugin validate` accepts the plugin. What a command makes the model do is a prompt, and no deterministic check can run it. The check proves what ships and that the host accepts it.
+      - Scope check: the changed paths are the four command files, the two `docs/commands*.md`, both READMEs, `scripts/validation/hosts.py`, and this change's `tasks.md`, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release, promote the specs, and delete the retired spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-authoring-continuity/spec.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-domain-lenses/spec.md
+    - openspec/specs/keel-expectation-alignment/spec.md
+    - openspec/specs/keel-expectation-slice-evidence-gates/spec.md
+    - openspec/specs/keel-md-docx-export/spec.md
+    - openspec/specs/keel-native-plugin-package/spec.md
+    - openspec/specs/keel-openspec-surface-overlay/spec.md
+    - openspec/specs/keel-stateless-continuity/spec.md
+    - openspec/specs/keel-unattended-triage/spec.md
+    - openspec/specs/keel-validation-runner/spec.md
+    - openspec/specs/keel-verification-layering/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - openspec/specs/keel-md-docx-export/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the deltas are promoted, `openspec/specs/keel-md-docx-export/` is deleted, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9df05633c4e055532616ec765a1c8b4ea75840c87a8df9022e3611c0ca767939 (keel 5.201.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.201.0 → 5.202.0. With the section "Slash commands: skills named once, model-only ones hidden, four new commands, export retired" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the deltas are promoted:
+      - the 21 renamed requirements in 11 specs;
+      - the Claude-only exception and its scenario in "A skill's plugin copy carries every file of its source";
+      - the added requirement "The slash menu offers what a person runs".
+
+      `openspec/specs/keel-md-docx-export/` is deleted. `published-specs-validate-strictly scenario passed: 33 published specs validate strictly against openspec 1.14.0.` (exit 0). `grep` finds no old skill name left in `openspec/specs/`.
+    - M3: pass. `npm test` on commit 0e452d90 (clean tree), started 22:21 at load 2.85: `validation --all passed: baseline plus 337 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.202.0 section, and the published specs carry the change, the retired spec is gone, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 to 1.3, the files are the version markers, `keel/CHANGELOG.md`, the 11 promoted specs, and the deleted `keel-md-docx-export` spec, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "the fifth, `keel-md-docx`, is a short export procedure" and the `keel docx setup` / `keel docx convert` usage lines — `README.md`, `README.zh-CN.md`, `bin/keel.js` usage. Updated by: 1.1.
+- I2: "`keel-align-expectations`", "`keel-review-checklist`", "`keel-tdd-or-test-first`", "`keel-debug-failure`", "`keel-handoff`" as skill names — `AGENTS.md`, the OpenSpec schema and overlays, `bin/keel.js`, `src/core/`, the READMEs, and `scripts/validation/`. Updated by: 1.2, 2.1.
+- I3: "align expectations with `keel-align-expectations`" and "plus `keel-review-checklist`" — a downstream repository's managed protocol block in `AGENTS.md` and its OpenSpec overlays. Discard reason: this change edits no other repository. Each refreshes at its next `keel --init`, which `keel context` names when the block is older than the running Keel (D5).
+- I4: "Markdown with SVG to Word" as a Keel capability — `openspec/specs/keel-md-docx-export/spec.md`. Updated by: 2.1.
+
+## Expectation Coverage
+
+- E1: The slash menu offers what a person runs. Skills are named once, the model-only ones are hidden, four everyday flows have commands, the export is gone, and a list says what exists (#464; D1–D5). Covered by: 1.1, 1.2, 1.3
+- E2: The release carries it. Covered by: 2.1

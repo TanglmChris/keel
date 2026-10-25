@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    portable_projection_bytes,
     HANDOFF_STUB,
     OPENSPEC_CONFIG_PATH,
     OPENSPEC_SURFACE_OVERLAY_START,
@@ -793,13 +794,113 @@ def validate_runtime_versions_are_checked_scenario() -> int:
 
 
 PLUGIN_SKILLS = (
-    "keel-align-expectations",
-    "keel-debug-failure",
-    "keel-handoff",
-    "keel-md-docx",
-    "keel-review-checklist",
-    "keel-tdd-or-test-first",
+    "align-expectations",
+    "debug-failure",
+    "handoff",
+    "review-checklist",
+    "tdd-or-test-first",
 )
+
+
+SLASH_SKILLS = ("align-expectations", "debug-failure", "handoff", "review-checklist", "tdd-or-test-first")
+MODEL_ONLY_SKILLS = ("debug-failure", "review-checklist", "tdd-or-test-first")
+
+
+def skill_frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    fields: dict[str, str] = {}
+    for line in (match.group(1).splitlines() if match else []):
+        key, _, value = line.partition(":")
+        if key and not key.startswith(" "):
+            fields[key.strip()] = value.strip().strip('"')
+    return fields
+
+
+def validate_slash_menu_ships_scenario() -> int:
+    """Issue #464 (owner, 2026-10-25): the slash menu offers what a person runs.
+
+    Every skill read as `/keel:keel-<name>`, and the three the protocol has the
+    model run at fixed points sat in the menu beside the two a person may want.
+    The skills drop the repeated prefix; the model-only ones declare
+    `user-invocable: false`; the others declare an `argument-hint`; and no
+    shipped file still names a skill the old way.
+    """
+    label = "slash-menu-ships:"
+    skills_root = ROOT / PLUGIN_ROOT / "skills"
+    found = sorted(entry.name for entry in skills_root.iterdir() if entry.is_dir())
+    if found != sorted(SLASH_SKILLS):
+        report(f"{label} the plugin's skills are {found!r}, not {sorted(SLASH_SKILLS)!r}.")
+        return 1
+    for name in SLASH_SKILLS:
+        fields = skill_frontmatter(skills_root / name / "SKILL.md")
+        if fields.get("name") != name:
+            report(f"{label} {name}/SKILL.md names itself {fields.get('name')!r}.")
+            return 1
+        hidden = fields.get("user-invocable") == "false"
+        if name in MODEL_ONLY_SKILLS and not hidden:
+            report(f"{label} {name} is the model's, yet does not declare `user-invocable: false`.")
+            return 1
+        if name not in MODEL_ONLY_SKILLS and hidden:
+            report(f"{label} {name} is a person's, yet declares `user-invocable: false`.")
+            return 1
+        if name not in MODEL_ONLY_SKILLS and not fields.get("argument-hint"):
+            report(f"{label} {name} stays in the menu without an `argument-hint`.")
+            return 1
+    # The old names, built here so this file does not name them itself. An
+    # archived evidence file keeps its name (`…-v1.md`), as does the
+    # `keel-handoff/v1` format.
+    prefix = "keel" + "-"
+    old = re.compile(re.escape(prefix) + r"(?:" + "|".join(re.escape(n) for n in SLASH_SKILLS if n != "handoff") + r")\b(?!-v\d)|"
+                     + re.escape(prefix) + r"handoff(?!/v1)(?!-)")
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, text=True, capture_output=True, check=True).stdout.split("\0")
+    stale = []
+    for relative in tracked:
+        if not relative or relative == "keel/CHANGELOG.md" or relative.startswith(("openspec/specs/", "openspec/changes/", "keel/archive/")):
+            continue
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            if old.search(path.read_text(encoding="utf-8")):
+                stale.append(relative)
+        except UnicodeDecodeError:
+            continue
+    if stale:
+        report(f"{label} these files still name a skill the old way: {stale!r}")
+        return 1
+    # The four everyday flows a person runs, each naming the keel command it orders.
+    commands_root = ROOT / PLUGIN_ROOT / "commands"
+    commands = sorted(path.stem for path in commands_root.glob("*.md"))
+    expected = {"context": "keel context", "start": "keel gate task-start", "done": "keel gate task-complete", "chat": "keel chat unread"}
+    if commands != sorted([*expected, "shift"]):
+        report(f"{label} the plugin's commands are {commands!r}, not {sorted([*expected, 'shift'])!r}.")
+        return 1
+    for name, command in expected.items():
+        if command not in (commands_root / f"{name}.md").read_text(encoding="utf-8"):
+            report(f"{label} commands/{name}.md does not name `{command}`.")
+            return 1
+    invocable = [*sorted([*expected, "shift"]), *(name for name in SLASH_SKILLS if name not in MODEL_ONLY_SKILLS)]
+    for doc in ("docs/commands.md", "docs/commands.zh-CN.md"):
+        path = ROOT / doc
+        if not path.is_file():
+            report(f"{label} {doc} does not exist.")
+            return 1
+        missing = [name for name in invocable if f"/keel:{name}" not in path.read_text(encoding="utf-8")]
+        if missing:
+            report(f"{label} {doc} does not list {', '.join(f'/keel:{name}' for name in missing)}.")
+            return 1
+    claude = shutil.which("claude")
+    if claude:
+        validated = subprocess.run([claude, "plugin", "validate", str(ROOT / PLUGIN_ROOT)], text=True, capture_output=True, timeout=120)
+        if validated.returncode != 0:
+            report(f"{label} `claude plugin validate` failed: {(validated.stdout + validated.stderr).strip()[-400:]}")
+            return 1
+    if "slash-menu-ships" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("slash-menu-ships scenario passed.")
+    return 0
 
 
 def strict_semver(version: str) -> bool:
@@ -885,7 +986,7 @@ def validate_native_plugin_manifests_scenario() -> int:
             report(f"native-plugin-manifests plugin copy of {skill_name} has {extra}, which the source does not")
             return 1
         for name in canonical_files:
-            if (plugin_dir / name).read_bytes() != (canonical_dir / name).read_bytes():
+            if portable_projection_bytes(plugin_dir / name) != (canonical_dir / name).read_bytes():
                 report(f"native-plugin-manifests plugin copy diverges from canonical source: {skill_name}/{name}")
                 return 1
     lenses_root = ROOT / "assets/lenses"
@@ -4353,8 +4454,8 @@ def validate_native_plugin_marketplaces_scenario() -> int:
         missing = [
             needle
             for needle in (
-                "keel-align-expectations",
-                "keel-review-checklist",
+                "align-expectations",
+                "review-checklist",
                 "SessionStart",
                 "PreToolUse",
             )

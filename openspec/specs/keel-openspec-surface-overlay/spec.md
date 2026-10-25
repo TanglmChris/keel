@@ -69,12 +69,12 @@ The apply overlay MUST direct the agent through the unchecked tasks of an approv
 
 ### Requirement: Archive surface binds archiving to its gate
 
-The archive overlay MUST state that archiving is gated by `keel gate change-close` and `keel-review-checklist`, and that follow-up ownership is verified before it. The overlay MUST direct the agent to consult the repository's standing authorization for the archive action rather than repeat a confirmation the owner already declared, and MUST NOT remove any confirmation the repository has not declared. It MUST NOT restrict what a subagent may do.
+The archive overlay MUST state that archiving is gated by `keel gate change-close` and `review-checklist`, and that follow-up ownership is verified before it. The overlay MUST direct the agent to consult the repository's standing authorization for the archive action rather than repeat a confirmation the owner already declared, and MUST NOT remove any confirmation the repository has not declared. It MUST NOT restrict what a subagent may do.
 
 #### Scenario: Archive overlay names its gate
 
 - **WHEN** a target archive skill or command entry is inspected
-- **THEN** the overlay names `keel gate change-close` and `keel-review-checklist`
+- **THEN** the overlay names `keel gate change-close` and `review-checklist`
 - **AND THEN** it contains no sentence limiting subagents to assessment or barring them from archiving
 
 #### Scenario: Archive overlay routes confirmation to the declaration
@@ -98,7 +98,7 @@ Keel MUST add one managed authoring overlay to OpenSpec propose surfaces for Cod
 #### Scenario: Codex propose surface receives alignment overlay
 - **WHEN** Keel initializes or refreshes the Codex target after this change
 - **THEN** the installed OpenSpec propose skill and applicable Codex command entry contain exactly one current Keel alignment overlay
-- **AND THEN** the overlay routes material ambiguity through `keel-align-expectations`
+- **AND THEN** the overlay routes material ambiguity through `align-expectations`
 
 #### Scenario: Claude propose surface receives alignment overlay
 - **WHEN** Keel initializes or refreshes the Claude target after this change
@@ -219,7 +219,7 @@ raising it to fit each addition removes the pressure that keeps it short.
 
 Keel MUST project its OpenSpec surface overlay onto the sync surface on every target that receives the overlay for propose, apply, and archive. A surface that performs a gated action MUST state the gate that governs it, because the agent performing the action reads that surface and may not be reading the protocol file at the same moment.
 
-The sync overlay MUST state that `keel gate change-close --action sync` and `keel-review-checklist` run before it completes, and that OpenSpec is invoked through `keel openspec`. It MUST also state that sync promotes the change's spec delta, so an archive that follows one uses `--skip-specs`. It MUST NOT restrict what a subagent may do.
+The sync overlay MUST state that `keel gate change-close --action sync` and `review-checklist` run before it completes, and that OpenSpec is invoked through `keel openspec`. It MUST also state that sync promotes the change's spec delta, so an archive that follows one uses `--skip-specs`. It MUST NOT restrict what a subagent may do.
 
 Keel MUST NOT add `sync` to the standing-authorization vocabulary as part of covering this surface. Naming the gate that governs an action and deciding whether a repository may authorize it once are separate.
 
@@ -230,7 +230,7 @@ Keel MUST NOT add `sync` to the standing-authorization vocabulary as part of cov
 
 #### Scenario: The sync overlay names the gate and the delta consequence
 - **WHEN** the sync overlay is read
-- **THEN** it names `keel gate change-close --action sync` and `keel-review-checklist`
+- **THEN** it names `keel gate change-close --action sync` and `review-checklist`
 - **AND THEN** it states that sync promotes the spec delta and that a following archive uses `--skip-specs`
 
 #### Scenario: Explore is deliberately uncovered

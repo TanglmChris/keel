@@ -54,7 +54,7 @@ artifacts:
       Ordinary narrative remains unnumbered.
       If authoring uncertainty or hidden-knowledge risk blocks design or task
       decisions, use risk-triggered deep alignment through
-      `keel-align-expectations` before finalizing design.md or tasks.md; it
+      `align-expectations` before finalizing design.md or tasks.md; it
       is not an execution, review, or export gate. Domain reference guidance may identify hidden-knowledge
       assumptions that belong in design.md, specs, or tasks. Compressed recovery
       context belongs in durable OpenSpec artifacts or archive evidence, not
@@ -200,5 +200,5 @@ apply:
     12. Modify only files listed under Touch. If modifying any other file is required, stop and report an Out-of-scope Need with file or area, why needed, consequence if unchanged, minimal proposed change, and evidence.
     13. Do not commit or push unless the selected task, a human instruction, or a standing authorization in `keel/config.yaml` allows it.
     14. After each iteration, compare Changed Files and command evidence with the selected task contract before checking tasks complete.
-    15. Run `keel-review-checklist` only at completion gates: after a complete task group, before `openspec-sync-specs` or `openspec-archive-change` for `openspec/changes/<change>/tasks.md`, before meaningful handoff, or when implementation reports risks, follow-ups, or out-of-scope need. No hook gates completion; running the gates is the agent's own step.
+    15. Run `review-checklist` only at completion gates: after a complete task group, before `openspec-sync-specs` or `openspec-archive-change` for `openspec/changes/<change>/tasks.md`, before meaningful handoff, or when implementation reports risks, follow-ups, or out-of-scope need. No hook gates completion; running the gates is the agent's own step.
     16. Before archive or handoff, unresolved follow-ups must be owned by current OpenSpec tasks, a new OpenSpec change, archive evidence, or an explicit discard reason.
