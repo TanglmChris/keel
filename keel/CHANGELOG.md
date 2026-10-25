@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.197.1 - The validation runner neither passes what it did not run nor flakes on load
+
+Issues #452 and #444, approved by the owner on 2026-10-25. These are Lite fixes to the shipped validation scripts.
+
+- **#444: several `--scenario` pairs run each scenario.** `validate_plugin.py --scenario a --scenario b` runs both and fails when either fails. Before, any argument list it did not recognize fell through to the baseline and exited 0, having run nothing that was asked for. Anything unrecognized, such as `--scenarios x`, `--scenario x --jobs 2`, or an unknown name, now exits 2 with a usage line. Only no arguments at all runs the baseline. New check: `runner-refuses-what-it-would-not-run`.
+- **#452: the `keel --update` scenarios no longer time out under the suite's own load.**
+  - `update-host-query-timeout`, `update-codex-from-disk`, and `update-host-query-retry` set a host-query limit of 2–4 s. Every stand-in host is a node program that must start inside that limit, and under the full suite's parallel load one sometimes did not. That happened on the 5.195.0, 5.196.1, and 5.197.0 candidates, even at load 1.5.
+  - The limit is now 12 s, and the hung stand-in sleeps 40 s.
+  - The three scenarios take about 50–80 s each instead of 15–20 s.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.197.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.197.0 - keel tick passes the patrol free disk and a declared quota
 
 Issue #456, approved by the owner on 2026-10-25. `keel patrol` reports low disk and weekly quota steps only when its caller passes the numbers, and `keel tick` passed neither. kaiwu-ip moved its patrol from a desktop host task to `keel tick` on 2026-10-22, because background CLI coordinators cannot create host tasks, and lost both risks. That machine has filled its disk before.

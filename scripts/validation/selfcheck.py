@@ -785,6 +785,40 @@ def validation_modules() -> list:
     ]
 
 
+def validate_runner_refuses_what_it_would_not_run_scenario() -> int:
+    """Issue #444: the runner never reports a pass for scenarios it did not run.
+
+    Several `--scenario NAME` pairs run each named scenario; anything it does
+    not recognize exits 2 with a usage line instead of falling through to the
+    baseline, which used to exit 0 having run nothing that was asked for.
+    """
+    label = "runner-refuses-what-it-would-not-run:"
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([sys.executable, str(ROOT / "scripts" / "validate_plugin.py"), *args],
+                              cwd=ROOT, text=True, capture_output=True, check=False, timeout=300)
+
+    both = run("--scenario", "version-alignment", "--scenario", "readme-zh-matches-english")
+    if both.returncode != 0:
+        report(f"{label} two passing scenarios exited {both.returncode}: {both.stdout!r} {both.stderr!r}")
+        return 1
+    for name in ("version-alignment", "readme-zh-matches-english"):
+        if f"{name} scenario passed" not in both.stdout:
+            report(f"{label} two --scenario pairs did not run {name}: {both.stdout!r}")
+            return 1
+    for args in (("--scenarios", "version-alignment"), ("--scenario", "version-alignment", "--jobs", "2"),
+                 ("--scenario", "version-alignment", "--scenario", "no-such-scenario")):
+        refused = run(*args)
+        if refused.returncode != 2:
+            report(f"{label} {' '.join(args)} exited {refused.returncode}, not 2: {refused.stdout!r}")
+            return 1
+        if "baseline validation passed" in refused.stdout:
+            report(f"{label} {' '.join(args)} fell through to the baseline: {refused.stdout!r}")
+            return 1
+    report("runner-refuses-what-it-would-not-run scenario passed.")
+    return 0
+
+
 def validate_validation_runner_scenario() -> int:
     if not getattr(registry, "SCENARIOS", None):
         report("validation-runner: the scenario registry is missing.")
