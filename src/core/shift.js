@@ -612,21 +612,24 @@ function keptCopyOf(where, role, transcript) {
   }
 }
 
-// After a delivered hand-over, the newest `keep` stopped background sessions in
-// the role's bound worktrees stay listed; each older one is removed with
-// `claude rm` once Keel's store holds its transcript (#397 D2). `claude rm`
-// leaves the host's transcript (F4). Only a session with a transcript, the
-// host's or Keel's copy, is a shift: one never given a prompt has neither, so
-// it takes no slot and stays (#401).
+// After a delivered hand-over or a resume, the newest `keep` stopped background
+// sessions of the role stay listed; each older one is removed with `claude rm`
+// once Keel's store holds its transcript (#397 D2). `claude rm` leaves the
+// host's transcript (F4). Only a session with a transcript, the host's or
+// Keel's copy, is a shift: one never given a prompt has neither, so it takes no
+// slot and stays (#401). A session is the role's when it ran in a bound
+// worktree, or when Keel keeps its transcript under the role: a renamed or
+// moved worktree leaves a `cwd` no binding names (#462 D2).
 function removeOldSessions(claude, where, entry, keep) {
   const bound = new Set(Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
     .filter(([, name]) => name === entry.role).map(([worktree]) => realpath(worktree)));
   const listed = listAgents(claude);
   if (!listed) return [];
   const { keptFile } = require("./chat/notice");
+  const roles = (row) => bound.has(realpath(row.cwd)) || fs.existsSync(keptFile(where, entry.role, `${row.sessionId}.jsonl`));
   const old = listed
-    .filter((row) => row && row.kind === "background" && !row.status && row.cwd && bound.has(realpath(row.cwd))
-      && row.sessionId && row.id !== entry.new_session)
+    .filter((row) => row && row.kind === "background" && !row.status && row.cwd && row.sessionId && roles(row)
+      && row.id !== entry.new_session)
     .map((row) => ({ row, transcript: hostTranscript(row.cwd, row.sessionId),
       kept: keptFile(where, entry.role, `${row.sessionId}.jsonl`) }))
     .filter(({ transcript, kept }) => transcript || fs.existsSync(kept))
@@ -1064,6 +1067,23 @@ function lastFetch(cwd) {
   }
 }
 
+// A takeover Keel did not carry out — a session opened by hand — removes the
+// old shift's sessions at resume, as a delivered hand-over does (#462 D1). It
+// asks the host only from a Claude Code session, for a note a CLI session
+// wrote, and not in the session a delivered hand-over started, which already
+// removed them.
+function removeAtResume(where, role, text) {
+  const old = String(text).match(/^CLI session: (\S+)\.$/m);
+  const current = process.env.CLAUDE_CODE_SESSION_ID || "";
+  if (!old || !process.env.CLAUDE_CODE_ENTRYPOINT) return [];
+  const queued = store.readJsonFile(queueFile(where, role));
+  if (queued && queued.state === "delivered" && queued.new_session && current.startsWith(queued.new_session)) return [];
+  const pid = String(text).match(/^CLI process: (\d+)\.$/m);
+  const entry = { role, session: old[1], pid: pid ? Number(pid[1]) : null, new_session: current.slice(0, 8) || null };
+  const { readShiftDeclaration } = require("./config");
+  return removeOldSessions(process.env.KEEL_CLAUDE || "claude", where, entry, readShiftDeclaration(where.worktree).keepOldSessions);
+}
+
 function resume(where, named = null) {
   const role = resumeRole(where, named);
   const note = waitingNote(where, role);
@@ -1087,7 +1107,7 @@ function resume(where, named = null) {
       ? store.post(where, { group, text, refs: [REF] })
       : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
-  return { role, note: history, text, told, waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree) };
+  return { role, note: history, text, told, removed: removeAtResume(where, role, text), waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree) };
 }
 
 function status(where) {
@@ -1557,7 +1577,10 @@ function runShift(argv) {
           ? `\n\nThis worktree is on ${merged.branch ? `\`${merged.branch}\`` : "a detached HEAD"}, already in ${merged.base} and `
             + `${merged.behind} commit${merged.behind === 1 ? "" : "s"} behind it: start new work from ${merged.base}.`
           : "";
-        out(result, `${result.text.replace(/\s+$/, "")}${commits}${stale}\n\n(The note moved to ${result.note}.)${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
+        const removed = (result.removed || []).length
+          ? `\n\nRemoved old sessions from claude agents: ${result.removed.join(", ")}; \`keel shift history ${result.role} --show <id>\` prints each.`
+          : "";
+        out(result, `${result.text.replace(/\s+$/, "")}${commits}${stale}\n\n(The note moved to ${result.note}.)${removed}${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;
       }
       case "history": {
