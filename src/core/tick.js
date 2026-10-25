@@ -231,6 +231,13 @@ function tick(where, now = new Date()) {
     };
   });
   result.patrol = result.patrols[0];
+  // Kept for `keel --doctor` every time, said only when it changes (#473 D2, D3).
+  if (issues) {
+    const latest = readState(where);
+    if (!latest.issues || latest.issues.state !== issues.state) result.issues = issues;
+    latest.issues = { state: issues.state, text: issues.text, at: store.isoLocal(now) };
+    store.writeJsonAtomic(where, stateFile(where), latest);
+  }
   return result;
 }
 
@@ -238,7 +245,8 @@ function render(result) {
   const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
   const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
   const quota = result.quota ? [`keel tick: ${result.quota.text}`] : [];
-  return [...handed, ...woke, ...quota, ...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
+  const issues = result.issues ? [`keel tick: ${result.issues.text}`] : [];
+  return [...handed, ...woke, ...quota, ...issues,...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
 }
 
 function renderPatrol(p) {

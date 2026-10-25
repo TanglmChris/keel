@@ -754,7 +754,7 @@ keel patrol --issues /tmp/issues.json        # 以协调者的角色运行
 完成的任务之后，而宿主会在一个任务之内做 compaction（#313）；以及当它用 `ready --wake` 留下的便条一直没被
 恢复时。不带 `--wake` 留下的便条——协调者搁置某个角色——不会被打扰，Keel 自己的消息也从不算作等待。
 
-带上 `--issues` 时，巡查还会分派 issue 更新（#242）：`keel/config.yaml` 里的 `issue_roles:` 把一个标签映射到
+带上 `--issues` 时（`keel tick` 会自己传），巡查还会分派 issue 更新（#242）：`keel/config.yaml` 里的 `issue_roles:` 把一个标签映射到
 一个角色，每个角色会为带着它标签的 issue 的每次更新收到一条私信——这样一个标为 `role:verify` 的交接无需第二条
 消息就能到达 `verify`。一个键也可以是用 ` + ` 连起来的一组标签（#433），只匹配同时带着这些标签的 issue，这样
 结构相同的几个团队就能共用能力标签。当一条匹配路由的标签是另一条的子集时，只有标签更多的那条的角色收到更新；
@@ -815,6 +815,12 @@ tick 还会把以前由宿主任务传的数字交给巡查（#456）。它测�
 # 在 ~/.claude/statusline-command.sh 里，把 JSON 读进 $input 之后
 echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' > ~/.claude/keel-quota.txt
 ```
+
+tick 会自己替巡查取 issue 状态（#473），所以 `issue_roles:` 分派和 `keel chat wait --issue <n> --closed`
+在 tick 下都能生效。声明了路由，或者有这样的等待未满足时，它运行 `gh issue list` 取最近更新的 100 个 issue，
+再对列表里没有的每个被等待的 issue 运行 `gh issue view`，把结果作为 `--issues` 传给巡查。和配额不同，这是 Keel
+自己执行的命令。没有任何东西需要 issue 时，不运行 `gh`。`gh` 不在、没登录或执行失败时，tick 说一次 issue 检查
+没有执行以及原因，`keel --doctor` 也会根据上一次 tick 打印一行 `issue checks`。
 
 ## 负责人的语言
 

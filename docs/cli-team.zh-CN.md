@@ -31,7 +31,7 @@
 
 ## 由 `keel tick` 跑巡检
 
-`keel tick` 是一个不调用模型的单步命令，由宿主调度器每隔几分钟调用一次。每次运行它会恢复已结束的会话（见上文），执行排队的换班交接（见下文），并且只在上一次巡检推荐的下次运行时间已过时，先 `git fetch`，再跑协调者的 `keel patrol --since-last --notify`。Keel 自己不做任何调度，重复运行由 launchd 负责。
+`keel tick` 是一个不调用模型的单步命令，由宿主调度器每隔几分钟调用一次。每次运行它会恢复已结束的会话（见上文），执行排队的换班交接（见下文），并且只在上一次巡检推荐的下次运行时间已过时，先 `git fetch`，再跑协调者的 `keel patrol --since-last --notify`。`issue_roles:` 声明了路由，或者有角色在等某个 issue 关闭时，它会先用 `gh` 取 issue 状态，作为 `--issues` 传给巡检，所以 `gh` 必须在这个任务的 `PATH` 上并且已登录；取不到时在 `tick/tick.log` 里说一次，`keel --doctor` 也会打印一行 `issue checks`（#473）。Keel 自己不做任何调度，重复运行由 launchd 负责。
 
 ```yaml
 patrol:

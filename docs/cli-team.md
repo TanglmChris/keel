@@ -31,7 +31,7 @@ A session that has ended — stopped, or its process gone — sees nothing. `kee
 
 ## The patrol, run by `keel tick`
 
-`keel tick` is one model-free step for a host scheduler to call every few minutes. On each run it resumes ended sessions (above), carries out queued shift hand-offs (below), and runs the coordinator's `keel patrol --since-last --notify` — after a `git fetch` — only once the previous patrol's recommended next run has passed. Keel schedules nothing: launchd recurs it.
+`keel tick` is one model-free step for a host scheduler to call every few minutes. On each run it resumes ended sessions (above), carries out queued shift hand-offs (below), and runs the coordinator's `keel patrol --since-last --notify` — after a `git fetch` — only once the previous patrol's recommended next run has passed. When `issue_roles:` declares a route or a role waits for an issue to close, it first fetches issue state with `gh` and passes it to the patrol as `--issues`, so `gh` must be on the job's `PATH` and logged in; a failed fetch is said once in `tick/tick.log`, and `keel --doctor` prints an `issue checks` line (#473). Keel schedules nothing: launchd recurs it.
 
 ```yaml
 patrol:

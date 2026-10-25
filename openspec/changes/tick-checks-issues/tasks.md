@@ -37,7 +37,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Say once in `keel tick` when issue checks are not run, and show it in `keel --doctor`
+- [x] 1.2 Say once in `keel tick` when issue checks are not run, and show it in `keel --doctor`
   - Covers:
     - keel-coordinator-patrol / The tick fetches issue state for the patrol when something needs it / A failed fetch is said once and shown by the doctor
     - D2
@@ -54,6 +54,7 @@
     - README.md
     - README.zh-CN.md
     - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
     - keel/config.yaml
   - Verify:
     - Strategy: vertical-tdd
@@ -63,18 +64,23 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:bdc4e4fd1b32054e257ca1722d3182f36ac84df49375484ad2012455840d33a9 (keel 5.204.0)
+    - M1: pass. `tick-reports-issue-checks scenario passed.` (exit 0).
+    - M1.red: fail. With 1.1's fetch and no state handling: `tick-reports-issue-checks: the first tick with gh failing does not say issue checks are not run and why: "keel tick: quota is not checked: …"` (exit 1).
+    - M1.green: pass.
+      - `fetchIssues` returns `failed` with each failing call named, such as `` `gh issue list` failed: gh: not logged in ``, and `gh is not on PATH` when it cannot start (D2).
+      - After the patrols run, the tick keeps `{state, text, at}` as `issues` in `tick/state.json` and prints the text only when the state differs from the recorded one (D2).
+      - `keel --doctor` prints `issue checks: not checked - <reason> (tick at <time>)`, `ok - last read by keel tick at <time>`, or `ok - nothing needs them`, and nothing when no tick recorded a state (D3).
+      - The READMEs, `docs/cli-team.md` and its Chinese twin, and the `issue_roles` comment in `keel/config.yaml` say the tick supplies `--issues` with `gh` (I3).
+    - M2: pass. `validation --group shift passed: 64 scenarios.` (exit 0). `readme-zh-matches-english`, `config-documents-in-declaration-order`, and `surfaces-agree-with-code` each passed on its own, and `assertion-shape-count` passed at 74 sites. `--group docs` also passed (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: through the real `keel tick` with a stub `gh` that fails, the first due tick says issue checks are not run and names `not logged in`, the second says nothing about them, and the real `keel --doctor` shows them not checked; once the stub succeeds the next tick says they were read.
+      - Scope check: `git status --short` lists `src/core/tick.js`, `bin/keel.js`, the two validation files, both READMEs, `docs/cli-team.md`, `docs/cli-team.zh-CN.md`, `keel/config.yaml`, and this change's directory.
+      - Findings: none.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations:
+      - 2026-10-26: Touch gains `docs/cli-team.zh-CN.md`, the Chinese twin of `docs/cli-team.md`, which I3 names through its English original and the authoring left out. No other contract field changed; task-start was re-run before any execution evidence was recorded.
 
 ## 2. Release
 

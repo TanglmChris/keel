@@ -1140,6 +1140,41 @@ def validate_tick_checks_issues_scenario() -> int:
     return 0
 
 
+def validate_tick_reports_issue_checks_scenario() -> int:
+    """Issue #473 D2, D3: a failed `gh` is said once, and `keel --doctor` shows it.
+
+    The tick says issue checks are not run, with the reason, when that state
+    first appears and again only when it changes.
+    """
+    label = "tick-reports-issue-checks:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-issue-state-") as raw:
+        base = Path(raw)
+        bin_dir, _log = stub_gh(base)
+        (bin_dir / "list.json").write_text("[]", encoding="utf-8")
+        (bin_dir / "fail").write_text("", encoding="utf-8")
+        repo, env, wt, state = tick_scopes_scratch(base / "repo", tail="issue_roles:\n  dev: dev-b\n")
+        env = {**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"}
+        first = due_tick(repo, env, wt, state)
+        if not any("issue checks are not run" in line and "not logged in" in line for line in first.stdout.splitlines()):
+            report(f"{label} the first tick with gh failing does not say issue checks are not run and why: {first.stdout!r}")
+            return 1
+        second = due_tick(repo, env, wt, state)
+        if any("issue checks" in line for line in second.stdout.splitlines()):
+            report(f"{label} the tick repeats an unchanged issue state: {second.stdout!r}")
+            return 1
+        doctor = run_keel(wt["dev-a"], "--doctor", str(wt["dev-a"]), env=env)
+        if not any("issue checks" in line and "not checked" in line for line in doctor.stdout.splitlines()):
+            report(f"{label} keel --doctor does not show issue checks as not checked: {doctor.stdout!r}")
+            return 1
+        (bin_dir / "fail").unlink()
+        third = due_tick(repo, env, wt, state)
+        if not any("issue checks" in line and "read" in line for line in third.stdout.splitlines()):
+            report(f"{label} once gh succeeds the tick does not say issue checks read: {third.stdout!r}")
+            return 1
+    report("tick-reports-issue-checks scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 
