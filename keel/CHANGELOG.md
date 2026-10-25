@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.201.0 - Wake now explains a session whose directory is gone
+
+Issue #465, decided by the owner on 2026-10-25. After the workspace was renamed from `~/my_github` to `~/my-github`, no role's ended CLI session could be woken. Presence and `claude agents` still recorded the old path, and Claude Code resumes a session only in the directory it ran in. `keel chat wake now` reported `claude was not found`, because the missing working directory made the spawn fail. Resumed by hand from the new path, the host answered `Workspace not trusted … could not be resolved on disk`. All 16 kaiwu-ip roles with a recorded session were recovered by hand, with a fork.
+
+- **`keel chat wake now` names the cause and the command.** When the directory a recorded session ran in no longer exists, it resumes nothing and exits nonzero. It prints the command that continues the conversation as a new session in the role's worktree: `cd <worktree> && claude --bg --fork-session --resume <id> -n "<role> · <time>" --permission-mode <mode> "<prompt>"`. Keel does not run it, because `wake now` stays a resume of the recorded session (owner, 2026-10-25).
+- **`keel tick` does not retry such a session** for the same record.
+- **`keel patrol` and `keel shift status` list such roles.** The patrol reports a risk naming `keel chat wake now <role>`. Status adds a `Sessions that cannot be resumed:` section, also returned as `unresumable` in `--json`.
+- **Checks.** The new `chat-wake-moved-worktree`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.201.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.200.0 - The bridge logs a repeating failure once and names a missing scope
 
 Issue #460, scheduled by the owner on 2026-10-25. On this Mac `~/.keel/chat/bridge/bridge.log` had 4431 lines, mostly copies of two. A project with no remote logged `this repository has no remote` at every 10-minute archive sync, 2944 times. Every reconnect logged `catch-up failed: … missing_scope`, 278 times, and none of those lines said which scope was missing.
