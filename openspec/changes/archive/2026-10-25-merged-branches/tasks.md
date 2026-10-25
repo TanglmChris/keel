@@ -147,7 +147,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and publish the new spec
+- [x] 2.1 Release and publish the new spec
   - Covers:
     - E2
   - Touch:
@@ -182,14 +182,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:5a5ae09907c822c5437b3b303d6dff2dc80808c8dbec0036528a9f295c7c224b (keel 5.203.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.203.0 → 5.204.0. With the section "keel branches: a role's merged task branches, listed and pruned under authorization" written, `version-alignment scenario passed.` (exit 0).
+    - M2: `openspec/specs/keel-merged-branches/spec.md` is published from the delta, with a Purpose section. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0). The `keel-standing-authorization` delta was already applied to the published spec in task 1.2.
+    - M3: pass. `npm test` on commit fbeaee58 (clean tree), started 23:50 at load 8.64: `validation --all passed: baseline plus 341 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0). The run before it, on 3329d10c, failed only `authored-scenario-names-are-registered`. That check read the 1.2 Evidence quote "validation --scenario passed" as a scenario named `passed`, and the line was reworded.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.204.0 section, and the new published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond tasks 1.1 to 1.3, the files are the version markers, `keel/CHANGELOG.md`, and `openspec/specs/keel-merged-branches/spec.md`, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
