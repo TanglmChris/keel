@@ -1,0 +1,171 @@
+# Tasks
+
+## 1. List, prune, point
+
+- [ ] 1.1 Declare trunks and kept branches, and list a role's merged task branches
+  - Covers:
+    - keel-merged-branches / Keel lists a role's merged task branches / Only merged, unused, owned, unkept branches are listed
+    - D1
+    - D2
+    - D3
+    - D7
+  - Read:
+    - openspec/changes/merged-branches/design.md
+    - src/core/config.js
+    - src/core/shift.js
+  - Touch:
+    - src/core/branches.js
+    - src/core/config.js
+    - bin/keel.js
+    - keel/config.yaml
+    - README.md
+    - README.zh-CN.md
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario branches-lists-merged`: in a scratch repository with a bare remote, `keel branches --json` for verify lists exactly `done-a` and `done-b`, on the local and remote sides, each with its sha and trunk; it lists none of `wip`, `kept`, `busy`, or `rtl-done`; and every ref is unchanged afterwards. Fails with: `branches-lists-merged: keel branches`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario config-documents-in-declaration-order --scenario a-count-is-derived-from-what-it-counts --scenario readme-states-the-cli --scenario readme-zh-matches-english --scenario assertion-shape-count` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - M1:
+    - M1.red:
+    - M1.green:
+    - M2:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 Prune under `delete-branch:merged`, with a record and restore commands
+  - Covers:
+    - keel-merged-branches / Pruning deletes only under the standing authorization / Without the declaration nothing is deleted
+    - keel-merged-branches / Pruning deletes only under the standing authorization / With the declaration the merged branches go, with a record
+    - D4
+  - Read:
+    - openspec/changes/merged-branches/design.md
+    - src/core/branches.js
+  - Touch:
+    - src/core/branches.js
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario branches-prune-under-authorization`: without `delete-branch:merged`, `keel branches prune` exits 3, names the declaration, and leaves every local and remote branch; with it, `done-a` and `done-b` are gone locally and on the bare remote, the others remain, `keel-chat/branches/deleted.jsonl` holds one line per deletion with its sha, and running the printed restore command recreates `done-a` at that sha. Fails with: `branches-prune-under-authorization: keel branches prune`
+    - M2 (regression): `--scenario branches-lists-merged` and `--scenario assertion-shape-count` pass.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - M1:
+    - M1.red:
+    - M1.green:
+    - M2:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.3 Point at merged branches from the shift check, resume, and doctor
+  - Covers:
+    - keel-merged-branches / Merged branches are pointed out, never deleted, elsewhere / The check points without failing
+    - D5
+    - D6
+  - Read:
+    - openspec/changes/merged-branches/design.md
+    - src/core/shift.js
+  - Touch:
+    - src/core/shift.js
+    - src/core/branches.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario branches-pointed-out`: with verify's two qualifying branches and nothing loose, `keel shift check` in verify's worktree exits 0 and names `keel branches` and `2`; `keel --doctor` prints a `branches:` line naming verify; and every branch still exists. Fails with: `branches-pointed-out: keel shift check`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, and so do `--group hosts --jobs 4` and `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - M1:
+    - M1.red:
+    - M1.green:
+    - M2:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and publish the new spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-merged-branches/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec publication. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: `openspec/specs/keel-merged-branches/spec.md` is published from the delta, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract:
+    - M1:
+    - M2:
+    - M3:
+    - Review:
+      - Status:
+      - Acceptance check:
+      - Scope check:
+      - Findings:
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Thirteen independent declarations live here" — `keel/config.yaml`'s header, which gains `branches`. Updated by: 1.1.
+
+## Expectation Coverage
+
+- E1: A role's merged task branches are listed with their sha, deleted only under `delete-branch:merged` with a record and restore commands, and pointed out at the shift check, resume, and doctor (#469; D1–D7). Covered by: 1.1, 1.2, 1.3
+- E2: The release carries it. Covered by: 2.1
