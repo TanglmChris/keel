@@ -211,9 +211,25 @@ function wakeStep(session, text) {
 // The prompt an ended CLI session resumes with: a pointer, never the work.
 const CLI_WAKE_PROMPT = "You have unread keel chat records; run keel context, then keel chat unread.";
 
+// The command that continues a session whose directory is gone in the role's
+// worktree (#465 D1). Keel prints it and never runs it (D3): a fork is a new
+// session with a new id, not a resume of the recorded one.
+function forkCommand(where, entry) {
+  const bound = where
+    ? Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
+      .filter(([worktree, name]) => name === entry.role && fs.existsSync(worktree)).map(([worktree]) => worktree)
+    : [];
+  const target = bound.length === 1 ? bound[0] : "<the role's worktree>";
+  const mode = bound.length === 1 ? require("../config").readShiftDeclaration(target).permissionMode : "auto";
+  const name = `${entry.role} · ${store.isoLocal(new Date()).slice(5, 16).replace("T", " ")}`;
+  const command = `cd ${target} && claude --bg --fork-session --resume ${entry.session} -n ${JSON.stringify(name)} --permission-mode ${mode} ${JSON.stringify(CLI_WAKE_PROMPT)}`;
+  return bound.length > 1 ? `${command}\n(the role is bound to ${bound.join(", ")}: use the one it works in)` : command;
+}
+
 // Resumes a role's recorded CLI session (#348 D3). Only `--bg --resume <id>`
-// and the prompt: any other flag starts a copy with a new session id.
-function resumeCli(entry) {
+// and the prompt: any other flag starts a copy with a new session id. A
+// session whose directory no longer exists resumes nothing (#465).
+function resumeCli(entry, where = null) {
   const claude = process.env.KEEL_CLAUDE || "claude";
   // A session `claude rm` removed is gone for good (#415 D4): when the host's
   // list can be read and lacks it, nothing is resumed. An unreadable list
@@ -221,18 +237,32 @@ function resumeCli(entry) {
   const listed = require("child_process").spawnSync(claude, ["agents", "--json", "--all"], {
     encoding: "utf8", timeout: 30 * 1000,
   });
+  let row = null;
   try {
     const rows = JSON.parse(listed.stdout);
-    if (!listed.error && listed.status === 0 && Array.isArray(rows)
-      && !rows.some((row) => row && row.sessionId === entry.session)) {
-      return {
-        ok: false,
-        removed: true,
-        output: `session ${entry.session} was removed: \`claude agents\` no longer lists it, so a new session must be started for the role in ${entry.worktree || "its worktree"}`,
-      };
+    if (!listed.error && listed.status === 0 && Array.isArray(rows)) {
+      row = rows.find((found) => found && found.sessionId === entry.session) || null;
+      if (!row) {
+        return {
+          ok: false,
+          removed: true,
+          output: `session ${entry.session} was removed: \`claude agents\` no longer lists it, so a new session must be started for the role in ${entry.worktree || "its worktree"}`,
+        };
+      }
     }
   } catch {
     // Not a list: fall through and resume.
+  }
+  // The host resumes a session only in the directory it registered, so one
+  // whose directory was renamed or removed cannot start (#465 F3).
+  const ran = (row && row.cwd) || entry.worktree;
+  if (ran && !fs.existsSync(ran)) {
+    return {
+      ok: false,
+      moved: true,
+      output: `session ${entry.session} ran in ${ran}, which no longer exists, and Claude Code resumes a session only in the directory it ran in. `
+        + `To continue its conversation as a new session in the role's worktree, run:\n${forkCommand(where, entry)}`,
+    };
   }
   const result = require("child_process").spawnSync(claude, ["--bg", "--resume", entry.session, CLI_WAKE_PROMPT], {
     cwd: entry.worktree || undefined, encoding: "utf8",
@@ -242,6 +272,16 @@ function resumeCli(entry) {
     return { ok: false, output: "claude was not found; put it on PATH or name it with KEEL_CLAUDE" };
   }
   return { ok: !result.error && result.status === 0, output: result.error ? result.error.message : output };
+}
+
+// Covered roles whose ended CLI session ran in a worktree that no longer
+// exists (#465 D4). Presence only: the patrol asks the host nothing.
+function movedSessionRisks(where, covers = () => true) {
+  const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
+  return roles.filter(covers).map((role) => asleep(where, role))
+    .filter((entry) => entry && entry.cli && entry.worktree && !fs.existsSync(entry.worktree))
+    .map((entry) => `${entry.role}'s CLI session ${entry.session} ran in ${entry.worktree}, which no longer exists, so it cannot be resumed; `
+      + `\`keel chat wake now ${entry.role}\` prints the command that continues it in the role's worktree`);
 }
 
 // --- parked roles (#316) ------------------------------------------------------------
@@ -729,6 +769,7 @@ module.exports = {
   unpark,
   wakeStep,
   resumeCli,
+  movedSessionRisks,
   twinWarning,
   check,
   bridgeLine,

@@ -706,8 +706,9 @@ function runWake(cwd, options) {
         out(`${role}'s CLI session ${presence.cli_session} is running; a record addressed to it wakes it, so nothing was resumed.`);
         return 0;
       }
-      const resumed = notice.resumeCli(entry);
+      const resumed = notice.resumeCli(entry, where);
       if (resumed.removed) throw new ChatError(`${role}'s recorded CLI ${resumed.output}.`);
+      if (resumed.moved) throw new ChatError(`${role}'s recorded CLI ${resumed.output}`);
       out(`${resumed.ok ? "Resumed" : "Could not resume"} ${role}'s CLI session ${entry.session} in ${entry.worktree}.${resumed.output ? `\n${resumed.output}` : ""}`);
       return resumed.ok ? 0 : 1;
     }

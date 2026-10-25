@@ -559,6 +559,8 @@ function runPatrol(argv) {
     if (quota) result.risks.push(quota);
     // A CLI hand-off that failed or hangs (#357 D4), of the roles this patrol covers.
     result.risks.push(...require("./shift").handOffRisks(where, Date.now(), (name) => name === role || options.coverage.covers(name)));
+    // An ended CLI session whose worktree is gone cannot be woken (#465 D4).
+    result.risks.push(...require("./chat/notice").movedSessionRisks(where, (name) => name === role || options.coverage.covers(name)));
     // Near the limit nudges stop, since each wakes a large session (D3).
     const quiet = options.quota !== null && options.quota >= options.quotaQuietAt;
     if (options.nudge && quiet) result.paused = `nudges paused: quota at ${options.quota}%`;
