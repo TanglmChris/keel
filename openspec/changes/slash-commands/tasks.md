@@ -161,7 +161,7 @@
     - Reauthorizations:
       - 2026-10-25: Touch gains `scripts/validation/registry.py`, which registers M1's new `slash-menu-ships` and was left out when the Touch list was generated from the files naming the old skills. No other contract field changed, and task-start was re-run for the new fingerprint.
 
-- [ ] 1.3 Add `/keel:context`, `/keel:start`, `/keel:done`, and `/keel:chat`, and list every command
+- [x] 1.3 Add `/keel:context`, `/keel:start`, `/keel:done`, and `/keel:chat`, and list every command
   - Covers:
     - keel-native-plugin-package / The slash menu offers what a person runs / The plugin ships the renamed skills and the new commands
     - D4
@@ -187,16 +187,19 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:fb6e7dce1d9dea6a06dff855871e13271a514c578456374cfbb9836891269500 (keel 5.201.0)
+    - M1: pass. `slash-menu-ships scenario passed.` (exit 0). With `claude` at `/Users/my_home_mac/.local/bin/claude` on PATH, the scenario's `claude plugin validate plugins/keel` ran; run by hand, it printed `✔ Validation passed`.
+    - M1.red: fail. Before the change: `slash-menu-ships: the plugin's commands are ['shift'], not ['chat', 'context', 'done', 'shift', 'start'].` (exit 1).
+    - M1.green: pass.
+      - `plugins/keel/commands/` gains `context.md`, `start.md`, `done.md`, and `chat.md`. Each orders the steps of `keel context`, `keel gate task-start`, `keel gate task-complete` with the review checklist, and `keel chat unread` (D4). `start` and `done` take `[change] [task]` as `$ARGUMENTS`.
+      - `docs/commands.md` and `docs/commands.zh-CN.md` list the five commands, the two user-invocable skills, the three model-only skills, and what was retired.
+      - Both READMEs link to the list.
+    - M2: pass. `docs-zh-match-english scenario passed.`, `readme-zh-matches-english scenario passed.`, and `assertion-shape-count scenario passed: 74 sites`.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: the packaged plugin's commands are exactly the five, and each new one names the `keel` command it orders. Both command lists name every command and user-invocable skill as `/keel:<name>`, and the host's own `claude plugin validate` accepts the plugin. What a command makes the model do is a prompt, and no deterministic check can run it. The check proves what ships and that the host accepts it.
+      - Scope check: the changed paths are the four command files, the two `docs/commands*.md`, both READMEs, `scripts/validation/hosts.py`, and this change's `tasks.md`, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

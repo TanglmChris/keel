@@ -869,6 +869,33 @@ def validate_slash_menu_ships_scenario() -> int:
     if stale:
         report(f"{label} these files still name a skill the old way: {stale!r}")
         return 1
+    # The four everyday flows a person runs, each naming the keel command it orders.
+    commands_root = ROOT / PLUGIN_ROOT / "commands"
+    commands = sorted(path.stem for path in commands_root.glob("*.md"))
+    expected = {"context": "keel context", "start": "keel gate task-start", "done": "keel gate task-complete", "chat": "keel chat unread"}
+    if commands != sorted([*expected, "shift"]):
+        report(f"{label} the plugin's commands are {commands!r}, not {sorted([*expected, 'shift'])!r}.")
+        return 1
+    for name, command in expected.items():
+        if command not in (commands_root / f"{name}.md").read_text(encoding="utf-8"):
+            report(f"{label} commands/{name}.md does not name `{command}`.")
+            return 1
+    invocable = [*sorted([*expected, "shift"]), *(name for name in SLASH_SKILLS if name not in MODEL_ONLY_SKILLS)]
+    for doc in ("docs/commands.md", "docs/commands.zh-CN.md"):
+        path = ROOT / doc
+        if not path.is_file():
+            report(f"{label} {doc} does not exist.")
+            return 1
+        missing = [name for name in invocable if f"/keel:{name}" not in path.read_text(encoding="utf-8")]
+        if missing:
+            report(f"{label} {doc} does not list {', '.join(f'/keel:{name}' for name in missing)}.")
+            return 1
+    claude = shutil.which("claude")
+    if claude:
+        validated = subprocess.run([claude, "plugin", "validate", str(ROOT / PLUGIN_ROOT)], text=True, capture_output=True, timeout=120)
+        if validated.returncode != 0:
+            report(f"{label} `claude plugin validate` failed: {(validated.stdout + validated.stderr).strip()[-400:]}")
+            return 1
     if "slash-menu-ships" not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} scenario is not registered.")
         return 1

@@ -182,7 +182,8 @@ model toward or away from using one (#414).
 
 Do the spec work through OpenSpec's workflow skills (`openspec-propose`, `openspec-apply-change`,
 `openspec-sync-specs`, `openspec-archive-change`); Keel generates them as skills only, with no OpenSpec
-slash commands (#406). Keel's gates run at the task boundaries. The whole loop:
+slash commands (#406). Keel's own commands and the skills a person can invoke are listed in
+[docs/commands.md](docs/commands.md). Keel's gates run at the task boundaries. The whole loop:
 
 ```
 keel --init  →  keel context  →  openspec-apply-change (tasks in order)

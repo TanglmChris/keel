@@ -155,7 +155,8 @@ overlay 状态，所以 Claude 一侧正常不会掩盖 Codex overlay 的缺失�
 agent 复跑，也不引导模型去用或不用它（#414）。
 
 spec 相关的活走 OpenSpec 的工作流 skill（`openspec-propose`、`openspec-apply-change`、`openspec-sync-specs`、
-`openspec-archive-change`）；Keel 只生成 skill，不生成 OpenSpec 斜杠命令（#406）。Keel 的门禁在任务边界处运行。整个回路：
+`openspec-archive-change`）；Keel 只生成 skill，不生成 OpenSpec 斜杠命令（#406）。Keel 自己的命令和可以手动调用的技能列在
+[docs/commands.zh-CN.md](docs/commands.zh-CN.md)。Keel 的门禁在任务边界处运行。整个回路：
 
 ```
 keel --init  →  keel context  →  openspec-apply-change（按顺序做 task）
