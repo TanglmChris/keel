@@ -81,7 +81,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -116,15 +116,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:1e57636633419477618d4cefdd2a060593baa1083161ae38f437e0a8c1821458 (keel 5.205.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.205.0 → 5.206.0. With the section "A standing patrol risk reaches the coordinator once; parked roles stay quiet; `keel chat role --unset`" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirements are appended to `openspec/specs/keel-coordinator-patrol/spec.md` and `openspec/specs/keel-cross-host-mailbox/spec.md`, and `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`: `validation --all passed: baseline plus 345 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the release carries both tasks' behavior, the markers agree at 5.206.0, both promoted specs validate strictly, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the two published specs, and this change's directory, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 

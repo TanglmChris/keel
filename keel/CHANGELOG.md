@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.206.0 - A standing patrol risk reaches the coordinator once; parked roles stay quiet; `keel chat role --unset`
+
+Issue #476, approved by the owner on 2026-10-26. From 00:15 to 07:15 that night, keel-maint's tick patrol sent its coordinator the same risk every 30 minutes, 15 times. The risk was keel-maint-2's CLI session in a directory the 10-25 workspace rename removed. Nothing changed between runs, and every message woke the coordinator.
+
+- **A standing risk is sent once.** A failed or stuck CLI hand-off and an ended session whose directory is gone are standing risks. Under `keel patrol --since-last`, the snapshot keeps their texts as `standing`, and a risk counts, and is sent by `--notify`, only when its text was not there on the previous run. That is when it first appears (on a first run too), when it changes, or when it returns after clearing. While it lasts it is printed as `risk (sent before): …`, and it does not make the run exit 2. Nothing reminds the coordinator later, as with the disk and checkout risks. A run without `--since-last` reports every risk, as before.
+- **A parked role's gone session is not reported.** `keel patrol` and `keel shift status` skip a role whose park is in effect, as `keel chat role` already said they would. Hand-off risks still report a parked role.
+- **`keel chat role --unset`** removes the binding of the worktree it runs in, or of the one `--repo` names, while that worktree still exists. It prints `Unbound <role> from <worktree>.`. The role's other state stays. `--prune` still drops only bindings to removed worktrees.
+- **Checks.** The new `patrol-standing-risk-once` and `chat-role-park-and-unset`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.206.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.205.0 - keel tick fetches issue state for the patrol
 
 Issue #473, approved by the owner on 2026-10-26, who chose to have the tick run `gh` itself. `keel tick` ran the patrol without `--issues`, so under it no `issue_roles:` update was routed and every `keel chat wait --issue <n> --closed` stayed unchecked. In kaiwu-ip this went unseen from 2026-10-22, when its patrol moved to the tick, until 2026-10-25.
