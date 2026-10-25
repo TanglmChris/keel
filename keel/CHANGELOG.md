@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.203.0 - A reply reaches the role it answers
+
+Issue #468, approved by the owner on 2026-10-25. In kaiwu-ip, verify answered PM's request with `--reply-to` and without `@kaiwu-pm-iecc`. The record carried `reply_to` and no mentions, so PM's idle session was never woken, and PM learned of the answer only when the owner asked.
+
+- **A reply mentions the author it answers.** `keel chat post … --reply-to <id>` adds the answered record's author to the reply's `mentions` when that author is another member of the group, as if the text had written `@role`. The notice, the hooks, `notice --check`, the waker, the patrol, and acknowledgements all treat the reply as addressed. A reply to one's own record adds nothing. The mention is written into the record, so an older Keel reading the store honors it too.
+- **Checks.** The new `chat-reply-addresses-author`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.203.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.202.0 - Slash commands: skills named once, model-only ones hidden, four new commands, export retired
 
 Issue #464, scoped by the owner on 2026-10-25.
