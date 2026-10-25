@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Thirteen independent declarations live here, each documented below in this
+# Fourteen independent declarations live here, each documented below in this
 # order: fast_check, which names a command; authorize, which names repository
 # actions this project has decided may proceed without being asked each time;
 # precedents, which points at a directory of decisions already made and the
@@ -14,8 +14,9 @@
 # issue_roles, which names the chat role each issue label routes to; patrol,
 # which names the role that runs `keel patrol` and how often; shift, which
 # names how a CLI hand-over starts the new session and how many old ones stay
-# listed; and owner_language, which names the language every message to the
-# owner is written in.
+# listed; branches, which names the trunks a task branch counts as merged into
+# and the branches never to delete; and owner_language, which names the
+# language every message to the owner is written in.
 
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -327,6 +328,23 @@ patrol:
 #   shift:
 #     permission_mode: auto
 #     keep_old_sessions: 1
+#
+# This repository declares none.
+
+# branches (optional): which of a role's task branches count as merged (#469).
+# The remote default branch is always a trunk; `trunk:` names more, such as a
+# team's integration branch, each read as origin/<name>. `keep:` names branch
+# globs never to delete (`*` within a `/` segment, `**` across them).
+# `keel branches` lists the role's branches merged into a trunk, checked out
+# nowhere, and checked out before in a worktree bound to the role; it fetches
+# and deletes nothing.
+#
+# Example:
+#   branches:
+#     trunk:
+#       - cbb_open
+#     keep:
+#       - release/**
 #
 # This repository declares none.
 

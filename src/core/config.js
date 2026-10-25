@@ -167,6 +167,7 @@ const CONFIG_DECLARATIONS = [
   "issue_roles",
   "patrol",
   "shift",
+  "branches",
   "owner_language",
 ];
 
@@ -1099,6 +1100,34 @@ function readShiftDeclaration(repo) {
   return { permissionMode, keepOldSessions, message: messages.length ? messages.join(" ") : null };
 }
 
+// `branches:` (#469 D1, D7): `trunk:` names the branches beyond the remote
+// default that count as merged into, and `keep:` the branch globs never to
+// delete. A line Keel cannot read is named rather than skipped.
+function readBranchesDeclaration(repo) {
+  const block = configBlockLines(repo, "branches");
+  const declared = { trunk: [], keep: [], message: null };
+  if (!block) return declared;
+  if (block.inline) {
+    declared.message = "keel/config.yaml `branches:` is written inline; give `trunk:` and `keep:` as indented lists.";
+    return declared;
+  }
+  let current = null;
+  for (const line of block.lines) {
+    const key = line.match(/^\s+(trunk|keep)\s*:\s*$/);
+    if (key) {
+      current = key[1];
+      continue;
+    }
+    const item = line.match(/^\s+-\s*(\S+)\s*$/);
+    if (item && current) {
+      declared[current].push(item[1]);
+      continue;
+    }
+    declared.message = `keel/config.yaml \`branches:\` has a line Keel cannot read: \`${line.trim()}\`; it lists only \`trunk:\` and \`keep:\` entries.`;
+  }
+  return declared;
+}
+
 function durationSeconds(value) {
   const match = String(value || "").match(/^(\d+)([smhd])$/);
   return match ? Number(match[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[match[2]] : null;
@@ -1123,6 +1152,7 @@ module.exports = {
   readPatrolDeclaration,
   readPatrolDeclarations,
   readShiftDeclaration,
+  readBranchesDeclaration,
   durationSeconds,
   patrolReminder,
   readIssueRoles,

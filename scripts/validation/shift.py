@@ -5255,3 +5255,89 @@ def validate_memory_rule_reaches_every_repo_scenario() -> int:
         return 1
     report(f"{label.rstrip(':')} scenario passed.")
     return 0
+
+
+def branches_scratch(base: Path) -> tuple[Path, Path, dict, Path]:
+    """Issue #469's branch shapes, each pushed to a bare remote.
+
+    verify's worktree checks out `done-a` (merged into main), `done-b` (merged
+    only into the declared trunk `integ`), `wip` (not merged), `kept` (merged,
+    kept by declaration) and `busy` (merged, checked out in another worktree);
+    rtl's alone checks out `rtl-done` (merged). verify ends on its own branch.
+    """
+    rtl, verify, env, remote = shift_scratch(base)
+
+    def git(cwd: Path, *args: str) -> str:
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+    def branch(cwd: Path, name: str, home: str) -> None:
+        git(cwd, "switch", "-q", "-c", name, "main")
+        write_text(cwd / f"{name}.txt", f"{name}\n")
+        git(cwd, "add", f"{name}.txt")
+        git(cwd, "commit", "-q", "-m", name)
+        git(cwd, "push", "-q", "-u", "origin", name)
+        git(cwd, "switch", "-q", home)
+
+    write_text(verify / "keel" / "config.yaml", "branches:\n  trunk:\n    - integ\n  keep:\n    - kept\n")
+    git(verify, "add", "keel/config.yaml")
+    git(verify, "commit", "-q", "-m", "declare trunks")
+    git(verify, "push", "-q", "origin", "HEAD")
+    for name in ("done-a", "done-b", "wip", "kept", "busy"):
+        branch(verify, name, "verify")
+    branch(rtl, "rtl-done", "main")
+    for name in ("done-a", "kept", "busy", "rtl-done"):
+        git(rtl, "merge", "-q", "--no-ff", "--no-edit", name)
+    git(rtl, "push", "-q", "origin", "main")
+    git(rtl, "push", "-q", "origin", "done-b:refs/heads/integ")
+    git(rtl, "fetch", "-q", "origin")
+    git(rtl, "worktree", "add", "-q", str(base / "busy-tree"), "busy")
+    return rtl, verify, env, remote
+
+
+def all_refs(cwd: Path) -> str:
+    return subprocess.run(["git", "for-each-ref", "--format=%(refname) %(objectname)"], cwd=cwd,
+                          check=True, capture_output=True, text=True).stdout
+
+
+def validate_branches_lists_merged_scenario() -> int:
+    """Issue #469: a role's merged task branches are listed, with their sha, and nothing is touched.
+
+    kaiwu-ip's branches piled up to 110 on 2026-10-19 because nothing told a
+    session which of its branches were merged and unused. `keel branches`
+    lists exactly those, on both sides, and fetches and deletes nothing.
+    """
+    label = "branches-lists-merged:"
+    with tempfile.TemporaryDirectory(prefix="keel-branches-469-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _remote = branches_scratch(base)
+        before = all_refs(verify)
+        listed = run_keel(verify, "branches", "--json", env=env)
+        if listed.returncode != 0:
+            report(f"{label} keel branches exited {listed.returncode}: {listed.stderr!r}")
+            return 1
+        try:
+            result = json.loads(listed.stdout)
+        except json.JSONDecodeError:
+            report(f"{label} keel branches --json printed no JSON: {listed.stdout!r}")
+            return 1
+        got = sorted((b["side"], b["branch"]) for b in result.get("branches", []))
+        want = sorted((side, name) for side in ("local", "remote") for name in ("done-a", "done-b"))
+        if got != want:
+            report(f"{label} keel branches lists {got!r}, not {want!r}.")
+            return 1
+        for b in result["branches"]:
+            if not re.fullmatch(r"[0-9a-f]{40}", b.get("sha", "")):
+                report(f"{label} {b['side']} {b['branch']} carries no sha: {b!r}")
+                return 1
+        trunks = {b["branch"]: b["trunk"] for b in result["branches"]}
+        if trunks.get("done-a") != "origin/main" or trunks.get("done-b") != "origin/integ":
+            report(f"{label} the trunks named are {trunks!r}, not done-a in origin/main and done-b in origin/integ.")
+            return 1
+        if all_refs(verify) != before:
+            report(f"{label} keel branches changed a ref.")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0

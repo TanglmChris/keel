@@ -1035,6 +1035,9 @@ keel tick [--json] | keel tick task                # one step; print the launchd
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
+# A role's merged task branches: listed with their sha; fetches and deletes nothing
+keel branches [repo] [--role <role>] [--json]
+
 # Install / maintenance
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]

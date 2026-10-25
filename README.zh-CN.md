@@ -872,6 +872,9 @@ keel tick [--json] | keel tick task                # 执行一步；打印 launc
 keel agents [name] [--json]
 keel agents brief <name> --mode helper|implementation --dir <path> --out <file>
 
+# 本角色已合入的任务分支：列出分支和 sha；不 fetch，也不删除
+keel branches [repo] [--role <role>] [--json]
+
 # 安装 / 维护
 keel --init    [--target <t>] [--dry-run] [--force-template-update]
 keel --install [--target <t>] [--dry-run] [--force-template-update] [--with-git-hooks]

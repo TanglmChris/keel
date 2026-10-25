@@ -96,6 +96,7 @@ Usage:
   keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
+  keel branches [repo] [--role <role>] [--json]   (a role's merged task branches, with their sha; fetches and deletes nothing)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
@@ -3231,6 +3232,10 @@ function main() {
   // `keel agents` likewise: the external model CLI catalog (#219).
   if (process.argv[2] === "agents") {
     return require("../src/core/agents").runAgents(process.argv.slice(3));
+  }
+  // `keel branches` likewise: a role's merged task branches (#469).
+  if (process.argv[2] === "branches") {
+    return require("../src/core/branches").runBranches(process.argv.slice(3));
   }
   // `keel docx` was Markdown with SVG to Word (#405). It is retired (#464 D3),
   // and the word stays known so a caller learns where the export went.

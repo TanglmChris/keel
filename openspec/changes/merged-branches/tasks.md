@@ -2,7 +2,7 @@
 
 ## 1. List, prune, point
 
-- [ ] 1.1 Declare trunks and kept branches, and list a role's merged task branches
+- [x] 1.1 Declare trunks and kept branches, and list a role's merged task branches
   - Covers:
     - keel-merged-branches / Keel lists a role's merged task branches / Only merged, unused, owned, unkept branches are listed
     - D1
@@ -30,16 +30,27 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M1.red:
-    - M1.green:
-    - M2:
+    - Contract: keel-task-capsule/v1 sha256:7dc644dfd74d717f8585fcb2a4d4bf1520a22fb60dec9403218ebe8a6851b353 (keel 5.203.0)
+    - M1: pass. `branches-lists-merged scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `branches-lists-merged: keel branches exited 2: 'keel: selection and JSON options apply only to keel context or keel gate\nRun keel --help for usage.\n'` (exit 1). The fixture had built every branch shape, and `keel branches` did not exist.
+    - M1.green: pass.
+      - New `src/core/branches.js`, whose `merged()` applies D2:
+        - (a) the tip is an ancestor of a trunk ref;
+        - (b) the branch is not a trunk;
+        - (c) no worktree has it checked out;
+        - (d) a `checkout: moving from … to …` entry in the HEAD reflog of a worktree bound to the role names it;
+        - (e) it matches no keep glob.
+      - It judges the local and remote sides separately. The trunks are `origin/HEAD`, or else `origin/main` or `origin/master`, plus the declared `trunk:` names (D1).
+      - `keel branches [repo] [--role] [--json]` prints the result, fetches nothing, and names the last fetch time (D3).
+      - `readBranchesDeclaration` lives in `src/core/config.js`. `branches` joins `CONFIG_DECLARATIONS` after `shift`, and `keel/config.yaml` documents it, with the header now reading "Fourteen" (D7).
+      - Both READMEs and `keel --help` name the command.
+      - The first green run failed on `configBlockLines is not a function`, because the reader sat in `branches.js` and called an unexported helper. It was moved into `config.js` beside the other declaration readers.
+    - M2: pass. `config-documents-in-declaration-order`, `a-count-is-derived-from-what-it-counts`, `readme-states-the-cli`, `readme-zh-matches-english`, and `assertion-shape-count` each reported `scenario passed`. The first run of the four document checks named exactly what was missing: the order, the header, and both READMEs.
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: through the real `keel branches --json` in verify's worktree on a fixture with a bare remote, exactly `done-a` (in `origin/main`) and `done-b` (in the declared `origin/integ`) are listed, on both sides, with 40-hex shas. None of these is listed: `wip` (not merged), `kept` (keep glob), `busy` (checked out elsewhere), or `rtl-done` (another role's). `git for-each-ref` is unchanged.
+      - Scope check: the changed paths are `src/core/branches.js` (new), `src/core/config.js`, `bin/keel.js`, `keel/config.yaml`, `README.md`, `README.zh-CN.md`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, and this change's `tasks.md`, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
