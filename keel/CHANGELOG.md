@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.198.0 - keel --update reports the CLI the global prefix actually holds
+
+Issue #459, approved by the owner on 2026-10-25. Right after 5.197.1 was released, `keel --update` printed `cli: updated 5.196.1 -> 5.197.1`, while `keel --version` and `npm ls -g` both read 5.197.0. The line took its "from" version from the copy of keel that was running, and its "to" version from the packed tarball's name whenever `npm install -g` exited 0. Nothing read what was installed.
+
+- **The versions on the CLI line now come from the global prefix.** Both the before and after versions are read from `<npm root -g>/@christang/keel/package.json`, before packing and after installing.
+- **An install that did not take reads `failed`.** When `npm install -g` exits 0 but the prefix holds a version other than the packed one, the CLI line names the file and the version it holds, and the command exits nonzero.
+- **An unreadable prefix is reported as unverified.** When the prefix cannot be read, the line keeps its wording and adds `not verified: <why>`.
+- **The cause of the original occurrence is still unknown.** npm's debug logs had rotated out. If it happens again, it now reads `failed`.
+- **Checks.** The new `update-verifies-installed-cli`; `update-pack-install` and `update-covers-installed-hosts` now assert the two `npm root -g` reads.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.198.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.197.1 - The validation runner neither passes what it did not run nor flakes on load
 
 Issues #452 and #444, approved by the owner on 2026-10-25. These are Lite fixes to the shipped validation scripts.
