@@ -49,7 +49,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E2
   - Touch:
@@ -84,14 +84,14 @@
     - Pre-authorized fallback: none
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:ca6344ea177577f6938f03d0a31ee324e73774ca8f26407a93725f04b82d5a49 (keel 5.199.0)
-    - M1:
-    - M2:
-    - M3:
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.199.0 → 5.200.0. With the section "The bridge logs a repeating failure once and names a missing scope" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement "The bridge logs a repeating failure once and names a missing scope" is promoted into `keel-chat-slack-bridge`. `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` on commit 42888a6d (clean tree), started 19:06 at load 8.43: `validation --all passed: baseline plus 337 scenarios, 2 skipped: output-survives-the-pipe, docx-converts-markdown-with-svg.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: E2. The markers, the 5.200.0 section, and the published spec carry the change, and the full suite passes on the committed tree.
+      - Scope check: beyond task 1.1, the files are the version markers, `keel/CHANGELOG.md`, and the published spec, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
