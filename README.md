@@ -908,7 +908,7 @@ at that task boundary — with `keel shift ready --wake` if another todo is stil
 within one (#313); and when a note it filed with `ready --wake` was never resumed. A note filed without `--wake` — a coordinator parking a role — is left alone, and
 Keel's own messages never count as waiting.
 
-With `--issues`, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
+With `--issues`, which `keel tick` supplies itself, patrol also routes issue updates (#242): `issue_roles:` in `keel/config.yaml`
 maps a label to a role, and each role gets one direct message per update of an issue carrying its
 label — so a handoff labelled `role:verify` reaches `verify` without a second message. A key may
 name a set of labels joined by ` + ` (#433), which matches an issue carrying all of them, so teams of
@@ -978,6 +978,14 @@ that owns repository-wide risks reports them.
 # in ~/.claude/statusline-command.sh, after reading the JSON into $input
 echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' > ~/.claude/keel-quota.txt
 ```
+
+The tick fetches issue state for the patrol itself (#473), so `issue_roles:` routing and
+`keel chat wait --issue <n> --closed` work under it. When a route is declared or such a wait is open,
+it runs `gh issue list` for the 100 most recently updated issues, and `gh issue view` for each waited
+issue that list left out, and passes the result as `--issues`. Unlike quota, this is a command Keel
+runs. When nothing needs issues, no `gh` runs. When `gh` is missing, not logged in, or fails, the tick
+says once that issue checks are not run, and why, and `keel --doctor` prints an `issue checks` line
+from the last tick.
 
 ## The owner's language
 

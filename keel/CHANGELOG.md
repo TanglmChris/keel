@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.205.0 - keel tick fetches issue state for the patrol
+
+Issue #473, approved by the owner on 2026-10-26, who chose to have the tick run `gh` itself. `keel tick` ran the patrol without `--issues`, so under it no `issue_roles:` update was routed and every `keel chat wait --issue <n> --closed` stayed unchecked. In kaiwu-ip this went unseen from 2026-10-22, when its patrol moved to the tick, until 2026-10-25.
+
+- **The tick fetches issue state when something needs it.** That is when `issue_roles:` declares a readable route, or a chat group holds an open `issue #<n> closed` wait. Then, once per step and before the first due patrol, it runs `gh issue list --state all --search "sort:updated-desc" --limit 100 --json number,title,state,labels,updatedAt`. For each waited issue that list left out, it runs `gh issue view <n>` with the same fields. It writes `tick/issues.json` in the chat store and passes it to every patrol it runs as `--issues`. When nothing needs it, no `gh` runs. Unlike quota (#456), this is a command Keel runs.
+- **A failed fetch is said, once.** When `gh` is missing, not logged in, or fails, the tick prints `issue checks are not run: …` with the reason, and says it again only when the state changes. Whatever was read is still passed. The tick keeps the state in `tick/state.json`, and `keel --doctor` prints an `issue checks` line from it.
+- **Docs.** Both READMEs, `docs/cli-team.md` and its Chinese twin, and the `issue_roles` comment in `keel/config.yaml` now say the tick supplies `--issues`. `gh` must be on the launchd job's `PATH`.
+- **Checks.** The new `tick-checks-issues` and `tick-reports-issue-checks`, both run through the real `keel tick` with a stub `gh`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.205.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.204.0 - keel branches: a role's merged task branches, listed and pruned under authorization
 
 Issue #469, approved by the owner on 2026-10-25, who also settled its design. Task branches piled up after their work was merged: kaiwu-ip had 110 remote branches on 2026-10-19, and a coordinating session cleaned up by hand afterwards and still missed some.

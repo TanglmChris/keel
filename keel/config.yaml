@@ -269,6 +269,8 @@ external_agents:
 
 # issue_roles (optional): `keel patrol --issues <gh output>` sends the role a
 # label names one direct message per update of an issue carrying it (#242).
+# `keel tick` fetches that output with `gh` itself when a route is declared
+# (#473).
 # One `<label>: <role>` per line; a label may contain a colon. A key may
 # name a set of labels joined by ` + ` (#433), matching an issue that carries
 # all of them; when one matching route's labels are a subset of another's,
