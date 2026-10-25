@@ -2496,6 +2496,7 @@ function runDoctor(options) {
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
   printChatRoleDrift(repo);
+  printTickIssueChecks(repo);
   printMergedBranches(repo);
   printLaunchdJobs();
 
@@ -2523,6 +2524,29 @@ function printLaunchdJobs() {
 
 // Each role's merged, unused task branches (#469 D5): a count pointing at
 // `keel branches`, never a deletion.
+// The issue state `keel tick` last recorded (#473 D3); nothing when no tick
+// has fetched here.
+function printTickIssueChecks(repo) {
+  let where = null;
+  try {
+    where = require("../src/core/chat/store").locate(repo);
+  } catch {
+    where = null;
+  }
+  if (!where) return;
+  const file = path.join(where.root, "tick", "state.json");
+  let issues = null;
+  try {
+    issues = JSON.parse(fs.readFileSync(file, "utf8")).issues || null;
+  } catch {
+    issues = null;
+  }
+  if (!issues || !issues.state) return;
+  if (issues.state === "failed") printDoctorLine("issue checks", "not checked", `${issues.text} (tick at ${issues.at})`);
+  else if (issues.state === "read") printDoctorLine("issue checks", "ok", `last read by \`keel tick\` at ${issues.at}`);
+  else printDoctorLine("issue checks", "ok", "nothing needs them: no issue_roles route and no issue wait");
+}
+
 function printMergedBranches(repo) {
   let where = null;
   try {
