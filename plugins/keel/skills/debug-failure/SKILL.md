@@ -1,9 +1,10 @@
 ---
-name: keel-debug-failure
+name: debug-failure
 description: Debug Keel agent command or validation failures under Keel's selected OpenSpec task contract. Use when `openspec-apply-change` or a selected task reports failed commands, failing tests, validation errors, stop decisions, or needs an evidence-bound failure report.
+user-invocable: false
 ---
 
-# keel-debug-failure
+# debug-failure
 ## Purpose
 
 Use this skill when a command or validation path fails. Keep the investigation tied to the selected OpenSpec task. This skill owns when to stop, the task-contract binding, checkout preservation, and the failure-report shape; generic diagnosis mechanics (how to reproduce, minimise, or instrument) belong to the host runtime and are not restated here.
