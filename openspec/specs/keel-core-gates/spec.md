@@ -56,7 +56,7 @@ Keel MUST NOT claim that deterministic gate structure proves product intent, beh
 #### Scenario: Gate does not reinterpret acceptance
 - **WHEN** command Evidence and Review are present
 - **THEN** Core validates their required shape and references
-- **AND THEN** Core does not replace `keel-review-checklist` by independently judging whether the command proves Acceptance
+- **AND THEN** Core does not replace `review-checklist` by independently judging whether the command proves Acceptance
 
 ### Requirement: Dirty-worktree attribution is conservative
 
@@ -649,7 +649,7 @@ A path a task declares in Touch MUST be attributed to Touch whatever characters 
 
 ### Requirement: A finding resolved in its own task is recorded as resolved
 
-`keel gate task-complete` MUST require a durable owner only for a finding that is still unresolved, which is what this capability and `keel-review-checklist` already state. A finding that was found and fixed inside the task recording it MUST have an accepted form of its own, so that no author has to record a repair as a discard in order to pass the gate.
+`keel gate task-complete` MUST require a durable owner only for a finding that is still unresolved, which is what this capability and `review-checklist` already state. A finding that was found and fixed inside the task recording it MUST have an accepted form of its own, so that no author has to record a repair as a discard in order to pass the gate.
 
 The resolved disposition MUST carry evidence. Keel MUST accept an `M<n>` check label of the same task, or a repo-relative path that exists, and MUST NOT accept the marker alone — a disposition that asserts its own conclusion is weaker than the two it joins. Keel MUST NOT accept an `http` or `https` reference as evidence of resolution, because an external tracker means the work is owned elsewhere, which is the durable-owner state.
 
@@ -683,7 +683,7 @@ The `finding-owner` diagnostic MUST state its actionable instruction — name a 
 
 Keel MUST NOT fail or return `needs-review` for this shape. A genuine vertical split can share files, the judgment is semantic, and there is no mechanism to acknowledge a `needs-review` — turning a signal into a verdict would leave a legitimate split unstartable. The warning MUST NOT change the gate's status or exit code.
 
-`keel-review-checklist` MUST ask the same question at completion, when the evidence that settles it exists.
+`review-checklist` MUST ask the same question at completion, when the evidence that settles it exists.
 
 #### Scenario: An identical Touch set under a red-green strategy is named
 - **WHEN** `task-start` selects a task whose Touch set matches another task in the same change and whose strategy is red-green

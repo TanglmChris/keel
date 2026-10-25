@@ -22,7 +22,7 @@ Keel v4 migration MUST remove packaged unmodified legacy profile skills and obso
 
 ### Requirement: Keel supports pluggable domain lenses
 
-Keel MUST treat domain alignment knowledge as pluggable lenses authored by the user in `keel/lenses/*.md`, not as content bundled inside `keel-align-expectations`. The core MUST keep the on-demand mechanism (detect a domain signal, load the one matching lens, feed alignment/execution/review) without hardcoding any domain list. Each lens MUST be self-describing through an `Applies when:` header that names its domain signals. Keel MUST NOT require profile selection state or a `--profile` flag.
+Keel MUST treat domain alignment knowledge as pluggable lenses authored by the user in `keel/lenses/*.md`, not as content bundled inside `align-expectations`. The core MUST keep the on-demand mechanism (detect a domain signal, load the one matching lens, feed alignment/execution/review) without hardcoding any domain list. Each lens MUST be self-describing through an `Applies when:` header that names its domain signals. Keel MUST NOT require profile selection state or a `--profile` flag.
 
 #### Scenario: Lenses are user-authored and self-describing
 
@@ -44,7 +44,7 @@ Keel MUST treat domain alignment knowledge as pluggable lenses authored by the u
 
 ### Requirement: Domain lenses serve execution and review phases
 
-The execution and review skills (`keel-tdd-or-test-first`, `keel-debug-failure`, `keel-review-checklist`) MUST consult the matching lens from `keel/lenses/` on demand when the change's artifacts or task scope signal that domain, and MUST NOT load any lens for changes without a matching signal.
+The execution and review skills (`tdd-or-test-first`, `debug-failure`, `review-checklist`) MUST consult the matching lens from `keel/lenses/` on demand when the change's artifacts or task scope signal that domain, and MUST NOT load any lens for changes without a matching signal.
 
 #### Scenario: Domain-signaling change consults one lens
 

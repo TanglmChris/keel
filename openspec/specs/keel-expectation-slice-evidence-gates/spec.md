@@ -76,7 +76,7 @@ Keel MUST limit expectation gates to execution alignment checks and MUST NOT tur
 #### Scenario: Gates check alignment only
 - **WHEN** Keel guidance describes Task Authoring, Slice Start, or Completion gates
 - **THEN** the gate checks expectation coverage, executable task contracts, or evidence closure
-- **AND THEN** the gate does not claim to replace tests, code review, `keel-review-checklist`, or implementation quality judgment
+- **AND THEN** the gate does not claim to replace tests, code review, `review-checklist`, or implementation quality judgment
 
 ### Requirement: Critical statements carry minimal provenance
 
@@ -460,10 +460,7 @@ is cited. A failure message MUST name the actual cause of the failure it reports
 
 ### Requirement: A coverage claim is compared against the capsule it names
 
-When an `## Expectation Coverage` entry closes with `Covered by:` and cites one or more
-critical-statement identifiers (`F<n>`, `D<n>`, `A<n>`, `Q<n>`), `keel gate change-close`
-MUST compare those identifiers against the `Covers:` of each task the entry names, and
-MUST refuse the entry when no named task covers a cited identifier.
+When an `## Expectation Coverage` entry closes with `Covered by:` and cites one or more critical-statement identifiers (`F<n>`, `D<n>`, `A<n>`, `Q<n>`), `keel gate change-close` MUST compare those identifiers against the `Covers:` of each task the entry names, and MUST refuse the entry when no named task covers a cited identifier.
 
 The refusal MUST name the entry, the identifier, and where that identifier is covered:
 the task of this change whose `Covers:` names it, or that no task of this change does.
@@ -477,7 +474,7 @@ any entry. Keel MUST NOT suppress that report when every entry was compared, bec
 line that appears only sometimes teaches a reader that its absence means full coverage.
 
 Keel MUST NOT judge whether the named task's checks prove the expectation. The comparison
-is between two declared identifier lists; sufficiency remains `keel-review-checklist`'s.
+is between two declared identifier lists; sufficiency remains `review-checklist`'s.
 
 #### Scenario: A coverage claim names a task that does not cover the identifier
 
@@ -578,9 +575,9 @@ Keel MUST treat a `#` line nested at or beyond the opener's list-item content co
 
 ### Requirement: The review checklist does not restate mechanical refusals
 
-`keel-review-checklist` MUST NOT direct the agent to confirm evidence shape that `keel gate task-complete` already refuses on its own — a missing or drifted Contract anchor, or missing `.red`/`.green` Evidence for a red-green check — and MUST keep the judgments the gate cannot make, including that an evidence-first task names its observable proof and that behavior checks prove Acceptance.
+`review-checklist` MUST NOT direct the agent to confirm evidence shape that `keel gate task-complete` already refuses on its own — a missing or drifted Contract anchor, or missing `.red`/`.green` Evidence for a red-green check — and MUST keep the judgments the gate cannot make, including that an evidence-first task names its observable proof and that behavior checks prove Acceptance.
 
 #### Scenario: The checklist names only what the gate cannot judge
-- **WHEN** a reader opens `keel-review-checklist`'s Deterministic gate check, in source and in the shipped copy
+- **WHEN** a reader opens `review-checklist`'s Deterministic gate check, in source and in the shipped copy
 - **THEN** it does not instruct confirming the Contract line's fingerprint or the presence of `.red`/`.green` Evidence
 - **AND THEN** it still states that evidence-first tasks name their observable proof and that behavioral checks must prove Acceptance through the public interface
