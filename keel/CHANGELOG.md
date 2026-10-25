@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.199.0 - Resume removes the old shift's sessions too
+
+Issue #462, approved by the owner on 2026-10-25. Since 5.178.0 (#418) a hand-over removes the old shift's session by default, yet `claude agents` still listed old shifts. Only a delivered hand-over removed them, and it matched each session by a working directory. After the workspace rename (`my_github` → `my-github`), the owner opened a session by hand, and it resumed the note, so `keel-maint · 10-21 22:06` stayed listed. kaiwu-ip's roles still listed pairs of sessions left from before 5.178.0. And every pre-rename session named a directory no binding names any more.
+
+- **`keel shift resume` removes the role's old sessions.** It does this when it resumes a note that a CLI session wrote, from a Claude Code session. It removes them as a hand-over does: under `shift: keep_old_sessions:`, only stopped sessions, each once Keel holds its transcript, and never the current session or one whose process still runs. It names what it removed and `keel shift history <role> --show <id>`. Outside a Claude Code host, and in the session a delivered hand-over started, it asks the host nothing.
+- **A session Keel keeps under the role is the role's wherever it ran.** A stopped session counts when it ran in one of the role's worktrees, or when Keel's store keeps its transcript under the role. A renamed or moved worktree no longer strands its old sessions.
+- **Checks.** The new `shift-resume-removes-old-sessions`; `shift-cli-keeps-old-sessions` adds a session from a missing worktree kept under the role, which is removed, and one kept under no role, which stays.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.199.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.198.0 - keel --update reports the CLI the global prefix actually holds
 
 Issue #459, approved by the owner on 2026-10-25. Right after 5.197.1 was released, `keel --update` printed `cli: updated 5.196.1 -> 5.197.1`, while `keel --version` and `npm ls -g` both read 5.197.0. The line took its "from" version from the copy of keel that was running, and its "to" version from the packed tarball's name whenever `npm install -g` exited 0. Nothing read what was installed.
