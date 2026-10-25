@@ -102,6 +102,10 @@ SCENARIOS: tuple = (
         chat.validate_chat_bridge_start_race_scenario,
     ),
     (
+        "chat-bridge-logs-once",
+        chat.validate_chat_bridge_logs_once_scenario,
+    ),
+    (
         "chat-owner-mention",
         chat.validate_chat_owner_mention_scenario,
     ),

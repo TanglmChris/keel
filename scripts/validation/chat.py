@@ -2989,6 +2989,76 @@ def validate_chat_bridge_lifecycle_scenario() -> int:
     return 0
 
 
+def validate_chat_bridge_logs_once_scenario() -> int:
+    """Issue #460: a failure that never changes is logged once, and a missing scope is named.
+
+    On 2026-10-25 the bridge log held 2944 copies of one project's
+    `this repository has no remote` (one per archive sync) and 278 of
+    `catch-up failed: … missing_scope` (one per reconnect), and none named
+    the scope Slack said was missing. A running bridge now logs each repeating
+    failure once, a recovery once, and names Slack's `needed` scopes.
+    """
+    label = "chat-bridge-logs-once:"
+    if chat_bridge_node_missing("chat-bridge-logs-once"):
+        return 3
+    FakeSlack = fake_slack_class()
+    with tempfile.TemporaryDirectory(prefix="keel-chat-460-") as raw, FakeSlack() as slack:
+        base = Path(raw)
+        rtl, _, env = chat_scratch_group(base)
+        chat_slack_config(rtl, {"soc": "CSOC"})
+        benv = {**chat_bridge_environment(env, base / "home", slack), "KEEL_CHAT_ARCHIVE_EVERY_MS": "300"}
+        run_keel(rtl, "chat", "bridge", "add", env=benv)
+        slack.fail("conversations.history", {"ok": False, "error": "missing_scope", "needed": "channels:history", "provided": "chat:write"})
+
+        def history_calls() -> int:
+            return len(slack.calls_to("conversations.history"))
+
+        bridge = start_chat_bridge(rtl, benv)
+        stderr = ""
+        try:
+            if not slack.wait_for(lambda: slack.sockets and history_calls() >= 1, 10):
+                report(f"{label} the bridge never connected and caught up: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            # Each reconnect is a new `hello` and so a new catch-up, which fails the same way.
+            for _ in range(3):
+                calls = history_calls()
+                slack.drop_connections()
+                if not slack.wait_for(lambda: history_calls() > calls, 15):
+                    report(f"{label} the bridge did not catch up again after a reconnect: {stop_chat_bridge(bridge).strip()}")
+                    return 1
+            slack.fail("conversations.history", None)
+            calls = history_calls()
+            slack.drop_connections()
+            # The reconnect backoff doubles while sessions stay short: 2, 4, 8, then 16 s.
+            if not slack.wait_for(lambda: history_calls() > calls and slack.sockets, 30):
+                report(f"{label} the bridge did not catch up after the scope was granted: {stop_chat_bridge(bridge).strip()}")
+                return 1
+            time.sleep(2)
+        finally:
+            stderr = stop_chat_bridge(bridge)
+        lines = stderr.splitlines()
+        refusals = [line for line in lines if "this repository has no remote" in line]
+        if len(refusals) != 1:
+            report(f"{label} the archive refusal was logged {len(refusals)} times over syncs every 300 ms, not once: {stderr!r}")
+            return 1
+        failed = [line for line in lines if "catch-up failed" in line]
+        if len(failed) != 1:
+            report(f"{label} the same catch-up failure was logged {len(failed)} times over four connects, not once: {stderr!r}")
+            return 1
+        if "missing_scope: needs channels:history" not in failed[0]:
+            report(f"{label} the catch-up failure does not name the missing scope: {failed[0]!r}")
+            return 1
+        recovered = [line for line in lines if "catch-up works again" in line]
+        if len(recovered) != 1:
+            report(f"{label} the catch-up's recovery was logged {len(recovered)} times, not once: {stderr!r}")
+            return 1
+    if "chat-bridge-logs-once" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("chat-bridge-logs-once scenario passed.")
+    return 0
+
+
 def validate_chat_bridge_start_race_scenario() -> int:
     """Issue #226: start, stop, install, and status follow launchd's state.
 

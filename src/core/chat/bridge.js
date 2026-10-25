@@ -892,6 +892,25 @@ function githubRepo(worktree) {
   return result.status === 0 && match ? match[1] : null;
 }
 
+// A failure that repeats unchanged — an archive refusal at every sync, a
+// catch-up failure at every reconnect — is logged once, again only when its
+// line changes, and once more when it clears (#460 D1).
+function onceLog(log) {
+  const last = new Map();
+  return {
+    failed(key, line) {
+      if (last.get(key) === line) return;
+      last.set(key, line);
+      log(line);
+    },
+    cleared(key, line) {
+      if (!last.has(key)) return;
+      last.delete(key);
+      log(line);
+    },
+  };
+}
+
 async function createContext(log, { needApp }) {
   requireWebSocket();
   const { bot, app } = lifecycle.tokens();
@@ -899,6 +918,7 @@ async function createContext(log, { needApp }) {
   if (!bot) throw lifecycle.missingTokens("bot token");
   const ctx = {
     log,
+    once: onceLog(log),
     token: bot,
     appToken: app,
     projects: prepareProjects(),
@@ -963,7 +983,11 @@ function socketSession(ctx, conn) {
         if (data.type === "hello") {
           conn.connected = true;
           writeStatus(ctx);
-          ctx.queue = ctx.queue.then(() => conn.onHello()).then(() => writeStatus(ctx)).catch((error) => ctx.log(`catch-up failed: ${error.message}`));
+          const key = `catch-up:${conn.role || ""}`;
+          const whose = conn.role ? ` for ${conn.role}'s app` : "";
+          ctx.queue = ctx.queue.then(() => conn.onHello())
+            .then(() => { ctx.once.cleared(key, `catch-up works again${whose}.`); writeStatus(ctx); })
+            .catch((error) => ctx.once.failed(key, `catch-up failed${whose}: ${error.message}`));
           return;
         }
         if (data.type === "disconnect") {
@@ -1065,20 +1089,24 @@ async function run(log) {
     return stopped;
   };
   // Every ten minutes while connected, each project with archiving on is
-  // synced to its keel-chat branch (D19).
+  // synced to its keel-chat branch (D19). A refusal that never changes, such as
+  // a repository with no remote, is logged once (#460 D1).
+  const archiveEvery = /^\d+$/.test(process.env.KEEL_CHAT_ARCHIVE_EVERY_MS || "") ? Number(process.env.KEEL_CHAT_ARCHIVE_EVERY_MS) : 10 * 60 * 1000;
   const archiveTimer = setInterval(() => {
     if (!ctx.connected || ctx.stopping) return;
     const archive = require("./archive");
     for (const project of ctx.projects) {
       if (!archive.archiveSettings(project.where.worktree).automatic) continue;
+      const key = `archive:${project.where.project}`;
       try {
         const result = archive.sync(project.where);
-        if (result.refused) log(`${project.where.project}: ${result.refused}`);
+        if (result.refused) ctx.once.failed(key, `${project.where.project}: ${result.refused}`);
+        else ctx.once.cleared(key, `${project.where.project}: archive sync works again.`);
       } catch (error) {
-        log(`${project.where.project}: archive sync failed: ${error.message}`);
+        ctx.once.failed(key, `${project.where.project}: archive sync failed: ${error.message}`);
       }
     }
-  }, 10 * 60 * 1000);
+  }, archiveEvery);
   archiveTimer.unref();
   // Each second: honor a pause, notice a Keel upgrade, and send what is new.
   const timer = setInterval(() => {
