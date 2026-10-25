@@ -1,0 +1,14 @@
+## Facts
+
+- F1 — `resumeCli(entry)` (`src/core/chat/notice.js`) runs `claude --bg --resume <id> "<prompt>"` with `cwd: entry.worktree`, which comes from presence's `cli_worktree`. Its comment says that any other flag starts a copy with a new id. It returns `removed` when `claude agents --json --all` no longer lists the session (#415). It is called by `keel chat wake now` (`src/core/chat/cli.js`) and by `wakeEnded` in `keel tick` (`src/core/tick.js`).
+- F2 — After the rename, `roles.json` names the new paths, while presence's `cli_worktree` and the host's `claude agents` row `cwd` still name the old ones (#465, Keel 5.198.0, Claude Code 2.1.307).
+- F3 — Resumed from the new path, `claude --bg --resume ef20932c-…` printed `Workspace not trusted. /Users/…/my_github/kaiwu-ip/.claude/worktrees/kaiwu_lead could not be resolved on disk. Your message is saved and will be delivered when session ef20932c next starts.`, and no process started. The host resumes in the directory it registered, not the caller's.
+- F4 — Run in the new worktree, `claude --bg --fork-session --resume <old id> -n "<role> · <time>" --permission-mode auto "<prompt>"` started a session with a new id and the whole conversation, registered at the new path. Its first hook rewrote presence, and `wake now` worked again afterwards. 16 kaiwu-ip roles were recovered this way on 2026-10-25.
+- F5 — The patrol's risks come from `handOffRisks` in `src/core/shift.js` (#357), and `keel shift status` prints the roles and the hand-offs.
+
+## Decisions
+
+- D1 — The directory a recorded CLI session ran in is the host row's `cwd` when `claude agents` lists the session, and otherwise presence's `cli_worktree`. When that directory does not exist, `resumeCli` returns `moved` with that directory, starts nothing, and builds the fork command in its output. The command names the role's bound worktrees that exist: the one, if there is one, or each of them, if there are several. With none, it names `<the role's worktree>`. The session name is `<role> · <MM-DD HH:MM>` at local time now, the mode is the `shift: permission_mode:` declared there (`auto` by default), and the prompt is the wake prompt.
+- D2 — `keel chat wake now` exits nonzero on `moved` and prints the output. `wakeEnded` marks the record woken on `moved`, as it does on `removed`, so a tick does not repeat it.
+- D3 — The owner chose against an automatic fork (2026-10-25). It would change `wake now` from a resume of the recorded session into the start of a new one, which the F1 comment rules out.
+- D4 — `movedSessionRisks(where, covers)` lists each covered role whose ended CLI session's presence `cli_worktree` does not exist. It reads presence only, with no host call, because the patrol makes none. `keel patrol` adds these to its risks, and `keel shift status` prints them under `Sessions that cannot be resumed:` and returns them as `unresumable` in `--json`.

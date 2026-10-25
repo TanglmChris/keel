@@ -510,6 +510,83 @@ def validate_chat_wake_skips_removed_session_scenario() -> int:
     return 0
 
 
+def validate_chat_wake_moved_worktree_scenario() -> int:
+    """Issue #465: a session whose directory is gone is explained, not resumed.
+
+    After the workspace rename on 2026-10-25, presence and `claude agents` both
+    recorded each role's session under the old path. `claude --bg --resume`
+    printed `Workspace not trusted … could not be resolved on disk` and started
+    nothing. `wake now` now names the vanished directory and prints the fork
+    command to copy; the tick does not retry it; patrol and shift status list it.
+    """
+    label = "chat-wake-moved-worktree:"
+    with tempfile.TemporaryDirectory(prefix="keel-wake-465-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        gone = str(base / "renamed-away" / "verify")
+        calls = base / "claude-calls.jsonl"
+        fake = base / "fake-claude"
+        write_text(fake, "#!/usr/bin/env python3\nimport json, sys\n"
+                   f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                   "if sys.argv[1:3] == ['agents', '--json']:\n"
+                   f"    print(json.dumps([{{'kind': 'background', 'sessionId': 'sess-verify-1', 'id': 'sess-ver', 'cwd': {gone!r}}}]))\n"
+                   "else:\n    print('backgrounded · fake')\n")
+        fake.chmod(0o755)
+        env = {**env, "KEEL_CLAUDE": str(fake)}
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        chat_session_start(verify, env, "sess-verify-1", dead.pid)
+        presence_file = mailbox_common_dir(rtl) / "keel-chat" / "presence" / "verify.json"
+        presence = json.loads(presence_file.read_text(encoding="utf-8"))
+        presence["cli_worktree"] = gone
+        presence_file.write_text(json.dumps(presence), encoding="utf-8")
+
+        def resumes() -> list[list[str]]:
+            made = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+            return [call for call in made if call[:1] == ["--bg"]]
+
+        woke = run_keel(rtl, "chat", "wake", "now", "verify", env=env)
+        said = woke.stdout + woke.stderr
+        if resumes():
+            report(f"{label} wake now resumed a session whose directory is gone: {resumes()!r}")
+            return 1
+        if woke.returncode == 0:
+            report(f"{label} wake now exits 0 for a session it could not resume: {said!r}")
+            return 1
+        if gone not in said:
+            report(f"{label} wake now does not name the directory that no longer exists: {said!r}")
+            return 1
+        if not any(f"cd {where} && claude --bg --fork-session --resume sess-verify-1" in said for where in (verify, os.path.realpath(verify))):
+            report(f"{label} wake now does not print the fork command for verify's worktree: {said!r}")
+            return 1
+
+        run_keel(rtl, "chat", "dm", "verify", "rerun R012", env=env)
+        run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        if resumes():
+            report(f"{label} keel tick resumed a session whose directory is gone: {resumes()!r}")
+            return 1
+        risks = [line for line in run_keel(rtl, "patrol", env=env).stdout.splitlines() if "verify" in line and "no longer exists" in line]
+        if not risks:
+            report(f"{label} the patrol reports no risk for verify's session whose directory is gone.")
+            return 1
+        if "keel chat wake now verify" not in risks[0]:
+            report(f"{label} the patrol's risk does not name `keel chat wake now verify`: {risks[0]!r}")
+            return 1
+        status = run_keel(rtl, "shift", "status", env=env).stdout
+        listed = status.split("Sessions that cannot be resumed:", 1)
+        if len(listed) != 2:
+            report(f"{label} keel shift status has no `Sessions that cannot be resumed:` section: {status!r}")
+            return 1
+        if "verify" not in listed[1]:
+            report(f"{label} keel shift status does not list verify under `Sessions that cannot be resumed:`: {status!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_chat_wake_now_cli_scenario() -> int:
     """Issue #348 on the CLI (owner's CLI waker, 2026-10-19): one step wakes a role.
 
