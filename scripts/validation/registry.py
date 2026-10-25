@@ -459,6 +459,8 @@ SCENARIOS: tuple = (
     ("patrol-next", shift.validate_patrol_next_scenario),
     ("tick-runs-due-patrol", shift.validate_tick_runs_due_patrol_scenario),
     ("tick-runs-each-patrol", shift.validate_tick_runs_each_patrol_scenario),
+    ("tick-passes-free-disk", shift.validate_tick_passes_free_disk_scenario),
+    ("tick-reads-quota-file", shift.validate_tick_reads_quota_file_scenario),
     ("launchd-stable-node", shift.validate_launchd_stable_node_scenario),
     ("shift-slash-command", shift.validate_shift_slash_command_scenario),
     ("shift-check-skips-host-keep-awake", shift.validate_shift_check_skips_host_keep_awake_scenario),
