@@ -1,5 +1,20 @@
 # Keel Changelog
 
+## 5.204.0 - keel branches: a role's merged task branches, listed and pruned under authorization
+
+Issue #469, approved by the owner on 2026-10-25, who also settled its design. Task branches piled up after their work was merged: kaiwu-ip had 110 remote branches on 2026-10-19, and a coordinating session cleaned up by hand afterwards and still missed some.
+
+- **`keel branches`** lists the role's task branches that are safe to delete, local and remote, each with its sha and the trunk that contains it. It fetches and deletes nothing. A branch qualifies only when all of these hold:
+  - its tip is contained in a remote trunk, which is the default branch plus any that `branches: trunk:` declares;
+  - no worktree has it checked out;
+  - a worktree bound to the role has checked it out, as that worktree's HEAD reflog shows;
+  - it is neither a trunk nor in `branches: keep:`.
+- **`keel branches prune`** deletes them, local and remote, only under the new standing authorization `delete-branch:merged`. Before each deletion it records `{at, role, side, branch, sha}` in the chat store's `branches/deleted.jsonl`, and it prints the command that restores the branch. Without the authorization it lists the branches, names `delete-branch:merged`, and exits 3.
+- **Pointers, not deletions.** `keel shift check` adds a note naming the count, `keel shift resume`'s merged-branch line points at the command, and `keel --doctor` prints a `branches` line per role. None of them deletes, the check's readiness is unchanged, and no gate lists or deletes branches.
+- **`branches:`** joins `keel/config.yaml`, which now documents fourteen declarations. The authorization vocabulary is fourteen names long, in `keel-standing-authorization` and in both READMEs.
+- **Checks.** The new `branches-lists-merged`, `branches-prune-under-authorization` (which runs the printed restore command), and `branches-pointed-out`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.204.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.203.0 - A reply reaches the role it answers
 
 Issue #468, approved by the owner on 2026-10-25. In kaiwu-ip, verify answered PM's request with `--reply-to` and without `@kaiwu-pm-iecc`. The record carried `reply_to` and no mentions, so PM's idle session was never woken, and PM learned of the answer only when the owner asked.

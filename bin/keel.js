@@ -96,6 +96,8 @@ Usage:
   keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
+  keel branches [repo] [--role <role>] [--json]   (a role's merged task branches, with their sha; fetches and deletes nothing)
+  keel branches prune [repo] [--role <role>] [--json]   (delete them, local and remote, under authorize: delete-branch:merged; exit 3 without it)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
@@ -2494,6 +2496,7 @@ function runDoctor(options) {
   printFastPrePushSurface(repo);
   printSourceRepoCliResolution(repo);
   printChatRoleDrift(repo);
+  printMergedBranches(repo);
   printLaunchdJobs();
 
   return authorizationOk ? checkStatus : 1;
@@ -2516,6 +2519,35 @@ function printLaunchdJobs() {
     );
   }
   if (!gone.length) printDoctorLine("launchd", "ok", `${jobs.length} dev.keel job${jobs.length === 1 ? "" : "s"}, each naming a node that exists`);
+}
+
+// Each role's merged, unused task branches (#469 D5): a count pointing at
+// `keel branches`, never a deletion.
+function printMergedBranches(repo) {
+  let where = null;
+  try {
+    where = require("../src/core/chat/store").locate(repo);
+  } catch {
+    where = null;
+  }
+  if (!where || !fs.existsSync(path.join(where.root, "roles.json"))) return;
+  const branches = require("../src/core/branches");
+  const roles = [...new Set(Object.values(JSON.parse(fs.readFileSync(path.join(where.root, "roles.json"), "utf8"))).filter(Boolean))].sort();
+  const counts = [];
+  for (const role of roles) {
+    let names = [];
+    try {
+      names = [...new Set(branches.merged(where, role).branches.map((b) => b.branch))];
+    } catch {
+      continue;
+    }
+    if (names.length) counts.push(`${role} ${names.length}`);
+  }
+  if (!counts.length) {
+    printDoctorLine("branches", "ok", "no role has a merged task branch left");
+    return;
+  }
+  printDoctorLine("branches", "merged", `${counts.join(", ")} merged task branch(es) may be deleted; \`keel branches --role <role>\` lists them`);
 }
 
 function printChatRoleDrift(repo) {
@@ -3231,6 +3263,10 @@ function main() {
   // `keel agents` likewise: the external model CLI catalog (#219).
   if (process.argv[2] === "agents") {
     return require("../src/core/agents").runAgents(process.argv.slice(3));
+  }
+  // `keel branches` likewise: a role's merged task branches (#469).
+  if (process.argv[2] === "branches") {
+    return require("../src/core/branches").runBranches(process.argv.slice(3));
   }
   // `keel docx` was Markdown with SVG to Word (#405). It is retired (#464 D3),
   // and the word stays known so a caller learns where the export went.
