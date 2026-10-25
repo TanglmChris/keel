@@ -99,6 +99,9 @@ authorize:
   # `change-close` asks an unresolved follow-up for a durable owner and accepts
   # an https reference, and until now nothing here could create one.
   - issue:TanglmChris/keel
+  # Declared 2026-10-26 by the owner's choice to clear keel-maint's merged
+  # task branches with `keel branches prune` (#469), scoped to that role.
+  - delete-branch:merged@keel-maint
 
 # precedents (optional): a path to a directory of precedent files — decisions
 # already made, each with the reasoning that produced it. Keel reads that
