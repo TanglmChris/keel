@@ -240,7 +240,24 @@ function check(where, role) {
   // recheck: a reminder, never an item that holds the shift (#416 D5).
   notes.push("memory: before the hand-off note, recheck what this session wrote to memory — keep only what the next session "
     + "would get wrong without it and the repository cannot answer, and remove what this shift made untrue");
+  // A pointer, never a loose item and never a deletion (#469 D5).
+  const merged = role ? mergedBranchNote(where, role) : null;
+  if (merged) notes.push(merged);
   return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes };
+}
+
+// How many of the role's task branches are merged and unused, pointing at
+// `keel branches` (#469 D5); null when none or when they cannot be read.
+function mergedBranchNote(where, role) {
+  let names = [];
+  try {
+    names = [...new Set(require("./branches").merged(where, role).branches.map((b) => b.branch))].sort();
+  } catch {
+    return null;
+  }
+  if (!names.length) return null;
+  return `merged branches: ${names.length} of ${role}'s task branches are merged into a trunk and checked out nowhere `
+    + `(${names.join(", ")}); \`keel branches\` lists them, and \`keel branches prune\` deletes them under delete-branch:merged`;
 }
 
 // The UTC millisecond a chat record id was written at (`20261012T093944609Z-…`).
@@ -1575,7 +1592,8 @@ function runShift(argv) {
         const merged = result.merged_branch;
         const stale = merged
           ? `\n\nThis worktree is on ${merged.branch ? `\`${merged.branch}\`` : "a detached HEAD"}, already in ${merged.base} and `
-            + `${merged.behind} commit${merged.behind === 1 ? "" : "s"} behind it: start new work from ${merged.base}.`
+            + `${merged.behind} commit${merged.behind === 1 ? "" : "s"} behind it: start new work from ${merged.base}. `
+            + "`keel branches` lists this role's merged task branches, which `keel branches prune` deletes under delete-branch:merged."
           : "";
         const removed = (result.removed || []).length
           ? `\n\nRemoved old sessions from claude agents: ${result.removed.join(", ")}; \`keel shift history ${result.role} --show <id>\` prints each.`
