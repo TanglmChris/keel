@@ -345,7 +345,9 @@ patrol:
 # nowhere, and checked out before in a worktree bound to the role; it fetches
 # and deletes nothing. `keel branches prune` deletes them, local and remote,
 # only under `authorize: delete-branch:merged`, recording each with its sha
-# first in the chat store's branches/deleted.jsonl.
+# first in the chat store's branches/deleted.jsonl. The trunks are also the
+# default of `keel chat wait --commit` without `--branch` (#477) when `trunk:`
+# names at least one.
 #
 # Example:
 #   branches:

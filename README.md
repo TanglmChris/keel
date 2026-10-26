@@ -883,6 +883,10 @@ fetches nothing, schedules nothing, calls no model, and writes nothing when noth
 0 then, 2 when the coordinator has something to act on — a risk, or its own wait met — 3 when it only
 recorded something or told other roles, and 1 on an error, so a cheap scheduler — cron, `/loop`, CI —
 can wake the model only on 2 (#350). `keel chat waits` lists what is still awaited.
+A commit wait can name its branch, `--branch main`, and then holds only once that remote branch
+contains the commit (#477). Without `--branch`, a repository whose `branches:` declares a `trunk:`
+waits for the remote's default branch or any declared trunk. One that declares none waits for any
+branch of the remote, and the echo and `keel chat waits` say `any branch of origin`.
 
 A patrol on an hourly schedule should report change, not state, or it wakes the coordinator every
 hour for a note deliberately left parked (#295). `keel patrol --since-last` keeps a snapshot per role

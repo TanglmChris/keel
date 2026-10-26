@@ -105,7 +105,7 @@ function patrol(where, role, options) {
     store.markMet(where, waitRecord, role);
     result.held.push({ id: waitRecord.id, from: waitRecord.from, condition: waitRecord.condition });
     if (waitRecord.from !== role) {
-      const text = `Condition met: ${waitRecord.condition} (wait ${waitRecord.id}${waitRecord.text ? `: ${waitRecord.text}` : ""}).`;
+      const text = `Condition met: ${store.describeCondition(waitRecord.condition)} (wait ${waitRecord.id}${waitRecord.text ? `: ${waitRecord.text}` : ""}).`;
       const posted = store.directPost(where, waitRecord.from, text, { refs: [`wait:${waitRecord.id}`] });
       result.notices.push({ to: waitRecord.from, id: posted.id, text });
     }

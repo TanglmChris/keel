@@ -446,13 +446,13 @@ function dispatch(where, options) {
         group, commit: options.commit, branch: options.branch, remote: options.remote, issue: options.issue,
         closed: options.closed, text: words.join(" "),
       });
-      out(options.json ? JSON.stringify({ id: record.id, condition: record.condition }) : `Waiting: ${record.condition} (${record.id}).`);
+      out(options.json ? JSON.stringify({ id: record.id, condition: record.condition }) : `Waiting: ${store.describeCondition(record.condition)} (${record.id}).`);
       return 0;
     }
     case "waits": {
       const waits = store.openWaits(where);
       if (options.json) out(JSON.stringify({ waits: waits.map((w) => ({ id: w.id, group: w.group, from: w.from, condition: w.condition, text: w.text, created: w.created })) }));
-      else out(waits.length ? waits.map((w) => `${w.group} ${w.id} ${w.from} waits for ${w.condition}${w.text ? `: ${w.text}` : ""}`).join("\n") : "keel chat: nobody is waiting.");
+      else out(waits.length ? waits.map((w) => `${w.group} ${w.id} ${w.from} waits for ${store.describeCondition(w.condition)}${w.text ? `: ${w.text}` : ""}`).join("\n") : "keel chat: nobody is waiting.");
       return 0;
     }
     case "dm": {

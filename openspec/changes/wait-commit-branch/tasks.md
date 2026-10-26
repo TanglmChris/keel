@@ -40,7 +40,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Default a commit wait to the declared trunks, and render an undeclared one as any branch
+- [x] 1.2 Default a commit wait to the declared trunks, and render an undeclared one as any branch
   - Covers:
     - keel-coordinator-patrol / A commit wait names the branch it waits for / Declared trunks are the default, and an undeclared wait says any branch
     - D2
@@ -54,6 +54,7 @@
     - src/core/chat/store.js
     - src/core/chat/cli.js
     - src/core/branches.js
+    - src/core/patrol.js
     - scripts/validation/shift.py
     - scripts/validation/registry.py
     - README.md
@@ -67,18 +68,22 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
+    - Contract: keel-task-capsule/v1 sha256:da2d589c8f776f76e1831ed49653948bc915deda966c04c54302b3d93796d578 (keel 5.206.0)
+    - M1: pass. `chat-wait-commit-trunks scenario passed.` (exit 0).
+    - M1.red: fail. With the four source files restored to the 1.1 commit, and with the fixture already writing the config into verify's worktree too: `chat-wait-commit-trunks: with trunk integ declared the wait does not name origin/main or origin/integ: 'Waiting: commit 859aa536… on origin (…).\n' ''` (exit 1). The first fixture committed only rtl's config with `commit -am`, which skips an untracked file; that was fixed before this red was taken.
+    - M1.green: pass.
+      - With no `--branch`, `store.wait` reads `branches:` from the worktree it runs in. When `trunk:` names any branch, it writes `commit <sha> on <remote>/<default> or <remote>/<trunk>…`, using `branches.remoteDefault(cwd, remote)`, now exported and given a remote parameter (D3).
+      - `describeCondition` renders an any-branch commit condition as `commit <sha> on any branch of <remote>`. The wait echo, `keel chat waits`, and the patrol's `Condition met:` notice use it; `waits --json` keeps the raw condition (D2).
+      - Both READMEs and the `branches:` comment in `keel/config.yaml` say so (I2, I3).
+    - M2: pass. `validation --group shift passed: 66 scenarios.` (exit 0), `coordinator-patrol` and `chat-wait-commit-branch` among them. `branches-lists-merged`, `readme-zh-matches-english`, `config-documents-in-declaration-order`, and `surfaces-agree-with-code` each passed on its own, and `assertion-shape-count` passed at 74 sites.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: through the real `keel chat wait` and `keel patrol`, with trunk `integ` declared a wait without `--branch` named `origin/main or origin/integ`, stayed open while the commit was only on a feature branch, and was met once it reached `origin/integ`; with nothing declared the echo and `keel chat waits` said `any branch of origin`.
+      - Scope check: `git status --short` lists `src/core/chat/store.js`, `src/core/chat/cli.js`, `src/core/branches.js`, `src/core/patrol.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, both READMEs, `keel/config.yaml`, and this change's directory.
+      - Findings: none.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations:
+      - 2026-10-26: Touch gains `src/core/patrol.js`. D2 renders an any-branch wait in the patrol's `Condition met:` notice, and that notice is written in `patrol.js`, which the authoring left out of this task. No other contract field changed; task-start was re-run before any execution evidence was recorded.
 
 ## 2. Release
 

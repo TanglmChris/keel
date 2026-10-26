@@ -1402,7 +1402,9 @@ def wait_branch_scratch(base: Path, config: str = "") -> tuple[Path, Path, dict,
     rtl, verify, env = chat_scratch_group(base)
     if config:
         write_authorize_config(rtl, config)
-        subprocess.run(["git", "commit", "-q", "-am", "config"], cwd=rtl, check=True, capture_output=True)
+        write_authorize_config(verify, config)
+        subprocess.run(["git", "add", "-A"], cwd=rtl, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "config"], cwd=rtl, check=True, capture_output=True)
     origin = base / "origin.git"
     subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
     for args in (["remote", "add", "origin", str(origin)], ["push", "-q", "origin", "main", "main:integ"],
@@ -1448,6 +1450,39 @@ def validate_chat_wait_commit_branch_scenario() -> int:
             report(f"{label} the met wait is still listed.")
             return 1
     report("chat-wait-commit-branch scenario passed.")
+    return 0
+
+
+def validate_chat_wait_commit_trunks_scenario() -> int:
+    """Issue #477 D2, D3: declared trunks are a commit wait's default; an undeclared one says any branch."""
+    label = "chat-wait-commit-trunks:"
+    with tempfile.TemporaryDirectory(prefix="keel-wait-trunks-") as raw:
+        base = Path(raw)
+        rtl, verify, env, sha = wait_branch_scratch(base / "declared", "branches:\n  trunk:\n    - integ\n")
+        waited = run_keel(verify, "chat", "wait", "soc", "--commit", sha, env=env)
+        if "origin/main or origin/integ" not in waited.stdout:
+            report(f"{label} with trunk integ declared the wait does not name origin/main or origin/integ: {waited.stdout!r} {waited.stderr!r}")
+            return 1
+        run_keel(rtl, "patrol", env=env)
+        if not chat_json(run_keel(rtl, "chat", "waits", "--json", env=env)).get("waits"):
+            report(f"{label} the trunk wait was met while the commit was only on origin/feature.")
+            return 1
+        push_to(rtl, sha, "integ")
+        run_keel(rtl, "patrol", env=env)
+        if chat_json(run_keel(rtl, "chat", "waits", "--json", env=env)).get("waits"):
+            report(f"{label} the trunk wait is still open after the commit reached origin/integ.")
+            return 1
+
+        _rtl, verify, env, sha = wait_branch_scratch(base / "undeclared")
+        echo = run_keel(verify, "chat", "wait", "soc", "--commit", sha, env=env)
+        if "any branch of origin" not in echo.stdout:
+            report(f"{label} with no trunk declared the wait's echo does not say any branch of origin: {echo.stdout!r}")
+            return 1
+        listed = run_keel(verify, "chat", "waits", env=env)
+        if "any branch of origin" not in listed.stdout:
+            report(f"{label} keel chat waits does not say any branch of origin: {listed.stdout!r}")
+            return 1
+    report("chat-wait-commit-trunks scenario passed.")
     return 0
 
 
