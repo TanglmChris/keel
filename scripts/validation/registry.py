@@ -199,6 +199,7 @@ SCENARIOS: tuple = (
     ("output-survives-the-pipe", selfcheck.validate_output_survives_the_pipe_scenario),
     ("a-strategy-is-declared", contract.validate_strategy_is_declared_scenario),
     ("a-red-declares-what-it-proves", contract.validate_red_declares_what_it_proves_scenario),
+    ("declared-literal-whitespace", contract.validate_declared_literal_whitespace_scenario),
     ("the-weakest-strategy-states-its-reason", contract.validate_weakest_strategy_states_its_reason_scenario),
     ("a-quoted-marker-is-not-a-disposition", contract.validate_quoted_marker_is_not_a_disposition_scenario),
     ("drift-names-where-to-look", contract.validate_drift_names_where_to_look_scenario),

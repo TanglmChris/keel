@@ -10537,6 +10537,79 @@ def problem_codes(payload: dict) -> list[str]:
 # passed, one where the fixture contained no wording the checker would refuse.
 # The declaration is what a gate can hold: written into the check, so it is in
 # the fingerprint, and therefore written before the run rather than after it.
+def validate_declared_literal_whitespace_scenario() -> int:
+    """Issue #479 D1, D2: declared literals match recorded Evidence with whitespace runs as one space.
+
+    Tool output aligns with runs of spaces; a literal copied from it must
+    match the raw output it was copied from, while different characters are
+    still refused and the refusal rules spacing out.
+    """
+    label = "declared-literal-whitespace"
+    with tempfile.TemporaryDirectory(prefix="keel-literal-479-") as raw:
+        repo = Path(raw) / "repo"
+
+        def complete(check: str, evidence: list[str]) -> dict:
+            task = "\n".join([
+                "- [x] 1.1 Literal probe",
+                "  - Owner: claude",
+                "  - Mode: implementation",
+                "  - Covers:",
+                "    - E1: the task proves its own behavior",
+                "  - Read:",
+                "    - README.md",
+                "  - Touch:",
+                "    - src/example.js",
+                "  - Verify:",
+                "    - Strategy: vertical-tdd",
+                f"    - M1: node test.js asserts the public behavior. {check}",
+                "  - Evidence:",
+                *evidence,
+                "    - Review:",
+                "      - Status: pass",
+                "      - Acceptance check: the behavior is proven.",
+                "      - Scope check: only Touch changed.",
+                "      - Findings: none.",
+                "    - Blocker: none",
+                "    - Reauthorizations: none",
+            ])
+            write_gate_fixture(repo, tasks=task)
+            started = run_keel(repo, "gate", "task-start", "--change", "demo", "--task", "1.1", "--record", "--json")
+            try:
+                json.loads(started.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unstarted", "problems": [{"message": started.stdout[:300]}]}
+            done = run_keel(repo, "gate", "task-complete", "--change", "demo", "--task", "1.1", "--json")
+            try:
+                return json.loads(done.stdout)
+            except json.JSONDecodeError:
+                return {"status": "unparsed", "problems": [{"message": done.stdout[:400]}]}
+
+        cases = (
+            ("an aligned failure signature", "Fails with: `FAIL  record reachable`",
+             ["    - M1: pass.", "    - M1.red: fail. `FAIL  record reachable` (exit 1).", "    - M1.green: pass."]),
+            ("an aligned injection failure", "Fails with: `boom` Detects: `drop the guard` -> `FAIL  guard missing`",
+             ["    - M1: pass.", "    - M1.red: fail. `boom`.", "    - M1.green: pass.",
+              "    - M1.detects: fail. `FAIL   guard missing`."]),
+            ("a spaced measurement", "Fails with: `boom` Measured: `took  12 s`",
+             ["    - M1: pass. the run took 12 s.", "    - M1.red: fail. `boom`.", "    - M1.green: pass."]),
+        )
+        for name, check, evidence in cases:
+            result = complete(check, evidence)
+            if result.get("status") != "pass":
+                report(f"{label}: {name} copied from the raw output was refused; {problem_codes(result)!r} {problem_text(result)!r}.")
+                return 1
+        wrong = complete("Fails with: `FAIL  record reachable`",
+                         ["    - M1: pass.", "    - M1.red: fail. `FAIL record unreachable` (exit 1).", "    - M1.green: pass."])
+        if "red-missing-declared-failure" not in problem_codes(wrong):
+            report(f"{label}: a red with different characters was not refused as red-missing-declared-failure; {problem_codes(wrong)!r}.")
+            return 1
+        if "as one space" not in problem_text(wrong):
+            report(f"{label}: the refusal does not say runs of whitespace are compared as one space; {problem_text(wrong)!r}.")
+            return 1
+    report(f"{label} scenario passed.")
+    return 0
+
+
 def validate_red_declares_what_it_proves_scenario() -> int:
     label = "a-red-declares-what-it-proves"
     signature = "openspec: not found"
