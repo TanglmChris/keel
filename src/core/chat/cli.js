@@ -26,7 +26,7 @@ const USAGE = [
   "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
   "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
   "keel chat summary --since <90s|15m|2h|3d|date> [--group <group>] [--json]   (what changed, per group and sender; reads without marking read)",
-  "keel chat wait <group> --commit <sha> [--remote <name>] [note...]   (or --issue <n> --closed: what this role waits for; keel patrol tells it when it holds)",
+  "keel chat wait <group> --commit <sha> [--branch <name>] [--remote <name>] [note...]   (or --issue <n> --closed: what this role waits for; keel patrol tells it when it holds)",
   "keel chat waits [--json]                 waits not yet met",
   "keel chat dm <role> <text...> [--no-stamp] [--not-a-loop <why>] [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
@@ -74,6 +74,7 @@ const VALUED = {
   "--since": "since",
   "--commit": "commit",
   "--remote": "remote",
+  "--branch": "branch",
   "--worktree": "worktree",
   "--thread": "thread",
   "--host": "host",
@@ -442,7 +443,7 @@ function dispatch(where, options) {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat wait needs a group.");
       const record = store.wait(where, {
-        group, commit: options.commit, remote: options.remote, issue: options.issue,
+        group, commit: options.commit, branch: options.branch, remote: options.remote, issue: options.issue,
         closed: options.closed, text: words.join(" "),
       });
       out(options.json ? JSON.stringify({ id: record.id, condition: record.condition }) : `Waiting: ${record.condition} (${record.id}).`);

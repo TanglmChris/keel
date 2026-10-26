@@ -1397,6 +1397,60 @@ def validate_patrol_quota_scenario() -> int:
     return 0
 
 
+def wait_branch_scratch(base: Path, config: str = "") -> tuple[Path, Path, dict, str]:
+    """rtl and verify in group soc, a bare origin with `main`, and a commit pushed only to `origin/feature` (#477)."""
+    rtl, verify, env = chat_scratch_group(base)
+    if config:
+        write_authorize_config(rtl, config)
+        subprocess.run(["git", "commit", "-q", "-am", "config"], cwd=rtl, check=True, capture_output=True)
+    origin = base / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+    for args in (["remote", "add", "origin", str(origin)], ["push", "-q", "origin", "main", "main:integ"],
+                 ["switch", "-q", "-c", "feature"], ["commit", "-q", "--allow-empty", "-m", "fix"],
+                 ["push", "-q", "origin", "feature"], ["fetch", "-q", "origin"]):
+        subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=rtl, check=True, capture_output=True, text=True).stdout.strip()
+    return rtl, verify, env, sha
+
+
+def push_to(rtl: Path, sha: str, branch: str) -> None:
+    for args in (["push", "-q", "origin", f"{sha}:refs/heads/{branch}"], ["fetch", "-q", "origin"]):
+        subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+
+
+def validate_chat_wait_commit_branch_scenario() -> int:
+    """Issue #477 D1: a commit wait with `--branch` holds only when that branch contains the commit."""
+    label = "chat-wait-commit-branch:"
+    with tempfile.TemporaryDirectory(prefix="keel-wait-branch-") as raw:
+        rtl, verify, env, sha = wait_branch_scratch(Path(raw))
+        waited = run_keel(verify, "chat", "wait", "soc", "--commit", sha, "--branch", "main", env=env)
+        if waited.returncode != 0:
+            report(f"{label} keel chat wait --branch main exited {waited.returncode}: {waited.stderr!r}")
+            return 1
+
+        def told() -> int:
+            return len(chat_records_with(rtl, "dm-rtl--verify", sha[:7]))
+
+        run_keel(rtl, "patrol", env=env)
+        waits = chat_json(run_keel(rtl, "chat", "waits", "--json", env=env)).get("waits", [])
+        if [w.get("condition") for w in waits] != [f"commit {sha} on origin/main"]:
+            report(f"{label} with the commit only on origin/feature, waits lists {waits!r}, not the open wait on origin/main.")
+            return 1
+        if told():
+            report(f"{label} verify was told of the commit while it was only on origin/feature.")
+            return 1
+        push_to(rtl, sha, "main")
+        run_keel(rtl, "patrol", env=env)
+        if len(chat_records_with(rtl, "dm-rtl--verify", "origin/main")) != 1:
+            report(f"{label} after the push to main verify has {told()} messages naming the commit, not one naming origin/main.")
+            return 1
+        if chat_json(run_keel(rtl, "chat", "waits", "--json", env=env)).get("waits"):
+            report(f"{label} the met wait is still listed.")
+            return 1
+    report("chat-wait-commit-branch scenario passed.")
+    return 0
+
+
 def validate_coordinator_patrol_scenario() -> int:
     """Issue #260: declared waits, and a patrol that notifies once.
 

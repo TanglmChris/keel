@@ -469,6 +469,7 @@ SCENARIOS: tuple = (
     ("chat-ack", chat.validate_chat_ack_scenario),
     ("chat-reply-addresses-author", chat.validate_chat_reply_addresses_author_scenario),
     ("coordinator-patrol", shift.validate_coordinator_patrol_scenario),
+    ("chat-wait-commit-branch", shift.validate_chat_wait_commit_branch_scenario),
     ("patrol-since-last", shift.validate_patrol_since_last_scenario),
     ("patrol-next", shift.validate_patrol_next_scenario),
     ("tick-runs-due-patrol", shift.validate_tick_runs_due_patrol_scenario),
