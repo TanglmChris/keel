@@ -214,8 +214,13 @@ function sinceLast(where, role, result, options) {
   const file = snapshotFile(where, role);
   const previous = fs.existsSync(file) ? store.readJsonFile(file) : null;
   const now = currentSnapshot(where, role, result, options);
+  now.standing = result.standing || [];
   store.writeJsonAtomic(where, file, now);
-  if (!previous || !previous.entries) return { baseline: true, changes: [], risks: [] };
+  // A standing risk is a risk on the run its text first appears (#476 D1).
+  const sent = new Set((previous && previous.standing) || []);
+  const fresh = now.standing.filter((text) => !sent.has(text));
+  result.sentBefore = now.standing.filter((text) => sent.has(text));
+  if (!previous || !previous.entries) return { baseline: true, changes: [], risks: fresh };
   const changes = [];
   const keys = [...new Set([...Object.keys(previous.entries), ...Object.keys(now.entries)])].sort();
   for (const key of keys) {
@@ -239,6 +244,7 @@ function sinceLast(where, role, result, options) {
   if (now.entries.disk === "low" && previous.entries.disk !== "low") {
     risks.push(`free disk is ${options.diskFreeGb} GB, below ${options.diskMinGb} GB`);
   }
+  risks.push(...fresh);
   return { baseline: false, changes, risks };
 }
 
@@ -396,6 +402,7 @@ function render(result) {
   for (const change of changes) lines.push(`changed: ${change}`);
   for (const sent of result.nudges || []) lines.push(`nudged ${sent.role}: ${sent.kind}`);
   for (const risk of result.risks || []) lines.push(`risk: ${risk}`);
+  for (const risk of result.sentBefore || []) lines.push(`risk (sent before): ${risk}`);
   if (result.paused) lines.push(result.paused);
   for (const held of result.held) lines.push(`met: ${held.from} waited for ${held.condition} (${held.id})`);
   for (const sent of result.notices) lines.push(`notified ${sent.to}: ${sent.text}`);
@@ -557,10 +564,15 @@ function runPatrol(argv) {
     result.risks = [];
     const quota = options.coverage.repositoryWide ? quotaRisk(where, options) : null;
     if (quota) result.risks.push(quota);
-    // A CLI hand-off that failed or hangs (#357 D4), of the roles this patrol covers.
-    result.risks.push(...require("./shift").handOffRisks(where, Date.now(), (name) => name === role || options.coverage.covers(name)));
-    // An ended CLI session whose worktree is gone cannot be woken (#465 D4).
-    result.risks.push(...require("./chat/notice").movedSessionRisks(where, (name) => name === role || options.coverage.covers(name)));
+    // A CLI hand-off that failed or hangs (#357 D4), and an ended CLI session
+    // whose worktree is gone (#465 D4), of the roles this patrol covers. They
+    // stand until resolved, so `--since-last` sends each once (#476 D1, D2).
+    const covered = (name) => name === role || options.coverage.covers(name);
+    result.standing = [
+      ...require("./shift").handOffRisks(where, Date.now(), covered),
+      ...require("./chat/notice").movedSessionRisks(where, covered),
+    ];
+    if (!options.sinceLast) result.risks.push(...result.standing);
     // Near the limit nudges stop, since each wakes a large session (D3).
     const quiet = options.quota !== null && options.quota >= options.quotaQuietAt;
     if (options.nudge && quiet) result.paused = `nudges paused: quota at ${options.quota}%`;
