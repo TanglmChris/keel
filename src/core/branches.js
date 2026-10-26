@@ -49,11 +49,11 @@ function globRegExp(glob) {
 
 const { readBranchesDeclaration } = require("./config");
 
-function remoteDefault(cwd) {
-  const head = git(cwd, ["symbolic-ref", "--quiet", "--short", `refs/remotes/${REMOTE}/HEAD`]);
-  if (head.ok && head.out) return head.out.slice(REMOTE.length + 1);
+function remoteDefault(cwd, remote = REMOTE) {
+  const head = git(cwd, ["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]);
+  if (head.ok && head.out) return head.out.slice(remote.length + 1);
   for (const name of ["main", "master"]) {
-    if (git(cwd, ["rev-parse", "--verify", "--quiet", `refs/remotes/${REMOTE}/${name}`]).ok) return name;
+    if (git(cwd, ["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${name}`]).ok) return name;
   }
   return null;
 }
@@ -255,4 +255,4 @@ function runBranches(argv) {
   }
 }
 
-module.exports = { BranchesError, readBranchesDeclaration, merged, describe, prune, runBranches, globRegExp, REMOTE, USAGE };
+module.exports = { BranchesError, readBranchesDeclaration, remoteDefault, merged, describe, prune, runBranches, globRegExp, REMOTE, USAGE };

@@ -893,7 +893,25 @@ function directPost(where, target, text, extra = {}) {
 
 // --- waits (#260) ---------------------------------------------------------------
 
-const WAIT_FORMS = "`--commit <sha> [--remote <name>]` or `--issue <n> --closed`";
+const WAIT_FORMS = "`--commit <sha> [--branch <name>] [--remote <name>]` or `--issue <n> --closed`";
+
+// `commit <sha> on <remote>` holds on any of the remote's branches; `on
+// <remote>/<branch>`, joined by ` or `, only on those branches (#477 D1, D3).
+function parseCommitCondition(condition) {
+  const match = String(condition).match(/^commit ([0-9a-f]+) on (.+)$/);
+  if (!match) return null;
+  const targets = match[2].split(" or ");
+  if (targets.length === 1 && !targets[0].includes("/")) return { sha: match[1], remote: targets[0], branches: null };
+  const refs = targets.map((target) => target.match(/^([^/\s]+)\/(\S+)$/));
+  if (refs.some((ref) => !ref)) return null;
+  return { sha: match[1], remote: refs[0][1], refs: refs.map((ref) => ({ remote: ref[1], branch: ref[2] })) };
+}
+
+// A condition as people read it: an any-branch commit wait says so (#477 D2).
+function describeCondition(condition) {
+  const commit = parseCommitCondition(condition);
+  return commit && !commit.refs ? `commit ${commit.sha} on any branch of ${commit.remote}` : String(condition);
+}
 
 // What a role is waiting for, as a record every session can read. A wait is
 // not readable (D1): it wakes nobody and is unread for nobody.
@@ -914,8 +932,24 @@ function wait(where, options) {
     const remote = options.remote || "origin";
     checkName(remote.toLowerCase(), "Remote");
     condition = `commit ${String(options.commit).toLowerCase()} on ${remote}`;
+    if (options.branch !== null && options.branch !== undefined) {
+      if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(String(options.branch)) || String(options.branch).includes("..")) {
+        throw new ChatError(`--branch ${JSON.stringify(options.branch)} is not a branch name.`);
+      }
+      condition += `/${options.branch}`;
+    } else {
+      // Declared trunks are the default (#477 D3), resolved now so a later
+      // change to `branches:` does not move an open wait.
+      const branches = require("../branches");
+      const declared = branches.readBranchesDeclaration(where.worktree).trunk;
+      if (declared.length) {
+        const names = [...new Set([branches.remoteDefault(where.worktree, remote), ...declared].filter(Boolean))];
+        condition = `commit ${String(options.commit).toLowerCase()} on ${names.map((name) => `${remote}/${name}`).join(" or ")}`;
+      }
+    }
   } else {
     if (!options.closed) throw new ChatError(`keel chat wait --issue needs --closed; use ${WAIT_FORMS}.`);
+    if (options.branch !== null && options.branch !== undefined) throw new ChatError(`--branch goes with --commit; use ${WAIT_FORMS}.`);
     condition = `issue ${normalizeIssue(options.issue)} closed`;
   }
   const { state } = loadGroup(where, group);
@@ -1073,6 +1107,8 @@ module.exports = {
   wait,
   mentionText,
   openWaits,
+  parseCommitCondition,
+  describeCondition,
   markMet,
   canAct,
   ack,

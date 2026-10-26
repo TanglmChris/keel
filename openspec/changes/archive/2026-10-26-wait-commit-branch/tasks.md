@@ -1,0 +1,146 @@
+# Tasks
+
+## 1. Commit waits that name their branch
+
+- [x] 1.1 Add `--branch` to `keel chat wait --commit`, and say "any branch" when it is absent
+  - Covers:
+    - keel-coordinator-patrol / A commit wait names the branch it waits for / A wait for main is not met by a feature branch
+    - D1
+    - D2
+    - D4
+  - Read:
+    - openspec/changes/wait-commit-branch/design.md
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/patrol.js
+  - Touch:
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/patrol.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wait-commit-branch`: with a bare `origin`, a commit pushed only to `origin/feature`, and `verify` running the real `keel chat wait soc --commit <sha> --branch main`, a `keel patrol` run as rtl leaves `keel chat waits --json` listing the wait with condition `commit <sha> on origin/main` and leaves verify no message naming `<sha>`; after the commit is pushed to `origin/main`, the next `keel patrol` sends verify exactly one message naming `origin/main` and the wait leaves `keel chat waits`. Fails with: `chat-wait-commit-branch:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, `coordinator-patrol` among them, and so do `--scenario surfaces-agree-with-code` and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d9e0d3706f628e68b44cc1dd60da2f9090aea54c73e5f6ad34b5673380764f70 (keel 5.206.0)
+    - M1: pass. `chat-wait-commit-branch scenario passed.` (exit 0).
+    - M1.red: fail. Before the change: `chat-wait-commit-branch: keel chat wait --branch main exited 2: 'keel chat: Unknown option for keel chat: --branch\n'` (exit 1).
+    - M1.green: pass. `store.wait` accepts `--branch <name>` with `--commit`, refuses it with `--issue` or a name with spaces or `..`, and writes `commit <sha> on <remote>/<name>`. `parseCommitCondition` reads the any-branch form and the `<remote>/<branch>` forms joined by ` or `. `conditionHolds` checks each named branch with `git merge-base --is-ancestor <sha> refs/remotes/<remote>/<branch>` (D1). A `<remote>`-only condition keeps the any-branch `for-each-ref --contains` check, and the stored condition text is unchanged (D2, D4). The usage line names `--branch` (I4). With the commit only on `origin/feature`, the wait stayed open and verify was told nothing. After the push to `origin/main`, verify got one message naming `origin/main`.
+    - M2: pass. `validation --group shift passed: 65 scenarios.` (exit 0), `coordinator-patrol` among them. `surfaces-agree-with-code` passed on its own, and `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel chat wait --branch main` and `keel patrol`, a commit on a feature branch did not meet the wait, and the same commit on `origin/main` met it once.
+      - Scope check: `git status --short` lists `src/core/chat/store.js`, `src/core/chat/cli.js`, `src/core/patrol.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Default a commit wait to the declared trunks, and render an undeclared one as any branch
+  - Covers:
+    - keel-coordinator-patrol / A commit wait names the branch it waits for / Declared trunks are the default, and an undeclared wait says any branch
+    - D2
+    - D3
+  - Read:
+    - openspec/changes/wait-commit-branch/design.md
+    - src/core/chat/store.js
+    - src/core/branches.js
+    - src/core/config.js
+  - Touch:
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - src/core/branches.js
+    - src/core/patrol.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - keel/config.yaml
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wait-commit-trunks`: in a repository whose `keel/config.yaml` declares `branches:` with `trunk:` `integ` and a bare `origin` holding `main` and `integ`, the real `keel chat wait soc --commit <sha>` with no `--branch` prints a line containing `origin/main or origin/integ`; with `<sha>` pushed only to `origin/feature` a `keel patrol` leaves the wait open, and after `<sha>` is pushed to `origin/integ` the next one marks it met; in a repository declaring no `branches:`, `keel chat wait soc --commit <sha>` and `keel chat waits` each print a line containing `any branch of origin`. Fails with: `chat-wait-commit-trunks:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4` passes, `coordinator-patrol` and `chat-wait-commit-branch` among them, and so do `--scenario branches-lists-merged`, `--scenario readme-zh-matches-english`, `--scenario config-documents-in-declaration-order`, `--scenario surfaces-agree-with-code`, and `--scenario assertion-shape-count`, run one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:da2d589c8f776f76e1831ed49653948bc915deda966c04c54302b3d93796d578 (keel 5.206.0)
+    - M1: pass. `chat-wait-commit-trunks scenario passed.` (exit 0).
+    - M1.red: fail. With the four source files restored to the 1.1 commit, and with the fixture already writing the config into verify's worktree too: `chat-wait-commit-trunks: with trunk integ declared the wait does not name origin/main or origin/integ: 'Waiting: commit 859aa536… on origin (…).\n' ''` (exit 1). The first fixture committed only rtl's config with `commit -am`, which skips an untracked file; that was fixed before this red was taken.
+    - M1.green: pass.
+      - With no `--branch`, `store.wait` reads `branches:` from the worktree it runs in. When `trunk:` names any branch, it writes `commit <sha> on <remote>/<default> or <remote>/<trunk>…`, using `branches.remoteDefault(cwd, remote)`, now exported and given a remote parameter (D3).
+      - `describeCondition` renders an any-branch commit condition as `commit <sha> on any branch of <remote>`. The wait echo, `keel chat waits`, and the patrol's `Condition met:` notice use it; `waits --json` keeps the raw condition (D2).
+      - Both READMEs and the `branches:` comment in `keel/config.yaml` say so (I2, I3).
+    - M2: pass. `validation --group shift passed: 66 scenarios.` (exit 0), `coordinator-patrol` and `chat-wait-commit-branch` among them. `branches-lists-merged`, `readme-zh-matches-english`, `config-documents-in-declaration-order`, and `surfaces-agree-with-code` each passed on its own, and `assertion-shape-count` passed at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel chat wait` and `keel patrol`, with trunk `integ` declared a wait without `--branch` named `origin/main or origin/integ`, stayed open while the commit was only on a feature branch, and was met once it reached `origin/integ`; with nothing declared the echo and `keel chat waits` said `any branch of origin`.
+      - Scope check: `git status --short` lists `src/core/chat/store.js`, `src/core/chat/cli.js`, `src/core/branches.js`, `src/core/patrol.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, both READMEs, `keel/config.yaml`, and this change's directory.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations:
+      - 2026-10-26: Touch gains `src/core/patrol.js`. D2 renders an any-branch wait in the patrol's `Condition met:` notice, and that notice is written in `patrol.js`, which the authoring left out of this task. No other contract field changed; task-start was re-run before any execution evidence was recorded.
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-coordinator-patrol`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:8fe3c21c22f24b656d1dd318a3468613c5bf108e17bb167caebf8efa7bd075ed (keel 5.206.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.206.0 → 5.207.0. With the section "A commit wait names the branch it waits for" written, `version-alignment scenario passed.` (exit 0).
+    - M2: the added requirement is appended to `openspec/specs/keel-coordinator-patrol/spec.md`, and `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`: `validation --all passed: baseline plus 347 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries both tasks' behavior, the markers agree at 5.207.0, the promoted spec validates strictly, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, and this change's directory, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "a commit contained in a `refs/remotes/<remote>/` ref" and "`keel chat wait <group> --commit <sha> [--remote <name>] [note]`" — the wait and patrol requirements in `openspec/specs/keel-coordinator-patrol/spec.md`. Discard reason: still true for a wait without `--branch` in a repository declaring no trunk; the added requirement states the branch forms beside them, promoted by 2.1.
+- I2: "marks each wait whose condition now holds — a commit on the remote" — `README.md` and its counterpart in `README.zh-CN.md`, which do not say a commit wait can name its branch or defaults to declared trunks. Updated by: 1.2.
+- I3: "The remote default branch is always a trunk; `trunk:` names more" — the `branches:` comment in `keel/config.yaml`, which says trunks govern only `keel branches`. Updated by: 1.2.
+- I4: "`keel chat wait <group> --commit <sha> [--remote <name>] [note...]`" — the usage line in `src/core/chat/cli.js`. Updated by: 1.1.
+
+## Expectation Coverage
+
+- E1: A commit wait for a branch is met only when that branch contains the commit (D1, D4); a repository's declared trunks are the default, and an any-branch wait says so (D2, D3) (#477). Covered by: 1.1, 1.2
+- E2: The release carries it. Covered by: 2.1

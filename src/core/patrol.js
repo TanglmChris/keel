@@ -48,10 +48,14 @@ function readIssues(file) {
 
 // D3: a commit condition holds when a `refs/remotes/<remote>/` ref contains it.
 function conditionHolds(where, condition, issues) {
-  const commit = condition.match(/^commit ([0-9a-f]+) on (\S+)$/);
+  const commit = store.parseCommitCondition(condition);
   if (commit) {
-    if (git(where.worktree, ["cat-file", "-e", `${commit[1]}^{commit}`]) === null) return { holds: false };
-    const refs = git(where.worktree, ["for-each-ref", "--contains", commit[1], "--format=%(refname)", `refs/remotes/${commit[2]}/`]);
+    if (git(where.worktree, ["cat-file", "-e", `${commit.sha}^{commit}`]) === null) return { holds: false };
+    // A named branch holds only when it contains the commit (#477 D1, D3).
+    if (commit.refs) {
+      return { holds: commit.refs.some((ref) => git(where.worktree, ["merge-base", "--is-ancestor", commit.sha, `refs/remotes/${ref.remote}/${ref.branch}`]) !== null) };
+    }
+    const refs = git(where.worktree, ["for-each-ref", "--contains", commit.sha, "--format=%(refname)", `refs/remotes/${commit.remote}/`]);
     return { holds: Boolean(refs) };
   }
   const issue = condition.match(/^issue #(\d+) closed$/);
@@ -101,7 +105,7 @@ function patrol(where, role, options) {
     store.markMet(where, waitRecord, role);
     result.held.push({ id: waitRecord.id, from: waitRecord.from, condition: waitRecord.condition });
     if (waitRecord.from !== role) {
-      const text = `Condition met: ${waitRecord.condition} (wait ${waitRecord.id}${waitRecord.text ? `: ${waitRecord.text}` : ""}).`;
+      const text = `Condition met: ${store.describeCondition(waitRecord.condition)} (wait ${waitRecord.id}${waitRecord.text ? `: ${waitRecord.text}` : ""}).`;
       const posted = store.directPost(where, waitRecord.from, text, { refs: [`wait:${waitRecord.id}`] });
       result.notices.push({ to: waitRecord.from, id: posted.id, text });
     }

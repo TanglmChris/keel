@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.207.0 - A commit wait names the branch it waits for
+
+Issue #477, approved by the owner on 2026-10-26, who also chose declared trunks as the default. `keel chat wait --commit <sha>` was met once any remote branch held the commit. So "until my commit reaches main" was met as soon as the author pushed their feature branch, and the waiting session woke early. kaiwu-ip hit this on 2026-10-26 (kaiwu-ip#429).
+
+- **`--branch <name>`.** `keel chat wait <group> --commit <sha> --branch main` records `commit <sha> on origin/main`, and the patrol holds it only when `refs/remotes/origin/main` contains the commit (`git merge-base --is-ancestor`). `--branch` with `--issue`, or a name with spaces or `..`, is refused.
+- **Declared trunks are the default.** When `keel/config.yaml` declares `branches:` with a `trunk:`, a commit wait without `--branch` is recorded against the remote's default branch and each declared trunk, such as `commit <sha> on origin/main or origin/integ`. It holds when any of them contains the commit. The list is resolved when the wait is registered.
+- **Otherwise it says any branch.** With no trunk declared, the condition stays `commit <sha> on origin` and means any branch, as before. The echo, `keel chat waits`, and the patrol's `Condition met:` notice now read `on any branch of origin`, and `waits --json` keeps the raw condition.
+- **Mixed versions.** An older Keel reading the new conditions never meets them early: `on origin/main` matches no ref under its any-branch check, and an `or` list does not parse.
+- **Checks.** The new `chat-wait-commit-branch` and `chat-wait-commit-trunks`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.207.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.206.0 - A standing patrol risk reaches the coordinator once; parked roles stay quiet; `keel chat role --unset`
 
 Issue #476, approved by the owner on 2026-10-26. From 00:15 to 07:15 that night, keel-maint's tick patrol sent its coordinator the same risk every 30 minutes, 15 times. The risk was keel-maint-2's CLI session in a directory the 10-25 workspace rename removed. Nothing changed between runs, and every message woke the coordinator.
