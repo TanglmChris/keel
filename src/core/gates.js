@@ -1444,7 +1444,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
     if (!entry.measured || !entry.label) continue;
     const recorded = evidenceValue(task, entry.label);
     if (!isConcrete(recorded)) continue;
-    if (!String(recorded).includes(entry.measured)) {
+    if (!containsDeclared(recorded, entry.measured)) {
       problems.push(
         problem(
           "measurement-missing-from-evidence",
@@ -1453,7 +1453,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
             + "string. Paste the output the number came from, or correct the "
             + "declaration — which moves the contract fingerprint, because a "
             + "number reconciled to the output after the run is a transcription "
-            + "of it.",
+            + `of it.${WHITESPACE_NOTE}`,
         )
       );
     }
@@ -1484,7 +1484,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
       );
       continue;
     }
-    if (!String(recorded).includes(entry.detects.failure)) {
+    if (!containsDeclared(recorded, entry.detects.failure)) {
       problems.push(
         problem(
           "injection-missing-declared-failure",
@@ -1493,7 +1493,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
             + `${entry.label}.detects Evidence does not contain that string. `
             + "Record what the mutation actually printed, or correct the "
             + "declaration — which moves the contract fingerprint, because an "
-            + "injection edited after the run is a transcription of it.",
+            + `injection edited after the run is a transcription of it.${WHITESPACE_NOTE}`,
         )
       );
     }
@@ -1525,7 +1525,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
       if (exempt.has(label)) continue;
       const expected = declaredFailure.get(label);
       const recorded = evidenceValue(task, `${label}.red`);
-      if (expected && isConcrete(recorded) && !String(recorded).includes(expected)) {
+      if (expected && isConcrete(recorded) && !containsDeclared(recorded, expected)) {
         problems.push(
           problem(
             "red-missing-declared-failure",
@@ -1534,7 +1534,7 @@ function completionChecks(repo, task, contract = null, changeVerify = null, chan
               + "string. Record the failure output the red actually printed, "
               + "or correct the declaration — which moves the contract "
               + "fingerprint, because a signature edited after the red was "
-              + "observed is a transcription of it.",
+              + `observed is a transcription of it.${WHITESPACE_NOTE}`,
           )
         );
       }
@@ -1859,6 +1859,16 @@ function changeEvidenceValue(content, tasks, label) {
   const match = section.match(new RegExp(`^\\s*-\\s*${escaped}:\\s*(.*)$`, "im"));
   return match ? match[1].trim() : "";
 }
+
+// A declared literal is compiled from whitespace-collapsed check text, so the
+// recorded Evidence is collapsed the same way before it is searched; nothing
+// else is folded (#479 D1).
+function containsDeclared(recorded, literal) {
+  const collapse = (value) => String(value).replace(/\s+/g, " ");
+  return collapse(recorded).includes(collapse(literal));
+}
+
+const WHITESPACE_NOTE = " Runs of whitespace are compared as one space, so spacing is not the cause.";
 
 // `change-close`-only: `## Change Verify`'s own shape, and completeness of
 // `## Change Evidence` for every check it declares — whether or not any task

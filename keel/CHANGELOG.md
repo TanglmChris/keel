@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.208.0 - Declared literals match Evidence with whitespace runs as one space
+
+Issue #479, approved by the owner on 2026-10-26, who chose to collapse whitespace on both sides. A `Fails with:` literal holding a run of spaces could never match its red. The check text is whitespace-collapsed before the literal is taken, so `` `FAIL  name` `` was stored as `FAIL name`, while the `.red` Evidence was searched raw. Tool output aligns with runs of spaces (`FAIL  <name>`, pytest's `E       assert …`). kaiwu-ip hit this on 2026-10-26 and passed only by pasting a second, single-spaced copy into its Evidence.
+
+- **Whitespace runs compare as one space.** `keel gate task-complete` collapses every run of whitespace on both sides before it looks for a declared `Fails with:` literal in `.red`, a `Detects:` failure in `.detects`, or a `Measured:` literal in the bare `M<n>` Evidence. Nothing else is folded: case, punctuation, and quoting still count, and different characters are still refused.
+- **The refusal rules spacing out.** `red-missing-declared-failure`, `injection-missing-declared-failure`, and `measurement-missing-from-evidence` now end with `Runs of whitespace are compared as one space, so spacing is not the cause.`
+- **The literal still comes from the normalized check text,** so a check wrapped across lines in tasks.md keeps working. Keeping the raw backtick text was considered and not taken for that reason.
+- **Checks.** The new `declared-literal-whitespace`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.208.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.207.0 - A commit wait names the branch it waits for
 
 Issue #477, approved by the owner on 2026-10-26, who also chose declared trunks as the default. `keel chat wait --commit <sha>` was met once any remote branch held the commit. So "until my commit reaches main" was met as soon as the author pushed their feature branch, and the waiting session woke early. kaiwu-ip hit this on 2026-10-26 (kaiwu-ip#429).
