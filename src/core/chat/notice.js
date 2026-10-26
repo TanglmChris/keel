@@ -278,7 +278,8 @@ function resumeCli(entry, where = null) {
 // exists (#465 D4). Presence only: the patrol asks the host nothing.
 function movedSessionRisks(where, covers = () => true) {
   const roles = [...new Set(Object.values(store.readJsonFile(path.join(where.root, "roles.json"))).filter(Boolean))].sort();
-  return roles.filter(covers).map((role) => asleep(where, role))
+  // A parked role is left alone on purpose (#476 D3).
+  return roles.filter(covers).filter((role) => !parkOf(where, role)).map((role) => asleep(where, role))
     .filter((entry) => entry && entry.cli && entry.worktree && !fs.existsSync(entry.worktree))
     .map((entry) => `${entry.role}'s CLI session ${entry.session} ran in ${entry.worktree}, which no longer exists, so it cannot be resumed; `
       + `\`keel chat wake now ${entry.role}\` prints the command that continues it in the role's worktree`);

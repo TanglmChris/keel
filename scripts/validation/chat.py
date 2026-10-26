@@ -587,6 +587,89 @@ def validate_chat_wake_moved_worktree_scenario() -> int:
     return 0
 
 
+def moved_session_scratch(base: Path) -> tuple[Path, Path, dict]:
+    """verify's ended CLI session, recorded in a directory that no longer exists (#465, #476)."""
+    rtl, verify, env, _ = shift_scratch(base)
+    gone = str(base / "renamed-away" / "verify")
+    fake = base / "fake-claude"
+    write_text(fake, "#!/usr/bin/env python3\nimport json, sys\n"
+               "if sys.argv[1:3] == ['agents', '--json']:\n"
+               f"    print(json.dumps([{{'kind': 'background', 'sessionId': 'sess-verify-1', 'id': 'sess-ver', 'cwd': {gone!r}}}]))\n")
+    fake.chmod(0o755)
+    env = {**env, "KEEL_CLAUDE": str(fake)}
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    chat_session_start(verify, env, "sess-verify-1", dead.pid)
+    presence_file = mailbox_common_dir(rtl) / "keel-chat" / "presence" / "verify.json"
+    presence = json.loads(presence_file.read_text(encoding="utf-8"))
+    presence["cli_worktree"] = gone
+    presence_file.write_text(json.dumps(presence), encoding="utf-8")
+    return rtl, verify, env
+
+
+def validate_patrol_standing_risk_once_scenario() -> int:
+    """Issue #476 D1, D2: an unchanged moved-session risk reaches the coordinator once.
+
+    Under `--since-last --notify` the risk is sent on the run it first
+    appears and printed as sent before afterwards; a plain patrol still
+    reports it.
+    """
+    label = "patrol-standing-risk-once:"
+    with tempfile.TemporaryDirectory(prefix="keel-patrol-476-") as raw:
+        rtl, _verify, env = moved_session_scratch(Path(raw))
+        runs = [run_keel(rtl, "patrol", "--since-last", "--notify", env=env) for _ in range(3)]
+        sent = chat_records_with(rtl, "dm-keel-patrol--rtl", "no longer exists")
+        if len(sent) != 1:
+            report(f"{label} three --since-last --notify runs sent the moved-session risk {len(sent)} times, not once: {[r.stdout for r in runs]!r}")
+            return 1
+        for index, run in enumerate(runs[1:], start=2):
+            if run.returncode == 2:
+                report(f"{label} run {index} exited 2, a risk to act on, for a risk already sent: {run.stdout!r}")
+                return 1
+            if not any("sent before" in line and "verify" in line for line in run.stdout.splitlines()):
+                report(f"{label} run {index} does not print the persisting risk as sent before: {run.stdout!r}")
+                return 1
+        plain = run_keel(rtl, "patrol", env=env)
+        if not any(line.startswith("risk:") and "verify" in line for line in plain.stdout.splitlines()):
+            report(f"{label} a plain patrol no longer reports the risk: {plain.stdout!r}")
+            return 1
+    report("patrol-standing-risk-once scenario passed.")
+    return 0
+
+
+def validate_chat_role_park_and_unset_scenario() -> int:
+    """Issue #476 D3, D4: a parked role's gone session is not reported, and a binding can be removed.
+
+    Parking verify quiets the moved-session risk in `keel patrol`;
+    `keel chat role --unset` in verify's worktree unbinds it there.
+    """
+    label = "chat-role-park-and-unset:"
+    with tempfile.TemporaryDirectory(prefix="keel-park-476-") as raw:
+        rtl, verify, env = moved_session_scratch(Path(raw))
+        before = run_keel(rtl, "patrol", env=env)
+        if not any("verify" in line and "no longer exists" in line for line in before.stdout.splitlines()):
+            report(f"{label} the fixture raises no moved-session risk for verify before the park: {before.stdout!r}")
+            return 1
+        run_keel(rtl, "chat", "role", "--park", "verify", "--reason", "retired", env=env)
+        parked = run_keel(rtl, "patrol", env=env)
+        if any("verify" in line and "no longer exists" in line for line in parked.stdout.splitlines()):
+            report(f"{label} the patrol still reports parked verify's gone session: {parked.stdout!r}")
+            return 1
+        unset = run_keel(verify, "chat", "role", "--unset", env=env)
+        if unset.returncode != 0:
+            report(f"{label} keel chat role --unset exited {unset.returncode}: {unset.stderr!r}")
+            return 1
+        if "Unbound verify" not in unset.stdout:
+            report(f"{label} keel chat role --unset does not say it unbound verify: {unset.stdout!r}")
+            return 1
+        after = run_keel(verify, "chat", "role", env=env)
+        if "has no chat role" not in after.stdout:
+            report(f"{label} verify's worktree still has a chat role after --unset: {after.stdout!r}")
+            return 1
+    report("chat-role-park-and-unset scenario passed.")
+    return 0
+
+
 def validate_chat_wake_now_cli_scenario() -> int:
     """Issue #348 on the CLI (owner's CLI waker, 2026-10-19): one step wakes a role.
 
