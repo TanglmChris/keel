@@ -178,7 +178,8 @@ Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec an
 
 写入守卫是一份一次性 manifest：`keel/guard.json`。在 Claude 上，通过的 `task-start` 会写入它（`--no-guard` 退出）；
 `keel guard start` 显式写入，`keel guard clear` 删除。它记录 change 与 task、capsule 指纹、规范化后的 `Touch`
-和权威文件的哈希，并且失败即关闭：Keel 读不了的 manifest 会拒绝编辑，而不是放行。守卫检查文件编辑工具；
+和权威文件的哈希，并且失败即关闭：Keel 读不了的 manifest 会拒绝编辑，而不是放行；它守的 change 不见了也一样拒绝，
+除非那个 change 是在所守任务已勾选完成后归档的——那个任务已经结束，manifest 就不再拦任何写入（#491）。守卫检查文件编辑工具；
 `Bash` 命令造成的写入不检查，只有声明了 `push:` 范围时会检查 `git push`。
 
 ### 常设授权

@@ -3111,7 +3111,7 @@ function runAction(options) {
     process.stdout.write(
       options.json ? `${JSON.stringify(result, null, 2)}\n` : renderGuard(result)
     );
-    return ["started", "active", "absent", "cleared"].includes(result.status)
+    return ["started", "active", "absent", "cleared", "archived"].includes(result.status)
       ? 0
       : 3;
   }

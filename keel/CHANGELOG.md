@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.212.0 - A manifest over an archived, finished task enforces nothing
+
+Issue #491, approved by the owner on 2026-10-27, who chose to let the guard stand down once its task has finished and been archived. In ChipSTRIDE under Claude Code's auto mode, a change went from `task-start` to archive under the standing `archive` authorization, and the next write, the new change's proposal, was refused as a stale manifest. `keel guard clear` was the only way out, and the auto-mode permission classifier refused it, so every change after the first in a session needed a person to run `! keel guard clear`.
+
+- **An archived, checked task no longer guards.** When the guarded change's directory is gone, the write guard looks for its archived copy, the lexically last `openspec/changes/archive/<YYYY-MM-DD>-<change>/`. If that copy's `tasks.md` shows the guarded task checked, the write passes as it would with no manifest.
+- **`keel guard status` reads `archived`** in that case, with the problem code `task-archived` naming the archived directory and `keel guard clear`, and exits 0.
+- **Everything else still fails closed** (#56): a change gone with no archived copy, or archived with the guarded task unchecked, is refused as a stale manifest, as before.
+- **Not taken:** clearing the manifest from `keel gate change-close --action archive`, because no gate but `task-start` writes project state; and allowing `openspec/changes/` writes under any stale manifest.
+- **Checks.** The new `guard-archived-complete-task`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.212.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.211.0 - A push after `cd` is refused whatever its refspec, naming `git -C`
 
 Issue #486, approved by the owner on 2026-10-27 with the conservative fix. The push guard reads `push:` and `push-protected:` from the session's repository, or the one `git -C` names. A `cd` earlier in the call counted only when the push needed the current branch, so an explicit refspec was judged by the session repository's rules even when the push ran elsewhere. kaiwu-layout hit it on 2026-10-27: `cd <export dir> && git push <url> main:main` was denied as kaiwu-ip's `push-protected:main@kaiwu-chief`, although the export directory is a separate repository with no Keel config.
