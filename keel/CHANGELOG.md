@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.211.0 - A push after `cd` is refused whatever its refspec, naming `git -C`
+
+Issue #486, approved by the owner on 2026-10-27 with the conservative fix. The push guard reads `push:` and `push-protected:` from the session's repository, or the one `git -C` names. A `cd` earlier in the call counted only when the push needed the current branch, so an explicit refspec was judged by the session repository's rules even when the push ran elsewhere. kaiwu-layout hit it on 2026-10-27: `cd <export dir> && git push <url> main:main` was denied as kaiwu-ip's `push-protected:main@kaiwu-chief`, although the export directory is a separate repository with no Keel config.
+
+- **A `cd` or `pushd` before a push leaves its repository unknown,** whatever the refspec, in a repository that declares a push scope. The call is denied with a reason that says so and names `git -C <directory> push <remote> <branch>`; other undetermined pushes still name `git push origin <branch>`.
+- **`git -C <directory> push …` is judged by that directory's repository,** as before, so it is the way to push another repository.
+- **Not covered:** a session in a repository without a push scope that `cd`s into a governed one stays unguarded; resolving `cd` targets was not taken, because `CDPATH`, `~`, `cd -`, chained `cd`s, and subshells make them unreliable.
+- **Checks.** The new `push-guard-cd-before-push`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.211.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.210.0 - The handoff skill is retired; `keel --help` and the README carry the HANDOFF format
 
 Issue #485. On 2026-10-27 the owner chose to retire the `handoff` skill entirely, reversing the 2026-10-25 choice in #464 that kept `/keel:handoff` in the slash menu. Nobody ran it: `keel/HANDOFF.md` has never been committed in keel, kaiwu-ip, or my-yizhan, and ChipSTRIDE's last of three commits, on 2026-08-17, cleared it. A person picks a task with `/keel:start` and clears the pointer with `keel context --clear-handoff`.
