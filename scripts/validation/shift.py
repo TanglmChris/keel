@@ -112,6 +112,66 @@ def validate_two_live_sessions_on_one_role_scenario() -> int:
     return 0
 
 
+def validate_moved_session_is_not_a_twin_scenario() -> int:
+    """Issue #490: a session that bound another role is not a twin of the first.
+
+    In ChipSTRIDE three sessions started in the main checkout, bound to
+    `chipstride`; two then entered their own worktrees and ran `keel chat role
+    --set`. `chipstride.sessions.json` kept all three, so every command warned
+    of three live `chipstride` sessions when there was one.
+    """
+    label = "moved-session-is-not-a-twin:"
+    with tempfile.TemporaryDirectory(prefix="keel-twins-490-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        write_text(verify / "openspec/specs/.keep", "")
+        fe = base / "fe"
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "fe", str(fe)], cwd=rtl, check=True, capture_output=True)
+        # Each session's transcript starts in the worktree it started in;
+        # `EnterWorktree` later gives sess-b one in fe as well.
+        config = base / "claude-config"
+        for sid in ("sess-a", "sess-b"):
+            write_text(config / "projects" / host_project_name(verify) / f"{sid}.jsonl", "{}\n")
+        other = subprocess.Popen(["sleep", "300"])
+        try:
+            def as_session(sid: str, pid: int) -> dict:
+                return {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": sid, "CLAUDE_PID": str(pid),
+                        "CLAUDE_CONFIG_DIR": str(config)}
+
+            for sid, pid in (("sess-a", os.getpid()), ("sess-b", other.pid)):
+                subprocess.run(["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", "session-start"], cwd=verify,
+                               env=as_session(sid, pid), text=True, capture_output=True, check=False,
+                               input=json.dumps({"cwd": str(verify), "hook_event_name": "SessionStart", "session_id": sid, "source": "startup"}))
+            before = json.loads(run_keel(verify, "context", "--json", env=as_session("sess-a", os.getpid())).stdout)
+            if not any("live sessions" in w for w in before.get("warnings", [])):
+                report(f"{label} the fixture does not list two live verify sessions before sess-b moves: {before.get('warnings')!r}")
+                return 1
+            write_text(config / "projects" / host_project_name(fe) / "sess-b.jsonl", "{}\n")
+            moved = run_keel(fe, "chat", "role", "--set", "fe", env=as_session("sess-b", other.pid))
+            if moved.returncode != 0:
+                report(f"{label} keel chat role --set fe exited {moved.returncode}: {moved.stderr!r}")
+                return 1
+            if "Recorded this session" not in moved.stdout:
+                report(f"{label} sess-b's --set fe did not record it as fe's session: {moved.stdout!r}")
+                return 1
+            context = json.loads(run_keel(verify, "context", "--json", env=as_session("sess-a", os.getpid())).stdout)
+            twins = [w for w in context.get("warnings", []) if "live sessions" in w]
+            if twins:
+                report(f"{label} sess-b, now fe's, is still reported as a second verify session: {twins!r}")
+                return 1
+            if other.poll() is not None:
+                report(f"{label} sess-b's process ended before the check, so it proves nothing.")
+                return 1
+        finally:
+            if other.poll() is None:
+                other.kill()
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_patrol_rearm_scenario() -> int:
     """Issue #260: the patrolling role is reminded to re-arm its schedule.
 
