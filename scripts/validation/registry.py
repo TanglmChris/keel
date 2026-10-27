@@ -504,6 +504,7 @@ SCENARIOS: tuple = (
     ("native-plugin-install-matrix", hosts.validate_native_plugin_install_matrix_scenario),
     ("touch-write-guard", guard.validate_touch_write_guard_scenario),
     ("push-branch-guard", guard.validate_push_branch_guard_scenario),
+    ("push-guard-cd-before-push", guard.validate_push_guard_cd_before_push_scenario),
     ("push-guard-redirects", guard.validate_push_guard_redirects_scenario),
     ("push-guard-follow-tags", guard.validate_push_guard_follow_tags_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),

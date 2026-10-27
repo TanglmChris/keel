@@ -3903,6 +3903,61 @@ def validate_push_branch_guard_scenario() -> int:
     return 0
 
 
+def validate_push_guard_cd_before_push_scenario() -> int:
+    """Issue #486: a `cd` before a push leaves its repository unknown, whatever the refspec.
+
+    The guard reads the push scope of the session's repository. kaiwu-layout's
+    `cd <export dir> && git push <url> main:main` was judged by kaiwu-ip's
+    `push-protected:main@kaiwu-chief`, though it pushed another repository.
+    The refusal now names `git -C <directory> push`, which is judged by the
+    repository it names.
+    """
+    label = "push-guard-cd-before-push:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-cd-486-") as raw:
+        base = Path(raw)
+        repo = base / "repo"
+        other = base / "export"
+
+        def git(*args: str, cwd: Path) -> None:
+            subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+        for tree in (repo, other):
+            git("init", "-q", "-b", "main", str(tree), cwd=base)
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init", cwd=tree)
+        (repo / "sub").mkdir()
+        write_authorize_config(repo, "authorize:\n  - push:claude/*\n  - push-protected:main@chief\n")
+
+        def decide(command: str) -> dict | None:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(repo)}
+            return pretooluse_decision(run_pretooluse_guard_hook(repo, event))
+
+        url = "https://example.invalid/acme/export.git"
+        for what, command in (
+            ("a push in another repository after cd", f"cd {other} && git push {url} main:main"),
+            ("a push to a declared branch after cd", "cd sub && git push origin claude/fix"),
+        ):
+            decision = decide(command)
+            if not decision or decision.get("permissionDecision") != "deny":
+                report(f"{label} {what} ({command!r}) was not denied: {decision!r}")
+                return 1
+            reason = decision.get("permissionDecisionReason", "")
+            if "git -C <directory> push" not in reason:
+                report(f"{label} {what} was denied without naming `git -C <directory> push`: {reason!r}")
+                return 1
+            if "chief" in reason:
+                report(f"{label} {what} was judged by the session repository's protected branch: {reason!r}")
+                return 1
+        decision = decide(f"git -C {other} push {url} main:main")
+        if decision is not None:
+            report(f"{label} `git -C` into a repository that declares nothing got a decision: {decision!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_authorize_role_scoped_scenario() -> int:
     """Issue #378: a scoped grant may name the roles it applies to.
 
