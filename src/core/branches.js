@@ -86,12 +86,12 @@ function checkedOut(cwd) {
 }
 
 // Branches a worktree bound to the role has checked out, from its own HEAD
-// reflog (D2 d, F1).
-function owned(where, role) {
+// reflog (D2 d, F1). `without` leaves one binding out, as an unset would (#483).
+function owned(where, role, without = null) {
   const roles = JSON.parse(fs.readFileSync(path.join(where.root, "roles.json"), "utf8"));
   const names = new Set();
   for (const [worktree, name] of Object.entries(roles)) {
-    if (name !== role || !fs.existsSync(worktree)) continue;
+    if (name !== role || worktree === without || !fs.existsSync(worktree)) continue;
     const reflog = git(worktree, ["reflog", "show", "--format=%gs", "HEAD"]);
     for (const line of reflog.out.split("\n")) {
       const moved = line.match(/^checkout: moving from (\S+) to (\S+)$/);
@@ -115,13 +115,13 @@ function lastFetch(cwd) {
 }
 
 // The role's qualifying branches on each side (D2).
-function merged(where, role) {
+function merged(where, role, { without = null } = {}) {
   const cwd = where.worktree;
   const declared = readBranchesDeclaration(cwd);
   const { found, missing } = trunks(cwd, declared);
   const trunkNames = new Set([...found.map((t) => t.name), ...missing]);
   const busy = checkedOut(cwd);
-  const mine = owned(where, role);
+  const mine = owned(where, role, without);
   const kept = declared.keep.map(globRegExp);
   const containing = (sha) => found.find((trunk) => git(cwd, ["merge-base", "--is-ancestor", sha, trunk.ref]).ok);
   const branches = [];
@@ -149,6 +149,17 @@ function merged(where, role) {
   };
 }
 
+// What unbinding `worktree` would leave unreachable: listed now, not without it (#483 D1).
+function stranded(where, role, worktree) {
+  const key = (b) => `${b.side} ${b.branch}`;
+  const kept = new Set(merged(where, role, { without: worktree }).branches.map(key));
+  return merged(where, role).branches.filter((b) => !kept.has(key(b)));
+}
+
+function label(b) {
+  return `${b.side === "remote" ? `${REMOTE}/` : ""}${b.branch} ${b.sha.slice(0, 12)}`;
+}
+
 function describe(result) {
   const lines = [];
   if (result.message) lines.push(result.message);
@@ -158,7 +169,7 @@ function describe(result) {
     return lines.join("\n");
   }
   lines.push(`Merged task branches of ${result.role} (trunks: ${result.trunks.join(", ")}; refs as last fetched ${result.fetched || "never"}):`);
-  for (const b of result.branches) lines.push(`- ${b.side === "remote" ? `${REMOTE}/` : ""}${b.branch} ${b.sha.slice(0, 12)} (in ${b.trunk})`);
+  for (const b of result.branches) lines.push(`- ${label(b)} (in ${b.trunk})`);
   return lines.join("\n");
 }
 
@@ -255,4 +266,4 @@ function runBranches(argv) {
   }
 }
 
-module.exports = { BranchesError, readBranchesDeclaration, remoteDefault, merged, describe, prune, runBranches, globRegExp, REMOTE, USAGE };
+module.exports = { BranchesError, readBranchesDeclaration, remoteDefault, merged, stranded, label, describe, prune, runBranches, globRegExp, REMOTE, USAGE };
