@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.213.0 - A session that bound another role is no twin of its first
+
+Issue #490, approved by the owner on 2026-10-27, who chose to judge by each session's record. In ChipSTRIDE three Claude Code sessions started in the main checkout, bound to `chipstride`, and two of them then entered their own worktrees and ran `keel chat role --set chipstride-be` and `--set chipstride-fe`. Their bindings and session records were right, but `presence/chipstride.sessions.json` still listed all three, so `keel context` and every `keel chat post/unread/read` warned of three live `chipstride` sessions when there was one.
+
+- **A session whose record names another role is not counted.** The twin warning counts a live listed session only when its `sessions/<id>.json` names this role, or when it has no record, since such a session cannot be told from a real twin.
+- **Two sessions that are both the role's are still reported,** as before.
+- **The session list is not edited:** a moved session's entry ages out when its process ends.
+- **Checks.** The new `moved-session-is-not-a-twin`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.213.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.212.0 - A manifest over an archived, finished task enforces nothing
 
 Issue #491, approved by the owner on 2026-10-27, who chose to let the guard stand down once its task has finished and been archived. In ChipSTRIDE under Claude Code's auto mode, a change went from `task-start` to archive under the standing `archive` authorization, and the next write, the new change's proposal, was refused as a stale manifest. `keel guard clear` was the only way out, and the auto-mode permission classifier refused it, so every change after the first in a session needed a person to run `! keel guard clear`.
