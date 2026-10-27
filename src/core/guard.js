@@ -283,6 +283,31 @@ function startGuard(repo, options) {
   return guardResult("start", "started", { manifest });
 }
 
+// The archived copy of a change, the lexically last `<YYYY-MM-DD>-<change>`
+// under openspec/changes/archive/, when its tasks.md shows the task checked;
+// otherwise null. The write guard hook makes the same test (#491 D1).
+function archivedCheckedChange(repo, change, task) {
+  const root = path.join(repo, "openspec", "changes", "archive");
+  let names = [];
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return null;
+  }
+  const own = names.filter((name) => /^\d{4}-\d{2}-\d{2}-/.test(name) && name.slice(11) === change).sort();
+  if (!own.length) return null;
+  const dir = path.join(root, own[own.length - 1]);
+  let content = "";
+  try {
+    content = fs.readFileSync(path.join(dir, "tasks.md"), "utf8");
+  } catch {
+    return null;
+  }
+  const id = task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = content.match(new RegExp(`^\\s*-\\s*\\[([ xX])\\]\\s*${id}(?![0-9.])`, "m"));
+  return match && match[1].toLowerCase() === "x" ? path.relative(repo, dir).split(path.sep).join("/") : null;
+}
+
 function guardStatus(repo) {
   const existing = readManifest(repo);
   if (existing.state === "absent") {
@@ -312,6 +337,21 @@ function guardStatus(repo) {
     // also leaves a live change whose tasks.md is absent — mid-authoring — on
     // the reauthorize path, where reauthorizing genuinely is the way out.
     const changeDir = path.join(repo, "openspec", "changes", manifest.change);
+    const archived = fs.existsSync(changeDir) ? null : archivedCheckedChange(repo, manifest.change, manifest.task);
+    if (archived) {
+      const finished = guardResult("status", "archived", { manifest });
+      finished.problems = [
+        {
+          code: "task-archived",
+          message:
+            `Guarded task ${manifest.change}#${manifest.task} is checked complete `
+            + `and its change is archived at ${archived}, so this manifest `
+            + "enforces nothing. `keel guard clear` removes it, and the next "
+            + "`keel gate task-start` replaces it.",
+        },
+      ];
+      return finished;
+    }
     problems.push(
       fs.existsSync(changeDir)
         ? {

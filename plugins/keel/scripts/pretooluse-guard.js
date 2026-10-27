@@ -120,9 +120,9 @@ function pathAllowed(candidate, touch) {
 // tasks.md; now it is stated. An unreadable or unmatched tasks.md is not read as
 // checked — every gate that compiles the capsule catches that, and denying
 // product writes on a parse miss would trade a real capability for a guess.
-function taskIsChecked(repo, manifest) {
+function taskIsChecked(repo, manifest, changeDir = null) {
   const file = path.join(
-    repo, "openspec", "changes", manifest.change, "tasks.md"
+    changeDir || path.join(repo, "openspec", "changes", manifest.change), "tasks.md"
   );
   let content = "";
   try {
@@ -135,6 +135,21 @@ function taskIsChecked(repo, manifest) {
     new RegExp(`^\\s*-\\s*\\[([ xX])\\]\\s*${id}(?![0-9.])`, "m")
   );
   return Boolean(match && match[1].toLowerCase() === "x");
+}
+
+// The archived copy `openspec archive` moved the change to, the lexically last
+// `<YYYY-MM-DD>-<change>` under openspec/changes/archive/, or null (#491 D1).
+// `src/core/guard.js` makes the same test for `keel guard status`.
+function archivedChangeDir(repo, change) {
+  const root = path.join(repo, "openspec", "changes", "archive");
+  let names = [];
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return null;
+  }
+  const own = names.filter((name) => /^\d{4}-\d{2}-\d{2}-/.test(name) && name.slice(11) === change).sort();
+  return own.length ? path.join(root, own[own.length - 1]) : null;
 }
 
 // A path is not the file it names. `path.resolve` never follows a symbolic
@@ -713,10 +728,14 @@ function main() {
   // the stale Touch was denied by a message naming a task in an archived change
   // and telling the reader to reauthorize it, which cannot be done; a write
   // *inside* it passed silently, so an archived task went on granting write
-  // authority. Denying here fixes both, and denying rather than allowing is
-  // what stops `openspec archive` from quietly disabling the guard.
+  // authority. Denying here fixes both, and denying an archived task that was
+  // never checked is what stops `openspec archive` from quietly disabling the
+  // guard. A task archived checked has finished: the manifest then guards
+  // nothing, as if it were absent (#491).
   const changeDir = path.join(repo, "openspec", "changes", manifest.change);
   if (!fs.existsSync(changeDir)) {
+    const archived = archivedChangeDir(repo, manifest.change);
+    if (archived && taskIsChecked(repo, manifest, archived)) return 0;
     deny(
       `Keel write guard: this manifest is stale — it guards ${pointer}, but `
         + `openspec/changes/${manifest.change} no longer exists, so the task it `

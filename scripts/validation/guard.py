@@ -4891,6 +4891,65 @@ def guard_status_payload(repo: Path, cell: str) -> tuple[dict, str]:
     return payload, (problems[0].get("message", "") if problems else "")
 
 
+def validate_guard_archived_complete_task_scenario() -> int:
+    """Issue #491: a manifest over a task checked and then archived enforces nothing.
+
+    In ChipSTRIDE under auto mode, the write after an authorized archive — the
+    next change's proposal — was refused as a stale manifest, and the
+    permission classifier refused `keel guard clear`, so every change after the
+    first needed a person. A task archived checked has finished; the guard
+    stands down, while an archived unchecked task still fails closed.
+    """
+    label = "guard-archived-complete-task:"
+    with tempfile.TemporaryDirectory(prefix="keel-guard-491-", ignore_cleanup_errors=True) as raw_tmp:
+        repo = Path(raw_tmp) / "repo"
+        repo.mkdir()
+        change_dir = repo / "openspec/changes/demo"
+        write_text(change_dir / "tasks.md", guard_task_fixture())
+        write_text(repo / "src/feature.js", "// fixture\n")
+        started = run_keel(repo, "guard", "start", "--change", "demo", "--task", "1.1", "--json")
+        if started.returncode != 0:
+            report(f"{label} guard start failed: {(started.stderr or started.stdout).strip()}")
+            return 1
+        write_text(change_dir / "tasks.md", guard_task_fixture(checked=True))
+        archived_dir = repo / "openspec/changes/archive/2026-10-27-demo"
+        archived_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(change_dir), str(archived_dir))
+        for what, target, tool in (
+            ("an edit of a product file", repo / "src/feature.js", "Edit"),
+            ("the next change's proposal", repo / "openspec/changes/next/proposal.md", "Write"),
+        ):
+            decision = pretooluse_decision(run_pretooluse_guard_hook(repo, edit_event(repo, target, tool)))
+            if decision is not None:
+                report(f"{label} {what} got a decision from a manifest over an archived, checked task: {decision!r}")
+                return 1
+        status = run_keel(repo, "guard", "status", "--json")
+        if status.returncode != 0:
+            report(f"{label} keel guard status exited {status.returncode}: {status.stdout!r} {status.stderr!r}")
+            return 1
+        try:
+            result = json.loads(status.stdout)
+        except json.JSONDecodeError:
+            report(f"{label} keel guard status --json printed no JSON: {status.stdout!r}")
+            return 1
+        if result.get("status") != "archived":
+            report(f"{label} keel guard status reports {result.get('status')!r}, not 'archived'.")
+            return 1
+        problem = next((p for p in result.get("problems", []) if p.get("code") == "task-archived"), None)
+        if problem is None:
+            report(f"{label} keel guard status carries no task-archived problem: {result.get('problems')!r}")
+            return 1
+        for needle in ("openspec/changes/archive/2026-10-27-demo", "keel guard clear"):
+            if needle not in problem.get("message", ""):
+                report(f"{label} the task-archived message does not name {needle!r}: {problem!r}")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_guard_status_stale_manifest_scenario() -> int:
     """`keel guard status` says which of two states the manifest is in.
 

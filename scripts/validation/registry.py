@@ -363,6 +363,7 @@ SCENARIOS: tuple = (
     ("tracker-durable-owner", contract.validate_tracker_durable_owner_scenario),
     ("findings-resolved-here", contract.validate_findings_resolved_here_scenario),
     ("guard-stale-manifest", guard.validate_guard_stale_manifest_scenario),
+    ("guard-archived-complete-task", guard.validate_guard_archived_complete_task_scenario),
     (
         "guard-status-stale-manifest",
         guard.validate_guard_status_stale_manifest_scenario,
