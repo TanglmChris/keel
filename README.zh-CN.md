@@ -836,6 +836,10 @@ owner_language: zh
 
 ## 命令参考
 
+`keel/HANDOFF.md` 存在时，会覆盖 `keel context` 选中的任务。它只有 YAML front matter：`schema: keel-handoff/v1`、
+`owner`（指向 `openspec/changes/<change>/` 下的文件）、`action`（`discuss`、`author`、`task-start`、`task-complete`
+或 `change-close`）和 `reason`。`keel context` 会校验它，`keel context --clear-handoff` 删除它。
+
 ```bash
 # 连续性 —— 无状态重算「现在该做什么」
 keel context [--json] [--change <c> --task <t>]
