@@ -15,7 +15,7 @@ const { relativeAge } = require("./view");
 const { ChatError } = store;
 
 const USAGE = [
-  "keel chat role [--set <name>] [--alias <alias>] [--prune] [--unset] [--json]   (--prune: drop bindings to removed worktrees; --unset: drop this worktree's)",
+  "keel chat role [--set <name>] [--alias <alias>] [--prune] [--unset [--leave-branches]] [--json]   (--prune: drop bindings to removed worktrees; --unset: drop this worktree's, refused while it would strand merged branches unless --leave-branches)",
   "keel chat role --park <role> [--reason <text>] | --unpark <role>   (a role parked on purpose is not nudged or reported by the patrol)",
   "keel chat role --rename <old> <new> [--json]   (the chat reads <old> as <new>; bindings and per-role state move to <new>)",
   "keel chat group create <group> [--member <role>]...",
@@ -82,10 +82,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset", "--leave-branches": "leaveBranches" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false, unset: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false, unset: false, leaveBranches: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -369,16 +369,25 @@ function dispatch(where, options) {
         else out(pruned.length ? pruned.map((entry) => `Pruned ${entry.role} from ${entry.worktree}.`).join("\n") : "No binding points at a removed worktree.");
         return 0;
       }
+      if (options.leaveBranches && !options.unset) throw new ChatError("--leave-branches goes with --unset.");
       if (options.unset) {
         // The calling worktree's binding, which `--prune` keeps while it exists (#476 D4).
         const roles = store.readJsonFile(path.join(where.root, "roles.json"));
         const unbound = roles[where.worktree] || null;
+        // Merged branches only this binding reaches, which no prune could delete after it (#483).
+        const branches = require("../branches");
+        const left = unbound ? branches.stranded(where, unbound, where.worktree) : [];
+        if (left.length && !options.leaveBranches) {
+          throw new ChatError(`Not unbound: ${unbound}'s merged task branches below are reachable only through this worktree, and once it is unbound \`keel branches prune\` can no longer delete them:\n${left.map((b) => `- ${branches.label(b)}`).join("\n")}\nRun \`keel branches prune\` here first, or pass --leave-branches to unbind and leave them.`);
+        }
         if (unbound) {
           delete roles[where.worktree];
           store.writeRoles(where, roles);
         }
-        if (options.json) out(JSON.stringify({ unbound: unbound || null, worktree: where.worktree }));
-        else out(unbound ? `Unbound ${unbound} from ${where.worktree}.` : "This worktree has no chat role.");
+        const leftLines = left.map((b) => `\n- ${branches.label(b)}`).join("");
+        if (options.json) out(JSON.stringify({ unbound: unbound || null, worktree: where.worktree, left: left.map(({ side, branch, sha }) => ({ side, branch, sha })) }));
+        else if (!unbound) out("This worktree has no chat role.");
+        else out(`Unbound ${unbound} from ${where.worktree}.${left.length ? ` \`keel branches\` no longer lists these merged branches of ${unbound}:${leftLines}` : ""}`);
         return 0;
       }
       if (options.rename !== null && options.rename !== undefined) {
