@@ -180,6 +180,9 @@ function repoRelative(repo, target) {
 // check standing: a broken declaration fails toward more checking (D3).
 
 const EXPLICIT_FORM = "`git push origin <branch>`";
+// A push after `cd` may run in another repository than the one whose config
+// is read, so the form to use names the directory instead (#486).
+const DIRECTORY_FORM = "`git -C <directory> push <remote> <branch>`";
 
 function gitOut(cwd, args) {
   const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", timeout: 3000 });
@@ -460,9 +463,13 @@ function pushDestination(dir) {
   return remote ? rest.slice(remote.length + 1) : null;
 }
 
-// Target branches of one push, or { undetermined: reason }.
+// Target branches of one push, or { undetermined: reason[, form] }.
 function pushTargets(push) {
   if (push.undetermined) return push;
+  // Whatever the refspec, the repository it pushes is unknown here (#486 D1).
+  if (push.cdBefore) {
+    return { undetermined: "a `cd` or `pushd` runs before this `git push`, so the repository it pushes is unknown here", form: DIRECTORY_FORM };
+  }
   const positionals = [];
   let deleting = false;
   let followTags = null;
@@ -506,13 +513,7 @@ function pushTargets(push) {
     tags = "`push.followTags`";
   }
   const refspecs = positionals.slice(1);
-  const needsCurrent = () => {
-    if (push.cdBefore) return { undetermined: "the directory changes before it, so its branch is unknown here" };
-    return null;
-  };
   if (!refspecs.length) {
-    const unknown = needsCurrent();
-    if (unknown) return unknown;
     const branch = pushDestination(push.dir);
     return branch ? { targets: [branch], tags } : { undetermined: "the branch has no configured push destination" };
   }
@@ -524,8 +525,6 @@ function pushTargets(push) {
     else if (spec.startsWith(":")) dst = spec.slice(1);
     if (!dst) return { undetermined: `\`${raw}\` names no destination` };
     if (dst === "HEAD" || dst === "@") {
-      const unknown = needsCurrent();
-      if (unknown) return unknown;
       dst = currentBranch(push.dir);
       if (!dst) return { undetermined: "HEAD is detached" };
     }
@@ -553,6 +552,14 @@ function checkPushes(event) {
       ...protectedEntries.map((e) => `\`push-protected:${e.glob}${e.role ? `@${e.role}` : ""}\``),
     ].join(", ");
     const result = pushTargets(push);
+    if (result.form) {
+      // Which repository it pushes is the unknown, not its branch (#486 D2).
+      deny(
+        `Keel push guard: ${result.undetermined}, so this repository's push rules in keel/config.yaml `
+          + `cannot be applied to it. Push without changing directory, as ${result.form}.`
+      );
+      return 0;
+    }
     if (result.undetermined) {
       deny(
         `Keel push guard: keel/config.yaml limits push to ${declared}, and the `
