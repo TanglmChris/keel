@@ -23,7 +23,6 @@ These five are Claude Code commands. Codex plugins carry skills and no commands,
 | Skill | Use it to |
 |---|---|
 | `/keel:align-expectations [change or request]` | align requirements, hidden expectations, acceptance, and decision authority before specs and tasks finalize |
-| `/keel:handoff [create, validate, or clear]` | write, check, or clear the optional `keel/HANDOFF.md` pointer when the next step cannot be inferred |
 
 ## Skills only the model invokes
 

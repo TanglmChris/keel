@@ -235,31 +235,6 @@ SKILL_DOC_REQUIREMENTS = [
         ],
     },
     {
-        "name": "handoff skill",
-        "path": "src/skills/handoff/SKILL.md",
-        "required": [
-            "Lite mode does not create HANDOFF",
-            "not a durable follow-up owner",
-            "## Context to read",
-            "openspec/changes",
-            "discard reason",
-            "keel-handoff/v1",
-            "schema",
-            "owner",
-            "action",
-            "reason",
-            "`active-backlog`",
-            "`head=...`",
-            "expectation state",
-            "evidence details",
-            "byte-for-byte",
-            "keel context --clear-handoff",
-            "## Standalone use",
-            # #411: the override is not the shift note.
-            "keel shift ready",
-        ],
-    },
-    {
         # Contract anchors traceable to keel-expectation-alignment; the
         # expectation-alignment-skill scenario owns the full structural and
         # cross-file behavioral checks, so this entry stays anchor-level.

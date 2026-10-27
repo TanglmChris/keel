@@ -1229,11 +1229,12 @@ def validate_expectation_completion_gates_scenario() -> int:
         "- Findings:",
         "Discard rationale:",
     ]
+    # The handoff skill is retired (#485); `keel --help` carries the format.
     handoff_skill_snippets = [
-        "keel-handoff/v1",
-        "expectation state",
-        "evidence details",
-        "durable OpenSpec",
+        "schema: keel-handoff/v1",
+        "owner (a pointer into openspec/changes/",
+        "change-close",
+        "no other field",
     ]
     handoff_template_snippets = [
         "schema: keel-handoff/v1",
@@ -1267,7 +1268,7 @@ def validate_expectation_completion_gates_scenario() -> int:
             ROOT / "assets/openspec/schemas/keel-spec-driven/templates/tasks.md",
             task_template_review_snippets,
         ),
-        ("source handoff skill", ROOT / "src/skills/handoff/SKILL.md", handoff_skill_snippets),
+        ("keel --help HANDOFF format", ROOT / "bin/keel.js", handoff_skill_snippets),
         ("OpenSpec archive overlay generator", ROOT / "bin/keel.js", archive_overlay_snippets),
     ]
 

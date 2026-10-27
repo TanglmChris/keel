@@ -52,7 +52,6 @@ REQUIRED_SCRIPTS = [
 CORE_KEEL_SKILLS = {
     "align-expectations",
     "debug-failure",
-    "handoff",
     "review-checklist",
     "tdd-or-test-first",
 }
