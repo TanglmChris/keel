@@ -51,7 +51,6 @@ const VALID_TARGETS = new Set(["claude", "codex", "opencode", "both"]);
 const KEEL_SKILLS = [
   "align-expectations",
   "debug-failure",
-  "handoff",
   "review-checklist",
   "tdd-or-test-first",
 ];
@@ -123,7 +122,10 @@ Defaults:
 
 Project layout:
   continuity is recomputed from OpenSpec on every invocation.
-  keel/HANDOFF.md is an optional keel-handoff/v1 pointer override.
+  keel/HANDOFF.md is an optional pointer override: YAML front matter holding
+    schema: keel-handoff/v1, owner (a pointer into openspec/changes/<change>/),
+    action (discuss, author, task-start, task-complete, or change-close), and
+    reason, and no other field. keel context --clear-handoff removes it.
   keel-* behavioral skills are delivered by the installed Keel plugin, not by the CLI.
   repeat keel --install to refresh project protocol files.
 

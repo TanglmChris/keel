@@ -23,7 +23,6 @@
 | 技能 | 用途 |
 |---|---|
 | `/keel:align-expectations [change 或需求]` | 在 spec 和任务定稿前，对齐需求、隐含期望、验收标准和决策权 |
-| `/keel:handoff [create、validate 或 clear]` | 在下一步无法推断时，写入、检查或清除可选的 `keel/HANDOFF.md` 指针 |
 
 ## 只由模型调用的技能
 

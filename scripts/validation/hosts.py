@@ -796,13 +796,12 @@ def validate_runtime_versions_are_checked_scenario() -> int:
 PLUGIN_SKILLS = (
     "align-expectations",
     "debug-failure",
-    "handoff",
     "review-checklist",
     "tdd-or-test-first",
 )
 
 
-SLASH_SKILLS = ("align-expectations", "debug-failure", "handoff", "review-checklist", "tdd-or-test-first")
+SLASH_SKILLS = ("align-expectations", "debug-failure", "review-checklist", "tdd-or-test-first")
 MODEL_ONLY_SKILLS = ("debug-failure", "review-checklist", "tdd-or-test-first")
 
 
@@ -851,7 +850,7 @@ def validate_slash_menu_ships_scenario() -> int:
     # archived evidence file keeps its name (`…-v1.md`), as does the
     # `keel-handoff/v1` format.
     prefix = "keel" + "-"
-    old = re.compile(re.escape(prefix) + r"(?:" + "|".join(re.escape(n) for n in SLASH_SKILLS if n != "handoff") + r")\b(?!-v\d)|"
+    old = re.compile(re.escape(prefix) + r"(?:" + "|".join(re.escape(n) for n in SLASH_SKILLS) + r")\b(?!-v\d)|"
                      + re.escape(prefix) + r"handoff(?!/v1)(?!-)")
     tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, text=True, capture_output=True, check=True).stdout.split("\0")
     stale = []
@@ -886,9 +885,15 @@ def validate_slash_menu_ships_scenario() -> int:
         if not path.is_file():
             report(f"{label} {doc} does not exist.")
             return 1
-        missing = [name for name in invocable if f"/keel:{name}" not in path.read_text(encoding="utf-8")]
+        text = path.read_text(encoding="utf-8")
+        missing = [name for name in invocable if f"/keel:{name}" not in text]
         if missing:
             report(f"{label} {doc} does not list {', '.join(f'/keel:{name}' for name in missing)}.")
+            return 1
+        # A retired entry, such as `/keel:handoff` (#485), is not listed.
+        extra = sorted(set(re.findall(r"/keel:([a-z][a-z-]*)", text)) - set(invocable))
+        if extra:
+            report(f"{label} {doc} lists {', '.join(f'/keel:{name}' for name in extra)}, which a person cannot invoke.")
             return 1
     claude = shutil.which("claude")
     if claude:

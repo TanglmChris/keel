@@ -1003,6 +1003,11 @@ owner_language: zh
 
 ## Commands
 
+`keel/HANDOFF.md`, when present, overrides which task `keel context` selects. It is YAML front matter
+and nothing else: `schema: keel-handoff/v1`, `owner` (a pointer into `openspec/changes/<change>/`),
+`action` (`discuss`, `author`, `task-start`, `task-complete`, or `change-close`), and `reason`.
+`keel context` validates it and `keel context --clear-handoff` removes it.
+
 ```bash
 # Continuity — recompute what to do (stateless)
 keel context [--json] [--change <c> --task <t>]

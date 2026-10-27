@@ -1818,14 +1818,44 @@ def validate_external_agents_are_documented_scenario() -> int:
     return 0
 
 
+def validate_handoff_format_in_help_scenario() -> int:
+    """Issue #485: the HANDOFF format stays documented once the handoff skill is gone.
+
+    The skill was the only user-facing place that listed the four fields and
+    the five actions; `keel --help` and both READMEs now carry them.
+    """
+    label = "handoff-format-in-help:"
+    actions = ("discuss", "author", "task-start", "task-complete", "change-close")
+    helped = run_keel(ROOT, "--help")
+    if helped.returncode != 0:
+        report(f"{label} keel --help exited {helped.returncode}: {helped.stderr!r}")
+        return 1
+    layout = helped.stdout.split("Project layout:", 1)[-1].split("Examples:", 1)[0]
+    for needle in ("keel-handoff/v1", "owner", "action", "reason", *actions):
+        if needle not in layout:
+            report(f"{label} keel --help's Project layout does not name {needle!r}: {layout!r}")
+            return 1
+    for readme in ("README.md", "README.zh-CN.md"):
+        text = (ROOT / readme).read_text(encoding="utf-8")
+        for needle in ("keel-handoff/v1", *actions):
+            if needle not in text:
+                report(f"{label} {readme} does not name {needle!r}.")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_review_checklist_conditional_checks_scenario() -> int:
     """Issue #411 rows 7 and 8 (owner, 2026-10-21): a short base checklist, conditions on demand.
 
     Four review-checklist sections apply only under a condition — a coupled
     task, a matching lens, a new or expanded skill, a plan-mode artifact — yet
     every activation read them. They live in `conditional-checks.md`, read
-    when a condition applies. The handoff skill tells its override apart from
-    the shift note, which selects no task.
+    when a condition applies. `docs/shift-change.md` tells the shift note apart
+    from the HANDOFF override, which `keel context` reads (#485).
     """
     label = "review-checklist-conditional-checks:"
     skill_dir = ROOT / "src/skills/review-checklist"
@@ -1854,12 +1884,13 @@ def validate_review_checklist_conditional_checks_scenario() -> int:
         if needle not in conditional:
             report(f"{label} conditional-checks.md does not hold {needle!r}.")
             return 1
-    handoff = (ROOT / "src/skills/handoff/SKILL.md").read_text(encoding="utf-8")
-    if "keel shift ready" not in handoff:
-        report(f"{label} the handoff skill does not name the shift note's `keel shift ready`.")
+    # The handoff skill is retired (#485); the shift-change guide tells the two apart.
+    shift_doc = (ROOT / "docs/shift-change.md").read_text(encoding="utf-8")
+    if "It is not `keel/HANDOFF.md` either" not in shift_doc:
+        report(f"{label} docs/shift-change.md does not say the shift note is not `keel/HANDOFF.md`.")
         return 1
-    if "selects no task" not in handoff:
-        report(f"{label} the handoff skill does not say the shift note selects no task.")
+    if "`keel context` does not read it" not in shift_doc:
+        report(f"{label} docs/shift-change.md does not say `keel context` does not read the shift note.")
         return 1
     if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} the scenario registry does not include it.")
