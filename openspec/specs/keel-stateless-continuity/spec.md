@@ -506,3 +506,11 @@ The block MUST stay within its documented byte budget, and Keel MUST NOT read or
 #### Scenario: A fresh install carries the memory rule
 - **WHEN** `keel --install` runs in an empty repository
 - **THEN** its `AGENTS.md` managed block says memory holds only what the repository cannot answer, and names a recheck at a shift change, within the bootstrap byte budget
+
+### Requirement: The HANDOFF format is documented without a skill
+
+`keel --help` MUST state the HANDOFF format: YAML front matter with `schema: keel-handoff/v1`, `owner`, `action` naming one of `discuss`, `author`, `task-start`, `task-complete`, or `change-close`, and `reason`, and no other field. `README.md` and `README.zh-CN.md` MUST state the same fields and actions.
+
+#### Scenario: Help names the fields and the actions
+- **WHEN** `keel --help` runs
+- **THEN** its output names `keel-handoff/v1`, `owner`, `action`, `reason`, and each of `discuss`, `author`, `task-start`, `task-complete`, and `change-close`

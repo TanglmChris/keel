@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.210.0 - The handoff skill is retired; `keel --help` and the README carry the HANDOFF format
+
+Issue #485. On 2026-10-27 the owner chose to retire the `handoff` skill entirely, reversing the 2026-10-25 choice in #464 that kept `/keel:handoff` in the slash menu. Nobody ran it: `keel/HANDOFF.md` has never been committed in keel, kaiwu-ip, or my-yizhan, and ChipSTRIDE's last of three commits, on 2026-08-17, cleared it. A person picks a task with `/keel:start` and clears the pointer with `keel context --clear-handoff`.
+
+- **The skill is gone.** The plugin ships four skills: `align-expectations`, `debug-failure`, `review-checklist`, and `tdd-or-test-first`. `/keel:handoff` leaves the slash menu at the next plugin update, and `docs/commands.md` (+ zh-CN) no longer lists it. The CLI never installed the skill into a project, so there is nothing to clean up there.
+- **The HANDOFF override stays.** `keel context` still reads, validates, and clears `keel/HANDOFF.md`, and the protocol text about it is unchanged.
+- **The format is documented where a reader looks.** `keel --help` and both READMEs now state it: YAML front matter with `schema: keel-handoff/v1`, `owner` (a pointer into `openspec/changes/<change>/`), `action` (`discuss`, `author`, `task-start`, `task-complete`, or `change-close`), and `reason`, and no other field.
+- **Checks.** The new `handoff-format-in-help`; `slash-menu-ships` expects four skills and refuses a command list naming a `/keel:<name>` a person cannot invoke; `review-checklist-conditional-checks` reads the shift-note/HANDOFF distinction from `docs/shift-change.md`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.210.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.209.0 - An unset that would strand merged branches is refused unless `--leave-branches`
 
 Issue #483, approved by the owner on 2026-10-27, who chose to guard the unbind and to refuse rather than warn. `keel branches` finds a role's task branches only through the HEAD reflog of a worktree bound to that role. So unbinding the only worktree that checked a branch out left that branch where no `keel branches prune` could reach it. On 2026-10-26 the role keel-maint-2 was unbound that way, and five local and four remote merged branches had to be deleted by hand.

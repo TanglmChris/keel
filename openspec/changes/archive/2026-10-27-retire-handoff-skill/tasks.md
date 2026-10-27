@@ -60,7 +60,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the specs
+- [x] 2.1 Release and promote the specs
   - Covers:
     - E2
   - Touch:
@@ -95,15 +95,15 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract:
-    - M1:
-    - M2:
-    - M3:
+    - Contract: keel-task-capsule/v1 sha256:e1481a1d9914eefe53c4f7b4ce1201f83809d2078d2a314abd277f43f999fa9f (keel 5.209.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.209.0 → 5.210.0. With the section "The handoff skill is retired; `keel --help` and the README carry the HANDOFF format" written into the stub, `version-alignment scenario passed.` (exit 0).
+    - M2: the two modified requirements replace their published forms in `openspec/specs/keel-native-plugin-package/spec.md`, the added one is appended to `openspec/specs/keel-stateless-continuity/spec.md`, and `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`: `validation --all passed: baseline plus 350 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0).
     - Review:
-      - Status:
-      - Acceptance check:
-      - Scope check:
-      - Findings:
+      - Status: pass
+      - Acceptance check: the release carries task 1.1's behavior, the markers agree at 5.210.0, the promoted specs validate strictly, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the two published specs, and this change's directory, all in Touch.
+      - Findings: none.
     - Blocker: none
     - Reauthorizations: none
 
