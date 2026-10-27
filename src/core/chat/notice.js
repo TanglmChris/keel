@@ -154,9 +154,21 @@ function touchSession(where, role, state) {
   store.writeJsonAtomic(where, file, sessions);
 }
 
+// Whether a listed session is still the role's: one whose own record names
+// another role has bound that one since, and is no twin here (#490 D1). With
+// no record it cannot be told from a twin, so it counts (D2).
+function sessionStillRole(where, role, id) {
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) return true;
+  const file = path.join(where.root, "sessions", `${id}.json`);
+  if (!fs.existsSync(file)) return true;
+  const recorded = store.readJsonFile(file).role;
+  return !recorded || recorded === role;
+}
+
 // The warning for two or more live sessions on a role (D3), or null.
 function twinWarning(where, role, now = Date.now()) {
-  const live = Object.entries(store.readJsonFile(sessionsFile(where, role))).filter(([, entry]) => sessionLive(entry, now));
+  const live = Object.entries(store.readJsonFile(sessionsFile(where, role)))
+    .filter(([id, entry]) => sessionLive(entry, now) && sessionStillRole(where, role, id));
   if (live.length < 2) return null;
   const named = live.map(([id, entry]) => `${id} (pid ${entry.pid || "unknown"}, ${entry.worktree || "unknown worktree"})`).join(", ");
   return `${live.length} live sessions are bound to role ${role}: ${named}. They post under one name and share one read cursor, `
