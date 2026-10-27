@@ -467,6 +467,7 @@ SCENARIOS: tuple = (
     ("chat-wake-moved-worktree", chat.validate_chat_wake_moved_worktree_scenario),
     ("patrol-standing-risk-once", chat.validate_patrol_standing_risk_once_scenario),
     ("chat-role-park-and-unset", chat.validate_chat_role_park_and_unset_scenario),
+    ("chat-role-unset-keeps-branches-reachable", chat.validate_chat_role_unset_keeps_branches_reachable_scenario),
     ("chat-ack", chat.validate_chat_ack_scenario),
     ("chat-reply-addresses-author", chat.validate_chat_reply_addresses_author_scenario),
     ("coordinator-patrol", shift.validate_coordinator_patrol_scenario),

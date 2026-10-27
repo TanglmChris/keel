@@ -670,6 +670,51 @@ def validate_chat_role_park_and_unset_scenario() -> int:
     return 0
 
 
+def validate_chat_role_unset_keeps_branches_reachable_scenario() -> int:
+    """Issue #483: an unset that would strand merged branches is refused unless told to leave them.
+
+    `keel branches` finds a role's branches through the reflog of a worktree
+    bound to it, so unbinding the only such worktree leaves its merged branches
+    where no prune can reach them. verify's worktree alone checked out `done-a`.
+    """
+    from validation.shift import branches_scratch
+
+    label = "chat-role-unset-keeps-branches-reachable:"
+    with tempfile.TemporaryDirectory(prefix="keel-unset-483-") as raw:
+        _rtl, verify, env, _remote = branches_scratch(Path(raw))
+        refused = run_keel(verify, "chat", "role", "--unset", env=env)
+        if refused.returncode != 2:
+            report(f"{label} keel chat role --unset exited {refused.returncode}, not 2, with merged branches only verify's worktree reaches: {refused.stdout!r} {refused.stderr!r}")
+            return 1
+        for needle in ("done-a", "keel branches prune", "--leave-branches"):
+            if needle not in refused.stderr:
+                report(f"{label} the refusal does not name {needle}: {refused.stderr!r}")
+                return 1
+        still = run_keel(verify, "chat", "role", env=env)
+        if "has no chat role" in still.stdout:
+            report(f"{label} the refused --unset removed verify's binding: {still.stdout!r}")
+            return 1
+        if "verify" not in still.stdout:
+            report(f"{label} keel chat role after the refusal does not name verify: {still.stdout!r}")
+            return 1
+        left = run_keel(verify, "chat", "role", "--unset", "--leave-branches", env=env)
+        if left.returncode != 0:
+            report(f"{label} keel chat role --unset --leave-branches exited {left.returncode}: {left.stderr!r}")
+            return 1
+        if "Unbound verify" not in left.stdout:
+            report(f"{label} --leave-branches does not say it unbound verify: {left.stdout!r}")
+            return 1
+        if "done-a" not in left.stdout:
+            report(f"{label} --leave-branches does not name the branch it left, done-a: {left.stdout!r}")
+            return 1
+        after = run_keel(verify, "chat", "role", env=env)
+        if "has no chat role" not in after.stdout:
+            report(f"{label} verify's worktree still has a chat role after --leave-branches: {after.stdout!r}")
+            return 1
+    report("chat-role-unset-keeps-branches-reachable scenario passed.")
+    return 0
+
+
 def validate_chat_wake_now_cli_scenario() -> int:
     """Issue #348 on the CLI (owner's CLI waker, 2026-10-19): one step wakes a role.
 

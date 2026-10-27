@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.209.0 - An unset that would strand merged branches is refused unless `--leave-branches`
+
+Issue #483, approved by the owner on 2026-10-27, who chose to guard the unbind and to refuse rather than warn. `keel branches` finds a role's task branches only through the HEAD reflog of a worktree bound to that role. So unbinding the only worktree that checked a branch out left that branch where no `keel branches prune` could reach it. On 2026-10-26 the role keel-maint-2 was unbound that way, and five local and four remote merged branches had to be deleted by hand.
+
+- **`keel chat role --unset` refuses to strand merged branches.** Before removing the binding, it lists the role's merged task branches with and without this worktree's binding, judged exactly as `keel branches` judges them and against refs as last fetched. When some would no longer be listed, it exits 2, leaves the binding, and names each branch (`origin/` on the remote side), `keel branches prune`, and `--leave-branches`. A branch another worktree bound to the role also checked out stays reachable and does not count.
+- **`--leave-branches`** unbinds anyway and names the branches `keel branches` no longer lists; `--json` carries them as `left`. Without `--unset` it is refused.
+- **Not covered:** `--prune`, whose worktrees are already removed along with their reflogs, and a hand edit of `roles.json`.
+- **Checks.** The new `chat-role-unset-keeps-branches-reachable`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.209.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.208.0 - Declared literals match Evidence with whitespace runs as one space
 
 Issue #479, approved by the owner on 2026-10-26, who chose to collapse whitespace on both sides. A `Fails with:` literal holding a run of spaces could never match its red. The check text is whitespace-collapsed before the literal is taken, so `` `FAIL  name` `` was stored as `FAIL name`, while the `.red` Evidence was searched raw. Tool output aligns with runs of spaces (`FAIL  <name>`, pytest's `E       assert …`). kaiwu-ip hit this on 2026-10-26 and passed only by pasting a second, single-spaced copy into its Evidence.
