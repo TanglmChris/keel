@@ -459,6 +459,7 @@ SCENARIOS: tuple = (
     ("chat-supersedes", chat.validate_chat_supersedes_scenario),
     ("chat-mention-skips-code", chat.validate_chat_mention_skips_code_scenario),
     ("two-live-sessions-on-one-role", shift.validate_two_live_sessions_on_one_role_scenario),
+    ("moved-session-is-not-a-twin", shift.validate_moved_session_is_not_a_twin_scenario),
     ("chat-role-rename", chat.validate_chat_role_rename_scenario),
     ("chat-wake-now-cli", chat.validate_chat_wake_now_cli_scenario),
     ("chat-hook-follows-session-worktree", chat.validate_chat_hook_follows_session_worktree_scenario),
