@@ -209,7 +209,8 @@ The write guard is a disposable manifest, `keel/guard.json`. On Claude a passing
 it (`--no-guard` opts out); `keel guard start` writes it explicitly and `keel guard clear` removes it.
 It records the change and task, the capsule fingerprint, the normalized `Touch`, and hashes of the
 authority files, and it fails closed: a manifest Keel cannot read refuses edits rather than allowing
-them. The guard checks the file-editing tools. A write made by a `Bash` command is not checked,
+them, and so does one whose change is gone, unless the change was archived with the guarded task
+checked — that task has finished, and the manifest then enforces nothing (#491). The guard checks the file-editing tools. A write made by a `Bash` command is not checked,
 except `git push` where a `push:` scope is declared.
 
 ### Standing authorization
