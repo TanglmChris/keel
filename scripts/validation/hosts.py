@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    archived_guard,
     portable_projection_bytes,
     HANDOFF_STUB,
     OPENSPEC_CONFIG_PATH,
@@ -2798,6 +2799,9 @@ def validate_update_adopts_idle_sessions_scenario() -> int:
         npm.chmod(0o755)
         guarded = tmp / "guarded"
         write_text(guarded / "keel" / "guard.json", "{}\n")
+        # Only a checked, archived task's manifest, which enforces nothing (#496).
+        finished = tmp / "finished"
+        archived_guard(finished)
         sleepers: list[int] = []
 
         def row(name: str, sid: str, status: str, started: int, cwd: Path) -> dict:
@@ -2818,6 +2822,7 @@ def validate_update_adopts_idle_sessions_scenario() -> int:
                 row("rtl · old guarded", "cccccccc-0000-0000-0000-000000000003", "idle", t0 - 3600000, guarded),
                 row("pm · fresh idle", "dddddddd-0000-0000-0000-000000000004", "idle", t0 + 3600000, tmp),
                 row("maint · this session", "eeeeeeee-0000-0000-0000-000000000005", "busy", t0 - 3600000, tmp),
+                row("ip · old finished", "ffffffff-0000-0000-0000-000000000006", "idle", t0 - 3600000, finished),
             ]
             (tmp / "state.json").write_text(json.dumps({"version": "5.0.0", "lastUpdated": "2026-10-21T00:00:00.000Z", "rows": rows}))
             env = dict(os.environ)
@@ -2840,11 +2845,15 @@ def validate_update_adopts_idle_sessions_scenario() -> int:
             if adopted.returncode != 0:
                 report(f"{label} keel --update --adopt exited {adopted.returncode}: {adopted.stdout!r} {adopted.stderr!r}")
                 return 1
-            if stops != ["aaaaaaaa"]:
-                report(f"{label} --adopt stopped {stops!r}, not only the idle session started before the update.")
+            if "ffffffff" not in stops:
+                report(f"{label} --adopt left alone the session whose worktree holds only an archived manifest: {line!r}")
                 return 1
-            if len(resumes) != 1 or resumes[0]["args"] != ["--bg", "--resume", "aaaaaaaa-0000-0000-0000-000000000001"]:
-                report(f"{label} --adopt did not resume the stopped session with exactly `--bg --resume <id>`: {resumes!r}")
+            if stops != ["aaaaaaaa", "ffffffff"]:
+                report(f"{label} --adopt stopped {stops!r}, not only the idle sessions started before the update.")
+                return 1
+            if [r["args"] for r in resumes] != [["--bg", "--resume", "aaaaaaaa-0000-0000-0000-000000000001"],
+                                                ["--bg", "--resume", "ffffffff-0000-0000-0000-000000000006"]]:
+                report(f"{label} --adopt did not resume the stopped sessions with exactly `--bg --resume <id>`: {resumes!r}")
                 return 1
             if resumes[0]["cwd"] != os.path.realpath(tmp) and resumes[0]["cwd"] != str(tmp):
                 report(f"{label} the resume ran in {resumes[0]['cwd']!r}, not the session's worktree {str(tmp)!r}.")
@@ -4343,6 +4352,31 @@ def validate_context_names_the_protocol_refresh_scenario() -> int:
                 report(f"{PROTOCOL_REFRESH_LABEL} {problem}")
                 return 1
     report(f"{PROTOCOL_REFRESH_LABEL} scenario passed.")
+    return 0
+
+
+def validate_context_archived_guard_does_not_defer_refresh_scenario() -> int:
+    """Issue #496: a manifest over a checked, archived task defers nothing."""
+    label = "context-archived-guard-does-not-defer-refresh:"
+    with tempfile.TemporaryDirectory(prefix="keel-protocol-496-") as raw:
+        repo = _installed_repo(Path(raw), "archived", "claude", "5.0.0")
+        write_text(repo / "keel/config.yaml", "authorize:\n  - protocol-refresh\n")
+        archived_guard(repo)
+        status = run_keel(repo, "guard", "status")
+        if "Status: archived" not in status.stdout:
+            report(f"{label} the fixture manifest does not read as archived: {status.stdout.strip()!r}")
+            return 1
+        lines = _protocol_lines(repo)
+        if len(lines) != 1:
+            report(f"{label} context printed {len(lines)} Protocol lines, not one: {lines!r}")
+            return 1
+        if "deferred" in lines[0]:
+            report(f"{label} an archived manifest deferred the refresh: {lines!r}")
+            return 1
+        if "standing-authorized" not in lines[0]:
+            report(f"{label} the refresh is not read as standing-authorized: {lines!r}")
+            return 1
+    report(f"{label.rstrip(':')} scenario passed.")
     return 0
 
 

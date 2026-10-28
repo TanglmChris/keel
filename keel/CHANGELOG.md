@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.215.0 - An archived guard manifest blocks no hand-over, defers no refresh, and keeps no session from adoption
+
+Issue #496, approved by the owner on 2026-10-28; a shift bug fix within the freeze. Since 5.212.0 (#491) a guard manifest whose task is checked and whose change is archived enforces nothing, and `keel guard status` reads it as `archived`. Three other places still asked only whether `keel/guard.json` exists: `keel shift check` reported it as `task-in-progress` and exited 1, so a shift that ended with an archive could not hand over until someone ran `keel guard clear`; `keel context` deferred a standing-authorized protocol refresh; and `keel --update --adopt` left the session alone as "under a task's write guard".
+
+- **One test of whether a guard holds,** taken from `keel guard status`: `absent` and `archived` hold nothing; `active`, `completed`, `drifted`, and `invalid` still hold, because the hook still denies writes under each of them.
+- **`keel shift check`** names an archived manifest as a note with `keel guard clear`, not as an item.
+- **`keel context`** no longer defers the protocol refresh for it, and **`keel --update --adopt`** restarts the idle session it would have left alone.
+- **Checks.** The new `shift-check-archived-guard-is-not-in-progress` and `context-archived-guard-does-not-defer-refresh`; `update-adopts-idle-sessions` adds a session whose worktree holds only an archived manifest.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.215.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.214.0 - A hand-over never removes a worktree in use, and says why an old session stayed
 
 Issue #492, approved by the owner on 2026-10-28; a shift bug fix within the freeze. In ChipSTRIDE two Keel-delivered CLI hand-overs left the old session in `claude agents` with `removed: []`, and `keel shift status` called it "old session kept, reopen it with `claude attach …`", the sentence for `shift: keep_old_sessions`, which ChipSTRIDE does not declare. The old session was opened later and came back beside the new shift. Both old sessions had created the worktree the new shift then ran in, and `claude rm` deletes "a background session and its worktree" (Claude Code 2.1.311), so a removal that worked would have deleted the new shift's worktree. The first hand-over's old session, removed later, did take its worktree and branch with it.

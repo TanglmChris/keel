@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from validation.common import (
+    archived_guard,
     BOOTSTRAP_BLOCK_BYTE_BUDGET,
     ROOT,
     extract_managed_block,
@@ -826,6 +827,59 @@ def validate_shift_check_skips_host_keep_awake_scenario() -> int:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(orphan, signal.SIGKILL)
     report("shift-check-skips-host-keep-awake scenario passed.")
+    return 0
+
+
+def validate_shift_check_archived_guard_is_not_in_progress_scenario() -> int:
+    """Issue #496: a manifest over a checked, archived task is not a loose end.
+
+    `keel guard status` reads it as `archived` and the hook enforces nothing
+    under it, so the check names it as a note with `keel guard clear`. The same
+    manifest over a live change still blocks.
+    """
+    label = "shift-check-archived-guard-is-not-in-progress:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-496-") as raw:
+        base = Path(raw)
+        _rtl, verify, env, _ = shift_scratch(base)
+        # keel/.gitignore ignores the manifest, as a Keel repository's does.
+        write_text(verify / "keel" / ".gitignore", "guard.json\n")
+        subprocess.run(["git", "add", "keel/.gitignore"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "ignore guard"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-q"], cwd=verify, check=True, capture_output=True)
+        archived_guard(verify)
+        subprocess.run(["git", "add", "openspec"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "archive demo"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-q"], cwd=verify, check=True, capture_output=True)
+        status = run_keel(verify, "guard", "status", env=env)
+        if "Status: archived" not in status.stdout:
+            report(f"{label} the fixture manifest does not read as archived: {status.stdout.strip()!r}")
+            return 1
+        checked = run_keel(verify, "shift", "check", "--json", env=env)
+        found = chat_json(checked)
+        kinds = [item["kind"] for item in found.get("items", [])]
+        if "task-in-progress" in kinds:
+            report(f"{label} an archived manifest is reported as task-in-progress: {checked.stdout.strip()[:600]}")
+            return 1
+        if checked.returncode != 0:
+            report(f"{label} with only an archived manifest, keel shift check exited {checked.returncode}: {checked.stdout.strip()[:600]}")
+            return 1
+        if not any("keel guard clear" in note for note in found.get("notes", [])):
+            report(f"{label} no note names `keel guard clear` for the archived manifest: {found.get('notes')!r}")
+            return 1
+        # The same manifest over a live change of that name still holds.
+        live = verify / "openspec" / "changes" / "demo"
+        write_text(live / "tasks.md", "# Tasks\n\n- [ ] 1.1 Not yet\n")
+        subprocess.run(["git", "add", "openspec"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "live demo"], cwd=verify, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-q"], cwd=verify, check=True, capture_output=True)
+        held = run_keel(verify, "shift", "check", "--json", env=env)
+        if "task-in-progress" not in [item["kind"] for item in chat_json(held).get("items", [])]:
+            report(f"{label} a manifest over a live change is not reported as task-in-progress: {held.stdout.strip()[:600]}")
+            return 1
+        if held.returncode != 1:
+            report(f"{label} with a manifest over a live change, keel shift check exited {held.returncode}: {held.stdout.strip()[:600]}")
+            return 1
+    report("shift-check-archived-guard-is-not-in-progress scenario passed.")
     return 0
 
 

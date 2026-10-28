@@ -35,10 +35,10 @@ os.environ["KEEL_UPDATE_CLAUDE"] = str(Path(tempfile.gettempdir()) / "keel-suite
 os.environ["KEEL_UPDATE_CODEX"] = str(Path(tempfile.gettempdir()) / "keel-suite-has-no-codex")
 
 
-PACKAGE_VERSION = "5.214.0"
+PACKAGE_VERSION = "5.215.0"
 
 
-PROTOCOL_VERSION = "5.214.0"
+PROTOCOL_VERSION = "5.215.0"
 
 
 LEGACY_MANAGED_START = "<!-- keel:start version=2.1 -->"
@@ -866,6 +866,22 @@ def chat_records_with(repo: Path, group: str, needle: str) -> list[str]:
     if not log.is_dir():
         return []
     return [p.read_text(encoding="utf-8") for p in sorted(log.glob("*.md")) if needle in p.read_text(encoding="utf-8")]
+
+
+def archived_guard(repo: Path, change: str = "demo", task: str = "1.1") -> None:
+    """A shape-valid `keel/guard.json` over `change#task`, checked and archived (#496).
+
+    `keel guard status` reads it as `archived`: the change directory is gone and
+    its archived copy shows the task checked, so the manifest enforces nothing.
+    """
+    tasks = f"openspec/changes/archive/2026-10-28-{change}/tasks.md"
+    write_text(repo / tasks, f"# Tasks\n\n- [x] {task} Done\n")
+    zero = "0" * 64
+    write_text(repo / "keel" / "guard.json", json.dumps({
+        "schema": "keel-write-guard/v1", "change": change, "task": task,
+        "fingerprint": {"algorithm": "sha256", "value": zero},
+        "touch": ["src/a.txt"], "authority": [{"path": tasks, "sha256": zero}],
+    }) + "\n")
 
 
 def shift_scratch(base: Path) -> tuple[Path, Path, dict, Path]:

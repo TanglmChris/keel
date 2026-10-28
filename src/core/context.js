@@ -23,6 +23,7 @@ const {
   ownerLanguageRule,
 } = require("./config");
 const { isKeelSourceRepo } = require("./capabilities");
+const { guardHolds } = require("./guard");
 const { diagnoseDrift, driftCause } = require("./drift");
 
 const NEXT_ACTIONS = new Set([
@@ -1000,7 +1001,7 @@ function protocolRefresh(repo, running, authorization) {
     file: stamped.file,
     command: `keel --install --target ${installedTarget(repo)}`,
     authorized: authorization.scopes.has("protocol-refresh"),
-    deferred: fs.existsSync(path.join(repo, "keel", "guard.json")),
+    deferred: guardHolds(repo),
   };
 }
 

@@ -402,7 +402,7 @@ Keel MUST NOT run the reported command.
 
 ### Requirement: Context names the refresh of an older managed protocol
 
-`keel context` MUST read the protocol version stamped in the repository's managed block. When that version is strictly older than the running Keel, it MUST report both versions, the refresh command with the repository's inferred target, and one of three states: standing-authorized, not authorized, or deferred because a task's write guard is active. It MUST carry the same fields in its JSON result. It MUST report nothing when the stamp is equal, newer, or unreadable, or when the repository is Keel's own source. The report MUST NOT change `status`, `nextAction`, or selection.
+`keel context` MUST read the protocol version stamped in the repository's managed block. When that version is strictly older than the running Keel, it MUST report both versions, the refresh command with the repository's inferred target, and one of three states: standing-authorized, not authorized, or deferred because a task's write guard is active. A `keel/guard.json` that `keel guard status` reads as `archived` enforces nothing and MUST NOT defer the refresh. It MUST carry the same fields in its JSON result. It MUST report nothing when the stamp is equal, newer, or unreadable, or when the repository is Keel's own source. The report MUST NOT change `status`, `nextAction`, or selection.
 
 #### Scenario: An older protocol names its refresh
 - **WHEN** the managed block is stamped older than the running Keel and no authorization is declared
@@ -413,8 +413,12 @@ Keel MUST NOT run the reported command.
 - **THEN** the line says the refresh is standing-authorized
 
 #### Scenario: A write guard defers the refresh
-- **WHEN** `keel/guard.json` exists
+- **WHEN** `keel/guard.json` exists and `keel guard status` does not read it as `archived`
 - **THEN** the line says the refresh is deferred while a task's write guard is active, whatever is authorized
+
+#### Scenario: An archived manifest does not defer the refresh
+- **WHEN** `authorize:` lists `protocol-refresh` and `keel/guard.json` guards a task that is checked in its change's archived copy
+- **THEN** the line says the refresh is standing-authorized and does not say it is deferred
 
 #### Scenario: An aligned or newer protocol says nothing
 - **WHEN** the stamp equals or is newer than the running Keel, or the repository is Keel's own source
