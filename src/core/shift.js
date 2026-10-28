@@ -637,33 +637,80 @@ function keptCopyOf(where, role, transcript) {
 // slot and stays (#401). A session is the role's when it ran in a bound
 // worktree, or when Keel keeps its transcript under the role: a renamed or
 // moved worktree leaves a `cwd` no binding names (#462 D2).
+//
+// `claude rm` also deletes the worktree a session created (#492 F4), so a
+// session whose own worktree is in use stays; every session left listed is
+// returned with its reason, which `keel shift status` names (#492 D3, D4).
 function removeOldSessions(claude, where, entry, keep) {
-  const bound = new Set(Object.entries(store.readJsonFile(path.join(where.root, "roles.json")))
-    .filter(([, name]) => name === entry.role).map(([worktree]) => realpath(worktree)));
+  const roles = store.readJsonFile(path.join(where.root, "roles.json"));
+  const bound = new Set(Object.entries(roles).filter(([, name]) => name === entry.role).map(([worktree]) => realpath(worktree)));
   const listed = listAgents(claude);
-  if (!listed) return [];
+  const own = entry.session ? entry.session.slice(0, 8) : null;
+  if (!listed) return { removed: [], notRemoved: own ? [{ id: own, reason: "`claude agents` could not be read" }] : [] };
   const { keptFile } = require("./chat/notice");
-  const roles = (row) => bound.has(realpath(row.cwd)) || fs.existsSync(keptFile(where, entry.role, `${row.sessionId}.jsonl`));
+  const idOf = (row) => row.id || row.sessionId.slice(0, 8);
+  // The session the hand-off names is the role's wherever its row says it ran (#492 D1).
+  const isRoles = (row) => row.sessionId === entry.session || bound.has(realpath(row.cwd))
+    || fs.existsSync(keptFile(where, entry.role, `${row.sessionId}.jsonl`));
   const old = listed
-    .filter((row) => row && row.kind === "background" && !row.status && row.cwd && row.sessionId && roles(row)
+    .filter((row) => row && row.kind === "background" && !row.status && row.cwd && row.sessionId && isRoles(row)
       && row.id !== entry.new_session)
-    .map((row) => ({ row, transcript: hostTranscript(row.cwd, row.sessionId),
-      kept: keptFile(where, entry.role, `${row.sessionId}.jsonl`) }))
+    .map((row) => {
+      const worktree = hostWorktree(row);
+      return { row, worktree, transcript: hostTranscript(row.cwd, row.sessionId) || (worktree && hostTranscript(worktree, row.sessionId)),
+        kept: keptFile(where, entry.role, `${row.sessionId}.jsonl`) };
+    })
     .filter(({ transcript, kept }) => transcript || fs.existsSync(kept))
     .sort((a, b) => (Number(b.row.startedAt) || 0) - (Number(a.row.startedAt) || 0));
+  // Worktrees in use: the hand-off's, every bound one, and each other listed session's (#492 D2).
+  const inUse = (worktree, row) => {
+    const real = realpath(worktree);
+    if (entry.worktree && realpath(entry.worktree) === real) return "the new shift's worktree";
+    const binding = Object.entries(roles).find(([tree]) => realpath(tree) === real);
+    if (binding) return `bound to role ${binding[1]}`;
+    const other = listed.find((r) => r && r !== row && r.cwd && realpath(r.cwd) === real);
+    return other ? `session ${idOf(other)} runs there` : null;
+  };
   const removed = [];
-  for (const { row, transcript } of old.slice(keep)) {
+  const notRemoved = old.slice(0, keep).map(({ row }) => ({ id: idOf(row), reason: "kept by `shift: keep_old_sessions`" }));
+  for (const { row, worktree, transcript } of old.slice(keep)) {
     // Never a session whose process still runs (#408 D1): the one just handed
     // over gets a bounded wait for the process its note recorded; any other
     // still running is left for the next hand-over.
     const handedOver = row.sessionId === entry.session;
     const pid = Number(handedOver ? entry.pid : row.pid);
-    if (handedOver ? !waitForExit(pid, envMs("KEEL_SHIFT_EXIT_WAIT_MS", 15 * 1000)) : processRunning(pid)) continue;
-    if (transcript && !keptCopyOf(where, entry.role, transcript)) continue;
-    const gone = spawnSync(claude, ["rm", row.id || row.sessionId.slice(0, 8)], { encoding: "utf8", timeout: hostTimeout() });
-    if (!gone.error && gone.status === 0) removed.push(row.id || row.sessionId.slice(0, 8));
+    if (handedOver ? !waitForExit(pid, envMs("KEEL_SHIFT_EXIT_WAIT_MS", 15 * 1000)) : processRunning(pid)) {
+      notRemoved.push({ id: idOf(row), reason: "its process was still running" });
+      continue;
+    }
+    if (transcript && !keptCopyOf(where, entry.role, transcript)) {
+      notRemoved.push({ id: idOf(row), reason: "Keel could not copy its transcript" });
+      continue;
+    }
+    const using = worktree && fs.existsSync(worktree) ? inUse(worktree, row) : null;
+    if (using) {
+      notRemoved.push({ id: idOf(row), reason: `its worktree ${worktree} is in use (${using}), and claude rm would delete it` });
+      continue;
+    }
+    const gone = spawnSync(claude, ["rm", idOf(row)], { encoding: "utf8", timeout: hostTimeout() });
+    if (!gone.error && gone.status === 0) removed.push(idOf(row));
+    else {
+      const said = String(gone.stderr || gone.stdout || (gone.error && gone.error.message) || "").trim().split("\n")[0];
+      notRemoved.push({ id: idOf(row), reason: `claude rm exited ${gone.error ? "with an error" : gone.status}${said ? `: ${said}` : ""}` });
+    }
   }
-  return removed;
+  return { removed, notRemoved };
+}
+
+// The worktree the host records for a session it created one for — with
+// `EnterWorktree` or `claude --bg -w` — which `claude agents` does not show
+// and `claude rm` deletes (#492 F3). Null when the host recorded none.
+function hostWorktree(row) {
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  const id = row.id || (row.sessionId || "").slice(0, 8);
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) return null;
+  const recorded = store.readJsonFile(path.join(config, "jobs", id, "state.json")).worktreePath;
+  return typeof recorded === "string" && recorded ? recorded : null;
 }
 
 // One runner at a time per role (#388 D2): the waiter and the tick both carry
@@ -723,7 +770,9 @@ function deliver(claude, where, entry, id, name, adopted) {
   Object.assign(entry, { state: "delivered", delivered_at: store.isoLocal(new Date()), new_session: id, new_name: name });
   for (const key of ["error", "failed_at", "runner_pid"]) delete entry[key];
   if (adopted) entry.adopted = true;
-  entry.removed = removeOldSessions(claude, where, entry, declared.keepOldSessions);
+  const swept = removeOldSessions(claude, where, entry, declared.keepOldSessions);
+  entry.removed = swept.removed;
+  entry.not_removed = swept.notRemoved;
   if (declared.message) entry.notice = declared.message;
   store.writeJsonAtomic(where, queueFile(where, entry.role), entry);
   return entry;
@@ -856,9 +905,14 @@ function describeHandOff(entry) {
   const removed = (entry.removed || []).length ? `; older sessions removed from \`claude agents\` (transcripts kept by Keel): ${entry.removed.join(", ")}` : "";
   const notice = entry.notice ? `; ${entry.notice}` : "";
   const own = entry.session.slice(0, 8);
+  const stayed = (entry.not_removed || []).find((item) => item.id === own);
+  const revives = `it stays in \`claude agents\`, and opening it (\`claude attach ${own}\`) brings it back beside the new shift`;
+  // Kept only when `keep_old_sessions` kept it; otherwise the recorded reason (#492 D4).
   const reopen = (entry.removed || []).includes(own)
     ? `old session removed, its conversation kept: \`keel shift history ${entry.role} --show ${own}\``
-    : `old session kept, reopen it with \`claude attach ${own}\``;
+    : stayed && stayed.reason.startsWith("kept by")
+      ? `old session kept (\`shift: keep_old_sessions\`), reopen it with \`claude attach ${own}\``
+      : `old session not removed: ${stayed ? stayed.reason : "no reason recorded"}; ${revives}`;
   return `- ${entry.role}: ${tail}${renamed}; requested ${entry.requested_at}; ${reopen}${removed}${notice}`;
 }
 
@@ -1098,7 +1152,7 @@ function removeAtResume(where, role, text) {
   const pid = String(text).match(/^CLI process: (\d+)\.$/m);
   const entry = { role, session: old[1], pid: pid ? Number(pid[1]) : null, new_session: current.slice(0, 8) || null };
   const { readShiftDeclaration } = require("./config");
-  return removeOldSessions(process.env.KEEL_CLAUDE || "claude", where, entry, readShiftDeclaration(where.worktree).keepOldSessions);
+  return removeOldSessions(process.env.KEEL_CLAUDE || "claude", where, entry, readShiftDeclaration(where.worktree).keepOldSessions).removed;
 }
 
 function resume(where, named = null) {
