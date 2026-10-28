@@ -18,6 +18,7 @@ const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 const store = require("./chat/store");
 const locks = require("./lock");
+const guard = require("./guard");
 
 const REF = "keel-shift";
 const USAGE = [
@@ -197,7 +198,13 @@ function check(where, role) {
   }
 
   if (fs.existsSync(path.join(where.worktree, "keel", "guard.json"))) {
-    items.push({ kind: "task-in-progress", detail: "keel/guard.json: a task's write guard is still active; complete the task or clear the guard" });
+    if (guard.guardHolds(where.worktree)) {
+      items.push({ kind: "task-in-progress", detail: "keel/guard.json: a task's write guard is still active; complete the task or clear the guard" });
+    } else {
+      // Checked and archived: the hook lets every write through (#496 D2).
+      const { manifest } = guard.guardStatus(where.worktree);
+      notes.push(`keel/guard.json guards ${manifest.change}#${manifest.task}, which is checked and archived, so it enforces nothing; \`keel guard clear\` removes it`);
+    }
   }
 
   for (const row of liveProcesses(where.worktree)) {

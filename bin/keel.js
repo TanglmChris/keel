@@ -26,6 +26,7 @@ const {
 const {
   GuardInputError,
   clearGuard,
+  guardHolds,
   guardStatus,
   renderGuard,
   startGuard,
@@ -1489,7 +1490,7 @@ function adoptClaudeSessions(options) {
       left.push(`${named(row)}, ${row.status}`);
       continue;
     }
-    if (row.cwd && fs.existsSync(path.join(row.cwd, "keel", "guard.json"))) {
+    if (row.cwd && guardHolds(row.cwd)) {
       left.push(`${named(row)}, under a task's write guard`);
       continue;
     }

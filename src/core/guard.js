@@ -424,6 +424,15 @@ function guardStatus(repo) {
   return guardResult("status", "active", { manifest });
 }
 
+// Whether a manifest is in force: every state but `absent` and `archived`
+// still has the hook deny writes, so only those two hold nothing (#496 D1).
+// The shift check, the protocol refresh, and `--update --adopt` ask this
+// rather than whether the file exists.
+function guardHolds(repo) {
+  const { status } = guardStatus(repo);
+  return status !== "absent" && status !== "archived";
+}
+
 function clearGuard(repo) {
   const file = manifestFile(repo);
   if (!fs.existsSync(file)) {
@@ -456,6 +465,7 @@ module.exports = {
   clearGuard,
   contentSignature,
   gitPaths,
+  guardHolds,
   guardStatus,
   readManifest,
   renderGuard,
