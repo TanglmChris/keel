@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.214.0 - A hand-over never removes a worktree in use, and says why an old session stayed
+
+Issue #492, approved by the owner on 2026-10-28; a shift bug fix within the freeze. In ChipSTRIDE two Keel-delivered CLI hand-overs left the old session in `claude agents` with `removed: []`, and `keel shift status` called it "old session kept, reopen it with `claude attach …`", the sentence for `shift: keep_old_sessions`, which ChipSTRIDE does not declare. The old session was opened later and came back beside the new shift. Both old sessions had created the worktree the new shift then ran in, and `claude rm` deletes "a background session and its worktree" (Claude Code 2.1.311), so a removal that worked would have deleted the new shift's worktree. The first hand-over's old session, removed later, did take its worktree and branch with it.
+
+- **The session the hand-off names is always a candidate,** wherever `claude agents` says it ran; its transcript is also looked for under the worktree the host records for it.
+- **A session whose own worktree is in use is not removed.** Before `claude rm`, Keel reads the worktree the host records for the session (`<config>/jobs/<id>/state.json` `worktreePath`); when it is the new shift's worktree, a worktree bound to a role, or another listed session's, the session stays.
+- **Every old session left listed records why:** kept by `keep_old_sessions`, its process still running, its transcript not copied, its worktree in use, or `claude rm` failing with its exit status and message.
+- **`keel shift status` names that reason** and that opening the session brings it back beside the new shift; it says "kept" only when `keep_old_sessions` kept it.
+- **Not available:** removing a listed session while keeping its worktree; no host command for it was found.
+- **Checks.** The new `shift-cli-keeps-worktree-in-use` and `shift-cli-names-failed-removal`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.214.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.213.0 - A session that bound another role is no twin of its first
 
 Issue #490, approved by the owner on 2026-10-27, who chose to judge by each session's record. In ChipSTRIDE three Claude Code sessions started in the main checkout, bound to `chipstride`, and two of them then entered their own worktrees and ran `keel chat role --set chipstride-be` and `--set chipstride-fe`. Their bindings and session records were right, but `presence/chipstride.sessions.json` still listed all three, so `keel context` and every `keel chat post/unread/read` warned of three live `chipstride` sessions when there was one.
