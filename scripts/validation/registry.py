@@ -425,6 +425,8 @@ SCENARIOS: tuple = (
     ("shift-cli-keeps-old-sessions", shift.validate_shift_cli_keeps_old_sessions_scenario),
     ("shift-resume-removes-old-sessions", shift.validate_shift_resume_removes_old_sessions_scenario),
     ("shift-cli-removes-after-exit", shift.validate_shift_cli_removes_after_exit_scenario),
+    ("shift-cli-keeps-worktree-in-use", shift.validate_shift_cli_keeps_worktree_in_use_scenario),
+    ("shift-cli-names-failed-removal", shift.validate_shift_cli_names_failed_removal_scenario),
     ("shift-cli-names-host-failure", shift.validate_shift_cli_names_host_failure_scenario),
     ("tick-retries-failed-wake", shift.validate_tick_retries_failed_wake_scenario),
     ("shift-cli-handover-claims-once", shift.validate_shift_cli_handover_claims_once_scenario),

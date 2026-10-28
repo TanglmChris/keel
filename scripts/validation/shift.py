@@ -3305,6 +3305,8 @@ def running(pid):
     return True
 rows = json.loads(open(agents).read())
 record = {'argv': argv}
+if argv[:1] == ['rm'] and os.environ.get('FAKE_RM_FAIL'):
+    open(calls, 'a').write(json.dumps(record) + '\\n'); sys.stderr.write(os.environ['FAKE_RM_FAIL'] + '\\n'); sys.exit(1)
 if argv[:1] == ['rm']:
     gone = [row for row in rows if row['id'] == argv[1]]
     record['alive'] = bool(gone) and bool(gone[0].get('_pid')) and running(gone[0]['_pid'])
@@ -3387,6 +3389,98 @@ def validate_shift_cli_removes_after_exit_scenario() -> int:
             finally:
                 with contextlib.suppress(OSError):
                     os.kill(process, signal.SIGKILL)
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, **fake_env: str):
+    """A delivered hand-over of `5b14fbae` from verify's worktree under the contract fake (#492).
+
+    Returns the `rm` calls the fake logged and `keel shift status` from rtl.
+    The row's `cwd` and the host's recorded `worktreePath` are the inputs.
+    """
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    rtl, verify, env, _ = shift_scratch(base)
+    row_cwd = {"rtl": rtl, "verify": verify}[str(row_cwd)]
+    agents, calls, fake, config = base / "agents.json", base / "calls.jsonl", base / "fake-claude", base / "claude"
+    write_text(fake, HANDOVER_CONTRACT_FAKE)
+    fake.chmod(0o755)
+    write_text(config / "projects" / host_project_name(verify) / f"{OLD}.jsonl",
+               json.dumps({"type": "user", "message": {"role": "user", "content": "carry on"}}) + "\n")
+    if worktree_path is not None:
+        write_text(config / "jobs" / OLD[:8] / "state.json", json.dumps({"sessionId": OLD, "cwd": str(row_cwd), "worktreePath": str(verify)}))
+    process = detached_sleeper()
+    try:
+        agents.write_text(json.dumps([{"kind": "background", "name": "verify", "sessionId": OLD, "id": OLD[:8],
+                                       "status": "idle", "state": "done", "pid": process, "cwd": str(row_cwd),
+                                       "startedAt": 1792500000000}]))
+        calls.write_text("")
+        env = {**env, "KEEL_CLAUDE": str(fake), "CLAUDE_CONFIG_DIR": str(config), "FAKE_AGENTS": str(agents),
+               "FAKE_CALLS": str(calls), "FAKE_STOP_MODE": "late", "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1",
+               "KEEL_SHIFT_EXIT_WAIT_MS": "5000", **fake_env}
+        cli_env = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": OLD, "CLAUDE_PID": str(process)}
+        readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R032", env=cli_env)
+        if readied.returncode != 0:
+            raise RuntimeError(f"ready --wake failed: {readied.stderr!r}")
+        run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        removals = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
+        return removals, run_keel(rtl, "shift", "status", env=env).stdout, verify
+    finally:
+        with contextlib.suppress(OSError):
+            os.kill(process, signal.SIGKILL)
+
+
+def validate_shift_cli_keeps_worktree_in_use_scenario() -> int:
+    """Issue #492: a hand-over never `claude rm`s a session whose worktree the new shift uses.
+
+    In ChipSTRIDE the old session had created the worktree with `EnterWorktree`,
+    and the new shift started in it; `claude rm` deletes a session's worktree.
+    Keel skipped the session silently and status called it kept.
+    """
+    label = "shift-cli-keeps-worktree-in-use:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-492a-") as raw:
+        try:
+            removals, status, verify = handover_old_session(Path(raw), Path("rtl"), Path("verify"))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        if any(r["argv"][1:2] == ["5b14fbae"] for r in removals):
+            report(f"{label} the session whose worktree the new shift uses was removed with claude rm: {removals!r}")
+            return 1
+        for needle in ("not removed", str(verify), "claude rm would delete it", "claude attach 5b14fbae"):
+            if needle not in status:
+                report(f"{label} shift status does not name {needle!r}: {status!r}")
+                return 1
+        if "old session kept" in status:
+            report(f"{label} shift status calls the session kept though nothing declared keeping it: {status!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_cli_names_failed_removal_scenario() -> int:
+    """Issue #492: a `claude rm` that fails is reported with the host's message, not as kept."""
+    label = "shift-cli-names-failed-removal:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-492b-") as raw:
+        try:
+            _removals, status, _verify = handover_old_session(Path(raw), Path("verify"), None,
+                                                              FAKE_RM_FAIL="worktree has unpushed commits")
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        for needle in ("not removed", "claude rm exited 1", "worktree has unpushed commits"):
+            if needle not in status:
+                report(f"{label} shift status does not name {needle!r}: {status!r}")
+                return 1
+        if "old session kept" in status:
+            report(f"{label} shift status calls a failed removal kept: {status!r}")
+            return 1
     if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} the scenario registry does not include it.")
         return 1
