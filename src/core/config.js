@@ -1087,6 +1087,9 @@ function readPatrolDeclaration(repo, options = {}) {
 
 // `shift: permission_mode:` for the session a CLI hand-off starts (#357 D5).
 const PERMISSION_MODES = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
+// `shift: model:` is a name or alias the host takes after `--model`; `shift: effort:` one of its `--effort` levels (#500).
+const SHIFT_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
+const SHIFT_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // `shift: keep_old_sessions:`, how many stopped old shift sessions a hand-over
 // leaves listed per role (#397 D2): a whole number, 0 when absent or unreadable,
 // so the old shift leaves the session list where the owner could mistake it for
@@ -1102,7 +1105,16 @@ function readShiftDeclaration(repo) {
   let keepOldSessions = 0;
   if (keep !== undefined && /^\d+$/.test(String(keep).trim())) keepOldSessions = Number(String(keep).trim());
   else if (keep !== undefined) messages.push(`keel/config.yaml shift: keep_old_sessions \`${keep}\` is not a whole number, so 0 applies.`);
-  return { permissionMode, keepOldSessions, message: messages.length ? messages.join(" ") : null };
+  // `model:` and `effort:` start a role's shifts on something else on purpose (#500).
+  let model = null;
+  const declaredModel = block.model === undefined ? undefined : String(block.model).trim();
+  if (declaredModel !== undefined && SHIFT_MODEL.test(declaredModel)) model = declaredModel;
+  else if (declaredModel !== undefined) messages.push(`keel/config.yaml shift: model \`${declaredModel}\` is not a model name or alias, so it is ignored.`);
+  let effort = null;
+  const declaredEffort = block.effort === undefined ? undefined : String(block.effort).trim();
+  if (SHIFT_EFFORTS.includes(declaredEffort)) effort = declaredEffort;
+  else if (declaredEffort !== undefined) messages.push(`keel/config.yaml shift: effort \`${declaredEffort}\` is not one of ${SHIFT_EFFORTS.join(", ")}, so it is ignored.`);
+  return { permissionMode, keepOldSessions, model, effort, message: messages.length ? messages.join(" ") : null };
 }
 
 // `branches:` (#469 D1, D7): `trunk:` names the branches beyond the remote

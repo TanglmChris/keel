@@ -59,13 +59,17 @@ patrol:
 
 CLI 会话不能清空自己，所以换班改为替换会话。角色和在任何宿主上一样，运行 `keel shift check` 和 `keel shift ready --wake "<便条>"`。在 CLI 会话里，`ready --wake` 会在便条里记下这个会话（`CLI session:` 和 `CLI process:`），在聊天存储里排一个交接，并留一个后台等待器去执行它，然后告诉会话结束本轮。
 
-等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就用 `claude stop` 停掉它（对话会保留），不再恢复它。然后在同一个 worktree 里用 `claude --bg -n "<角色> · <月-日 时:分>" --permission-mode <模式>` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 是新的，名字也是自己的：角色名加本地开班时间，所以在 `claude agents` 和 claude.ai 上没有两班同名。旧会话保留它启动时的名字，不再改名：改名要恢复旧会话，而开着 Remote Control 的会话会用 claude.ai 上的标题把改名盖回去（#399）。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
+等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就用 `claude stop` 停掉它（对话会保留），不再恢复它。然后在同一个 worktree 里用 `claude --bg -n "<角色> · <月-日 时:分>" --permission-mode <模式> [--model <模型>] [--effort <档位>]` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 是新的，名字也是自己的：角色名加本地开班时间，所以在 `claude agents` 和 claude.ai 上没有两班同名。旧会话保留它启动时的名字，不再改名：改名要恢复旧会话，而开着 Remote Control 的会话会用 claude.ai 上的标题把改名盖回去（#399）。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
 
 ```yaml
 shift:
   permission_mode: auto   # default、acceptEdits、auto、plan 或 bypassPermissions
   keep_old_sessions: 0    # 每个角色保留在列表里的旧班数；默认 0，一个不留
+  model: opus             # 可选：新班用这个模型启动，而不是你的默认模型
+  effort: high            # 可选：low、medium、high、xhigh 或 max；只在声明时才传
 ```
+
+新会话用你自己会得到的那个模型启动（#500）。启动命令不指定模型时，由宿主自己挑：2026-11-01 它启动的几个班跑的是 sonnet，尽管用户 `settings.json` 的 `model` 写的是 opus。所以现在启动命令在 `--permission-mode` 之后带 `--model`，取下面第一个写了模型的来源：`shift: model:`、环境变量 `ANTHROPIC_MODEL`、该 worktree 的 `.claude/settings.local.json`、它的 `.claude/settings.json`、最后是 Claude 配置目录（`CLAUDE_CONFIG_DIR`，没有就是 `~/.claude`）里的 `settings.json`。文件不存在、不是合法 JSON，或 `model` 不是字符串，就当它没写，试下一个；托管策略设置不读。都没写时命令也不指定模型，和以前一样。`--effort` 只在 `effort:` 声明时才传，所以宿主自己按模型设的 `effortLevel` 照常生效。`keel shift status` 会显示已交接的这一班用的模型和来源；读不懂的 `model:` 或 `effort:` 会在那里点名并忽略。被恢复的会话沿用保存时的选项。
 
 每次换班都会停掉旧会话。交接之后，该角色最新的 `keep_old_sessions` 个已停会话留在列表里，可以 `claude attach`；更早的，在 Keel 的存储里已有其 transcript 副本之后用 `claude rm` 移除（#397）。不声明时一个不留（#418）：刚交接的那一班也会被移除，所以它不会再和当前一班并列出现在 `claude agents` 和 claude.ai 上——已停的会话在那里看起来和在跑的一样。对在已有 worktree 里启动的会话执行 `claude rm`，不会删掉那个 worktree。自己建了 worktree 的会话（用 `EnterWorktree` 或 `claude --bg -w`）不一样：`claude rm` 会把那个 worktree 一起删掉，所以只要它的 worktree 是新一班的、绑定了某个角色、或有别的会话在里面跑，Keel 就把这个会话留在列表里（#492）。只有有 transcript（宿主的或 Keel 的副本）的会话才算一班：从没收到过提示的会话没有 transcript，不占名额，也保留不动（#401）。会话在该角色的某个 worktree 里跑过，或者 Keel 在该角色名下存有它的 transcript，就算该角色的会话，所以 worktree 改名或搬走后，旧会话不会被落下（#462）。不经 Keel 完成的接班——你手动开的会话运行 `keel shift resume`——也同样清理：在 Claude Code 会话里恢复一份由 CLI 会话写下的便条时，会按同样的规则移除该角色的旧会话，并列出移除了哪些（#462）。内容不会丢：`claude rm` 不删宿主的 transcript，Keel 另有一份副本，`keel shift history <角色> --show <会话 id>` 能打印任何一班的完整对话，无论它还在不在列表里。
 

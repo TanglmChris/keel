@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.216.0 - A shift change does not change the default model
+
+Issue #500, approved by the owner on 2026-11-03 after the owner stated the expectation: apart from a model specified on purpose, a shift change must not change the default. A shift bug fix within the freeze. The CLI hand-over started the new session with `claude --bg -n <name> --permission-mode <mode> <prompt>` and named no model, so the host chose one: the shifts started on 2026-11-01 ran sonnet although the owner's `settings.json` says `model: opus`, while the shift that handed over, and every earlier keel-maint session, had run opus.
+
+- **The start call names the model.** `--model <model>` follows `--permission-mode`, taken from the first source that names one, in the host's own order: `shift: model:`, the `ANTHROPIC_MODEL` environment variable, the worktree's `.claude/settings.local.json`, its `.claude/settings.json`, then `settings.json` in `CLAUDE_CONFIG_DIR` or `~/.claude`. A missing file, invalid JSON, or a `model` that is not a string names nothing and the next source is tried; managed policy settings are not read. With no source the call names none, as before.
+- **`shift: model:` and `shift: effort:`** start a role's shifts on something else on purpose. `--effort` (`low`, `medium`, `high`, `xhigh`, `max`) is passed only when declared, so the host's per-model `effortLevel` still applies; a value Keel cannot read is named in `keel shift status` and ignored.
+- **The delivered hand-off records the model and its source,** and `keel shift status` shows them.
+- **Checks.** The new `shift-cli-handover-passes-default-model`, `shift-cli-declared-model-wins` and `shift-cli-handover-names-no-model-when-none`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.216.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.215.0 - An archived guard manifest blocks no hand-over, defers no refresh, and keeps no session from adoption
 
 Issue #496, approved by the owner on 2026-10-28; a shift bug fix within the freeze. Since 5.212.0 (#491) a guard manifest whose task is checked and whose change is archived enforces nothing, and `keel guard status` reads it as `archived`. Three other places still asked only whether `keel/guard.json` exists: `keel shift check` reported it as `task-in-progress` and exited 1, so a shift that ended with an archive could not hand over until someone ran `keel guard clear`; `keel context` deferred a standing-authorized protocol refresh; and `keel --update --adopt` left the session alone as "under a task's write guard".

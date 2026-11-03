@@ -3754,6 +3754,154 @@ def validate_shift_cli_handover_claims_once_scenario() -> int:
     return 0
 
 
+def handover_model_case(*, user=None, project=None, local=None, shift_yaml="", anthropic_model=None, raw_user=None) -> dict:
+    """One CLI hand-over (#500) under the settings given; the call that started the new session, the entry and `shift status`.
+
+    `user`, `project` and `local` are the `model` values of the user's
+    `settings.json` (in `CLAUDE_CONFIG_DIR`), the worktree's `.claude/settings.json`
+    and its `.claude/settings.local.json`; `raw_user` is that user file's text as is.
+    """
+    OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-500-") as raw:
+        base = Path(raw)
+        s = handover_retry_scratch(base, OLD)
+        try:
+            config_dir = base / "claude-config"
+            env = {k: v for k, v in s["env"].items() if k != "ANTHROPIC_MODEL"}
+            env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+            if anthropic_model:
+                env["ANTHROPIC_MODEL"] = anthropic_model
+            if raw_user is not None:
+                write_text(config_dir / "settings.json", raw_user)
+            elif user is not None:
+                write_text(config_dir / "settings.json", json.dumps({"model": user, "effortLevel": "xhigh"}))
+            if project is not None:
+                write_text(s["verify"] / ".claude" / "settings.json", json.dumps({"model": project}))
+            if local is not None:
+                write_text(s["verify"] / ".claude" / "settings.local.json", json.dumps({"model": local}))
+            if shift_yaml:
+                write_text(s["verify"] / "keel" / "config.yaml", shift_yaml)
+            run_keel(s["verify"], "tick", "--repo", str(s["rtl"]), env=env)
+            starts = [json.loads(line)["argv"] for line in s["calls"].read_text().splitlines()
+                      if json.loads(line)["argv"][:1] == ["--bg"] and "--resume" not in json.loads(line)["argv"]]
+            entry = json.loads(s["queue"].read_text())
+            status = run_keel(s["verify"], "shift", "status", env=env).stdout
+            return {"argv": starts[0] if starts else None, "entry": entry, "status": status, "starts": len(starts)}
+        finally:
+            with contextlib.suppress(OSError):
+                os.kill(s["process"], signal.SIGKILL)
+
+
+def model_args(argv) -> list:
+    """The `--model` and `--effort` arguments of a start call, in the order given, before the prompt."""
+    found = []
+    for flag in ("--model", "--effort"):
+        if argv and flag in argv[:-1]:
+            found += [flag, argv[argv.index(flag) + 1]]
+    return found
+
+
+def validate_shift_cli_handover_passes_default_model_scenario() -> int:
+    """Issue #500: a hand-over names the model the owner would get, in the host's own order.
+
+    Measured 2026-11-03: the session a hand-over started ran sonnet although the
+    owner's `settings.json` says opus, because the call named no model and the
+    host chose one. The call now carries `--model` after `--permission-mode`.
+    """
+    label = "shift-cli-handover-passes-default-model:"
+    steps = [
+        ({"user": "opus"}, "opus", "user settings"),
+        ({"user": "opus", "project": "sonnet"}, "sonnet", "project settings"),
+        ({"user": "opus", "project": "sonnet", "local": "haiku"}, "haiku", "project-local settings"),
+        ({"user": "opus", "project": "sonnet", "local": "haiku", "anthropic_model": "fable"}, "fable", "ANTHROPIC_MODEL"),
+    ]
+    for case, model, source in steps:
+        got = handover_model_case(**case)
+        argv = got["argv"]
+        if got["entry"].get("state") != "delivered":
+            report(f"{label} with {sorted(case)} the hand-off was not delivered: {got['entry']!r}")
+            return 1
+        if not argv:
+            report(f"{label} with {sorted(case)} the hand-off was delivered but no `claude --bg` start call was recorded.")
+            return 1
+        if argv[3:7] != ["--permission-mode", "auto", "--model", model]:
+            report(f"{label} with {sorted(case)} the start call is {argv!r}, not `--permission-mode auto --model {model}` before the prompt.")
+            return 1
+        if "keel shift resume" not in argv[-1]:
+            report(f"{label} with {sorted(case)} the prompt is no longer last in the start call: {argv!r}")
+            return 1
+        if got["entry"].get("model") != model or got["entry"].get("model_source") != source:
+            report(f"{label} with {sorted(case)} the entry records {got['entry'].get('model')!r} from {got['entry'].get('model_source')!r}, not {model!r} from {source!r}.")
+            return 1
+        if model not in got["status"] or source not in got["status"]:
+            report(f"{label} with {sorted(case)} `keel shift status` does not show {model!r} and {source!r}: {got['status']!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_cli_declared_model_wins_scenario() -> int:
+    """Issue #500: `shift: model:` and `shift: effort:` start a role's shifts on something else, on purpose."""
+    label = "shift-cli-declared-model-wins:"
+    got = handover_model_case(user="opus", project="haiku", local="haiku", anthropic_model="fable",
+                              shift_yaml="shift:\n  model: sonnet\n  effort: high\n")
+    if model_args(got["argv"]) != ["--model", "sonnet", "--effort", "high"] or got["argv"][3:5] != ["--permission-mode", "auto"]:
+        report(f"{label} the declaration did not win: {got['argv']!r}")
+        return 1
+    if got["entry"].get("model") != "sonnet" or got["entry"].get("model_source") != "declared":
+        report(f"{label} the entry does not record the declared model: {got['entry']!r}")
+        return 1
+    bad = handover_model_case(user="opus", shift_yaml="shift:\n  effort: extreme\n")
+    if "--effort" in (bad["argv"] or []):
+        report(f"{label} an effort Keel cannot read was passed: {bad['argv']!r}")
+        return 1
+    if model_args(bad["argv"]) != ["--model", "opus"]:
+        report(f"{label} an effort Keel cannot read took the model with it: {bad['argv']!r}")
+        return 1
+    for needle in ("extreme", "low, medium, high, xhigh, max"):
+        if needle not in bad["status"]:
+            report(f"{label} `keel shift status` does not name {needle!r}: {bad['status']!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_cli_handover_names_no_model_when_none_scenario() -> int:
+    """Issue #500: when nothing names a model the call names none, and the hand-over still happens."""
+    label = "shift-cli-handover-names-no-model-when-none:"
+    cases = {
+        "no source": {},
+        "invalid JSON": {"raw_user": "{not json"},
+        "model not a string": {"raw_user": json.dumps({"model": {"name": "opus"}})},
+        "empty model": {"raw_user": json.dumps({"model": ""})},
+    }
+    for name, case in cases.items():
+        got = handover_model_case(**case)
+        if got["entry"].get("state") != "delivered":
+            report(f"{label} with {name} the hand-off was not delivered: {got['entry']!r}")
+            return 1
+        if not got["argv"]:
+            report(f"{label} with {name} the hand-off was delivered but no `claude --bg` start call was recorded.")
+            return 1
+        if model_args(got["argv"]):
+            report(f"{label} with {name} the call names a model: {got['argv']!r}")
+            return 1
+        if "model" in got["entry"] or "model_source" in got["entry"]:
+            report(f"{label} with {name} the entry records a model: {got['entry']!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_shift_cli_retries_failed_handover_scenario() -> int:
     """Issue #408, second loop: a failed hand-off is retried within a bound (D4, D5).
 
