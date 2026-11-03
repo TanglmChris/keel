@@ -329,11 +329,19 @@ patrol:
 # `claude agents` and on claude.ai; 0 when absent or unreadable (#418), so the
 # old shift is removed with `claude rm` once Keel's store holds its transcript,
 # and `keel shift history <role> --show <id>` still prints it in full.
+# `model:` and `effort:` start the new shifts on something else on purpose
+# (#500). Without `model:` the call names the owner's default: the first of
+# ANTHROPIC_MODEL, the worktree's .claude/settings.local.json and
+# .claude/settings.json, then the user's settings.json that names a model; it
+# names none when none does. `--effort` (low, medium, high, xhigh, max) is
+# passed only when `effort:` is declared.
 #
 # Example:
 #   shift:
 #     permission_mode: auto
 #     keep_old_sessions: 1
+#     model: opus
+#     effort: high
 #
 # This repository declares none.
 

@@ -14,7 +14,7 @@ CI runners have no Claude Code, so no scenario touches the real host. Real-host 
 1. **`keel shift ready --wake`** runs in a CLI session. It stores the note, queues a hand-off with the session id and its process (`CLI session:`, `CLI process:`), and leaves a detached waiter.
 2. **The waiter, or `keel tick`, carries out the hand-off once the old session has finished.** It runs these steps:
    - `claude stop <id>`;
-   - `claude --bg -n "<role> · <MM-DD HH:MM>" --permission-mode <mode>` in the role's worktree;
+   - `claude --bg -n "<role> · <MM-DD HH:MM>" --permission-mode <mode> [--model <model>] [--effort <level>]` in the role's worktree;
    - removing old sessions with `claude rm`, as `shift: keep_old_sessions:` allows (0 by default).
 3. **The new session runs `keel shift resume`.**
 4. **A role whose CLI session has ended, with a record addressed to it, is woken** by `keel chat wake now <role>` or by the tick. Either runs `claude --bg --resume <id> "<pointer>"`.

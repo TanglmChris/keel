@@ -822,6 +822,36 @@ function claim(where, queued, sessions) {
   });
 }
 
+// The model a hand-over starts the new session on (#500). The host chose one
+// itself when the call named none, and on 2026-11-01 it chose sonnet over the
+// owner's `model: opus`, so the call names the owner's default: the declared
+// `shift: model:`, else the first of the host's own sources that names one, in
+// its order. A missing file, invalid JSON, or a value that is not a plain
+// string names nothing and the next source is tried; managed policy settings
+// are not read. Null when no source names a model: the call then names none.
+function resolveShiftModel(worktree, declared) {
+  if (declared && declared.model) return { model: declared.model, source: "declared" };
+  const named = (value) => (typeof value === "string" && value.trim() && !value.trim().startsWith("-") ? value.trim() : null);
+  const fromEnv = named(process.env.ANTHROPIC_MODEL);
+  if (fromEnv) return { model: fromEnv, source: "ANTHROPIC_MODEL" };
+  const config = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  const files = [
+    [path.join(worktree, ".claude", "settings.local.json"), "project-local settings"],
+    [path.join(worktree, ".claude", "settings.json"), "project settings"],
+    [path.join(config, "settings.json"), "user settings"],
+  ];
+  for (const [file, source] of files) {
+    let model = null;
+    try {
+      model = named(JSON.parse(fs.readFileSync(file, "utf8")).model);
+    } catch {
+      model = null;
+    }
+    if (model) return { model, source };
+  }
+  return null;
+}
+
 // One step of the waker (#357 D2): a busy or unfinished old session waits; a
 // finished or gone one is retired (stopped) and a new session starts. A claim
 // left by a runner that died is settled, and a failed start is tried again
@@ -856,14 +886,17 @@ function handOver(where, only = null) {
     // `stop`, `attach` and `logs` take the 8-character job id, not the full
     // session id (`No job matching`, measured 2026-10-19).
     if (row) retire(claude, entry, row);
-    const mode = readShiftDeclaration(entry.worktree).permissionMode;
+    const declaration = readShiftDeclaration(entry.worktree);
     const name = sessionName(entry.role);
-    const started = spawnSync(claude, ["--bg", "-n", name, "--permission-mode", mode, SHIFT_START_TEXT(entry.role)], {
-      cwd: entry.worktree, encoding: "utf8", timeout: hostTimeout(),
-    });
+    const chosen = resolveShiftModel(entry.worktree, declaration);
+    const startArgs = ["--bg", "-n", name, "--permission-mode", declaration.permissionMode,
+      ...(chosen ? ["--model", chosen.model] : []), ...(declaration.effort ? ["--effort", declaration.effort] : []),
+      SHIFT_START_TEXT(entry.role)];
+    const started = spawnSync(claude, startArgs, { cwd: entry.worktree, encoding: "utf8", timeout: hostTimeout() });
     const output = `${started.stdout || ""}`;
     if (!started.error && started.status === 0) {
       const id = (output.match(/backgrounded\s*·\s*(\S+)/) || [])[1] || null;
+      if (chosen) Object.assign(entry, { model: chosen.model, model_source: chosen.source });
       done.push(deliver(claude, where, entry, id, name, false));
     } else {
       const reason = started.error ? hostTrouble(started, "claude --bg") : String(started.stderr || output).trim().split(/\r?\n/).pop();
@@ -903,7 +936,7 @@ function waitForHandOver(where, role) {
 
 function describeHandOff(entry) {
   const tail = entry.state === "delivered"
-    ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}`
+    ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}${entry.model ? ` on model ${entry.model} (${entry.model_source})` : ""}`
     : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}; ${retryNote(entry)}`
       : entry.state === "starting" ? `starting since ${entry.starting_at} (attempt ${entry.attempts} of ${HANDOVER_ATTEMPTS})`
       : entry.waiting_on ? `pending: cannot ask the host — ${entry.waiting_on}` : "pending: waits for the session to go idle";
