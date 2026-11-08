@@ -3726,14 +3726,20 @@ def validate_shift_cli_removes_after_exit_scenario() -> int:
     return 0
 
 
-def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, **fake_env: str):
+def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, ready_out: list | None = None,
+                         config_text: str | None = None, **fake_env: str):
     """A delivered hand-over of `5b14fbae` from verify's worktree under the contract fake (#492).
 
     Returns the `rm` calls the fake logged and `keel shift status` from rtl.
     The row's `cwd` and the host's recorded `worktreePath` are the inputs.
+    `ready_out`, when given, receives what `shift ready --wake` printed as text and then as `--json` (#506).
     """
     OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
     rtl, verify, env, _ = shift_scratch(base)
+    if config_text is not None:
+        write_text(verify / "keel" / "config.yaml", config_text)
+        for git in (["add", "keel/config.yaml"], ["commit", "-q", "-m", "declare shift"], ["push", "-q", "origin", "HEAD"]):
+            subprocess.run(["git", *git], cwd=verify, check=True, capture_output=True)
     row_cwd = {"rtl": rtl, "verify": verify}[str(row_cwd)]
     agents, calls, fake, config = base / "agents.json", base / "calls.jsonl", base / "fake-claude", base / "claude"
     write_text(fake, HANDOVER_CONTRACT_FAKE)
@@ -3755,6 +3761,9 @@ def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, 
         readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R032", env=cli_env)
         if readied.returncode != 0:
             raise RuntimeError(f"ready --wake failed: {readied.stderr!r}")
+        if ready_out is not None:
+            as_json = run_keel(verify, "shift", "ready", "--wake", "--json", "next: rerun R032", env=cli_env)
+            ready_out.extend([readied.stdout, as_json.stdout])
         run_keel(verify, "tick", "--repo", str(rtl), env=env)
         removals = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
         return removals, run_keel(rtl, "shift", "status", env=env).stdout, verify
@@ -3811,6 +3820,101 @@ def validate_shift_cli_names_failed_removal_scenario() -> int:
         if "old session kept" in status:
             report(f"{label} shift status calls a failed removal kept: {status!r}")
             return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_ready_says_session_stays_scenario() -> int:
+    """Issue #506: `shift ready` does not promise a removal the hand-over will not carry out.
+
+    The session had made its worktree with `EnterWorktree` and the new shift
+    starts in it, so `claude rm` would delete the worktree and the hand-over
+    leaves the session listed (#492). `ready` printed that it is removed.
+    """
+    label = "shift-ready-says-session-stays:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506a-") as raw:
+        shown: list[str] = []
+        try:
+            removals, _status, verify = handover_old_session(Path(raw), Path("rtl"), Path("verify"), ready_out=shown)
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        if len(shown) != 2:
+            report(f"{label} the fixture did not return what ready printed: {shown!r}")
+            return 1
+        try:
+            clear = json.loads(shown[1])["clear"]
+        except (ValueError, KeyError) as error:
+            report(f"{label} ready --json has no readable `clear` field ({error!r}): {shown[1]!r}")
+            return 1
+        for name, text in (("text", shown[0]), ("clear", clear)):
+            if "removes it from the session list" in text:
+                report(f"{label} the {name} hint promises a removal the hand-over does not carry out: {text!r}")
+                return 1
+            for needle in ("stays in `claude agents`", str(verify), "claude rm", "claude attach 5b14fbae"):
+                if needle not in text:
+                    report(f"{label} the {name} hint does not say {needle!r}: {text!r}")
+                    return 1
+        if any(r["argv"][1:2] == ["5b14fbae"] for r in removals):
+            report(f"{label} the hand-over removed the session the hint said stays: {removals!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_ready_promises_removal_when_removable_scenario() -> int:
+    """Issue #506: a session nothing keeps is still told it is removed, and is."""
+    label = "shift-ready-promises-removal-when-removable:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506b-") as raw:
+        shown: list[str] = []
+        try:
+            removals, _status, _verify = handover_old_session(Path(raw), Path("verify"), None, ready_out=shown)
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        if len(shown) != 2:
+            report(f"{label} the fixture did not return what ready printed: {shown!r}")
+            return 1
+        if "removes it from the session list" not in shown[0]:
+            report(f"{label} the hint no longer promises the removal that follows: {shown[0]!r}")
+            return 1
+        if "stays in `claude agents`" in shown[0]:
+            report(f"{label} the hint says a removable session stays: {shown[0]!r}")
+            return 1
+        if not any(r["argv"][1:2] == ["5b14fbae"] for r in removals):
+            report(f"{label} the hand-over did not call claude rm for the session the hint said is removed: {removals!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_shift_ready_kept_session_names_shared_worktree_scenario() -> int:
+    """Issue #506: a kept session whose worktree is the new shift's says so."""
+    label = "shift-ready-kept-session-names-shared-worktree:"
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506c-") as raw:
+        shown: list[str] = []
+        try:
+            _removals, _status, verify = handover_old_session(Path(raw), Path("rtl"), Path("verify"), ready_out=shown,
+                                                              config_text="shift:\n  keep_old_sessions: 1\n")
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        if len(shown) != 2:
+            report(f"{label} the fixture did not return what ready printed: {shown!r}")
+            return 1
+        for needle in ("its conversation is kept", "claude attach 5b14fbae", str(verify), "the new shift's"):
+            if needle not in shown[0]:
+                report(f"{label} the hint does not say {needle!r}: {shown[0]!r}")
+                return 1
     if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} the scenario registry does not include it.")
         return 1

@@ -1,0 +1,141 @@
+# Tasks
+
+## 1. `ready` tells the truth about the old session
+
+- [x] 1.1 Share the in-use test and use it in the hint
+  - Covers:
+    - keel-shift-change / `keel shift ready` says whether the old session will stay listed / A session whose worktree is the new shift's is told it will stay
+    - keel-shift-change / `keel shift ready` says whether the old session will stay listed / A removable session is still told it will be removed
+    - keel-shift-change / `keel shift ready` says whether the old session will stay listed / A kept session in use also names the shared worktree
+    - D1
+    - D2
+    - D3
+    - D4
+  - Read:
+    - openspec/changes/shift-ready-says-session-stays/design.md
+    - src/core/shift.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/shift.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-ready-says-session-stays`: with the fixture `handover_old_session`, a session whose host-recorded worktree is the worktree it hands over runs `shift ready --wake`; the printed hint and the `--json` `clear` field name that it stays in `claude agents`, the worktree, `claude rm` and `claude attach 5b14fbae`, and do not contain `removes it from the session list`; the tick that follows makes no `rm` call for it. Fails with: `shift-ready-says-session-stays:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-ready-promises-removal-when-removable`: a session with no host-recorded worktree runs `shift ready --wake`; the hint still says it is removed once Keel's store holds its transcript, and the tick that follows calls `claude rm` for it. Detects: `the promise is dropped when nothing keeps the session` -> `shift-ready-promises-removal-when-removable:`
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-ready-kept-session-names-shared-worktree`: with `shift: keep_old_sessions: 1` and the session's host-recorded worktree the one it hands over, the hint says the conversation is kept and `claude attach` reopens it, and names that the worktree is the new shift's. Fails with: `shift-ready-kept-session-names-shared-worktree:`
+    - M4 (regression): run one at a time, each passes: `--scenario shift-cli-keeps-worktree-in-use`, `--scenario shift-cli-names-failed-removal`, `--scenario shift-cli-self-shift`, `--scenario assertion-shape-count`, and `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a410cb31f03e2ba868e2a174da1805a4b95019b63c02a5ffd450992f2a430dcf (keel 5.217.0)
+    - M1: pass. `shift-ready-says-session-stays scenario passed.` (exit 0). A session whose host-recorded worktree (`jobs/5b14fbae/state.json` `worktreePath`) is the worktree it hands over runs `shift ready --wake`, as text and as `--json`: both say `stays in \`claude agents\``, name the worktree, `claude rm` and `claude attach 5b14fbae`, and the tick that follows makes no `rm` call for it.
+    - M1.red: fail. Before any code change, exit 1: `shift-ready-says-session-stays: the text hint promises a removal the hand-over does not carry out: "Stored the shift note for verify at …/verify.md.\nThis is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: …`
+    - M1.green: pass. `worktreeInUse` in `src/core/shift.js` is the test `removeOldSessions` used, now shared; `clearHint` asks it for the session's host worktree (D1, D2) and says it stays.
+    - M2: pass. `shift-ready-promises-removal-when-removable scenario passed.` (exit 0), before and after the code change (which is why it is a regression check): with no host-recorded worktree the hint still says `removes it from the session list`, and the tick calls `claude rm` for `5b14fbae`.
+    - M2.detects: fail. With `clearHint`'s test forced to hold (`const using = true …`), exit 1: `shift-ready-promises-removal-when-removable: the hint no longer promises the removal that follows: 'Stored the shift note for verify at …`; the code was restored byte for byte (`cmp`) and the scenario passed again.
+    - M3: pass. `shift-ready-kept-session-names-shared-worktree scenario passed.` (exit 0). With `shift: keep_old_sessions: 1` committed in the scratch worktree and the same host-recorded worktree, the text hint says `its conversation is kept`, `claude attach 5b14fbae`, the worktree and `the new shift's`.
+    - M3.red: fail. Exit 1: `shift-ready-kept-session-names-shared-worktree: the hint does not say "the new shift's": 'Stored the shift note for verify at …`. An earlier run failed for another reason, `ready --wake failed: … uncommitted: ?? keel/`, because the fixture left its config uncommitted; the fixture was fixed (commit and push, as `shift-cli-keep-old-sessions` does) before this red was taken.
+    - M3.green: pass. The `keep_old_sessions > 0` clause of `clearHint` appends `beside the new shift, because its worktree … is in use (…)` when the test holds.
+    - M4: pass. Run one at a time, each exit 0: `shift-cli-keeps-worktree-in-use scenario passed.`, `shift-cli-names-failed-removal scenario passed.`, `shift-cli-self-shift scenario passed.`, `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` (unchanged: no `or`-guarded failure was added), and `validation --group shift passed: 79 scenarios.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel shift ready --wake` (text and `--json`) and the real tick, a session whose host worktree is the new shift's is told it stays and is not removed (M1); one nothing keeps is told it is removed and is (M2); a kept one names the shared worktree (M3). The promise and the action are checked against the same fixture, so a drift in either side fails.
+      - Scope check: `git status --short` lists `src/core/shift.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: Discard reason: a session kept only because another listed session runs in its worktree is still described as removed by `ready`, which has no `claude agents` listing (D3); `keel shift status` names it afterwards (#492 D3), and a listing in `ready` would add a host call to a command that makes none. Durable owner: https://github.com/TanglmChris/keel/issues/506 (expectations 1 and 3 remain open there).
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 State it in the docs
+  - Covers:
+    - D2
+    - D3
+  - Read:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Touch:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation prose; nothing here can fail before it is written, and 1.1 proves the behavior it describes.
+    - M1: `grep -n "ready" docs/cli-team.md docs/cli-team.zh-CN.md` shows, in the paragraph on old sessions, a sentence saying `keel shift ready` states up front that the old session stays when its worktree is the new shift's, and that the limit (a session kept only because another listed session runs there) is named by `keel shift status` afterwards, in both languages.
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:90b182314afedb29f6fd530c78c0d22978e69f2a82ac1ef5b44875ab40473f66 (keel 5.217.0)
+    - M1: pass. `grep -n "#506" docs/cli-team.md docs/cli-team.zh-CN.md` finds one hit in each, in the old-sessions paragraph: `keel shift ready --wake` says up front that the session stays when its worktree is the new shift's or bound to a role, and the limit (kept only because another listed session runs there) is named by `keel shift status` afterwards. The sentence "the shift just handed over is removed too" now carries "(unless its worktree is in use, below)", and its Chinese counterpart the same.
+    - M2: pass. `surfaces-agree-with-code scenario passed.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the paragraph that said every handed-over session is removed now names the exception and `ready`'s up-front statement, in both languages, matching `clearHint` and `worktreeInUse` as 1.1 proved them.
+      - Scope check: `git status --short` additionally lists `docs/cli-team.md` and `docs/cli-team.zh-CN.md`, both in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-shift-change/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Task 1.1 proves the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-shift-change`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:3f882bcd700ed913f92acf94747fb50b6a4a166b0043d58ce2e3c431bb8efce7 (keel 5.217.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.217.0 → 5.218.0 and printed that the land job publishes 5.218.0 and tags v5.218.0; the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement is appended to `openspec/specs/keel-shift-change/spec.md`; `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started at load 6: `validation --all passed: baseline plus 366 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 363 of 5.217.0 plus this change's three.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries task 1.1's and 1.2's behavior, the markers agree at 5.218.0, the promoted spec validates, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, tasks 1.1 and 1.2's files and this change's directory, all in Touch of 1.1, 1.2 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "then removes it from the session list once Keel's store holds its transcript" — the sentence `clearHint` prints in `src/core/shift.js`, true only when nothing keeps the session. Updated by: 1.1.
+- I2: "the shift just handed over is removed too" — the paragraph on old sessions in `docs/cli-team.md` and `docs/cli-team.zh-CN.md`. Updated by: 1.2.
+
+## Expectation Coverage
+
+- E1: `keel shift ready` does not promise a removal the hand-over will not carry out (#506, expectation 2; D1, D2). Covered by: 1.1
+- E2: The old session, when woken, knows it was replaced and its gates refuse (#506, expectation 1). Durable owner: https://github.com/TanglmChris/keel/issues/506
+- E3: The host's list marks a handed-over session, or `claude rm` keeps the worktree (#506, expectation 3). Durable owner: https://github.com/TanglmChris/keel/issues/506
+- E4: The release carries it. Covered by: 2.1
