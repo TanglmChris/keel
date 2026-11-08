@@ -111,7 +111,7 @@
 
 ## 2. Release
 
-- [ ] 2.1 Release and promote the spec
+- [x] 2.1 Release and promote the spec
   - Covers:
     - E4
   - Touch:
@@ -127,6 +127,7 @@
     - assets/bootstrap/AGENTS.md
     - keel/CHANGELOG.md
     - openspec/specs/keel-shift-change/spec.md
+    - scripts/validation/shift.py
     - .claude/skills/openspec-apply-change/SKILL.md
     - .claude/skills/openspec-archive-change/SKILL.md
     - .claude/skills/openspec-propose/SKILL.md
@@ -148,17 +149,17 @@
     - Default: hard-stop
     - Pre-authorized fallback: none
   - Evidence:
-    - Contract: keel-task-capsule/v1 sha256:d11f4dec921b1720c6b6c77aa66e11ba2282686c65f714c4e2b719e565344bc3 (keel 5.222.0)
-    - M1: pending
-    - M2: pending
-    - M3: pending
+    - Contract: keel-task-capsule/v1 sha256:4e824f3f3034b5f2695e5681a26af6f43b003b8401157464c199fe8e8aed48b2 (keel 5.222.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.223.0 → 5.224.0 (after the branch was rebased onto the merge of #518; the first bump read 5.222.0 → 5.223.0 because the branch had been cut from a stale `origin/main`, and was reverted before anything was recorded); the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement is appended to `openspec/specs/keel-shift-change/spec.md`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` (second run, at load 21): `validation --all passed: baseline plus 388 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 385 of 5.223.0 plus this change's three.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 to 1.3's behavior, the markers agree at 5.224.0, the promoted spec validates, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the promoted spec, the files of tasks 1.1 to 1.3 and this change's directory, plus `scripts/validation/shift.py` whose two older scenarios the first full run showed needed a fixture change; it was added to this task's Touch by the reauthorization below.
+      - Findings: Resolved here: M3 — the first `npm test` failed `shift-cli-self-shift` and `shift-cli-keeps-old-sessions`, which hand over repeatedly from one session id; the new refusal correctly refused the second `ready` by a session the first had replaced. Their fixtures now clear the delivered record before the next `ready`, since in life the next hand-over comes from the new session; both pass and the full suite is green.
     - Blocker: none
-    - Reauthorizations: none
+    - Reauthorizations: Touch gained `scripts/validation/shift.py` after the first full run, before any evidence; the contract was re-recorded (d11f4dec → 4e824f3f).
 
 ## Invalidates
 

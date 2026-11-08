@@ -4793,6 +4793,9 @@ def validate_shift_cli_self_shift_scenario() -> int:
         # The tick and the waiter start one session: a fresh lock holds the tick off.
         calls.write_text("")
         agents_row("idle", "done")
+        # In life the next hand-over comes from the new session; this fixture reuses one id, so the
+        # delivered record that names it as replaced is cleared first (#506).
+        (queue / "verify.json").unlink(missing_ok=True)
         run_keel(verify, "shift", "ready", "--wake", "next: rerun R014", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
         lock = queue / "verify.lock"
         write_text(lock, "held")
@@ -4814,6 +4817,7 @@ def validate_shift_cli_self_shift_scenario() -> int:
         calls.write_text("")
         agents_row("idle", "done")
         write_text(fail, "x")
+        (queue / "verify.json").unlink(missing_ok=True)
         run_keel(verify, "shift", "ready", "--wake", "next: rerun R013", env={**cli_env, "KEEL_SHIFT_HANDOVER_TIMEOUT_MS": "1"})
         tick()
         text = status_text()
@@ -4909,6 +4913,8 @@ def validate_shift_cli_keeps_old_sessions_scenario() -> int:
             live = {"kind": "background", "name": "verify", "sessionId": OLD, "id": OLD[:8], "status": "idle", "state": "working",
                     "cwd": bound["verify"], "startedAt": 1792490000000}
             agents.write_text(json.dumps([*olds, live]))
+            # One id plays every old shift here; the delivered record of the last one would refuse the next (#506).
+            (mailbox_common_dir(rtl) / "keel-chat" / "shift" / "queue" / "verify.json").unlink(missing_ok=True)
             readied = run_keel(verify, "shift", "ready", "--wake", "next: rerun R020", env=cli_env)
             if readied.returncode != 0:
                 raise RuntimeError(f"ready --wake failed: {readied.stderr!r}")
