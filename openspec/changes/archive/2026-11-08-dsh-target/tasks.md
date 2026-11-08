@@ -1,0 +1,192 @@
+# Tasks
+
+## 1. The target
+
+- [x] 1.1 Accept `dsh`; capabilities and project name it
+  - Covers:
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / Capabilities for DSH are manual and say what was probed
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / Project for DSH has the structure of the other targets
+    - D1
+    - D2
+  - Read:
+    - openspec/changes/dsh-target/design.md
+    - bin/keel.js
+    - src/core/capabilities.js
+    - src/core/projection.js
+  - Touch:
+    - bin/keel.js
+    - src/core/capabilities.js
+    - src/core/projection.js
+    - scripts/validation/dsh.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-capabilities`: `keel capabilities --target dsh --json` in a scratch repository exits 0, its `target` is `dsh`, its six capabilities are all `manual`, and the evidence of each contains `no session-start, resume or compaction hook` and `AGENTS.md bootstrap`; the plain rendering heads `Target capabilities (dsh):`; `keel capabilities --target nope` still exits non-zero with `invalid target: nope`. Fails with: `dsh-capabilities:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-project`: in a repository initialised with `--target codex` and holding no change, `keel project --target dsh --event startup --json` and `keel project --target codex --event startup --json` both exit 0, carry the same set of keys at the top level, and the first one's `target` is `dsh`. Fails with: `dsh-project:`
+    - M3 (regression): run one at a time, each passes: `--scenario target-surface`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:1a99e4cb1af94211dd5cbecc0b9865e74d2f7a2152f6f0ba729828ff055a4d63 (keel 5.224.0)
+    - M1: pass. `dsh-capabilities scenario passed.` (exit 0). `keel capabilities --target dsh --json` exits 0 with target `dsh`, six capabilities all `manual`, each evidence stating `no session-start, resume or compaction hook` and `AGENTS.md bootstrap`; the plain rendering heads `Target capabilities (dsh):`; `--target nope` exits non-zero with `invalid target: nope`.
+    - M1.red: fail. Before any code change, exit 1: `dsh-capabilities: exit 2: keel: invalid target: dsh`.
+    - M1.green: pass. `parseArgs` accepts `dsh` and keeps it as `options.host`; `capabilities.js` reports the DSH probe (D1, D2).
+    - M2: pass. `dsh-project scenario passed.` (exit 0). In a repository initialised with `--target codex`, `keel project --target dsh --event startup --json` and the codex one exit 0 with the same top-level keys; the first one's `target` is `dsh`.
+    - M2.red: fail. Before any code change, exit 1: `dsh-project: dsh exit 2: keel: invalid target: dsh`.
+    - M2.green: pass. `projectRuntime` receives the host as its target and accepts `dsh` (D2).
+    - M3: pass. Run one at a time at load 3.9, each exit 0: `target-surface scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` The first run of the second found 75 sites, one in the new scenario where a single `or` guarded two failures; it was split into two ifs, each with its own message.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real CLI, `capabilities` and `project` accept `dsh`, report it by name with six manual behaviors and evidence naming the probe, and an unknown target is still refused (M1, M2).
+      - Scope check: `git status --short` lists `bin/keel.js`, `src/core/capabilities.js`, `src/core/projection.js`, `scripts/validation/dsh.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the record layer.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 `--init`, `--check`, `--doctor` and `--uninstall` for `dsh` use Codex's surface
+  - Covers:
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / Init for DSH writes the Codex surface and doctor reports DSH
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / A missing DSH binary is reported and does not fail doctor
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / Uninstall for DSH says the surface is shared
+    - D1
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/dsh-target/design.md
+    - bin/keel.js
+    - scripts/validation/dsh.py
+  - Touch:
+    - bin/keel.js
+    - scripts/validation/dsh.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-init-doctor`: `keel --init --target dsh` in an empty repository exits 0 and leaves the `AGENTS.md` bootstrap and `.agents/skills/openspec-apply-change/SKILL.md` and no `.dsh` or `.claude` directory; `keel --check --target dsh` exits 0; `keel --doctor --target dsh` exits 0 and prints `bootstrap: ok`, `Target capabilities (dsh):`, `DSH hooks: manual` and `DSH surface: ok`. Fails with: `dsh-init-doctor:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-binary`: doctor with no `dsh` on PATH exits 0 and prints `DSH CLI: not found`; with a stub `dsh` on PATH that prints `dsh 9.9.9` for `--version`, it prints `DSH CLI: ok` with `9.9.9`. Fails with: `dsh-binary:`
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-uninstall-shared`: in a repository initialised with `--target claude` and then `--target dsh`, `keel --uninstall --target dsh --dry-run` exits 0, says the files are shared with Codex and lists the removals `--target codex --dry-run` lists; after a real `--uninstall --target dsh`, `.agents/skills/openspec-apply-change/SKILL.md` no longer carries the Keel overlay marker and `.claude/skills/openspec-apply-change/SKILL.md` still does. Fails with: `dsh-uninstall-shared:`
+    - M4 (regression): run one at a time, each passes: `--scenario target-surface`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:765222315257f9bf0c5d367e937e580f4596b55bc6432039634d75a2a86f2bbd (keel 5.224.0)
+    - M1: pass. `dsh-init-doctor scenario passed.` (exit 0). `keel --init --target dsh` in an empty repository exits 0 and leaves `AGENTS.md` with the bootstrap block and `.agents/skills/openspec-apply-change/SKILL.md`, and no `.dsh` or `.claude`; `--check --target dsh` exits 0; `--doctor --target dsh` exits 0 and prints `bootstrap: ok`, `Target capabilities (dsh):`, `DSH hooks: manual` and `DSH surface: ok`.
+    - M1.red: fail. With 1.1 in place and no doctor change, exit 1: `dsh-init-doctor: doctor output lacks 'Target capabilities (dsh):'`, the doctor printing the Codex heading because it received the Codex target.
+    - M1.green: pass. `printTargetSurface` takes the host for its capabilities heading and `printDshSurface` adds the three DSH lines (D3).
+    - M2: pass. `dsh-binary scenario passed.` (exit 0). With a PATH holding node, git and python3 and no `dsh`, doctor exits 0 and prints `DSH CLI: not found`; with a stub `dsh` printing the bare version `9.9.9` as the real `dsh --version` does (`0.2.2-rc.1` on this machine), it prints `DSH CLI: ok - 9.9.9`.
+    - M2.red: fail. Before the doctor block, exit 1: `dsh-binary: doctor without dsh did not say `DSH CLI: not found``.
+    - M2.green: pass. `printDshSurface` runs `dsh --version` with a five-second limit and reports `ok` with the version, or `not found` without failing (D3).
+    - M3: pass. `dsh-uninstall-shared scenario passed.` (exit 0). In a repository initialised with `--target claude` then `--target dsh`, `--uninstall --target dsh --dry-run` exits 0, says `DSH's files are shared with Codex` and prints exactly the lines `--target codex --dry-run` prints; the real uninstall leaves no Keel overlay marker in `.agents/skills/openspec-apply-change/SKILL.md` and keeps it in `.claude/skills/openspec-apply-change/SKILL.md`. The first draft expected the OpenSpec skills themselves to be removed; `--target codex` does not remove them, so the check was corrected to the overlay marker and the task's M3 text with it before any evidence was recorded.
+    - M3.red: fail. Before the note, exit 1: `dsh-uninstall-shared: the DSH plan does not say the files are shared with Codex`.
+    - M3.green: pass. `--clear`/`--uninstall` with host `dsh` print the shared-files note and then run the Codex removal unchanged (D4).
+    - M4: pass. Run one at a time at load 5.7, each exit 0: `target-surface scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` Its first run found 75: one `or` in the new scenario guarded two failures; split.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real CLI, a DSH repository gets exactly the Codex files, the doctor says what is DSH's (CLI found or not, no hook, shared surface), a missing `dsh` never fails it, and uninstalling says the files are shared while removing what Codex's uninstall removes and leaving the Claude overlay (M1 to M3).
+      - Scope check: `git status --short` additionally lists changes to `bin/keel.js`, `scripts/validation/dsh.py` and `scripts/validation/registry.py`, all in Touch.
+      - Findings: Discard reason: the stub `dsh` stands in for the real binary only in the test; the real `dsh --version` answered `0.2.2-rc.1` in a manual run here, and the stub prints the same bare form. No scenario runs the real DSH, because it is not installed on every machine that runs the suite.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 Help, error message and README list DSH
+  - Covers:
+    - keel-target-surface-diagnostics / DSH is a target that shares Codex's repository surface / Init for DSH writes the Codex surface and doctor reports DSH
+    - D1
+  - Read:
+    - bin/keel.js
+    - README.md
+    - README.zh-CN.md
+  - Touch:
+    - bin/keel.js
+    - README.md
+    - README.zh-CN.md
+    - scripts/validation/dsh.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario dsh-docs`: `keel --help` lists `dsh` in the target list of `capabilities`, `project`, `--init`, `--install`, `--clear`, `--uninstall`, `--check` and `--doctor`; `keel --init --target` with no value exits non-zero and its message names `dsh`; `README.md` and `README.zh-CN.md` each state that `--target dsh` shares Codex's files, and their targets badge and tagline name DSH. Fails with: `dsh-docs:`
+    - M2 (regression): run one at a time, each passes: `--scenario surfaces-agree-with-code`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:4a4e60c964ffcb0e4e1fc0c1e99359ac89ddf76612bce7964eb13ddda5176379 (keel 5.224.0)
+    - M1: pass. `dsh-docs scenario passed.` (exit 0). Every `--target claude|codex|opencode|dsh` line of `keel --help` (capabilities, project, --init, --install, --clear, --uninstall, --check, --doctor) names `dsh`; `keel --init --target` with no value exits non-zero and says `claude, codex, opencode, or dsh`; both READMEs state `--target dsh` and name DSH in the tagline and badge.
+    - M1.red: fail. Before any edit, exit 1: `dsh-docs: --help target lines without dsh: ['keel capabilities [repo] [--target claude|codex|opencode] [--json]', …]`, all eight help lines.
+    - M1.green: pass. The help lines, the missing-value message, a `Defaults:` sentence, the tagline and badge, and a paragraph in the Use section of both READMEs (I1, I2).
+    - M2: pass. Run one at a time at load 4.2, each exit 0: `surfaces-agree-with-code scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the CLI's help and error text and both READMEs name DSH and say it shares Codex's files (M1); the code-agreement check still passes (M2).
+      - Scope check: `git status --short` additionally lists `README.md` and `README.zh-CN.md` and further changes to `bin/keel.js`, `scripts/validation/dsh.py`, `scripts/validation/registry.py`, all in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E7
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+    - openspec/specs/keel-target-surface-diagnostics/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-target-surface-diagnostics`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:8993cc4356cc062d37a091aacb5e69863e39b9d51bb58356fbd767da9738dbc8 (keel 5.224.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.224.0 → 5.225.0 and the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement and its five scenarios are appended to the published `keel-target-surface-diagnostics`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started at load 4.9, one run: every scenario passed except `the-tarball-is-the-repository`, which refused `scripts/validation/dsh.py` as a packed file Git did not track (the new file was not yet added). After `git add scripts/validation/dsh.py` that scenario alone passed: `the-tarball-is-the-repository scenario passed: 98 packed files, all tracked.` The suite was not rerun whole; no other file changed between the two.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 to 1.3's behavior, the markers agree at 5.225.0, the promoted spec validates, and the full suite passed apart from the tracking failure fixed and rechecked.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, the files of tasks 1.1 to 1.3 and this change's directory, all in Touch of 1.1, 1.2, 1.3 or 2.1.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/504 (the DSH bundle spike S2/S3, a command surface and hooks; the design comment holds the plan).
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "`--target requires claude, codex, or opencode`" and the `[--target claude|codex|opencode]` lines of `keel --help` — the error message and help text of `bin/keel.js` that name three targets. Updated by: 1.3.
+- I2: "Claude Code, Codex, and OpenCode" and the targets badge `Claude Code · Codex · OpenCode` — the tagline and badge of `README.md` and `README.zh-CN.md`. Updated by: 1.3.
+
+## Expectation Coverage
+
+- E1: A clean repository takes `keel --init --target dsh` and `--check --target dsh` (#504, acceptance 1; D1). Covered by: 1.2
+- E2: A new DSH session gets its entry from the `AGENTS.md` bootstrap, said plainly to be a bootstrap and not a hook (#504, acceptance 2; D2, D3). Covered by: 1.1, 1.2
+- E3: `keel capabilities --target dsh --json` returns six capabilities with honest evidence (#504, acceptance 3; D2). Covered by: 1.1
+- E4: `keel project --target dsh --event …` has the structure of the claude target (#504, acceptance 4; D2). Covered by: 1.1
+- E5: Uninstalling DSH does not touch other targets' surfaces; DSH's own surface is Codex's by the owner's choice (#504, acceptance 5; D4). Covered by: 1.2
+- E6: A DSH bundle, a command surface and hooks. Durable owner: https://github.com/TanglmChris/keel/issues/504
+- E7: The release carries it. Covered by: 2.1

@@ -48,7 +48,9 @@ const PACKAGE_ROOT = path.resolve(__dirname, "..");
 const PACKAGE_JSON = require(path.join(PACKAGE_ROOT, "package.json"));
 const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install_to_repo.py");
 const DEFAULT_UPDATE_SOURCE = "@christang/keel";
-const VALID_TARGETS = new Set(["claude", "codex", "opencode", "both"]);
+// `dsh` is a host, not a surface of its own: DSH reads the files the Codex target
+// writes, so parseArgs turns it into target `codex` and remembers the host (#504).
+const VALID_TARGETS = new Set(["claude", "codex", "opencode", "dsh", "both"]);
 const KEEL_SKILLS = [
   "align-expectations",
   "debug-failure",
@@ -86,8 +88,8 @@ const HELP = `keel ${PACKAGE_JSON.version}
 
 Usage:
   keel context [repo] [--change name] [--task id] [--json] [--clear-handoff]
-  keel capabilities [repo] [--target claude|codex|opencode] [--json]
-  keel project --target claude|codex|opencode --event startup|resume|compaction|worktree [--expected-owner owner] [--change name] [--task id] [--json]
+  keel capabilities [repo] [--target claude|codex|opencode|dsh] [--json]
+  keel project --target claude|codex|opencode|dsh --event startup|resume|compaction|worktree [--expected-owner owner] [--change name] [--task id] [--json]
   keel gate task-start|task-complete [repo] [--change name] [--task id] [--base git-ref] [--no-guard] [--record] [--keep-evidence M1,M3] [--json]
   keel gate change-close [repo] [--change name] --action sync|archive [--base git-ref] [--json]
   keel guard start|status|clear [repo] [--change name] [--task id] [--force] [--json]
@@ -105,19 +107,19 @@ Usage:
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
   keel tick [--repo <path>] [--json]                   (one model-free step for a host scheduler; keel tick task prints the job)
   keel openspec [args...]
-  keel --init [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update]
-  keel --install [repo] [--target claude|codex|opencode] [--dry-run] [--force-template-update] [--with-git-hooks]
-  keel --clear [repo] [--target claude|codex|opencode] [--dry-run]
-  keel --uninstall [repo] [--target claude|codex|opencode] [--dry-run]
+  keel --init [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update]
+  keel --install [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update] [--with-git-hooks]
+  keel --clear [repo] [--target claude|codex|opencode|dsh] [--dry-run]
+  keel --uninstall [repo] [--target claude|codex|opencode|dsh] [--dry-run]
   keel --update [--dry-run] [--source npm-package-or-git-spec] [--adopt]
-  keel --check [repo] [--target claude|codex|opencode]
-  keel --doctor [repo] [--target claude|codex|opencode]
+  keel --check [repo] [--target claude|codex|opencode|dsh]
+  keel --doctor [repo] [--target claude|codex|opencode|dsh]
   keel --version
   keel --help
 
 Defaults:
   repo defaults to the current working directory.
-  target defaults to claude.
+  target defaults to claude. dsh is DSH (DeepSeek Harness), which reads the files the codex target writes.
   --update refreshes the global keel CLI and the Claude and Codex plugins it
   finds installed, not project protocol files.
   update source defaults to ${DEFAULT_UPDATE_SOURCE}.
@@ -369,7 +371,7 @@ function parseArgs(argv) {
     if (arg === "--target") {
       index += 1;
       if (index >= argv.length) {
-        fail("--target requires claude, codex, or opencode");
+        fail("--target requires claude, codex, opencode, or dsh");
       }
       parsed.target = argv[index];
       continue;
@@ -460,6 +462,10 @@ function parseArgs(argv) {
 
   if (!VALID_TARGETS.has(parsed.target)) {
     fail(`invalid target: ${parsed.target}`);
+  }
+  parsed.host = parsed.target;
+  if (parsed.target === "dsh") {
+    parsed.target = "codex";
   }
   if (
     !["context", "gate", "capabilities", "project", "guard", "triage"].includes(
@@ -2203,7 +2209,35 @@ function printAdditionalOverlayHealth(repo, selectedTarget) {
   }
 }
 
-function printTargetSurface(repo, target) {
+// DSH reads the files the Codex target writes, so its surface is checked by the
+// Codex code above; these lines add what is DSH's own to say (#504). A missing
+// `dsh` is reported, not failed: a repository can be prepared on another machine.
+function printDshSurface() {
+  const probe = spawnSync("dsh", ["--version"], { encoding: "utf8", timeout: 5000 });
+  const version = probe.error || probe.status !== 0
+    ? null
+    : String(probe.stdout || "").trim().split("\n")[0];
+  if (version) {
+    printDoctorLine("DSH CLI", "ok", version);
+  } else if (probe.error && probe.error.code !== "ENOENT") {
+    printDoctorLine("DSH CLI", "unreadable", `dsh --version did not answer (${probe.error.code || "error"})`);
+  } else {
+    printDoctorLine("DSH CLI", "not found", "no dsh on PATH; the repository surface does not need it");
+  }
+  printDoctorLine(
+    "DSH hooks",
+    "manual",
+    "DSH's factory profiles carry no session-start, resume or compaction hook "
+      + "(probed with DSH 0.2.2-rc.1); the AGENTS.md bootstrap is the entry"
+  );
+  printDoctorLine(
+    "DSH surface",
+    "ok",
+    "shared with Codex: AGENTS.md and .agents/skills, which DSH reads"
+  );
+}
+
+function printTargetSurface(repo, target, host = target) {
   process.stdout.write("\nTarget surface:\n");
 
   const agentsPath = path.join(repo, "AGENTS.md");
@@ -2364,7 +2398,7 @@ function printTargetSurface(repo, target) {
   );
 
   process.stdout.write("\n");
-  process.stdout.write(renderCapabilities(probeCapabilities(repo, target)));
+  process.stdout.write(renderCapabilities(probeCapabilities(repo, host)));
 }
 
 function runDoctor(options) {
@@ -2488,7 +2522,8 @@ function runDoctor(options) {
     );
   }
 
-  printTargetSurface(repo, options.target);
+  printTargetSurface(repo, options.target, options.host || options.target);
+  if (options.host === "dsh") printDshSurface();
   printAdditionalOverlayHealth(repo, options.target);
   printLensSurface(repo, options.target);
   const authorizationOk = printStandingAuthorizationSurface(repo);
@@ -3200,7 +3235,7 @@ function runAction(options) {
       fail("capabilities does not accept install or update options");
     }
     const repo = path.resolve(options.repo || process.cwd());
-    const result = probeCapabilities(repo, options.target);
+    const result = probeCapabilities(repo, options.host || options.target);
     process.stdout.write(
       options.json
         ? `${JSON.stringify(result, null, 2)}\n`
@@ -3219,7 +3254,7 @@ function runAction(options) {
     const repo = path.resolve(options.repo || process.cwd());
     let result;
     try {
-      result = projectRuntime(repo, options);
+      result = projectRuntime(repo, { ...options, target: options.host || options.target });
     } catch (error) {
       process.stderr.write(`keel: projection input error: ${error.message}\n`);
       return 1;
@@ -3253,6 +3288,13 @@ function runAction(options) {
   }
 
   if (options.action === "clear" || options.action === "uninstall") {
+    if (options.host === "dsh") {
+      process.stdout.write(
+        "keel: DSH's files are shared with Codex (AGENTS.md and .agents/skills); "
+          + "removing them removes them for Codex too, and Keel cannot tell from "
+          + "the files which host the repository was set up for\n"
+      );
+    }
     const uninstallStatus = runPython(
       INSTALL_SCRIPT,
       installerArgs(options, ["--uninstall"])

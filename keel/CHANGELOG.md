@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.225.0 - DSH is a target
+
+Issue #504, reported on 2026-11-07 (Keel 5.216.0, DSH 0.2.0-rc.2) and taken up on 2026-11-08 (DSH 0.2.2-rc.1) after the owner approved stage S1 of the design on the issue and chose that DSH share Codex's files. `keel capabilities --target dsh`, `keel project --target dsh` and `keel --init --target dsh` answered `invalid target: dsh`.
+
+- **`--target dsh` is accepted** by `--init`, `--install`, `--check`, `--doctor`, `--clear`, `--uninstall`, `keel capabilities` and `keel project`.
+- **It uses Codex's files, none of its own.** DSH reads the repository `AGENTS.md` and `.agents/skills`, which is what `--target codex` writes, so `--target dsh` writes, checks and removes exactly those. Uninstalling one therefore removes them for the other, and `--uninstall --target dsh` says so; Keel cannot tell from the files which host a repository was set up for, so a repository is never auto-detected as DSH.
+- **Capabilities say what was probed.** `keel capabilities --target dsh` and `keel project --target dsh` report target `dsh` with all six behaviors `manual`: DSH's factory profiles carry no session-start, resume or compaction hook (probed with DSH 0.2.2-rc.1), so the `AGENTS.md` bootstrap is the entry, at OpenCode's level.
+- **`keel --doctor --target dsh` adds three lines:** `DSH CLI` (the version of a `dsh` on PATH, or `not found`, which never fails doctor), `DSH hooks: manual` and `DSH surface: ok`.
+- **Not done, on purpose:** a DSH bundle installed with `dsh plugin add` (Keel would only print the command), a command surface and hooks. They wait for the spike on #504.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.225.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.224.0 - A replaced session is told, and cannot begin new work
 
 Issue #506, expectation 1, reported from a Windows project on 2026-11-08 (Keel 5.216.0, Claude Code 2.1.319). When the old session's worktree is the new shift's, `claude rm` would delete the worktree, so the old session stays in `claude agents`; a message from the user woke it and two live sessions shared one worktree, with nothing telling the old one it had been replaced and nothing stopping it from starting a task or handing over again. Expectation 2 shipped in 5.218.0. The owner scoped this one on 2026-11-08 to a notice and a refusal of the commands that begin new work, not a write block.

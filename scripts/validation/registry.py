@@ -8,6 +8,7 @@ from validation import shift
 from validation import docs
 from validation import selfcheck
 from validation import export
+from validation import dsh
 from validation import feedback
 
 
@@ -545,6 +546,12 @@ SCENARIOS: tuple = (
     ("feedback-create", feedback.validate_feedback_create_scenario),
     ("feedback-gh-missing", feedback.validate_feedback_gh_missing_scenario),
     ("feedback-command-surface", feedback.validate_feedback_command_surface_scenario),
+    ("dsh-capabilities", dsh.validate_dsh_capabilities_scenario),
+    ("dsh-project", dsh.validate_dsh_project_scenario),
+    ("dsh-init-doctor", dsh.validate_dsh_init_doctor_scenario),
+    ("dsh-binary", dsh.validate_dsh_binary_scenario),
+    ("dsh-uninstall-shared", dsh.validate_dsh_uninstall_shared_scenario),
+    ("dsh-docs", dsh.validate_dsh_docs_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),
     ("authorize-role-scoped", guard.validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),
