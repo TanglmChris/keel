@@ -1307,6 +1307,126 @@ def validate_chat_ack_scenario() -> int:
     return 0
 
 
+def no_wake_scratch(base: Path) -> tuple[Path, Path, dict, Path]:
+    """Roles `rtl` and `verify` in group `soc`, as `shift_scratch` makes them, and `verify`'s signal file (#502)."""
+    rtl, verify, env, _ = shift_scratch(base)
+    return rtl, verify, env, mailbox_common_dir(rtl) / "keel-chat" / "signal" / "verify"
+
+
+def would_wake(verify: Path, env: dict) -> int:
+    """`keel chat notice --check`: 0 when something unread would wake the role, 1 when nothing would."""
+    return run_keel(verify, "chat", "notice", "--check", env=env).returncode
+
+
+def validate_chat_no_wake_post_scenario() -> int:
+    """Issue #502: a post the sender marks `--no-wake` is delivered and wakes nobody.
+
+    Measured on a multi-role project, 70% of usage was turns started by a chat
+    notice and 764 of them read and ended; the sender had no way to say that a
+    record is only information.
+    """
+    label = "chat-no-wake-post:"
+    with tempfile.TemporaryDirectory(prefix="keel-no-wake-post-") as raw:
+        rtl, verify, env, signal_file = no_wake_scratch(Path(raw))
+        posted = run_keel(rtl, "chat", "post", "soc", "--no-wake", "@verify R041 is rebased, look when you next start", env=env)
+        if posted.returncode != 0:
+            report(f"{label} post --no-wake failed: {posted.stdout!r} {posted.stderr!r}")
+            return 1
+        if signal_file.exists():
+            report(f"{label} a --no-wake post touched {signal_file}: {signal_file.read_text(encoding='utf-8')!r}")
+            return 1
+        unread = run_keel(verify, "chat", "unread", "--peek", env=env).stdout
+        if "R041 is rebased" not in unread:
+            report(f"{label} a --no-wake post is not unread for the addressee: {unread!r}")
+            return 1
+        if would_wake(verify, env) != 1:
+            report(f"{label} notice --check says a --no-wake post would wake verify")
+            return 1
+        written = chat_records_with(rtl, "soc", "R041 is rebased")
+        if not written:
+            report(f"{label} the --no-wake post is not in the log")
+            return 1
+        if "no_wake: yes" not in written[0]:
+            report(f"{label} the record does not carry no_wake: yes: {written!r}")
+            return 1
+        before = len(chat_records_with(rtl, "soc", "R043"))
+        refused = run_keel(rtl, "chat", "post", "soc", "--ack", "--no-wake", "@verify R043 please confirm", env=env)
+        if refused.returncode == 0:
+            report(f"{label} --ack with --no-wake was accepted: {refused.stdout!r}")
+            return 1
+        for needle in ("--ack", "--no-wake"):
+            if needle not in refused.stderr:
+                report(f"{label} the refusal does not name {needle}: {refused.stderr!r}")
+                return 1
+        if len(chat_records_with(rtl, "soc", "R043")) != before:
+            report(f"{label} the refused post still wrote a record")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_chat_no_wake_dm_scenario() -> int:
+    """Issue #502: a direct message also takes `--no-wake`, where every message used to wake."""
+    label = "chat-no-wake-dm:"
+    with tempfile.TemporaryDirectory(prefix="keel-no-wake-dm-") as raw:
+        rtl, verify, env, signal_file = no_wake_scratch(Path(raw))
+        sent = run_keel(rtl, "chat", "dm", "verify", "--no-wake", "FYI the lab lock was released", env=env)
+        if sent.returncode != 0:
+            report(f"{label} dm --no-wake failed: {sent.stdout!r} {sent.stderr!r}")
+            return 1
+        if signal_file.exists():
+            report(f"{label} a --no-wake dm touched {signal_file}: {signal_file.read_text(encoding='utf-8')!r}")
+            return 1
+        unread = run_keel(verify, "chat", "unread", "--peek", env=env).stdout
+        if "the lab lock was released" not in unread:
+            report(f"{label} a --no-wake dm is not unread for the addressee: {unread!r}")
+            return 1
+        if would_wake(verify, env) != 1:
+            report(f"{label} notice --check says a --no-wake dm would wake verify")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_chat_wakes_without_no_wake_scenario() -> int:
+    """Issue #502: without the option a mention still wakes, as before."""
+    label = "chat-wakes-without-no-wake:"
+    with tempfile.TemporaryDirectory(prefix="keel-no-wake-default-") as raw:
+        rtl, verify, env, signal_file = no_wake_scratch(Path(raw))
+        posted = run_keel(rtl, "chat", "post", "soc", "@verify R042 needs a rerun", env=env)
+        if posted.returncode != 0:
+            report(f"{label} a plain mention failed: {posted.stdout!r} {posted.stderr!r}")
+            return 1
+        if not signal_file.exists():
+            report(f"{label} a plain mention did not touch {signal_file}")
+            return 1
+        written = chat_records_with(rtl, "soc", "R042 needs a rerun")
+        if not written:
+            report(f"{label} the plain mention is not in the log")
+            return 1
+        record_id = re.search(r"^id: (\S+)", written[0], re.M)
+        if not record_id:
+            report(f"{label} the plain mention's record has no id line: {written[0]!r}")
+            return 1
+        if record_id.group(1) not in signal_file.read_text(encoding="utf-8"):
+            report(f"{label} the signal file does not end with the record's id: {signal_file.read_text(encoding='utf-8')!r}")
+            return 1
+        if would_wake(verify, env) != 0:
+            report(f"{label} notice --check says a plain mention would not wake verify")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_chat_summary_scenario() -> int:
     """Issue #255: `keel chat summary --since` digests what changed, per group and sender.
 

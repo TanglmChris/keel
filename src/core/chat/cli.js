@@ -22,13 +22,13 @@ const USAGE = [
   "keel chat group add|remove <group> <role> [--listen]   (--listen: receives the group, may ack and close its todos, does not post)",
   "keel chat group archive <group>",
   "keel chat group list [--all] [--json]   (also: keel chat list)",
-  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--no-stamp] [--not-a-loop <why>] [--json]   (also: keel chat <group> <text...>; Keel stamps the time unless --no-stamp)",
+  "keel chat post <group> <text...> [--reply-to <id>] [--supersedes <id>] [--ack] [--no-wake] [--no-stamp] [--not-a-loop <why>] [--json]   (also: keel chat <group> <text...>; Keel stamps the time unless --no-stamp; --no-wake delivers the record without waking anyone)",
   "keel chat ack <id>                       acknowledge a record that asks (a reply also counts)",
   "keel chat acks [--mine] [--json]         records still waiting on an acknowledgement",
   "keel chat summary --since <90s|15m|2h|3d|date> [--group <group>] [--json]   (what changed, per group and sender; reads without marking read)",
   "keel chat wait <group> --commit <sha> [--branch <name>] [--remote <name>] [note...]   (or --issue <n> --closed: what this role waits for; keel patrol tells it when it holds)",
   "keel chat waits [--json]                 waits not yet met",
-  "keel chat dm <role> <text...> [--no-stamp] [--not-a-loop <why>] [--json]",
+  "keel chat dm <role> <text...> [--no-wake] [--no-stamp] [--not-a-loop <why>] [--json]",
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
   "keel chat read [<group>] [--json]",
@@ -82,10 +82,10 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset", "--leave-branches": "leaveBranches" };
+const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--no-wake": "noWake", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset", "--leave-branches": "leaveBranches" };
 
 function parseChatArgs(argv) {
-  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false, unset: false, leaveBranches: false };
+  const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, noWake: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false, unset: false, leaveBranches: false };
   for (const key of Object.values(VALUED)) options[key] = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -418,7 +418,7 @@ function dispatch(where, options) {
     case "post": {
       const [group, ...words] = rest;
       if (!group) throw new ChatError("keel chat post needs a group.");
-      postResult(where, store.post(where, { group, text: stamped(textFrom(words), options), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack, notALoop: options.notALoop }), options.json);
+      postResult(where, store.post(where, { group, text: stamped(textFrom(words), options), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack, noWake: options.noWake, notALoop: options.notALoop }), options.json);
       return 0;
     }
     case "ack": {
@@ -467,7 +467,7 @@ function dispatch(where, options) {
     case "dm": {
       const [target, ...words] = rest;
       if (!target) throw new ChatError("keel chat dm needs a role.");
-      postResult(where, store.directPost(where, target, stamped(textFrom(words), options), { notALoop: options.notALoop }), options.json);
+      postResult(where, store.directPost(where, target, stamped(textFrom(words), options), { notALoop: options.notALoop, noWake: options.noWake }), options.json);
       return 0;
     }
     case "unread": {
@@ -567,7 +567,7 @@ function dispatch(where, options) {
     default: {
       // `keel chat <group>` views; `keel chat <group> <text...>` posts.
       if (rest.length) {
-        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack }), options.json);
+        postResult(where, store.post(where, { group: command, text: rest.join(" "), replyTo: options.replyTo, supersedes: options.supersedes, ack: options.ack, noWake: options.noWake }), options.json);
         return 0;
       }
       return runView(where, command, options);

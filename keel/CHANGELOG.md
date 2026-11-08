@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.221.0 - A sender can post without waking
+
+Issue #502, filed 2026-11-04 from the kaiwu token review and taken up at the owner's request on 2026-11-08. A chat record wakes the addressed role's idle session through `signal/<role>`, and the woken session's cache is mostly cold, so each wake rewrites its whole context: in the issue's data (a multi-role project, 2026-10-21 to 11-04, Keel 5.216.0) turns started by a chat notice were 70.4% of usage, 764 of them read and ended, and 258 cache rewrites were about 18%. The sender had no way to say a record is only information.
+
+- **`keel chat post` and `keel chat dm` take `--no-wake`** (also the `keel chat <group> <text>` form). The record is delivered, listed by `keel chat unread` and counted at the next prompt, and carries `no_wake: yes`; it touches no `signal/<role>` or `signal/worktree/<id>`, is not reported by `keel chat notice --check`, and `keel tick` does not resume an ended session for it, because `wakes()` returns false for it and every waker asks that function.
+- **`--no-wake` with `--ack` is refused:** asking for an acknowledgement and not waking the addressee contradict each other.
+- **The default is unchanged,** by the owner's answer to the issue's open question: `keel lock` release and expiry notices and shift notices still wake.
+- Not proved by the issue, and not claimed: how many of the 764 read-and-end wakes were necessary; the option leaves that judgement to the sender.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.221.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.220.0 - A tick job does not need a patrol
 
 Issue #509, opened 2026-11-08 and chosen by the owner the same day. `keel tick task` failed when `keel/config.yaml` declared no `patrol:`, though `keel tick` resumes a role's ended session and carries a hand-over out before it looks at any patrol; a repository that wanted only that had to declare a patrol it did not use to get a job, as Keel's own repository did.
