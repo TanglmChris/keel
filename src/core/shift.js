@@ -458,6 +458,8 @@ function awaitClear(pid, timeoutMs) {
 }
 
 function ready(where, options) {
+  const replaced = replacedNoticeHere(where.worktree);
+  if (replaced) throw new ShiftError(replaced);
   const role = readyRole(where, options);
   if (options.wake && !role) {
     throw new ShiftError("--wake wakes a chat role, and this worktree has none: bind one with `keel chat role --set <name>`, or name it with --role.");
@@ -534,6 +536,34 @@ function queueHandOff(where, role, cli) {
 function handOffs(where) {
   return safeList(path.join(shiftDir(where), "queue")).filter((name) => name.endsWith(".json")).sort()
     .map((name) => store.readJsonFile(path.join(shiftDir(where), "queue", name))).filter((entry) => entry && entry.role);
+}
+
+// The hand-over that replaced this session, or null (#506 D1). A session is
+// replaced when the role's latest hand-over is `delivered`, names it as the old
+// session and names a new one. Only the record is read: no process, no host.
+function replacedBy(where, sessionId) {
+  if (!sessionId) return null;
+  const entry = handOffs(where).find((item) => item.state === "delivered" && item.new_session
+    && item.session === sessionId && !String(sessionId).startsWith(item.new_session));
+  return entry ? { role: entry.role, newSession: entry.new_session, deliveredAt: entry.delivered_at || null } : null;
+}
+
+// One sentence for every surface that tells or refuses a replaced session (D2).
+function replacedNotice(info) {
+  return `This session was handed over for role ${info.role}${info.deliveredAt ? ` at ${info.deliveredAt}` : ""} to session ${info.newSession}: `
+    + "it no longer owns the role and shares its worktree with the new shift. Tell the user before doing anything here; "
+    + "`keel gate task-start` and `keel shift ready` refuse this session, and to use it again the user must end the new shift first.";
+}
+
+// The notice for the session running this command, or null.
+function replacedNoticeHere(repo, sessionId = process.env.CLAUDE_CODE_SESSION_ID) {
+  try {
+    const where = store.locate(repo);
+    const info = where ? replacedBy(where, sessionId) : null;
+    return info ? replacedNotice(info) : null;
+  } catch {
+    return null;
+  }
 }
 
 const SHIFT_START_TEXT = (role) => `${role}: your new shift starts now. Run keel context, then keel shift resume.`;
@@ -1761,4 +1791,5 @@ function waitingFor(repo) {
 }
 
 module.exports = {
-  desktopProcess, foundTranscripts, handOver, handOffRisks, check, describe, runShift, shiftStatus: status, waitingFor };
+  desktopProcess, foundTranscripts, handOver, handOffRisks, check, describe, runShift, shiftStatus: status, waitingFor,
+  replacedBy, replacedNotice, replacedNoticeHere };

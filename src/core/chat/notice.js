@@ -725,6 +725,18 @@ function hook(event, input, { mail = false } = {}) {
     return { code: 0, stdout: `${JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [watched] } })}\n` };
   }
   if (!where || !role) return languageLine ? promptOutput(languageLine) : { code: 0 };
+  // A session a hand-over replaced is told first, whatever else is announced
+  // (#506 D3). The record is all that is read; a failure says nothing.
+  let replacedLine = null;
+  if (event === "session-start" || event === "user-prompt-submit") {
+    try {
+      const shift = require("../shift");
+      const info = shift.replacedBy(where, payload.session_id || process.env.CLAUDE_CODE_SESSION_ID);
+      replacedLine = info ? shift.replacedNotice(info) : null;
+    } catch {
+      replacedLine = null;
+    }
+  }
   const file = sessionFile(where, payload);
   const session = file && fs.existsSync(file) ? store.readJsonFile(file) : null;
   if (event === "session-end" && file) fs.rmSync(file, { force: true });
@@ -746,12 +758,12 @@ function hook(event, input, { mail = false } = {}) {
     const output = {
       hookSpecificOutput: { hookEventName: "SessionStart", watchPaths: [ensureSignal(where, role), ensureWorktreeSignal(where)] },
     };
-    const context = [bridgeLine(where), text].filter(Boolean).join("\n");
+    const context = [replacedLine, bridgeLine(where), text].filter(Boolean).join("\n");
     if (context) output.hookSpecificOutput.additionalContext = context;
     return { code: 0, stdout: `${JSON.stringify(output)}\n` };
   }
   if (event === "user-prompt-submit") {
-    const context = [languageLine, text].filter(Boolean).join("\n");
+    const context = [replacedLine, languageLine, text].filter(Boolean).join("\n");
     return context ? promptOutput(context) : { code: 0 };
   }
   // file-changed
