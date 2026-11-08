@@ -880,6 +880,75 @@ def validate_tick_task_names_main_checkout_scenario() -> int:
     return 0
 
 
+def validate_tick_task_without_patrol_scenario() -> int:
+    """Issue #509: a repository that declares no patrol still gets a tick job.
+
+    `keel tick task` failed for want of a `patrol:`, though the tick's resume
+    of ended sessions and its hand-over need none; Keel's own repository
+    declared a patrol only to get a job.
+    """
+    label = "tick-task-without-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-509-") as raw:
+        base = Path(raw)
+        rtl, _verify, env, _ = shift_scratch(base)
+        main = os.path.realpath(rtl)
+        wa = chat_worktree(rtl, rtl / ".claude" / "worktrees" / "wa")
+
+        def named(text: str, pattern: str) -> str:
+            return (re.search(pattern, text, re.S) or [None, ""])[1]
+
+        for where, cwd in (("the main checkout", rtl), ("a linked worktree", wa)):
+            printed = run_keel(cwd, "tick", "task", env=env)
+            if printed.returncode != 0:
+                report(f"{label} keel tick task failed in {where} with no patrol declared: {printed.stderr!r}")
+                return 1
+            repo = named(printed.stdout, r"<string>--repo</string>\s*<string>(.*?)</string>")
+            directory = named(printed.stdout, r"<key>WorkingDirectory</key>\s*<string>(.*?)</string>")
+            if repo != main or directory != main:
+                report(f"{label} the job printed in {where} does not name the main checkout {main!r}: --repo {repo!r}, WorkingDirectory {directory!r}")
+                return 1
+            if os.path.realpath(wa) in printed.stdout:
+                report(f"{label} the job printed in {where} names the worktree {os.path.realpath(wa)!r}: {printed.stdout!r}")
+                return 1
+            for needle in ("declares no `patrol:`", "resumes ended sessions", "carries hand-overs out", "Keel creates nothing"):
+                if needle not in printed.stdout:
+                    report(f"{label} the text printed in {where} does not say {needle!r}: {printed.stdout!r}")
+                    return 1
+        ran = run_keel(rtl, "tick", "--repo", main, env=env)
+        if ran.returncode != 0:
+            report(f"{label} the printed command `keel tick --repo {main}` exits {ran.returncode}: {ran.stderr!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_tick_task_refuses_unreadable_patrol_scenario() -> int:
+    """Issue #509 D4: a `patrol:` Keel cannot read is shown, not treated as none."""
+    label = "tick-task-refuses-unreadable-patrol:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-509b-") as raw:
+        base = Path(raw)
+        rtl, _verify, env, _ = shift_scratch(base)
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n")
+        refused = run_keel(rtl, "tick", "task", env=env)
+        if refused.returncode == 0:
+            report(f"{label} keel tick task printed a job for a patrol it cannot read: {refused.stdout!r}")
+            return 1
+        if "<plist" in refused.stdout:
+            report(f"{label} a plist was printed for a patrol it cannot read: {refused.stdout!r}")
+            return 1
+        if not refused.stderr.strip():
+            report(f"{label} the refusal says nothing on stderr: {refused.stdout!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_tick_skips_missing_bound_worktree_scenario() -> int:
     """Issue #503: a bound worktree that was removed does not stop the patrol.
 
