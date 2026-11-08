@@ -1,0 +1,147 @@
+# Tasks
+
+## 1. `--no-wake`
+
+- [x] 1.1 Record `no_wake` and honor it in every waker
+  - Covers:
+    - keel-cross-host-mailbox / A sender can post without waking / A quiet post is read at the next prompt and wakes nobody
+    - keel-cross-host-mailbox / A sender can post without waking / A quiet direct message wakes nobody
+    - keel-cross-host-mailbox / A sender can post without waking / The same post without the option still wakes
+    - keel-cross-host-mailbox / A sender can post without waking / Asking for an acknowledgement and not waking is refused
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/chat-no-wake/design.md
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - scripts/validation/chat.py
+  - Touch:
+    - src/core/chat/store.js
+    - src/core/chat/cli.js
+    - scripts/validation/chat.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-no-wake-post`: in a repository with roles `rtl` and `verify` in one group, `rtl` posts `@verify` with `--no-wake`; `signal/verify` does not exist, `keel chat unread --peek` for `verify` lists the text, `keel chat notice --check` for `verify` exits 1, the record file holds `no_wake: yes`, and `--ack --no-wake` exits non-zero naming both options and writes no record. Fails with: `chat-no-wake-post:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-no-wake-dm`: `rtl` runs `keel chat dm verify --no-wake` with a text; it is unread for `verify`, `signal/verify` does not exist and `keel chat notice --check` for `verify` exits 1. Fails with: `chat-no-wake-dm:`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wakes-without-no-wake`: the same post without the option ends `signal/verify` with the record's id and makes `keel chat notice --check` exit 0. Detects: `wakes() returns false for every record` -> `chat-wakes-without-no-wake:`
+    - M4 (regression): run one at a time, each passes: `--scenario assertion-shape-count`, `node scripts/run_python.js scripts/validate_plugin.py --group chat --jobs 4`, and `--group shift`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:207cc585732c2299ad5ad7948d0f11d0e46fac1cec6ddd8c9576f4549903bc3c (keel 5.220.0)
+    - M1: pass. `chat-no-wake-post scenario passed.` (exit 0). `rtl` posts `@verify … --no-wake` in group `soc`: `signal/verify` does not exist, `keel chat unread --peek` for `verify` lists the text, `keel chat notice --check` for `verify` exits 1, the record file holds `no_wake: yes`, and `--ack --no-wake` exits non-zero naming both options and writes no record.
+    - M1.red: fail. Before any code change, exit 1: `chat-no-wake-post: post --no-wake failed: '' 'keel chat: Unknown option for keel chat: --no-wake\n'`.
+    - M1.green: pass. `store.post` writes `no_wake: yes` and `wakes()` returns false for it (D1), `cli.js` takes `--no-wake` (D2), and `--ack` with it is a `ChatError` (D3).
+    - M2: pass. `chat-no-wake-dm scenario passed.` (exit 0). `keel chat dm verify --no-wake` is unread for `verify`, leaves `signal/verify` absent, and `notice --check` exits 1.
+    - M2.red: fail. Before any code change, exit 1: `chat-no-wake-dm: dm --no-wake failed: '' 'keel chat: Unknown option for keel chat: --no-wake\n'`.
+    - M2.green: pass. `directPost` passes `noWake` to `post`, and `dm` reads the switch (D2).
+    - M3: pass. `chat-wakes-without-no-wake scenario passed.` (exit 0), before and after the code change (which is why it is a regression check): a plain `@verify` mention ends `signal/verify` with the record's id and `notice --check` exits 0.
+    - M3.detects: fail. With `return false;` added after the `no_wake` line in `wakes()`, exit 1: `chat-wakes-without-no-wake: a plain mention did not touch …/keel-chat/signal/verify`; the file was restored byte for byte (`cmp`) and the scenario passed again. The first declaration of this mutation named a defect that M1 would catch, not M3, so it was corrected and the contract re-recorded before any evidence.
+    - M4: pass. Run one at a time, each exit 0: `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` (after two `or`-guarded conditions of the new scenarios were split; it had read 76), `validation --group chat passed: 56 scenarios.` and `validation --group shift passed: 85 scenarios.`.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel chat post`, `dm`, `unread` and `notice --check`, a `--no-wake` record is delivered and unread but wakes nobody, a plain mention still wakes, and the contradictory `--ack` combination is refused (M1 to M3). Every waker asks `wakes()`, so no consumer needed a change; the tick's resume reads the same function.
+      - Scope check: `git status --short` lists `src/core/chat/store.js`, `src/core/chat/cli.js`, `scripts/validation/chat.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: Discard reason: `keel tick`'s resume of an ended session is covered through `wakes()` (F1) and not by its own scenario; the existing `tick-retries-failed-wake` and the chat group still pass, and a second scenario would exercise the same function. Durable owner: https://github.com/TanglmChris/keel/issues/502 (the issue's second expectation, whether machine notices default quiet, was answered by the owner: no).
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 State it in the docs
+  - Covers:
+    - D2
+    - D5
+  - Read:
+    - README.md
+    - plugins/keel/commands/chat.md
+  - Touch:
+    - README.md
+    - plugins/keel/commands/chat.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation prose; nothing here can fail before it is written, and 1.1 proves the behavior it describes.
+    - M1: `grep -n "no-wake" README.md plugins/keel/commands/chat.md` shows the option, that the record is still unread and counted at the next prompt, that it wakes no one, that it cannot be combined with `--ack`, and that lock and shift notices still wake.
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:83c8df3260dbbfe38c0ae8ad2ab3632973a7502928127f0845f78d8724b763c9 (keel 5.220.0)
+    - M1: pass. `grep -c "no-wake" README.md plugins/keel/commands/chat.md` gives 1 in each: the README paragraph says the record is delivered, listed by `unread` and counted at the next prompt, touches no signal, cannot be combined with `--ack`, and that lock and shift notices still wake; `/keel:chat` tells a session to add `--no-wake` for something the addressee only needs to know.
+    - M2: pass. `surfaces-agree-with-code scenario passed.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the two places a sender learns the chat flags now name `--no-wake` and its limits, as 1.1 proved them.
+      - Scope check: `git status --short` additionally lists `README.md` and `plugins/keel/commands/chat.md`, both in Touch; `docs/commands.md` and its Chinese copy, also in Touch, needed no change.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E3
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-cross-host-mailbox/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-cross-host-mailbox`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:4d600ad2d92a1aeda6e54ad2235f6bfdacfa8cc1880829c205d91f1eefe64ba9 (keel 5.220.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.220.0 → 5.221.0; the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement is appended to `openspec/specs/keel-cross-host-mailbox/spec.md`; `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started at load 8: `validation --all passed: baseline plus 375 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 372 of 5.220.0 plus this change's three.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 and 1.2's behavior, the markers agree at 5.221.0, the promoted spec validates, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, the files of tasks 1.1 and 1.2 and this change's directory, all in Touch of 1.1, 1.2 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "A record MUST append to `signal/<role>` only when it mentions the role by name or alias, assigns a todo to it, or is a message in its direct group" — the mailbox requirement; it stays true as a necessary condition and gains a further reason not to wake. Discard reason: the new requirement states the added condition, and the old sentence says "only when", which a further exclusion does not contradict.
+- I2: "`@all` and plain messages do not wake" — the comment above `wakes()` in `src/core/chat/store.js`, which lists the reasons a record wakes. Updated by: 1.1.
+
+## Expectation Coverage
+
+- E1: A sender can post and dm without waking the addressee (#502, expectation 1; D1 to D4). Covered by: 1.1
+- E2: Lock and shift notices keep waking by default (#502, expectation 2; D5, the owner's answer of 2026-11-08). Covered by: 1.1
+- E3: The release carries it. Covered by: 2.1
+- E4: Which of the 764 read-and-end wakes were necessary (#502, "not proved"). Discard reason: the issue says it cannot tell; the option puts the choice with the sender, who knows.

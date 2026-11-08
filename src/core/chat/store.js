@@ -40,7 +40,7 @@ const DATA_NOTICE =
 const READABLE_KINDS = new Set(["message", "todo", "system"]);
 const LIST_FIELDS = new Set(["mentions", "refs"]);
 const FIELD_ORDER = [
-  "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack",
+  "id", "group", "kind", "from", "created", "mentions", "reply_to", "supersedes", "ack", "no_wake",
   "assignee", "issue", "target", "access", "condition", "not_a_loop", "refs", "origin", "slack_channel", "slack_ts",
 ];
 
@@ -437,9 +437,12 @@ function directMembers(group) {
 
 // Whether a record is addressed to `role` closely enough to wake it (D9): a
 // mention by name or alias, a todo assigned to it, or a message in its direct
-// group. `@all` and plain messages do not wake.
+// group. `@all` and plain messages do not wake, and neither does a record its
+// sender posted with `--no-wake` (#502 D1): every waker asks this function, so
+// the record wakes no one anywhere.
 function wakes(record, role) {
   if (!READABLE_KINDS.has(record.kind) || record.from === role) return false;
+  if (record.no_wake) return false;
   if ((record.mentions || []).includes(role)) return true;
   if (record.kind === "todo" && record.assignee === role) return true;
   return (record.direct || directMembers(record.group)).includes(role);
@@ -660,6 +663,9 @@ function post(where, options) {
     mentions.push(parent.from);
   }
   if (options.supersedes) checkSupersedes(where, from, group, records, options.supersedes);
+  if (options.ack && options.noWake) {
+    throw new ChatError("--ack asks the roles a record addresses to answer, and --no-wake delivers it without waking them: give one of the two.");
+  }
   if (options.ack) {
     const draft = { kind: options.kind || "message", from, group, mentions, assignee: options.assignee || null };
     if (!addressedRoles(state, draft).length) {
@@ -674,6 +680,7 @@ function post(where, options) {
     reply_to: options.replyTo || null,
     supersedes: options.supersedes || null,
     ack: options.ack ? ACK_REQUESTED : null,
+    no_wake: options.noWake ? "yes" : null,
     assignee: options.assignee || null,
     issue: options.issue || null,
     refs: options.refs || [],
@@ -888,7 +895,7 @@ function directPost(where, target, text, extra = {}) {
   if (!groupState(readLog(where, group)).exists) {
     createGroup(where, from, group, [target], { direct: true });
   }
-  return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [], notALoop: extra.notALoop || null });
+  return post(where, { group, text, replyTo: extra.replyTo || null, refs: extra.refs || [], notALoop: extra.notALoop || null, noWake: Boolean(extra.noWake) });
 }
 
 // --- waits (#260) ---------------------------------------------------------------
