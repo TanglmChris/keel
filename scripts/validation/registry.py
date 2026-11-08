@@ -8,6 +8,7 @@ from validation import shift
 from validation import docs
 from validation import selfcheck
 from validation import export
+from validation import chatwake
 from validation import dsh
 from validation import skipspecs
 from validation import feedback
@@ -554,6 +555,9 @@ SCENARIOS: tuple = (
     ("dsh-uninstall-shared", dsh.validate_dsh_uninstall_shared_scenario),
     ("dsh-docs", dsh.validate_dsh_docs_scenario),
     ("change-close-skip-specs", skipspecs.validate_change_close_skip_specs_scenario),
+    ("chat-wake-once", chatwake.validate_chat_wake_once_scenario),
+    ("chat-wake-race", chatwake.validate_chat_wake_race_scenario),
+    ("chat-wake-after-notice", chatwake.validate_chat_wake_after_notice_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),
     ("authorize-role-scoped", guard.validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),
