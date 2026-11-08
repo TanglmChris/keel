@@ -8,6 +8,7 @@ from validation import shift
 from validation import docs
 from validation import selfcheck
 from validation import export
+from validation import feedback
 
 
 
@@ -535,6 +536,12 @@ SCENARIOS: tuple = (
     ("push-tag-grant", guard.validate_push_tag_grant_scenario),
     ("push-tag-branches", guard.validate_push_tag_branches_scenario),
     ("push-tag-keeps-verdicts", guard.validate_push_tag_keeps_verdicts_scenario),
+    ("feedback-draft", feedback.validate_feedback_draft_scenario),
+    ("feedback-redacts", feedback.validate_feedback_redacts_scenario),
+    ("feedback-duplicates", feedback.validate_feedback_duplicates_scenario),
+    ("feedback-create", feedback.validate_feedback_create_scenario),
+    ("feedback-gh-missing", feedback.validate_feedback_gh_missing_scenario),
+    ("feedback-command-surface", feedback.validate_feedback_command_surface_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),
     ("authorize-role-scoped", guard.validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),

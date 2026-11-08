@@ -15,8 +15,9 @@ Each command orders the steps of one `keel` CLI flow; the CLI does the work and 
 | `/keel:done [change] [task]` | `keel gate task-complete` | complete a task: record evidence, run the review checklist, then the gate |
 | `/keel:chat` | `keel chat unread` | read this role's unread chat and act on what is addressed to it |
 | `/keel:shift` | `keel shift check`, `keel shift ready --wake` | change this session's shift: check loose ends, write the note, arm the wake |
+| `/keel:feedback <one sentence>` | `keel feedback` | draft a redacted issue for Keel from any project — version, reproduction, near-duplicates — and create it only after you agree |
 
-These five are Claude Code commands. Codex plugins carry skills and no commands, so on Codex run the `keel` CLI flow directly.
+These six are Claude Code commands. Codex plugins carry skills and no commands, so on Codex run the `keel` CLI flow directly (`keel feedback` is a CLI first, and works the same on any host).
 
 ## Skills you can invoke
 

@@ -872,7 +872,7 @@ def validate_slash_menu_ships_scenario() -> int:
     # The four everyday flows a person runs, each naming the keel command it orders.
     commands_root = ROOT / PLUGIN_ROOT / "commands"
     commands = sorted(path.stem for path in commands_root.glob("*.md"))
-    expected = {"context": "keel context", "start": "keel gate task-start", "done": "keel gate task-complete", "chat": "keel chat unread"}
+    expected = {"context": "keel context", "start": "keel gate task-start", "done": "keel gate task-complete", "chat": "keel chat unread", "feedback": "keel feedback"}
     if commands != sorted([*expected, "shift"]):
         report(f"{label} the plugin's commands are {commands!r}, not {sorted([*expected, 'shift'])!r}.")
         return 1
