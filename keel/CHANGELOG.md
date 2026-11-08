@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.224.0 - A replaced session is told, and cannot begin new work
+
+Issue #506, expectation 1, reported from a Windows project on 2026-11-08 (Keel 5.216.0, Claude Code 2.1.319). When the old session's worktree is the new shift's, `claude rm` would delete the worktree, so the old session stays in `claude agents`; a message from the user woke it and two live sessions shared one worktree, with nothing telling the old one it had been replaced and nothing stopping it from starting a task or handing over again. Expectation 2 shipped in 5.218.0. The owner scoped this one on 2026-11-08 to a notice and a refusal of the commands that begin new work, not a write block.
+
+- **The replaced session is told first.** The chat hook puts a line at the front of the context it injects on `SessionStart` and `UserPromptSubmit`: the session was handed over for the role at that time to the new session, no longer owns the role, and must tell the user before doing anything there.
+- **`keel gate task-start` and `keel shift ready` refuse it,** with the same words. `task-start` returns `fail` with a `session-replaced` problem and writes no guard or anchor; `ready` exits non-zero and queues nothing. `task-complete`, reading, chatting, `keel shift status` and file writes are not blocked.
+- **Judged by the hand-over record alone:** the role's latest hand-over is `delivered` and names the session as the old one. Keel does not probe whether the new session is still alive, and a kept session two hand-overs back is not recognized, because the queue keeps one entry per role.
+- **No escape hatch** (the shift feature is frozen): to use the old session again, end the new shift first.
+- **Expectation 3** (marking a handed-over session in the host list; `claude rm` that keeps the worktree) needs Claude Code and is not done here; a feature request is drafted for the owner to approve.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.224.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.223.0 - File Keel feedback from any project
 
 Issue #505, filed 2026-11-08 at the owner's request. A session in another project that met a Keel problem had to find the version, assemble a reproduction, find the repository and compose a `gh issue create` by hand, each differently, and some problems stayed in a chat record and were never filed.

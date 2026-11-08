@@ -2377,7 +2377,14 @@ function runGate(repo, stage, options) {
   if (!GATE_STAGES.has(stage)) {
     throw new GateInputError(`unsupported gate stage: ${stage}`);
   }
-  if (stage === "task-start") return taskStart(repo, options);
+  if (stage === "task-start") {
+    // A session a hand-over replaced begins no new work (#506 D4).
+    const replaced = require("./shift").replacedNoticeHere(repo);
+    if (replaced) {
+      return gateResult("task-start", "fail", options.change || "(none)", [], [problem("session-replaced", replaced)]);
+    }
+    return taskStart(repo, options);
+  }
   if (stage === "task-complete") return taskComplete(repo, options);
   return changeClose(repo, options);
 }
