@@ -1,0 +1,157 @@
+# Tasks
+
+## 1. The tick job outlives a worktree
+
+- [x] 1.1 `keel tick task` names the main checkout, and `keel tick` skips a bound worktree that is gone
+  - Covers:
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / The launchd job is printed, not installed
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / A job printed from a worktree names the main checkout
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / Binding the role elsewhere needs no new job
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / A repository whose main checkout cannot stand in keeps the worktree and says why
+    - keel-coordinator-patrol / A host-run tick runs the patrol when due / A bound worktree that is gone is skipped
+    - D1
+    - D3
+  - Read:
+    - openspec/changes/tick-job-stable-repo/design.md
+    - src/core/tick.js
+    - src/core/chat/store.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/tick.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-task-names-main-checkout`: in a scratch repository whose main checkout and a linked worktree under `.claude/worktrees/` both declare the patrol, `keel tick task` from the worktree prints `--repo` and `WorkingDirectory` equal to the main checkout and neither names the worktree; the same job printed from a second worktree the role is then bound to is identical, and `keel tick --repo <main checkout>` runs the patrol in that second worktree; when the main checkout declares no `patrol:` the plist names the bound worktree and the text says the main checkout declares none. Fails with: `tick-task-names-main-checkout:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-skips-missing-bound-worktree`: with `roles.json` binding the role to a removed directory and to an existing worktree, `keel tick` runs the patrol in the existing one; with only the removed one bound it runs none, exits 0 and prints that the bound worktree no longer exists and `keel chat role --prune`. Fails with: `tick-skips-missing-bound-worktree:`
+    - M3 (regression): run one at a time, each passes: `--scenario tick-runs-due-patrol`, `--scenario launchd-stable-node`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:2d2c41e0c45574c7616a3a41a6cc93ab1ed88501c2faadf357ede74f9982c151 (keel 5.216.0)
+    - M1: pass. `tick-task-names-main-checkout scenario passed.` (exit 0). A scratch repository with a main checkout and two linked worktrees under `.claude/worktrees/`: `keel tick task` from a worktree and from the main checkout both print `--repo` and `WorkingDirectory` equal to the main checkout and name neither worktree; after the role is unbound from the first worktree and bound to the second, the text printed from the second is byte-identical to the first, and `keel tick --repo <main checkout> --json` runs the patrol in the second worktree; with no `patrol:` in the main checkout the job names the bound worktree and says the main checkout declares no `patrol:`.
+    - M1.red: fail. Before any code change, exit 1: `tick-task-names-main-checkout: the job printed from a worktree does not name the main checkout '<tmp>/rtl': --repo '<tmp>/rtl/.claude/worktrees/wa', WorkingDirectory '<tmp>/rtl/.claude/worktrees/wa'`.
+    - M1.green: pass. `stableRepo` in `src/core/tick.js` returns the main checkout (`dirname` of the git common directory) when it declares a `patrol:`; `task()` writes it as `--repo` and `WorkingDirectory`, and `renderTask` says so, or names the worktree and why when it cannot (D1). The tick result also records the `worktree` the patrol ran in, which the scenario reads through `--json`.
+    - M2: pass. `tick-skips-missing-bound-worktree scenario passed.` (exit 0). `roles.json` binds the role to a worktree removed with `git worktree remove --force` (named `a-gone`, so it sorts first) and to the existing main checkout: the tick runs the patrol in the existing one; with only the removed one bound, it runs none, exits 0, and its `why` says the bound worktree no longer exists and names `keel chat role --prune`.
+    - M2.red: fail. Before any code change, exit 1: `tick-skips-missing-bound-worktree: with one bound worktree gone and one present, the patrol did not run in '<tmp>/rtl': {'role': 'rtl', 'listed': False, 'ran': True, 'exit': None, … 'fetchError': "fatal: cannot change to '<tmp>/a-gone': No such file or directory", 'diskError': "ENOENT: no such file or directory, statfs '<tmp>/a-gone' …`: the tick reported `ran: True` with `exit: None` for a patrol that never started.
+    - M2.green: pass. `patrolWorktrees` in `src/core/tick.js` keeps the bound worktrees whose directory exists and uses the first; with none left its `why` names the removed ones, says they no longer exist, and points at `keel chat role --prune` (D3).
+    - M3: pass. Run one at a time, each exit 0: `tick-runs-due-patrol scenario passed.`, `launchd-stable-node scenario passed.`, `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the public `keel tick task`, `keel tick --json` and `git worktree` operations on a scratch repository, the printed job names the main checkout from any worktree and is unchanged by rebinding the role, the tick follows the rebinding, a main checkout without a `patrol:` falls back to the worktree with the reason printed (M1), and a removed bound worktree is skipped or reported instead of started in (M2); the existing tick and launchd scenarios still pass (M3).
+      - Scope check: `git status --short` lists `src/core/tick.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's own record layer.
+      - Findings: Resolved here: M1 and M2 — `review-checklist` found four conditions that guarded an exit code and a content check together, so a failure would name the wrong cause; they were split, and both scenarios pass again. Resolved here: M1 — the first draft of its assertion that the job names no worktree matched the substring `.claude/worktrees`, which this session's own `PATH` also carries; it now looks for the two worktrees' real paths. The tick result gained a `worktree` field (the directory the patrol ran in), which no requirement states; it is read by M1 and M2 and changes no existing field.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 `keel --doctor` checks the directories a job runs in, and the docs state the rule
+  - Covers:
+    - keel-coordinator-patrol / Keel's launchd jobs name directories that outlive a worktree / Doctor reports a job whose directory is gone
+    - keel-coordinator-patrol / Keel's launchd jobs name directories that outlive a worktree / Doctor reports a job that runs in a regenerated worktree
+    - keel-coordinator-patrol / Keel's launchd jobs name directories that outlive a worktree / A job with no repository argument is checked only for its node
+    - D2
+    - D4
+  - Read:
+    - openspec/changes/tick-job-stable-repo/design.md
+    - src/core/launchd.js
+    - bin/keel.js
+    - docs/cli-team.md
+  - Touch:
+    - src/core/launchd.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario launchd-doctor-names-job-directories`: a `dev.keel.tick.x.plist` whose `--repo` and `WorkingDirectory` name a removed directory makes `keel --doctor` print a `launchd: problem` line naming the file, that directory and `keel tick task`; one naming an existing directory under `.claude/worktrees/` prints a problem line naming the file and that directory; one naming the main checkout, and a chat-wake plist with neither key, print `launchd: ok`; the exit status is the same with and without the problem plist. Fails with: `launchd-doctor-names-job-directories:`
+    - M2: `grep -c "in the coordinator's worktree" docs/cli-team.md` prints 0, and `grep -c '.claude/worktrees/' docs/cli-team.md docs/cli-team.zh-CN.md` prints a count above 0 for both: the docs carry the rule and no longer say the job runs in the coordinator's worktree.
+    - M3 (regression): run one at a time, each passes: `--scenario launchd-stable-node`, `--scenario surfaces-agree-with-code`, `--scenario assertion-shape-count`, and `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f2c870af0ed1e641f0f531647a1e7b8ed3a24ef33d84aca80e8432265acf4a8d (keel 5.216.0)
+    - M1: pass. `launchd-doctor-names-job-directories scenario passed.` (exit 0). A `dev.keel.tick.x.plist` printed by `keel tick task` and then edited at `--repo` and `WorkingDirectory`: naming the main checkout prints `launchd: ok`; naming a removed directory, and naming an existing worktree under `.claude/worktrees/`, each print `launchd: problem` with the file, the path and `keel tick task`, and `keel --doctor` exits as it did for the ok case; a `keel chat wake add` LaunchAgent, which has neither key, prints `launchd: ok`. Also measured with this worktree's code against the real LaunchAgents: `dev.keel.tick.kaiwu-ip.plist` and `dev.keel.tick.keel.plist` are reported as running in a worktree Keel prunes, `dev.keel.tick.ChipSTRIDE.plist` (the main checkout) is not.
+    - M1.red: fail. Before any code change, exit 1: `launchd-doctor-names-job-directories: a job running in a removed directory is not reported as a problem: 'launchd: ok - 1 dev.keel job, each naming a node that exists'`.
+    - M1.green: pass. `jobDirectories` in `src/core/launchd.js` reads `WorkingDirectory` and the argument after `--repo`, and `printLaunchdJobs` in `bin/keel.js` prints a problem line for each that is gone or lies under `.claude/worktrees/`, and `launchd: ok` only when no job has a problem (D2); the exit status is untouched.
+    - M2: pass. `grep -c "in the coordinator's worktree" docs/cli-team.md` prints 0, and `grep -c '.claude/worktrees/'` prints 1 for `docs/cli-team.md` and 1 for `docs/cli-team.zh-CN.md`: both paragraphs say the job runs in the main checkout and state the rule (D4).
+    - M2.red: fail. Before the docs were edited: `grep -c "in the coordinator's worktree" docs/cli-team.md` printed 1, and `grep -c '.claude/worktrees/'` printed 0 for both `docs/cli-team.md` and `docs/cli-team.zh-CN.md`.
+    - M2.green: pass. The `keel tick task` paragraph of both docs now names the main checkout, says the tick finds each role's bound worktree, states that a launchd job must not name `.claude/worktrees/` or a `.venv`, and lists what `keel --doctor` now reports.
+    - M3: pass. Run one at a time, each exit 0: `launchd-stable-node scenario passed.`, `surfaces-agree-with-code scenario passed.`, `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` (after the new scenario's two conditions were split), and `validation --group shift passed: 76 scenarios.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through `keel --doctor` against LaunchAgents written in the real shape (printed by `keel tick task`, then edited), a job whose directory is gone or regenerated is a `launchd` problem naming file, path and the repair command, a good job and a waker with no directory are ok, and the exit status does not move (M1); the docs carry the rule (M2); the existing launchd, surface and shift scenarios still pass (M3).
+      - Scope check: `git status --short` lists `src/core/launchd.js`, `bin/keel.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py`, `docs/cli-team.md`, `docs/cli-team.zh-CN.md`, task 1.1's files and this change's directory, all in Touch of 1.1 or 1.2 or the change's record layer.
+      - Findings: Resolved here: M3 — `assertion-shape-count` found a condition in the new scenario that guarded an exit code and the plist check together (`shift.py`, `keel tick task` printed no plist); it was split, as was the sibling for `keel chat wake add`. Discard reason: `README.md` line 964 says `keel patrol task` runs the patrol "against the coordinator's worktree by path"; that is the host scheduled task, which names a worktree by design, and not the launchd job, so it stays true.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E5
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that section written.
+    - M2: the delta is promoted into `keel-coordinator-patrol`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:ef0fa5e648ef6dd8d1338fc50f51d9ef03b129467c4fa9dad19a0d254ca148c8 (keel 5.216.0)
+    - M1: `node scripts/bump_version.js minor` moved every marker 5.216.0 → 5.217.0. With the section "The tick job names a path that outlives a worktree" written into the stub (and its install/uninstall line later reworded to the owner's rule of 2026-11-08), `version-alignment scenario passed.` (exit 0).
+    - M2: the delta is promoted into `openspec/specs/keel-coordinator-patrol/spec.md` (the requirement "A host-run tick runs the patrol when due" replaced by its modified text, the requirement "Keel's launchd jobs name directories that outlive a worktree" added before the disk requirement), and `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started once the load was 9: `validation --all passed: baseline plus 363 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0), the 360 of 5.216.0 plus this change's three.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 and 1.2's behavior, the markers agree at 5.217.0, the promoted spec validates strictly, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, tasks 1.1 and 1.2's files and this change's directory, all in Touch of 1.1, 1.2 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "the tick runs the patrol of the worktree ${job.worktree} when due" — the text `renderTask` prints in `src/core/tick.js`. Updated by: 1.1.
+- I2: "in the coordinator's worktree" — the `keel tick task` paragraph in `docs/cli-team.md` and `docs/cli-team.zh-CN.md`. Updated by: 1.2.
+- I3: "each naming a node that exists" — the `launchd: ok` line in `bin/keel.js`. Updated by: 1.2.
+- I4: "the bound worktree in its arguments" — the scenario "The launchd job is printed, not installed" in `openspec/specs/keel-coordinator-patrol/spec.md`. Updated by: 2.1.
+
+## Expectation Coverage
+
+- E1: The installed tick job names a path that outlives rebinding the role and pruning a worktree (#503, suggestion 1; D1, D3). Covered by: 1.1
+- E2: `keel --doctor` notices a job whose directory is gone or regenerated, and says how to repair it (#503, suggestion 3; D2). Covered by: 1.2
+- E3: The rule that a launchd job must not name `.claude/worktrees/` or a `.venv` is stated once in the host-task docs (#503, suggestion 4; D4). Covered by: 1.2
+- E4: `keel tick install` / `uninstall` (#503, suggestion 4, second half) and re-rendering on rebind (suggestion 2). Discard reason: Keel registers no host job and the published requirement says `keel tick task` creates nothing, so install is a product decision for the owner, who is asked with the release; suggestion 2 is unnecessary once D1 holds.
+- E5: The release carries it. Covered by: 2.1
+- E6: Downstream scripts that write their own plists under a worktree (D6). Discard reason: outside this repository; `kaiwu-flow` is told once after the release.

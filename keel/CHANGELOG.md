@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.217.0 - The tick job names a path that outlives a worktree
+
+Issue #503, filed by the owner on 2026-11-07 and worked at their request on 2026-11-08. `keel tick task` wrote the worktree the patrol role was bound to when it ran as both `--repo` and `WorkingDirectory`, but a worktree under `.claude/worktrees/` is a checkout Keel creates and prunes. When the role was bound elsewhere or the worktree pruned, launchd kept firing every 300 s, the tick could not read `keel/config.yaml`, hand-offs and wakes stopped with only a line in `tick/tick.err`, and `keel --doctor` printed `launchd: ok` because it read only the job's node. Measured on the owner's machine on 2026-11-08: the installed `dev.keel.tick.keel` and `dev.keel.tick.kaiwu-ip` named worktrees, and `keel-maint` was already bound to another one.
+
+- **`keel tick task` names the repository's main checkout** as `--repo` and `WorkingDirectory`. `keel tick` already finds each role's bound worktree from `roles.json` on every run, so binding a role elsewhere needs no new job, and the text printed before and after is identical. When the repository has no main checkout, or its `keel/config.yaml` declares no `patrol:` (the file `--repo` decides which `patrol:` is read), the job names the bound worktree as before and the printed text says why.
+- **`keel tick` skips a bound worktree whose directory is gone.** It used the first bound one and started the patrol in a missing directory, reporting `ran the patrol (exit null)`; it now uses the first that exists, and when none does it says the bound worktree no longer exists and names `keel chat role --prune`. The tick result also records the `worktree` the patrol ran in.
+- **`keel --doctor` checks the directories a `dev.keel.*` job runs in**, `WorkingDirectory` and the argument after `--repo`: a directory that does not exist, or lies under `.claude/worktrees/`, is a `launchd` problem naming the file, the path and the command that re-creates the job. `launchd: ok` is printed only when there is none; the exit status is unchanged, as for the node check.
+- **The docs state the rule once:** a launchd job must not name a path under `.claude/worktrees/` or inside a `.venv`, because both are regenerated.
+- Not changed: installed plists are not rewritten, since Keel creates nothing; re-run `keel tick task` and its install commands to move an installed job to the main checkout. There is no `keel tick install` / `uninstall`: the owner's rule of 2026-11-08 is that the tick works only inside the repository and registers nothing on the host (no LaunchAgents write, no `launchctl`, no permissions).
+- **Checks.** The new `tick-task-names-main-checkout`, `tick-skips-missing-bound-worktree` and `launchd-doctor-names-job-directories`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.217.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.216.0 - A shift change does not change the default model
 
 Issue #500, approved by the owner on 2026-11-03 after the owner stated the expectation: apart from a model specified on purpose, a shift change must not change the default. A shift bug fix within the freeze. The CLI hand-over started the new session with `claude --bg -n <name> --permission-mode <mode> <prompt>` and named no model, so the host chose one: the shifts started on 2026-11-01 ran sonnet although the owner's `settings.json` says `model: opus`, while the shift that handed over, and every earlier keel-maint session, had run opus.
