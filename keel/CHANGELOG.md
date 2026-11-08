@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.220.0 - A tick job does not need a patrol
+
+Issue #509, opened 2026-11-08 and chosen by the owner the same day. `keel tick task` failed when `keel/config.yaml` declared no `patrol:`, though `keel tick` resumes a role's ended session and carries a hand-over out before it looks at any patrol; a repository that wanted only that had to declare a patrol it did not use to get a job, as Keel's own repository did.
+
+- **`keel tick task` prints a job for a repository with no `patrol:`**, naming the main checkout as `--repo` and `WorkingDirectory`, and saying that each run resumes ended sessions and carries hand-overs out and runs no patrol.
+- **A `patrol:` Keel cannot read is still refused** with its message, not taken for none; a declared patrol behaves as in 5.217.0.
+- Not changed: `keel tick`, which already ran in such a repository; nothing is installed. Keel's own `patrol:` stays, since it still raises the disk, remote-tip and dirty-checkout alerts for keel-maint; whether to keep it is the owner's configuration choice.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.220.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.219.0 - A silent tick is reported from its own state
 
 Issue #510, from the owner's choice of candidate 5 in #508 on 2026-11-08. After the macOS upgrade the two `dev.keel.tick.*` launchd jobs were not loaded and `keel tick` did not run for about 23 hours; `keel --doctor` said ok throughout, because it checks a job's node and directories, not whether it runs. A tick that does not run cannot report it, so the report comes from the trace it leaves, in the repository's own state; the owner's rule that Keel registers nothing on the host and does not call `launchctl` holds.

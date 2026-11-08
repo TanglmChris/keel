@@ -59,10 +59,11 @@ function patrolWorktrees(where) {
 // bound worktree again. It stands in only when it exists and its
 // keel/config.yaml declares a `patrol:`, since that is the file `keel tick
 // --repo` reads; otherwise `dir` is null and `why` says which.
-function stableRepo(where) {
+function stableRepo(where, patrolless = false) {
   if (path.basename(where.common) !== ".git") return { dir: null, why: "the repository has no main checkout" };
   const dir = path.dirname(where.common);
-  if (!require("./config").readPatrolDeclarations(dir).declarations.length) return { dir: null, why: `the main checkout ${dir} declares no \`patrol:\`` };
+  // With no patrol anywhere nothing is read from it, so it stands in as it is (#509 D2).
+  if (!patrolless && !require("./config").readPatrolDeclarations(dir).declarations.length) return { dir: null, why: `the main checkout ${dir} declares no \`patrol:\`` };
   return { dir, why: null };
 }
 
@@ -306,14 +307,19 @@ function xml(text) {
 }
 
 function task(where) {
-  const found = patrolWorktree(where);
-  if (!found.worktree) throw new TickError(found.why);
+  // A repository that declares no patrol still gets a job: the tick's resume of
+  // ended sessions and its hand-over need none (#509 D1). A declaration Keel
+  // cannot read carries a message and is refused as before (D4).
+  const declared = require("./config").readPatrolDeclarations(where.worktree);
+  const patrolless = !declared.declarations.length && !declared.messages.length;
+  const found = patrolless ? { worktree: null, why: null } : patrolWorktree(where);
+  if (!patrolless && !found.worktree) throw new TickError(found.why);
   const label = `dev.keel.tick.${where.project.replace(/[^A-Za-z0-9.-]/g, "-")}`;
   const logs = path.join(where.root, "tick");
   // The job names the main checkout when it can stand in (#503 D1), so that
   // binding the role elsewhere or pruning a worktree changes nothing it names.
-  const stable = stableRepo(where);
-  const repo = stable.dir || found.worktree;
+  const stable = stableRepo(where, patrolless);
+  const repo = stable.dir || found.worktree || where.worktree;
   const args = [stableNode(), KEEL, "tick", "--repo", repo];
   const plist = [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -331,7 +337,7 @@ function task(where) {
     "</plist>",
   ].join("\n");
   const target = path.join(os.homedir(), "Library", "LaunchAgents", `${label}.plist`);
-  return { label, interval: INTERVAL_SECONDS, repo, stable: Boolean(stable.dir), why: stable.why, worktree: found.worktree, plist, target,
+  return { label, interval: INTERVAL_SECONDS, repo, stable: Boolean(stable.dir), why: stable.why, patrolless, worktree: found.worktree, plist, target,
     install: [`mkdir -p ${path.dirname(target)} && cat > ${target} <<'PLIST'\n${plist}\nPLIST`, `launchctl bootstrap gui/${process.getuid ? process.getuid() : "<uid>"} ${target}`] };
 }
 
@@ -339,9 +345,11 @@ function renderTask(job) {
   // The main checkout is named when it can stand in, and the tick finds each
   // role's bound worktree on every run; otherwise the worktree is named, and
   // the job stops working if that worktree moves (#503).
-  const where = job.stable
-    ? `in the main checkout ${job.repo}, and the tick runs each declared patrol in the worktree its role is bound to when due, so binding a role elsewhere needs no new job`
-    : `in the worktree ${job.repo}, because ${job.why}; the job stops working if that worktree is moved or pruned, so declare the \`patrol:\` in the main checkout and print it again`;
+  const where = job.patrolless
+    ? `in ${job.stable ? "the main checkout" : "the worktree"} ${job.repo}; keel/config.yaml declares no \`patrol:\`, so each run resumes ended sessions and carries hand-overs out and runs no patrol${job.stable ? "" : `, and the job stops working if that worktree is moved or pruned (${job.why})`}`
+    : job.stable
+      ? `in the main checkout ${job.repo}, and the tick runs each declared patrol in the worktree its role is bound to when due, so binding a role elsewhere needs no new job`
+      : `in the worktree ${job.repo}, because ${job.why}; the job stops working if that worktree is moved or pruned, so declare the \`patrol:\` in the main checkout and print it again`;
   return [
     `launchd job for \`keel tick\` (label ${job.label}): it calls \`keel tick\` every ${job.interval} s ${where}. Keel creates nothing: install it with the two commands below.`,
     "",

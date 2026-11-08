@@ -495,6 +495,8 @@ SCENARIOS: tuple = (
     ("session-start-says-silent-tick", shift.validate_session_start_says_silent_tick_scenario),
     ("launchd-stable-node", shift.validate_launchd_stable_node_scenario),
     ("tick-task-names-main-checkout", shift.validate_tick_task_names_main_checkout_scenario),
+    ("tick-task-without-patrol", shift.validate_tick_task_without_patrol_scenario),
+    ("tick-task-refuses-unreadable-patrol", shift.validate_tick_task_refuses_unreadable_patrol_scenario),
     ("tick-skips-missing-bound-worktree", shift.validate_tick_skips_missing_bound_worktree_scenario),
     ("launchd-doctor-names-job-directories", shift.validate_launchd_doctor_names_job_directories_scenario),
     ("shift-slash-command", shift.validate_shift_slash_command_scenario),
