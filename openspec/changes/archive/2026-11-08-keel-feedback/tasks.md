@@ -1,0 +1,198 @@
+# Tasks
+
+## 1. The command
+
+- [x] 1.1 Draft, redact and search for duplicates
+  - Covers:
+    - keel-feedback / keel feedback drafts a fixed-structure issue and creates nothing by default / A draft carries the version, the command and its output
+    - keel-feedback / Everything shown is redacted first / Secrets in the output do not reach the draft
+    - keel-feedback / Near-duplicates are listed before anything is created / A similar issue is listed and nothing is commented
+    - D1
+    - D2
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/keel-feedback/design.md
+    - src/core/branches.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/feedback.js
+    - bin/keel.js
+    - scripts/validation/feedback.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-draft`: in a scratch git repository that is not Keel, `keel feedback "gate refuses a valid task" --command "keel gate task-start" --output-file out.txt --expected "pass" --repro "run it" --impact "blocks work"` exits 0; the draft names the running Keel version from `package.json`, the command, the file's text, the six sections 现象, 期望, 复现, 证据, 影响 and 环境, and the saved file, which exists and holds the same text; the stub `gh` log holds no `issue create`; the draft holds no project name, no remote URL and no role. Fails with: `feedback-draft:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-redacts`: an output file holding a GitHub token, a Slack bot token, a Slack user ID, a `Bearer` header, `API_KEY=hunter2`, an e-mail address, a URL with a password and a path under the home directory yields a printed draft and a saved file with none of those values, a redaction count, and the home path as `~`; a line of ordinary prose with a capitalised word and a short number is left unchanged. Fails with: `feedback-redacts:`
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-duplicates`: with the stub `gh` answering issue 12, the draft lists `#12`, its title and URL, prints a `gh issue comment 12` command, and the stub log holds one `issue list` with `--repo TanglmChris/keel` and no `issue comment`. Fails with: `feedback-duplicates:`
+    - M4 (regression): run one at a time, each passes: `--scenario surfaces-agree-with-code`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:e093af50f44850f3b013b44bcb89e2cf0491270280c7dd5bf8a699dabcee7087 (keel 5.220.0)
+    - M1: pass. `feedback-draft scenario passed.` (exit 0). In a scratch git project, `keel feedback "gate refuses a valid task" --command … --output-file out.txt --expected … --repro … --impact …` exits 0 and prints the running version from `package.json`, the command, the file's text, the six sections and a `Saved:` path whose file exists and holds the output; the stub `gh` log has no `issue create`; the project's directory name and `origin` do not appear.
+    - M1.red: fail. Before any code change, exit 1: `feedback-draft: exit 2: keel: repo path was provided more than once`, the CLI reading `feedback` as a repository argument.
+    - M1.green: pass. `src/core/feedback.js` builds the draft (D2, D4) and `bin/keel.js` dispatches `keel feedback` and lists it in the help.
+    - M2: pass. `feedback-redacts scenario passed.` (exit 0). A GitHub token, a Slack bot token, a Slack user ID, a `Bearer` credential, `API_KEY=…`, an e-mail address and a URL password are absent from the printed draft and the saved file; the draft says `Redacted N value(s)`; paths print as `~/notes/private.txt` and `<project>/src/a.js`; the prose line with `Gate`, `TASK 12` and `UNREADABLE` is unchanged. The scenario builds its credential strings from pieces, so the file holds no literal that looks like one.
+    - M2.red: fail. Before any code change, exit 1: the same `feedback-redacts: exit 2: keel: repo path was provided more than once`.
+    - M2.green: pass. The ordered rules of D3 in `redact`.
+    - M3: pass. `feedback-duplicates scenario passed.` (exit 0). With the stub answering issue 12 the draft lists `#12`, its title and URL and prints `gh issue comment 12 --repo TanglmChris/keel --body-file …`; the stub log holds `issue list --repo TanglmChris/keel` and no `issue comment`.
+    - M3.red: fail. Before any code change, exit 1: the same `feedback-duplicates: exit 2: keel: repo path was provided more than once`. The first green run failed differently: `Similar issues: not searched (… cat: command not found)`, because the test's PATH held no `cat`; the test fixture was fixed, not the code.
+    - M3.green: pass. `duplicates` and `keywords` (D5) search through `gh issue list` and print the comment command without running it.
+    - M4: pass. Run one at a time at load 8, each exit 0: `surfaces-agree-with-code scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real CLI in a project that is not Keel, the draft carries the version, command, output and environment, shows nothing secret or project-named, lists near-duplicates and runs no comment or create (M1 to M3). A manual run in this worktree showed a Chinese summary, a `GITHUB_TOKEN=` line and a home path redacted as `[redacted]` and `~`.
+      - Scope check: `git status --short` lists `src/core/feedback.js`, `bin/keel.js`, `scripts/validation/feedback.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: Discard reason: a draft with `--doctor` carries the doctor output through the same redaction but no scenario runs it; it is opt-in, off by default, and the issue's acceptance needs none of it.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Create under a declaration or a confirmation, and keep the draft without gh
+  - Covers:
+    - keel-feedback / Creating needs a declaration or a confirmation / Refused, confirmed, and authorized
+    - keel-feedback / A missing or unusable gh loses nothing / No gh on PATH, and a gh that is not logged in
+    - D6
+    - D7
+  - Read:
+    - openspec/changes/keel-feedback/design.md
+    - src/core/feedback.js
+    - scripts/validation/feedback.py
+  - Touch:
+    - src/core/feedback.js
+    - scripts/validation/feedback.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-create`: `--create` with neither the declaration nor `--confirmed` exits 3, prints the draft and logs no `issue create`; with `--confirmed` it exits 0, prints the URL the stub returns and logs one `issue create --repo TanglmChris/keel` with `--title` and `--body-file` and no `--label`, `--assignee` or `--milestone`; in a project declaring `issue:TanglmChris/keel` it does the same without `--confirmed`, and a project declaring `issue:acme/widgets` is refused. Fails with: `feedback-create:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-gh-missing`: with no `gh` on PATH the draft still prints with its saved file, the exit is 0 and the output says the duplicate search was not run; with `--create --confirmed` the exit is 4 and a `gh issue create` command is printed; with a stub `gh` that exits 1 the same holds. Fails with: `feedback-gh-missing:`
+    - M3 (regression): run one at a time, each passes: `--scenario feedback-draft`, `--scenario feedback-redacts`, `--scenario feedback-duplicates`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a8e5db05b441d4e56bf8a8f56266c325103b06573294310f0fbfecd2f7123ce5 (keel 5.222.0)
+    - M1: pass. `feedback-create scenario passed.` (exit 0). `--create` with no declaration and no `--confirmed` exits 3, prints the draft and logs no `issue create`; `--create --confirmed` exits 0, prints the stub's URL and logs exactly one `issue create --repo TanglmChris/keel` with `--title` and `--body-file` and none of `--label`, `--assignee`, `--milestone`; a project declaring `issue:acme/widgets` exits 3; one declaring `issue:TanglmChris/keel` creates exactly one more issue without `--confirmed`.
+    - M1.red: fail. Before any code change, exit 1: `feedback-create: --create with no declaration and no --confirmed exited 2, not 3: keel feedback: unknown option --create`.
+    - M1.green: pass. `parse` takes `--create` and `--confirmed`, `authorized` reads `declared` from the project's `authorize:` (D6), and `create` runs `gh issue create` with those arguments only.
+    - M2: pass. `feedback-gh-missing scenario passed.` (exit 0). With no `gh` on PATH, and with a stub `gh` whose `issue` subcommands print `gh: not logged in` and exit 1, the draft exits 0 and says `not searched`; `--create --confirmed` exits 4, names a saved file that exists and prints `gh issue create --repo TanglmChris/keel`.
+    - M2.red: fail. Before any code change, exit 1: `feedback-gh-missing: with no gh on PATH --create --confirmed exited 2, not 4: keel feedback: unknown option --create`. The draft-only half of the scenario already passed from task 1.1, which is why the red is on the `--create` half.
+    - M2.green: pass. The same code as M1.green, with exit 4 for a missing or failing `gh` and the draft kept (D7).
+    - M3: pass. Run one at a time at load 11.6, each exit 0: `feedback-draft`, `feedback-redacts`, `feedback-duplicates`, and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real CLI and a stub `gh` at the one network boundary, creation happens only under the declaration or `--confirmed`, carries no label, assignee or milestone, and a missing or failing `gh` keeps the draft and exits 4 (M1, M2).
+      - Scope check: `git status --short` additionally lists changes to `src/core/feedback.js`, `scripts/validation/feedback.py` and `scripts/validation/registry.py`, all in Touch.
+      - Findings: Discard reason: the stub `gh` is the only stand-in; no test runs the real `gh issue create`, because that would open a public issue on the Keel repository. The argument vector is asserted instead (M1), and the first real use will be the owner's.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 The slash command and the docs
+  - Covers:
+    - keel-feedback / The feedback command orders the steps and asks before creating / The command file names the steps
+    - D8
+  - Read:
+    - openspec/changes/keel-feedback/design.md
+    - plugins/keel/commands/done.md
+    - docs/commands.md
+    - README.md
+  - Touch:
+    - plugins/keel/commands/feedback.md
+    - scripts/validation/feedback.py
+    - scripts/validation/registry.py
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario feedback-command-surface`: `plugins/keel/commands/feedback.md` exists with a description and an argument hint, names `keel feedback`, the three answers (new issue, add to it yourself, cancel), `--create` and `--confirmed`, says to add no label and comment on nothing; `docs/commands.md` and `docs/commands.zh-CN.md` list `/keel:feedback` and say six commands where they said five; the README names `keel feedback`. Fails with: `feedback-command-surface:`
+    - M2 (regression): run one at a time, each passes: `--scenario surfaces-agree-with-code`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9b3d6d9dc1bd26a3dd9ffd853a212f3acf7ab21fedcae99c6f9fd2e57b27cc92 (keel 5.222.0)
+    - M1: pass. `feedback-command-surface scenario passed.` (exit 0). `plugins/keel/commands/feedback.md` has `description` and `argument-hint` front matter, names `keel feedback`, `--create`, `--confirmed`, `$ARGUMENTS`, the three answers (new issue, add to #n myself, cancel), says to add no label and to run no comment; `docs/commands.md` and `docs/commands.zh-CN.md` list `/keel:feedback` and say six commands (`These six`, `这六个`); both READMEs name `keel feedback`.
+    - M1.red: fail. Before the command file existed, exit 1: `feedback-command-surface: plugins/keel/commands/feedback.md does not exist.` (taken twice: once before the first task-start, which failed on a slash in a requirement title that Covers cannot reference, and again after it passed).
+    - M1.green: pass. The command file, the table rows and counts in both commands docs, and a paragraph in each README (D8). The scenario's first run failed `assertion-shape-count` by one (75 against 74) because an or-guarded condition guarded two failures behind one message; it was split into a front-matter check and a per-key loop.
+    - M2: pass. Run one at a time, each exit 0: `surfaces-agree-with-code scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: a session reading the command file is told the order the issue asks for (draft, show, ask new / supplement yourself / cancel, create only on the first answer), and the documents a person reads to find the command list it (M1). The behavior behind it is tasks 1.1 and 1.2's.
+      - Scope check: `git status --short` additionally lists `plugins/keel/commands/feedback.md`, `docs/commands.md`, `docs/commands.zh-CN.md`, `README.md`, `README.zh-CN.md`, `scripts/validation/feedback.py` and `registry.py`, all in Touch.
+      - Findings: Discard reason: the scenario checks that the command file names the steps, not that a model follows them; following them is the model's and the owner's to see in use, and nothing a deterministic check can assert.
+    - Blocker: none
+    - Reauthorizations: the requirement title "/keel:feedback orders the steps and asks before creating" held a `/` that Covers cannot reference (`task-start` failed); it was renamed to "The feedback command orders the steps and asks before creating" in the spec delta and the Covers line before any evidence.
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-feedback/spec.md
+    - bin/keel.js
+    - README.md
+    - README.zh-CN.md
+    - scripts/validation/hosts.py
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted as the new published spec `keel-feedback`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:12bff74966bc256f296eb97872cac66db63e462e65f567e34dd12401df3ff4f8 (keel 5.222.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.222.0 → 5.223.0; the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The delta is published as the new `openspec/specs/keel-feedback/spec.md`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test` at load 7.4 (the first run, at load 9.6, failed six scenarios): `validation --all passed: baseline plus 385 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 379 of 5.222.0 plus this change's six.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 to 1.3's behavior, the markers agree at 5.223.0, the new spec validates, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the new published spec, the files of tasks 1.1 to 1.3 and this change's directory, plus `bin/keel.js`, `README.md`, `README.zh-CN.md` and `scripts/validation/hosts.py`, which the first full run showed were needed and which the reauthorization below added to this task's Touch.
+      - Findings: Resolved here: M3 — the first `npm test` failed `slash-menu-ships` (its expected command list lacked `feedback`), `readme-states-the-cli` and `readme-zh-matches-english` (every flag in `keel --help` must be named in both READMEs), and `the-tarball-is-the-repository` (new files were untracked), with `release-evidence-classes` and `runner-refuses-what-it-would-not-run` failing as their consequences; M3 passes after the fixes.
+    - Blocker: none
+    - Reauthorizations: Touch gained `bin/keel.js`, `README.md`, `README.zh-CN.md` and `scripts/validation/hosts.py` after the first full run, before any evidence; the contract was re-recorded (63284671 → 12bff749).
+
+## Invalidates
+
+- I1: "These five are Claude Code commands." — `docs/commands.md` and "这五个是 Claude Code 命令" in the Chinese copy, and the five-row table above them. Updated by: 1.3.
+- I2: "keel --help" usage listing — the `HELP` text in `bin/keel.js`, which lists every subcommand and gains `keel feedback`. Updated by: 1.1.
+
+## Expectation Coverage
+
+- E1: One command in any project's session drafts a fixed-structure issue with version, reproduction and evidence, and shows it before creating (#505, wants 1, 2, 3, 4; D2, D4, D5). Covered by: 1.1
+- E2: Secrets, Slack IDs and project content are kept out of the public draft, and no admission label is added (#505, boundaries 1, 2; D3). Covered by: 1.1
+- E3: A missing `gh` loses nothing, creation needs a declaration or a confirmation, and Keel only creates (#505, want 5; boundaries 3, 4; D6, D7). Covered by: 1.2
+- E4: The release carries it. Covered by: 2.1
+- E5: `/keel:feedback` as the command name, with the CLI beside it, and Codex and OpenCode running the CLI (#505, open questions 1 to 3; D8, the owner's answer of 2026-11-08). Covered by: 1.3
+- E6: Attaching `keel --doctor` lines (#505, open question 4). Discard reason: it can carry local paths, so it is opt-in (`--doctor`) and redacted, not part of the default draft; nothing in the issue's acceptance needs it.

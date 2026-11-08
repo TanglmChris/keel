@@ -1,5 +1,17 @@
 # Keel Changelog
 
+## 5.223.0 - File Keel feedback from any project
+
+Issue #505, filed 2026-11-08 at the owner's request. A session in another project that met a Keel problem had to find the version, assemble a reproduction, find the repository and compose a `gh issue create` by hand, each differently, and some problems stayed in a chat record and were never filed.
+
+- **`keel feedback "<one sentence>"`** drafts an issue for `TanglmChris/keel`: title, 现象, 期望, 复现, 证据, 影响 and 环境 (Keel version, Node, platform, host, the `keel context` state). `--command` and `--output-file` carry the failing command and its output; `--expected`, `--repro`, `--impact` fill the rest; `--doctor` attaches the doctor output on request. The draft is printed and saved to a file; nothing is created.
+- **Redacted before anything is shown:** tokens and keys, `key=value` secrets, credentials in URLs, Slack IDs and e-mail addresses are replaced, the home directory prints as `~` and the project root as `<project>`, and the draft says how many values it redacted and never which. No project name, remote, role or chat text is collected.
+- **Near-duplicates first:** up to five similar issues are listed from `gh issue list`. Supplementing one is the user's own `gh issue comment`, which Keel prints and never runs; Keel comments on, edits, labels and closes nothing.
+- **`--create`** runs `gh issue create` with no label, assignee or milestone, only when the project's `authorize:` declares `issue:TanglmChris/keel` or the caller passes `--confirmed` (the user approved this draft); otherwise it exits 3. A missing or logged-out `gh` exits 4 with the draft saved and the command to run printed.
+- **`/keel:feedback <one sentence>`** orders the steps for a Claude Code session: draft, show, ask (new issue / add to #n myself / cancel), create only on the first answer. Codex and OpenCode run the CLI.
+- New published spec `keel-feedback`; the commands docs say six commands.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.223.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.222.0 - A repository can grant a tag push
 
 Issue #499, reported from kaiwu-ip on 2026-11-02 (Keel 5.215.0) and taken up at the owner's request on 2026-11-08. The Claude write guard refused every explicit tag refspec as `is not a branch`, a push carrying tags could only be asked about on a `push-protected:` branch, and the owner's in-session approval could not help because the deny fires before any ask; the owner had to type `! git push …` for two tags that preserved parked work.

@@ -183,7 +183,7 @@ model toward or away from using one (#414).
 Do the spec work through OpenSpec's workflow skills (`openspec-propose`, `openspec-apply-change`,
 `openspec-sync-specs`, `openspec-archive-change`); Keel generates them as skills only, with no OpenSpec
 slash commands (#406). Keel's own commands and the skills a person can invoke are listed in
-[docs/commands.md](docs/commands.md). Keel's gates run at the task boundaries. The whole loop:
+[docs/commands.md](docs/commands.md). To report a problem with Keel from any project, run `/keel:feedback <one sentence>` or `keel feedback "<one sentence>"`: it drafts an issue for the Keel repository with the version, the failing command and its output (`--command`, `--output-file`, with `--expected`, `--repro` and `--impact` for the rest, and `--doctor` to attach the doctor output), redacts tokens, Slack IDs, e-mail addresses and local paths, lists similar open issues, and creates nothing until `--create` is run, which needs your approval (`--confirmed`) or a project that declares `issue:TanglmChris/keel`. Keel's gates run at the task boundaries. The whole loop:
 
 ```
 keel --init  →  keel context  →  openspec-apply-change (tasks in order)

@@ -15,8 +15,9 @@
 | `/keel:done [change] [task]` | `keel gate task-complete` | 完成一个任务：记录证据、走 review checklist，再过门禁 |
 | `/keel:chat` | `keel chat unread` | 读本角色的未读聊天，并处理发给它的内容 |
 | `/keel:shift` | `keel shift check`、`keel shift ready --wake` | 给本会话换班：检查遗留事项、写交接便条、安排唤醒 |
+| `/keel:feedback <一句话>` | `keel feedback` | 在任何项目里给 Keel 起草一份已脱敏的 issue（版本、复现、查重），经你同意后才创建 |
 
-这五个是 Claude Code 命令。Codex 插件只带技能、不带命令，所以在 Codex 上直接运行对应的 `keel` 命令行流程。
+这六个是 Claude Code 命令。Codex 插件只带技能、不带命令，所以在 Codex 上直接运行对应的 `keel` 命令行流程（`keel feedback` 本身就是命令行，在任何宿主上用法相同）。
 
 ## 你可以手动调用的技能
 
