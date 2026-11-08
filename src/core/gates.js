@@ -2206,6 +2206,40 @@ function expectationProblems(repo, content, tasks, change) {
   return { problems, report };
 }
 
+// `skip_specs: true` in a change's `.openspec.yaml` is OpenSpec's marker that
+// the change adds or modifies no capability (#517). Only that exact line
+// declares it; an absent file, an unreadable one, `false` or anything else is
+// undeclared, so the gate keeps requiring a delta spec, as OpenSpec itself
+// counts a marker it cannot honor as undeclared.
+function declaresSkipSpecs(changePath) {
+  try {
+    const text = fs.readFileSync(path.join(changePath, ".openspec.yaml"), "utf8");
+    return /^skip_specs:[ \t]*true[ \t]*(#.*)?$/m.test(text);
+  } catch {
+    return false;
+  }
+}
+
+// The first file anywhere under `specs/`, as a path relative to the change.
+function firstFileUnderSpecs(changePath) {
+  const queue = [path.join(changePath, "specs")];
+  while (queue.length > 0) {
+    const current = queue.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const candidate = path.join(current, entry.name);
+      if (entry.isDirectory()) queue.push(candidate);
+      else return path.relative(changePath, candidate).split(path.sep).join("/");
+    }
+  }
+  return null;
+}
+
 function hasDeltaSpec(changePath) {
   const specsPath = path.join(changePath, "specs");
   if (!fs.existsSync(specsPath)) return false;
@@ -2327,7 +2361,18 @@ function changeClose(repo, options) {
   problems.push(...changeVerifyProblems(selection.content, selection.tasks));
 
   const changePath = path.dirname(selection.tasksPath);
-  if (!hasDeltaSpec(changePath)) {
+  if (declaresSkipSpecs(changePath)) {
+    const carried = firstFileUnderSpecs(changePath);
+    if (carried !== null) {
+      problems.push(
+        problem(
+          "skip-specs-with-specs",
+          `The change declares \`skip_specs: true\` in .openspec.yaml and still carries \`${carried}\`; `
+            + "remove the marker or the specs."
+        )
+      );
+    }
+  } else if (!hasDeltaSpec(changePath)) {
     problems.push(
       problem(
         "missing-delta-spec",
