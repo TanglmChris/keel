@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.218.0 - `keel shift ready` says when the old session will stay
+
+Issue #506, filed 2026-11-08 (a shift bug, within the freeze) and ordered by keel-maint at the owner's request the same day. `keel shift ready --wake` in a CLI session whose own worktree is the new shift's printed that the old session is removed from the session list. The hand-over does not remove it: `claude rm` would delete the worktree (#492), so the session stays in `claude agents`, and opening it later puts two live sessions in one worktree. `keel shift status` said so only afterwards.
+
+- **`ready` applies the hand-over's own test.** `worktreeInUse` is the check `removeOldSessions` used before `claude rm`, now one function both call. When the session's host-recorded worktree exists and is the new shift's or bound to a role, the hint and the `--json` `clear` field say the session stays in `claude agents`, name the worktree and `claude attach <id>`; otherwise the promise of removal stands. With `keep_old_sessions` above 0 the hint also names the shared worktree.
+- **The limit is stated:** a session kept only because another listed session runs in its worktree is still described as removed by `ready`, which makes no `claude agents` call; `keel shift status` names it afterwards.
+- Not changed: the hand-over, `keel shift status`, `keep_old_sessions`. Open in #506: telling a woken old session that it was replaced and refusing its gates (expectation 1), and a way to mark or remove a handed-over session without deleting its worktree (expectation 3, partly the host's).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.218.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.217.0 - The tick job names a path that outlives a worktree
 
 Issue #503, filed by the owner on 2026-11-07 and worked at their request on 2026-11-08. `keel tick task` wrote the worktree the patrol role was bound to when it ran as both `--repo` and `WorkingDirectory`, but a worktree under `.claude/worktrees/` is a checkout Keel creates and prunes. When the role was bound elsewhere or the worktree pruned, launchd kept firing every 300 s, the tick could not read `keel/config.yaml`, hand-offs and wakes stopped with only a line in `tick/tick.err`, and `keel --doctor` printed `launchd: ok` because it read only the job's node. Measured on the owner's machine on 2026-11-08: the installed `dev.keel.tick.keel` and `dev.keel.tick.kaiwu-ip` named worktrees, and `keel-maint` was already bound to another one.

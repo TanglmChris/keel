@@ -636,6 +636,20 @@ function keptCopyOf(where, role, transcript) {
   }
 }
 
+// Worktrees in use: the hand-off's, every bound one, and each other listed
+// session's (#492 D2). `claude rm` deletes the worktree a session created, so a
+// session whose worktree is in use stays listed. `ready` asks the same question
+// to say so up front (#506 D1), without a listing, so the last reason is
+// evaluated only when `listed` is given.
+function worktreeInUse(roles, handOffWorktree, worktree, row, listed) {
+  const real = realpath(worktree);
+  if (handOffWorktree && realpath(handOffWorktree) === real) return "the new shift's worktree";
+  const binding = Object.entries(roles).find(([tree]) => realpath(tree) === real);
+  if (binding) return `bound to role ${binding[1]}`;
+  const other = (listed || []).find((r) => r && r !== row && r.cwd && realpath(r.cwd) === real);
+  return other ? `session ${other.id || other.sessionId.slice(0, 8)} runs there` : null;
+}
+
 // After a delivered hand-over or a resume, the newest `keep` stopped background
 // sessions of the role stay listed; each older one is removed with `claude rm`
 // once Keel's store holds its transcript (#397 D2). `claude rm` leaves the
@@ -669,15 +683,7 @@ function removeOldSessions(claude, where, entry, keep) {
     })
     .filter(({ transcript, kept }) => transcript || fs.existsSync(kept))
     .sort((a, b) => (Number(b.row.startedAt) || 0) - (Number(a.row.startedAt) || 0));
-  // Worktrees in use: the hand-off's, every bound one, and each other listed session's (#492 D2).
-  const inUse = (worktree, row) => {
-    const real = realpath(worktree);
-    if (entry.worktree && realpath(entry.worktree) === real) return "the new shift's worktree";
-    const binding = Object.entries(roles).find(([tree]) => realpath(tree) === real);
-    if (binding) return `bound to role ${binding[1]}`;
-    const other = listed.find((r) => r && r !== row && r.cwd && realpath(r.cwd) === real);
-    return other ? `session ${idOf(other)} runs there` : null;
-  };
+  const inUse = (worktree, row) => worktreeInUse(roles, entry.worktree, worktree, row, listed);
   const removed = [];
   const notRemoved = old.slice(0, keep).map(({ row }) => ({ id: idOf(row), reason: "kept by `shift: keep_old_sessions`" }));
   for (const { row, worktree, transcript } of old.slice(keep)) {
@@ -1518,13 +1524,19 @@ const CLEAR_HINT = [
 
 // Who starts the new session (#293 D3): the coordinator that asked, nobody,
 // or — without a chat role — the person who opens it.
-function clearHint(result) {
+function clearHint(result, where) {
   if (result.queued) {
     const own = result.cli.session.slice(0, 8);
+    // The hand-over leaves this session listed when its worktree is in use (#492), and says so here (#506 D2).
+    const host = hostWorktree({ id: own, sessionId: result.cli.session });
+    const using = host && fs.existsSync(host)
+      ? worktreeInUse(store.readJsonFile(path.join(where.root, "roles.json")), result.worktree, host, null, null) : null;
     // Nothing kept by default (#418): the old shift is removed once Keel holds its transcript.
     const kept = require("./config").readShiftDeclaration(result.worktree).keepOldSessions > 0
-      ? `its conversation is kept, \`claude attach ${own}\` reopens it`
-      : `then removes it from the session list once Keel's store holds its transcript, which \`keel shift history ${result.role} --show ${own}\` prints`;
+      ? `its conversation is kept, \`claude attach ${own}\` reopens it${using ? `, beside the new shift, because its worktree ${host} is in use (${using})` : ""}`
+      : using
+        ? `it stays in \`claude agents\`, because its worktree ${host} is in use (${using}) and \`claude rm\` would delete it, and \`claude attach ${own}\` brings it back beside the new shift`
+        : `then removes it from the session list once Keel's store holds its transcript, which \`keel shift history ${result.role} --show ${own}\` prints`;
     return "This is a Claude Code CLI session, which cannot clear itself (#357). End your turn now: once this session has finished, "
       + `a waiter stops it — ${kept} — and starts a new session `
       + `named for its start, \`${result.role} · <MM-DD HH:MM>\`, in ${result.worktree} that runs \`keel shift resume\`; \`keel tick\` does the same if the waiter is gone. \`keel shift status\` shows the hand-off.`;
@@ -1620,7 +1632,7 @@ function runShift(argv) {
       case "ready": {
         const result = ready(where, { ...options, text: rest.join(" ") });
         const whose = result.role || "this worktree (no chat role, so no request to close)";
-        const hint = clearHint(result);
+        const hint = clearHint(result, where);
         out({ ...result, clear: hint }, `Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${hint}`);
         return 0;
       }
