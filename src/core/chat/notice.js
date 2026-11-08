@@ -26,18 +26,22 @@ function firstLine(text) {
   return line.length > 120 ? `${line.slice(0, 117)}...` : line;
 }
 
-function noticeText(where, role, now = Date.now()) {
+// `only`, when given, is the waking records a FileChanged wake announces for
+// the first time (#516 D2): they are the ones listed, and the header says so;
+// the other unread are still counted.
+function noticeText(where, role, now = Date.now(), only = null) {
   // Newest first (#252 D3).
   const records = store.unread(where, role).reverse();
   if (!records.length) return "";
-  const waking = records.filter((record) => store.wakes(record, role));
+  const allWaking = records.filter((record) => store.wakes(record, role));
+  const waking = only ? allWaking.filter((record) => only.some((item) => item.id === record.id)) : allWaking;
   const others = new Map();
   for (const record of records) {
-    if (waking.includes(record)) continue;
+    if (allWaking.includes(record)) continue;
     others.set(record.group, (others.get(record.group) || 0) + 1);
   }
   const lines = [
-    `keel chat: ${records.length} unread for role \`${role}\`, ${waking.length} addressed to you.`,
+    `keel chat: ${records.length} unread for role \`${role}\`, ${waking.length} ${only ? "new " : ""}addressed to you.`,
   ];
   for (const record of waking.slice(0, NOTICE_LIMIT)) {
     const asks = record.ack === "requested" ? " (ack requested)" : "";
@@ -339,6 +343,40 @@ function presenceOf(where, role, now = Date.now()) {
 
 function signalPath(where, role) {
   return path.join(where.root, "signal", role);
+}
+
+// What a session has been told (#516 D1): one empty file per waking record id,
+// named under the session's own directory. A record is announced to a session
+// only by the process that creates its file, so two hooks started together
+// cannot both announce it. Without a valid session id nothing is remembered.
+function wokenDir(where, payload) {
+  const id = typeof payload.session_id === "string" ? payload.session_id : "";
+  return /^[A-Za-z0-9._-]{1,128}$/.test(id) ? path.join(where.root, "woken", id) : null;
+}
+
+function claimWoken(where, payload, records) {
+  const dir = wokenDir(where, payload);
+  if (!dir) return records;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    return records;
+  }
+  const won = [];
+  for (const record of records) {
+    try {
+      fs.writeFileSync(path.join(dir, record.id), "", { flag: "wx" });
+      won.push(record);
+    } catch (error) {
+      if (!error || error.code !== "EEXIST") won.push(record);
+    }
+  }
+  return won;
+}
+
+function forgetWoken(where, payload) {
+  const dir = wokenDir(where, payload);
+  if (dir) fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function ensureSignal(where, role) {
@@ -746,13 +784,20 @@ function hook(event, input, { mail = false } = {}) {
   }
   if (event === "session-end") {
     touchPresence(where, role, "offline");
+    forgetWoken(where, payload);
     return { code: 0 };
   }
   if (event === "session-start") rememberSession(where, role, file);
   const started = event === "session-start" ? { source: typeof payload.source === "string" ? payload.source : null } : null;
   touchPresence(where, role, "online", mail ? null : "claude-code", started);
   if (event === "session-start" || event === "user-prompt-submit") recordSegment(where, role, existingTranscript(payload));
+  // What SessionStart and a prompt show counts as announced (#516 D3); a
+  // SessionStart first forgets what an earlier run of the same session id was told.
+  if (event === "session-start") forgetWoken(where, payload);
   const chatText = noticeText(where, role);
+  if (event === "session-start" || event === "user-prompt-submit") {
+    claimWoken(where, payload, store.unread(where, role).filter((record) => store.wakes(record, role)));
+  }
   const text = chatText && mail ? `${chatText}\n${MAIL_POINTER}` : chatText;
   if (event === "session-start") {
     const output = {
@@ -766,9 +811,11 @@ function hook(event, input, { mail = false } = {}) {
     const context = [replacedLine, languageLine, text].filter(Boolean).join("\n");
     return context ? promptOutput(context) : { code: 0 };
   }
-  // file-changed
-  const waking = store.unread(where, role).some((record) => store.wakes(record, role));
-  return waking ? { code: 2, stderr: `${text}\n` } : { code: 0 };
+  // file-changed: one wake per record and session, listing what is new (#516)
+  const fresh = claimWoken(where, payload, store.unread(where, role).filter((record) => store.wakes(record, role)));
+  if (!fresh.length) return { code: 0 };
+  const news = noticeText(where, role, Date.now(), fresh);
+  return { code: 2, stderr: `${mail ? `${news}\n${MAIL_POINTER}` : news}\n` };
 }
 
 // The model-free question a scheduler asks before starting a turn (#194):

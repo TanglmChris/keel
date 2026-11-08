@@ -1,0 +1,141 @@
+# Tasks
+
+## 1. The wake
+
+- [x] 1.1 A record wakes a session once, and the wake lists the new ones
+  - Covers:
+    - keel-cross-host-mailbox / A record wakes a session once and the wake lists what is new / One message, two signal files, one wake
+    - keel-cross-host-mailbox / A record wakes a session once and the wake lists what is new / A later message wakes again and lists only itself
+    - keel-cross-host-mailbox / A record wakes a session once and the wake lists what is new / Two hooks at once announce once
+    - keel-cross-host-mailbox / A record wakes a session once and the wake lists what is new / Another session is told separately
+    - D1
+    - D2
+    - D4
+  - Read:
+    - openspec/changes/chat-wake-once/design.md
+    - src/core/chat/notice.js
+    - scripts/validation/chat.py
+  - Touch:
+    - src/core/chat/notice.js
+    - scripts/validation/chatwake.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-once`: with the shipped hook script and a payload carrying `session_id` `s1`, after `rtl` posts `@verify first` the FileChanged hook for `verify` exits 2 naming the record and a second run exits 0 with empty stderr; after a second mention the next run exits 2, names the second record and not the first, and says how many are unread in all; a run with `session_id` `s2` for the same role exits 2 for both; a payload with no `session_id` exits 2 on every run while a mention is unread. Fails with: `chat-wake-once:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-race`: eight FileChanged hook processes for the same session and the same single mention, started together, exit 2 in exactly one of them and 0 in the other seven. Fails with: `chat-wake-race:`
+    - M3 (regression): run one at a time, each passes: `--scenario chat-claude-hooks`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:68489e42dc2676c8df60439da0a861c0c830d4d8f282fbe7d4354b305329b4bd (keel 5.226.0)
+    - M1: pass. `chat-wake-once scenario passed.` (exit 0). With a payload carrying `session_id` `s1`, the first FileChanged after `@verify first` exits 2 and names the record, a second exits 0 with empty stderr; after `@verify second` the next exits 2, names the second record, does not repeat the first and says `2 unread`; `s2` exits 2 and names both; a payload without `session_id` exits 2 on two runs in a row.
+    - M1.red: fail. Before the change, exit 1: `chat-wake-once: the second FileChanged for the same record exited 2, not 0: keel chat: 1 unread for role `verify`, 1 addressed to you.`
+    - M1.green: pass. `claimWoken` in `src/core/chat/notice.js` creates `woken/<session>/<record id>` with the exclusive flag, `noticeText` takes the new records to list, and `file-changed` announces only the ones it won (D1, D2, D4).
+    - M2: pass. `chat-wake-race scenario passed.` (exit 0). Eight FileChanged processes for one session and one mention, started together and fed the payload afterwards, exit `[2, 0, 0, 0, 0, 0, 0, 0]` in some order: exactly one announces.
+    - M2.red: fail. Before the change, exit 1: `chat-wake-race: 8 of 8 simultaneous hooks announced the record, not 1: [2, 2, 2, 2, 2, 2, 2, 2]`.
+    - M2.green: pass. The same exclusive creation; the one process that creates the file announces.
+    - M3: pass. Run one at a time at load 4.6, each exit 0: `chat-claude-hooks scenario passed.` and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the shipped hook script with host-shaped stdin, one record wakes a session once, a later record wakes again listing only itself with the unread total, another session is told separately, a payload without a session id keeps the old behavior, and simultaneous hooks announce once (M1, M2).
+      - Scope check: `git status --short` lists `src/core/chat/notice.js`, `scripts/validation/chatwake.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the record layer.
+      - Findings: Discard reason: the race scenario starts eight real processes but cannot force the interleaving; it proves exactly-one on this machine, and the exclusive file creation is what makes it hold on any.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 What SessionStart and a prompt showed is not repeated
+  - Covers:
+    - keel-cross-host-mailbox / A record wakes a session once and the wake lists what is new / What SessionStart showed is not repeated
+    - D3
+    - D5
+  - Read:
+    - openspec/changes/chat-wake-once/design.md
+    - src/core/chat/notice.js
+    - scripts/validation/chatwake.py
+  - Touch:
+    - src/core/chat/notice.js
+    - scripts/validation/chatwake.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-wake-after-notice`: with one mention unread, SessionStart for `s1` lists it and a following FileChanged for `s1` exits 0; a UserPromptSubmit for `s1` that lists a later mention is also followed by FileChanged exit 0; after SessionStart runs again for `s1` the FileChanged exits 2 for the still-unread mention; after SessionEnd for `s1` and a new SessionStart it does too; `keel chat notice` and `keel chat check` run between them change none of these answers. Fails with: `chat-wake-after-notice:`
+    - M2 (regression): run one at a time, each passes: `--scenario chat-wake-once`, `--scenario chat-wake-race`, `--scenario chat-claude-hooks`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:827a6e5757edbcf9d655d5c09994a82b973fee3b0959ed0dda5fa06a7ed008bc (keel 5.226.0)
+    - M1: pass. `chat-wake-after-notice scenario passed.` (exit 0). A mention SessionStart for `s1` listed is followed by FileChanged exit 0; a later one a UserPromptSubmit listed likewise; `keel chat notice` and `check` run between them leave a third mention unannounced (FileChanged exits 2 and names it); a second SessionStart for `s1` makes the next FileChanged exit 0 because it listed everything unread; after SessionEnd and a fourth mention, FileChanged for the same id exits 2.
+    - M1.red: fail. Before the change, exit 1: `chat-wake-after-notice: FileChanged exited 2 for a record SessionStart already listed: keel chat: 1 unread for role `verify`, 1 new addressed to you.`
+    - M1.green: pass. SessionStart forgets `woken/<id>` and then claims every waking unread record, UserPromptSubmit claims the ones it lists, SessionEnd forgets the directory (D3, D5).
+    - M2: pass. Run one at a time at load 5.0, each exit 0: `chat-wake-once`, `chat-wake-race`, `chat-claude-hooks`, and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the shipped hook script, what SessionStart and a prompt showed is not announced again, a resumed session is told again, an ended session id starts clean, and the person- or scheduler-asked commands claim nothing (M1).
+      - Scope check: `git status --short` additionally lists changes to `src/core/chat/notice.js`, `scripts/validation/chatwake.py` and `scripts/validation/registry.py`, all in Touch.
+      - Findings: Discard reason: records past the five-record cap are counted in the notice but not named, and are claimed with the ones named; a person reads them with `keel chat read`. Naming them in a later FileChanged would repeat what the header already said.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+    - openspec/specs/keel-cross-host-mailbox/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 and 1.2 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-cross-host-mailbox`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:291d24b95234acdce40dac4ae95de007ff9f94bc7c576e31f59ff1b6a51b1a68 (keel 5.226.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.226.0 → 5.227.0 and the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement and its five scenarios are appended to the published `keel-cross-host-mailbox`; `published-specs-validate-strictly scenario passed: 35 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started at load 6.0: `validation --all passed: baseline plus 398 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0), the 395 of 5.226.0 plus this change's three.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 and 1.2's behavior, the markers agree at 5.227.0, the promoted spec validates and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, the files of tasks 1.1 and 1.2 and this change's directory, all in Touch of 1.1, 1.2 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "exits 2 and its stderr names the record id, `soc`, `rtl`, a relative age" — the `A mention wakes` scenario of `keel-cross-host-mailbox`, which stays true for the first FileChanged a session sees for a record and is pinned by `chat-claude-hooks`. Discard reason: the scenario's wording holds for a payload without a session id and for the first announcement; the new requirement adds the repeat case.
+
+## Expectation Coverage
+
+- E1: One message wakes a session once, however many signal files changed (#516, acceptance 1; D1, D2). Covered by: 1.1
+- E2: The release carries it. Covered by: 2.1
+- E3: A wake lists what is new rather than the whole unread list (#516, acceptance 2; D2). Covered by: 1.1
+- E4: Records shown at SessionStart or in a prompt are not announced again (#516, the long-block pile-up; D3). Covered by: 1.2

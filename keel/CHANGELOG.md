@@ -1,5 +1,15 @@
 # Keel Changelog
 
+## 5.227.0 - A chat record wakes a session once
+
+Issue #516, reported from kaiwu-ip on 2026-11-08 (plugin 5.217.0, Keel 5.222.0). Every message that woke a role woke its Claude session twice, because a record touches both `signal/<role>` and the signal of each worktree bound to the role and a bound session watches both; and each wake listed every unread record again, so a session parked on a question piled up long, identical notices.
+
+- **A waking record is announced to a session once.** The FileChanged hook keeps, per session id, an empty file named by each record id it announced, created with the exclusive flag, so the second change event for the same record, and any hook started at the same moment, exits 0 with nothing written.
+- **A wake lists what is new:** the notice names the waking records not yet announced to this session and says how many are unread in all.
+- **What SessionStart and a prompt show counts as announced.** SessionStart first forgets what the same session id was told (a resume has been told nothing), SessionEnd forgets it too, and `keel chat notice` / `check` record nothing.
+- **Unchanged:** which records wake, the signal files, and a hook payload with no session id (every unread waking record, every time).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.227.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.226.0 - change-close honors `skip_specs`
 
 Issue #517, reported from a business repository on 2026-11-08 (Keel 5.222.0). A change whose `.openspec.yaml` declares `skip_specs: true` and has no `specs/` directory is `specs: skipped` for OpenSpec, yet `keel gate change-close` failed it with `missing-delta-spec`, so a tidy-up change that adds or modifies no capability could never be archived without bypassing the gate.
