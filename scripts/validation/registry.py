@@ -9,6 +9,7 @@ from validation import docs
 from validation import selfcheck
 from validation import export
 from validation import dsh
+from validation import skipspecs
 from validation import feedback
 
 
@@ -552,6 +553,7 @@ SCENARIOS: tuple = (
     ("dsh-binary", dsh.validate_dsh_binary_scenario),
     ("dsh-uninstall-shared", dsh.validate_dsh_uninstall_shared_scenario),
     ("dsh-docs", dsh.validate_dsh_docs_scenario),
+    ("change-close-skip-specs", skipspecs.validate_change_close_skip_specs_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),
     ("authorize-role-scoped", guard.validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),
