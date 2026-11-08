@@ -2,11 +2,11 @@
 
 [English](README.md) | **中文**
 
-> 面向 AI 编码 agent 的 OpenSpec 执行纪律 —— Claude Code、Codex、OpenCode 通用。
+> 面向 AI 编码 agent 的 OpenSpec 执行纪律 —— Claude Code、Codex、OpenCode、DSH 通用。
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen.svg)
-![Targets](https://img.shields.io/badge/targets-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20OpenCode-blue.svg)
+![Targets](https://img.shields.io/badge/targets-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20OpenCode%20%C2%B7%20DSH-blue.svg)
 
 ## Keel 是做什么的
 
@@ -136,8 +136,10 @@ rm -rf "$tmp_dir"
 
 ```bash
 keel --init                 # 默认 target：claude
-keel --init --target codex  # 或 opencode
+keel --init --target codex  # 或 opencode、dsh
 ```
+
+`--target dsh`（DSH，DeepSeek Harness）写入、检查、移除的文件与 `--target codex` 完全相同：DSH 读仓库的 `AGENTS.md` 和 `.agents/skills`，所以没有单独的 DSH 副本，卸载其中一个会让另一个也失去这些文件。DSH 的出厂 profile 没有 session-start hook，所以六项能力都是 `manual`，入口是 `AGENTS.md` 的 bootstrap（「先运行 `keel context`」）；`keel --doctor --target dsh` 会报告 PATH 上有没有 `dsh`。
 
 `keel --init` 会跑 OpenSpec 初始化/更新，并写入 Keel 的宿主面。之后每次开始或恢复工作：
 

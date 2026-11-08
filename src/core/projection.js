@@ -81,7 +81,7 @@ function projectRuntime(repo, options) {
   if (!EVENTS.has(event)) {
     throw new Error(`unsupported projection event: ${event || "<missing>"}`);
   }
-  if (!["claude", "codex", "opencode"].includes(options.target)) {
+  if (!["claude", "codex", "opencode", "dsh"].includes(options.target)) {
     throw new Error(`unsupported target: ${options.target}`);
   }
 
