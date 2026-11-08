@@ -96,6 +96,7 @@ Usage:
   keel mail role|send|list|read|hook [repo] ...   (cross-host mailbox; see keel mail help)
   keel triage [repo] [--labels <l1,l2>] [--issue <n>] [--json]
   keel agents [name] [--repo path] [--json]   (external model CLIs, read on demand; Keel launches none)
+  keel feedback "<one sentence>" [--command <cmd>] [--output-file <file>] [--expected <t>] [--repro <t>] [--impact <t>] [--doctor] [--create [--confirmed]]   (draft a redacted issue for Keel; creates nothing without --create)
   keel branches [repo] [--role <role>] [--json]   (a role's merged task branches, with their sha; fetches and deletes nothing)
   keel branches prune [repo] [--role <role>] [--json]   (delete them, local and remote, under authorize: delete-branch:merged; exit 3 without it)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
@@ -3324,6 +3325,10 @@ function main() {
   // `keel tick` likewise: the model-free step a host scheduler calls (#356).
   if (process.argv[2] === "tick") {
     return require("../src/core/tick").runTick(process.argv.slice(3));
+  }
+  // `keel feedback` likewise: a redacted issue draft for Keel (#505).
+  if (process.argv[2] === "feedback") {
+    return require("../src/core/feedback").runFeedback(process.argv.slice(3));
   }
   if (process.argv[2] === "worktrees") {
     return require("../src/core/worktrees").runWorktrees(process.argv.slice(3));

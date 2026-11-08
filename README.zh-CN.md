@@ -156,7 +156,7 @@ agent 复跑，也不引导模型去用或不用它（#414）。
 
 spec 相关的活走 OpenSpec 的工作流 skill（`openspec-propose`、`openspec-apply-change`、`openspec-sync-specs`、
 `openspec-archive-change`）；Keel 只生成 skill，不生成 OpenSpec 斜杠命令（#406）。Keel 自己的命令和可以手动调用的技能列在
-[docs/commands.zh-CN.md](docs/commands.zh-CN.md)。Keel 的门禁在任务边界处运行。整个回路：
+[docs/commands.zh-CN.md](docs/commands.zh-CN.md)。要在任何项目里反馈 Keel 的问题，运行 `/keel:feedback <一句话>` 或 `keel feedback "<一句话>"`：它给 Keel 仓库起草一份带版本、失败命令及其输出的 issue（`--command`、`--output-file`，其余用 `--expected`、`--repro`、`--impact`，`--doctor` 附上诊断输出），脱敏 token、Slack ID、邮箱和本机路径，列出相近的 issue，在运行 `--create` 之前不创建任何东西，而 `--create` 需要你的批准（`--confirmed`）或项目声明了 `issue:TanglmChris/keel`。Keel 的门禁在任务边界处运行。整个回路：
 
 ```
 keel --init  →  keel context  →  openspec-apply-change（按顺序做 task）
