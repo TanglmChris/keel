@@ -1,0 +1,182 @@
+# Tasks
+
+## 1. The tick leaves a heartbeat and doctor reads it
+
+- [x] 1.1 Record `last_tick` and report it in `keel --doctor`
+  - Covers:
+    - keel-coordinator-patrol / A silent tick is reported from its own state / Every run leaves a heartbeat
+    - keel-coordinator-patrol / A silent tick is reported from its own state / A silent tick is a doctor problem
+    - keel-coordinator-patrol / A silent tick is reported from its own state / A declared tick that never ran is a doctor problem
+    - keel-coordinator-patrol / A silent tick is reported from its own state / A repository without a tick is not checked
+    - D1
+    - D2
+    - D3
+    - D4
+    - D6
+    - D7
+  - Read:
+    - openspec/changes/tick-heartbeat/design.md
+    - src/core/tick.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/tick.js
+    - bin/keel.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-writes-heartbeat`: in the scratch repository declaring `runner: tick`, `keel tick` run twice, the second time with the patrol not due, leaves `last_tick` after the first run and a later one after the second, while the patrol's `next_at` and `last_run` are the first run's. Fails with: `tick-writes-heartbeat:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario doctor-reports-silent-tick`: over a copy of a state file written by a real tick, `keel --doctor` prints a `tick` problem line naming the time and `keel tick task` when `last_tick` is two hours old, `tick` ok when it is one minute old, a problem saying it has never run when `last_tick` is absent and the repository declares `runner: tick`, a problem naming the raw value when it is not a date, and `tick` ok when `last_tick` is fresh although no `patrol:` declares a tick. Fails with: `doctor-reports-silent-tick:`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario doctor-ignores-repo-without-tick`: with no `patrol:` declaring `runner: tick` and no `last_tick`, `keel --doctor` prints no `tick` line. Detects: `the check runs for every repository` -> `doctor-ignores-repo-without-tick:`
+    - M4 (regression): run one at a time, each passes: `--scenario tick-runs-due-patrol`, `--scenario tick-runs-each-patrol`, `--scenario tick-reports-issue-checks`, `--scenario assertion-shape-count`, and `node scripts/run_python.js scripts/validate_plugin.py --group shift --jobs 4`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:50cd85e411d42e0acf8f179c5a4d753d77972a7b8939aaf6e269e3598f37e6e9 (keel 5.217.0)
+    - M1: pass. `tick-writes-heartbeat scenario passed.` (exit 0). In the two-coordinator scratch, a real `keel tick`, then a second one whose patrols are `not due`: `last_tick` is present after the first and later after the second, and the state's `patrols` record is the same before and after.
+    - M1.red: fail. Before any code change, exit 1: `tick-writes-heartbeat: a tick left no last_tick in ['issues', 'patrols', 'quota_state']`, the keys of a state file a real tick wrote.
+    - M1.green: pass. `tick()` in `src/core/tick.js` writes `last_tick` first, merged into the existing state (D1).
+    - M2: pass. `doctor-reports-silent-tick scenario passed.` (exit 0). Over the state file of a real tick: a two-hour-old `last_tick` gives one `tick: problem` line with that time and `keel tick task`; one minute old gives `tick: ok` with the time; none, with `runner: tick` declared, gives a problem saying `never`; `"last tuesday"` gives a problem naming it; and a fresh `last_tick` with the declaration removed still gives `tick: ok`.
+    - M2.red: fail. Before the doctor change, exit 1: `doctor-reports-silent-tick: a two-hour-old last_tick gives 0 tick lines, not one: []`.
+    - M2.green: pass. `heartbeat()` in `src/core/tick.js` and `printTickHeartbeat` in `bin/keel.js` print the line from `tick/state.json` alone (D2 to D4, D6).
+    - M3: pass. `doctor-ignores-repo-without-tick scenario passed.` (exit 0), before and after the code change (which is why it is a regression check): with `runner: tick` removed from the declaration and no `last_tick`, doctor prints no `tick:` line.
+    - M3.detects: fail. With the declaration test forced true (`.declarations.some((item) => true) || true`), exit 1: `doctor-ignores-repo-without-tick: doctor checks a tick nobody declared: ['tick: problem - has never run here although keel/config.yaml declares `runner: tick`; …']`; the code was restored byte for byte (`cmp`) and the scenario passed again.
+    - M4: pass. Run one at a time, each exit 0: `tick-runs-due-patrol`, `tick-runs-each-patrol`, `tick-reports-issue-checks` passed; `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` after three `or`-guarded conditions of the new scenarios were split so each failure has its own message (it had read 77 against 74); `validation --group shift passed: 82 scenarios.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel tick` and the real `keel --doctor`, every tick leaves a heartbeat that the patrol's own record does not depend on (M1); doctor turns a silent, never-run or unreadable heartbeat into a named problem and a fresh one into ok, from the state file alone (M2); a repository that uses no tick gets no line (M3). The fixture is the state file a real tick wrote, edited only in `last_tick`.
+      - Scope check: `git status --short` lists `src/core/tick.js`, `bin/keel.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: Discard reason: the 15-minute limit is a constant, not read from the installed job, because Keel does not read the host (D2, D6); a job installed with another interval is judged against it, and the docs say so (task 1.3). Resolved here: M2 — the unreadable-date case and the heartbeat with no declaration are asserted there.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Say it at session start
+  - Covers:
+    - keel-coordinator-patrol / A silent tick is reported from its own state / A session starts knowing its tick is silent
+    - D5
+  - Read:
+    - openspec/changes/tick-heartbeat/design.md
+    - src/core/context.js
+    - plugins/keel/scripts/session-start.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/tick.js
+    - src/core/context.js
+    - plugins/keel/scripts/session-start.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario session-start-says-silent-tick`: with a stale `last_tick` the SessionStart hook's context contains a line saying the tick has not run since that time and naming `keel tick task`, `keel context --json` carries `patrol.tick.state` `stale`, and with a one-minute-old `last_tick` the context contains no such line. Fails with: `session-start-says-silent-tick:`
+    - M2 (regression): run one at a time, each passes: `--scenario surfaces-agree-with-code`, and `node scripts/run_python.js scripts/validate_plugin.py --group hosts --jobs 4`, the group holding the session-start hook's scenarios (there is no `hooks` group).
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:322da730ec33e09b3714fe6e81343b5ff25696df30b875cce90297f832e29541 (keel 5.217.0)
+    - M1: pass. `session-start-says-silent-tick scenario passed.` (exit 0). As the patrolling role `pm-a` of the scratch repository: with `last_tick` two hours old the SessionStart context says `has not run since <time>` and names `keel tick task`, `keel context --json` has `patrol.tick.state` `stale`, and with `last_tick` one minute old the context has neither `has not run since` nor `has never run`.
+    - M1.red: fail. With `src/core/context.js` and `plugins/keel/scripts/session-start.js` put back to HEAD, exit 1: `session-start-says-silent-tick: the session-start context does not say 'has not run since 2026-11-08T12:49:47+08:00': "Keel session projection (disposable; …`. A first red was taken as the non-patrolling role `dev-a`, which has no patrol line to extend; the scenario was moved to `pm-a` and the red taken again against the unchanged code.
+    - M1.green: pass. `context.js` adds `patrol.tick` for `runner: tick` from `heartbeat()` (D5) and the hook adds one line for `stale` and `never` only.
+    - M2: pass. Run one at a time, each exit 0: `surfaces-agree-with-code scenario passed.` and `validation --group hosts passed: 39 scenarios.`. The first plan named a `hooks` group; there is none (`unknown validation group: hooks`), so the check was corrected to `hosts` and the contract re-recorded before any evidence.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real SessionStart hook and `keel context --json`, the patrolling role learns of a silent tick and nothing is said for a fresh one (M1); the hook's other scenarios still pass (M2).
+      - Scope check: `git status --short` additionally lists `src/core/context.js` and `plugins/keel/scripts/session-start.js`, both in Touch; `src/core/tick.js` changed only the wording of the unreadable-date text, also in Touch.
+      - Findings: Discard reason: only the patrolling role's session start carries the line, because it extends the existing patrol line; a role with no patrol sees the problem in `keel --doctor`. Widening it to every role is a separate decision for the owner, not made here.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 State it in the docs
+  - Covers:
+    - D2
+    - D7
+  - Read:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Touch:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation prose; nothing here can fail before it is written, and 1.1 and 1.2 prove the behavior it describes.
+    - M1: `grep -n "last_tick" docs/cli-team.md docs/cli-team.zh-CN.md` shows, in the tick section of each, that every run records `last_tick`, that doctor and the session start report a tick silent for more than 15 minutes, that a sleeping or powered-off machine looks the same, and that nothing reads the host.
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:993ec717d4bdc2cf24f4dab2b73d33e8b23fbffe34ee394dd5980457969eef78 (keel 5.217.0)
+    - M1: pass. `grep -c "last_tick" docs/cli-team.md docs/cli-team.zh-CN.md` gives 1 in each, in the tick section before the `next:` paragraph: every run records `last_tick`, doctor and the patrolling role's session start report a tick silent for more than 15 minutes or never recorded, `keel context --json` carries `patrol.tick`, a slept laptop looks like a job never loaded, and only that one file is read.
+    - M2: pass. `surfaces-agree-with-code scenario passed.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the tick section now states the heartbeat, its 15-minute limit, who reports it and its limit (cause unknown), matching 1.1 and 1.2 as proved.
+      - Scope check: `git status --short` additionally lists `docs/cli-team.md` and `docs/cli-team.zh-CN.md`, both in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [x] 2.1 Release and promote the spec
+  - Covers:
+    - E2
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-coordinator-patrol`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:35fbcddf9d293d68b955dc08a178bba910d46b747ad44a933a88be26612dcc05 (keel 5.217.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.218.0 → 5.219.0; the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The requirement is appended to `openspec/specs/keel-coordinator-patrol/spec.md`; `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0).
+    - M3: pass. `npm test`, started at load 5: `validation --all passed: baseline plus 370 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 366 of 5.218.0 plus this change's four.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 to 1.3's behavior, the markers agree at 5.219.0, the promoted spec validates, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the published spec, the files of tasks 1.1 to 1.3 and this change's directory, all in Touch of 1.1 to 1.3 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "the existing doctor check of the plist stays as it is" and "each naming a node that exists and no directory that is gone or regenerated" — the `launchd: ok` line says a job is fine while saying nothing about whether it runs. Discard reason: the line states exactly what it checks and stays true; the new `tick` line answers whether it runs.
+- I2: "a host-run tick runs the patrol when due" — `openspec/specs/keel-coordinator-patrol/spec.md` says nothing of a heartbeat, which is added, not contradicted. Updated by: 2.1.
+
+## Expectation Coverage
+
+- E1: A tick silent for a long time is visible in `keel --doctor` and at session start, without Keel touching the host (#510; D1 to D7). Covered by: 1.1, 1.2
+- E2: The release carries it. Covered by: 2.1
+- E3: Reading launchd state (`launchctl print`). Discard reason: the owner's boundary of 2026-11-08 is that Keel does not call `launchctl`; #508 candidate 4 was withdrawn for it.
+- E4: Telling a tick's cause apart (not loaded, node gone, crashed, asleep). Discard reason: the heartbeat says since when, not why; a person judges, and the docs say so (D7).

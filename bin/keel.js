@@ -2500,6 +2500,7 @@ function runDoctor(options) {
   printSourceRepoCliResolution(repo);
   printChatRoleDrift(repo);
   printTickIssueChecks(repo);
+  printTickHeartbeat(repo);
   printMergedBranches(repo);
   printLaunchdJobs();
 
@@ -2564,6 +2565,20 @@ function printTickIssueChecks(repo) {
   if (issues.state === "failed") printDoctorLine("issue checks", "not checked", `${issues.text} (tick at ${issues.at})`);
   else if (issues.state === "read") printDoctorLine("issue checks", "ok", `last read by \`keel tick\` at ${issues.at}`);
   else printDoctorLine("issue checks", "ok", "nothing needs them: no issue_roles route and no issue wait");
+}
+
+// Whether `keel tick` has run lately, from the trace it leaves in its own state
+// (#510); the host is not asked. Nothing for a repository that uses no tick.
+function printTickHeartbeat(repo) {
+  let where = null;
+  try {
+    where = require("../src/core/chat/store").locate(repo);
+  } catch {
+    where = null;
+  }
+  if (!where) return;
+  const beat = require("../src/core/tick").heartbeat(where, new Date());
+  if (beat.state) printDoctorLine("tick", beat.state === "ok" ? "ok" : "problem", beat.text);
 }
 
 function printMergedBranches(repo) {
