@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.219.0 - A silent tick is reported from its own state
+
+Issue #510, from the owner's choice of candidate 5 in #508 on 2026-11-08. After the macOS upgrade the two `dev.keel.tick.*` launchd jobs were not loaded and `keel tick` did not run for about 23 hours; `keel --doctor` said ok throughout, because it checks a job's node and directories, not whether it runs. A tick that does not run cannot report it, so the report comes from the trace it leaves, in the repository's own state; the owner's rule that Keel registers nothing on the host and does not call `launchctl` holds.
+
+- **`keel tick` records `last_tick` in `tick/state.json` on every run**, including a run whose patrol is not due. The patrol's own `last_run` moves once per patrol, hourly with `cadence: adaptive`, and was the only time in the file.
+- **`keel --doctor` prints a `tick` line:** ok with the time of the last run; a problem when it is more than 15 minutes old (three of the rendered job's intervals), when `last_tick` is not a date, or when the repository declares `runner: tick` and no run was recorded. A repository that declares no tick and has no `last_tick` gets no line.
+- **The patrolling role's session start says it in one line**, only when the tick is stale or never ran; `keel context --json` carries `patrol.tick`.
+- **The limit is stated in the docs:** the report says since when, not why. A laptop that slept shows the same line as a job that was never loaded. The 15 minutes is a constant, since Keel does not read the installed job's interval.
+- Not changed: tick's wake, hand-over and patrol behavior; nothing reads `~/Library/LaunchAgents` for this or calls `launchctl`.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.219.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.218.0 - `keel shift ready` says when the old session will stay
 
 Issue #506, filed 2026-11-08 (a shift bug, within the freeze) and ordered by keel-maint at the owner's request the same day. `keel shift ready --wake` in a CLI session whose own worktree is the new shift's printed that the old session is removed from the session list. The hand-over does not remove it: `claude rm` would delete the worktree (#492), so the session stays in `claude agents`, and opening it later puts two live sessions in one worktree. `keel shift status` said so only afterwards.

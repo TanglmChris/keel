@@ -684,6 +684,11 @@ function main() {
       `- patrol: role ${context.patrol.role}'s \`keel patrol\` is run by \`keel tick\` from the host scheduler (render it with \`keel tick task\`), `
         + "which outlives this session; no session schedule is needed."
     );
+    // A tick that stopped is the one thing the session cannot see for itself (#510 D5).
+    const tick = context.patrol.tick;
+    if (tick && (tick.state === "stale" || tick.state === "never")) {
+      lines.push(`- patrol: the tick ${tick.text}.`);
+    }
   } else if (context.patrol && context.patrol.role && context.patrol.hostTask) {
     // A host scheduled task outlives the session (#295 D3).
     lines.push(

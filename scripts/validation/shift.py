@@ -1565,6 +1565,211 @@ def validate_tick_reports_issue_checks_scenario() -> int:
     return 0
 
 
+def tick_heartbeat_scratch(base: Path) -> tuple[Path, dict, dict[str, Path], Path]:
+    """The two-coordinator scratch after one real `keel tick`, so the state file has the shape a tick writes (#510)."""
+    repo, env, wt, state = tick_scopes_scratch(base / "repo")
+    ran = run_keel(wt["dev-a"], "tick", "--repo", str(repo), env=env)
+    if ran.returncode != 0:
+        raise RuntimeError(f"keel tick failed: {ran.stderr!r}")
+    return repo, env, wt, state
+
+
+def doctor_tick_lines(wt: dict[str, Path], env: dict) -> list[str]:
+    doctor = run_keel(wt["dev-a"], "--doctor", str(wt["dev-a"]), env=env)
+    return [line for line in doctor.stdout.splitlines() if line.startswith("tick:")]
+
+
+def set_last_tick(state: Path, value: str | None) -> None:
+    saved = json.loads(state.read_text(encoding="utf-8"))
+    if value is None:
+        saved.pop("last_tick", None)
+    else:
+        saved["last_tick"] = value
+    state.write_text(json.dumps(saved), encoding="utf-8")
+
+
+def ago(**delta: float) -> str:
+    return (datetime.now().astimezone() - timedelta(**delta)).isoformat(timespec="seconds")
+
+
+def validate_tick_writes_heartbeat_scenario() -> int:
+    """Issue #510 D1: every `keel tick` records `last_tick`, a run whose patrol is not due included.
+
+    The patrol's own `last_run` moves once per patrol, so nothing else in the
+    state file says that a tick ran five minutes ago.
+    """
+    label = "tick-writes-heartbeat:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-heartbeat-") as raw:
+        try:
+            repo, env, wt, state = tick_heartbeat_scratch(Path(raw))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        first = json.loads(state.read_text(encoding="utf-8"))
+        if "last_tick" not in first:
+            report(f"{label} a tick left no last_tick in {sorted(first)!r}")
+            return 1
+        time.sleep(1.1)
+        second_run = run_keel(wt["dev-a"], "tick", "--repo", str(repo), env=env)
+        second = json.loads(state.read_text(encoding="utf-8"))
+        if "not due" not in second_run.stdout:
+            report(f"{label} the second tick did not find its patrols not due, so the fixture proves nothing: {second_run.stdout!r}")
+            return 1
+        if not second.get("last_tick", "") > first["last_tick"]:
+            report(f"{label} a tick whose patrol was not due did not move last_tick: {first['last_tick']!r} then {second.get('last_tick')!r}")
+            return 1
+        for key in ("patrols", "patrol"):
+            if first.get(key) != second.get(key):
+                report(f"{label} the heartbeat changed the patrol's own record {key!r}: {first.get(key)!r} then {second.get(key)!r}")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_doctor_reports_silent_tick_scenario() -> int:
+    """Issue #510 D2-D4, D6: `keel --doctor` reads the heartbeat and names a tick that stopped.
+
+    The 2026-11-08 outage left the jobs' plists in place and unloaded; doctor
+    said ok for 23 hours because it never asked whether the tick ran.
+    """
+    label = "doctor-reports-silent-tick:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-doctor-") as raw:
+        try:
+            _repo, env, wt, state = tick_heartbeat_scratch(Path(raw))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        stale = ago(hours=2)
+        set_last_tick(state, stale)
+        lines = doctor_tick_lines(wt, env)
+        if len(lines) != 1:
+            report(f"{label} a two-hour-old last_tick gives {len(lines)} tick lines, not one: {lines!r}")
+            return 1
+        for needle in ("tick: problem", stale, "keel tick task"):
+            if needle not in lines[0]:
+                report(f"{label} the stale line does not say {needle!r}: {lines[0]!r}")
+                return 1
+        fresh = ago(minutes=1)
+        set_last_tick(state, fresh)
+        lines = doctor_tick_lines(wt, env)
+        if len(lines) != 1:
+            report(f"{label} a one-minute-old last_tick gives {len(lines)} tick lines, not one: {lines!r}")
+            return 1
+        if not lines[0].startswith("tick: ok"):
+            report(f"{label} a fresh heartbeat is not reported ok: {lines[0]!r}")
+            return 1
+        if fresh not in lines[0]:
+            report(f"{label} a fresh heartbeat is ok without saying when the tick last ran: {lines[0]!r}")
+            return 1
+        set_last_tick(state, None)
+        lines = doctor_tick_lines(wt, env)
+        if len(lines) != 1:
+            report(f"{label} a declared tick with no last_tick gives {len(lines)} tick lines, not one: {lines!r}")
+            return 1
+        if not lines[0].startswith("tick: problem"):
+            report(f"{label} a declared tick that never ran is not a problem: {lines[0]!r}")
+            return 1
+        if "never" not in lines[0]:
+            report(f"{label} a declared tick that never ran does not say it never ran: {lines[0]!r}")
+            return 1
+        set_last_tick(state, "last tuesday")
+        lines = doctor_tick_lines(wt, env)
+        if len(lines) != 1:
+            report(f"{label} an unreadable last_tick gives {len(lines)} tick lines, not one: {lines!r}")
+            return 1
+        if not lines[0].startswith("tick: problem"):
+            report(f"{label} an unreadable last_tick is not a problem: {lines[0]!r}")
+            return 1
+        if "last tuesday" not in lines[0]:
+            report(f"{label} an unreadable last_tick is a problem that does not name the value: {lines[0]!r}")
+            return 1
+        config = wt["dev-a"] / "keel" / "config.yaml"
+        config.write_text(config.read_text(encoding="utf-8").replace("    runner: tick\n", ""), encoding="utf-8")
+        set_last_tick(state, ago(minutes=1))
+        lines = doctor_tick_lines(wt, env)
+        if len(lines) != 1:
+            report(f"{label} a recorded heartbeat with no tick declared gives {len(lines)} tick lines, not one: {lines!r}")
+            return 1
+        if not lines[0].startswith("tick: ok"):
+            report(f"{label} a recorded heartbeat is not read when nothing declares a tick: {lines[0]!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_doctor_ignores_repo_without_tick_scenario() -> int:
+    """Issue #510 D3: a repository that declares no tick and never ran one gets no `tick` line."""
+    label = "doctor-ignores-repo-without-tick:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-doctor-none-") as raw:
+        try:
+            _repo, env, wt, state = tick_heartbeat_scratch(Path(raw))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        config = wt["dev-a"] / "keel" / "config.yaml"
+        config.write_text(config.read_text(encoding="utf-8").replace("    runner: tick\n", ""), encoding="utf-8")
+        set_last_tick(state, None)
+        lines = doctor_tick_lines(wt, env)
+        if lines:
+            report(f"{label} doctor checks a tick nobody declared: {lines!r}")
+            return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def validate_session_start_says_silent_tick_scenario() -> int:
+    """Issue #510 D5: the patrolling role starts knowing its tick is silent, and hears nothing when it is not."""
+    label = "session-start-says-silent-tick:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-session-start-") as raw:
+        try:
+            _repo, env, wt, state = tick_heartbeat_scratch(Path(raw))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+        event = {"cwd": str(wt["pm-a"]), "source": "startup", "hook_event_name": "SessionStart"}
+
+        def started() -> str:
+            hook = run_session_start_hook(wt["pm-a"], event, keel_cli=f'node "{ROOT / "bin" / "keel.js"}"')
+            return session_start_context(hook) or ""
+
+        stale = ago(hours=2)
+        set_last_tick(state, stale)
+        context = started()
+        for needle in (f"has not run since {stale}", "keel tick task"):
+            if needle not in context:
+                report(f"{label} the session-start context does not say {needle!r}: {context!r}")
+                return 1
+        as_json = run_keel(wt["pm-a"], "context", "--json", env=env)
+        try:
+            tick = json.loads(as_json.stdout)["patrol"]["tick"]
+        except (ValueError, KeyError, TypeError) as error:
+            report(f"{label} keel context --json has no patrol.tick ({error!r}): {as_json.stdout[:300]!r}")
+            return 1
+        if tick.get("state") != "stale":
+            report(f"{label} patrol.tick.state is {tick.get('state')!r}, not 'stale': {tick!r}")
+            return 1
+        set_last_tick(state, ago(minutes=1))
+        context = started()
+        for needle in ("has not run since", "has never run"):
+            if needle in context:
+                report(f"{label} a fresh heartbeat still reaches the session as {needle!r}: {context!r}")
+                return 1
+    if label.rstrip(":") not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} the scenario registry does not include it.")
+        return 1
+    report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
 def validate_patrol_nudge_scenario() -> int:
     """Issues #307 part 1 and #313: the patrol nudges idle roles directly.
 

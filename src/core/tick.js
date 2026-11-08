@@ -14,6 +14,8 @@ const { stableNode, launchdPath } = require("./launchd");
 const USAGE = "keel tick [--repo <path>] [--json]   one model-free step: run the patrol when it is due\n"
   + "       keel tick task [--json] [--repo <path>]   print the launchd job that calls it";
 const INTERVAL_SECONDS = 300;
+// A tick silent for three of the job's intervals is reported (#510 D2).
+const STALE_MS = 3 * INTERVAL_SECONDS * 1000;
 const KEEL = path.resolve(__dirname, "..", "..", "bin", "keel.js");
 
 class TickError extends Error {}
@@ -184,8 +186,30 @@ function wakeEnded(where, state) {
   return woken;
 }
 
+// What `tick/state.json` says about whether the tick runs (#510). Only that
+// file is read: a tick that does not run cannot report it, so the report comes
+// from the trace it left, and Keel asks the host nothing (D6). `state` is
+// `ok`, `stale`, `never` (a declared tick with no run recorded), or null when
+// nothing here uses a tick.
+function heartbeat(where, now = new Date()) {
+  const at = readState(where).last_tick;
+  if (at === undefined || at === null) {
+    const declared = require("./config").readPatrolDeclarations(where.worktree).declarations.some((item) => item.runner === "tick");
+    return declared
+      ? { state: "never", at: null, text: "has never run here although keel/config.yaml declares `runner: tick`; run the install commands `keel tick task` prints" }
+      : { state: null, at: null, text: "" };
+  }
+  const age = now.getTime() - Date.parse(at);
+  const repair = "run the install commands `keel tick task` prints again, or the machine was asleep";
+  if (Number.isNaN(age)) return { state: "stale", at, text: `has a last_tick that is not a date (${JSON.stringify(at)}); ${repair}` };
+  if (age > STALE_MS) return { state: "stale", at, text: `has not run since ${at} (${Math.round(age / 60000)} min ago); ${repair}` };
+  return { state: "ok", at, text: `last ran ${at}` };
+}
+
 function tick(where, now = new Date()) {
   const result = { patrol: null, woken: [] };
+  // First, so a run that fails later still counts as a run (#510 D1).
+  store.writeJsonAtomic(where, stateFile(where), { ...readState(where), last_tick: store.isoLocal(now) });
   const wakeState = readState(where);
   result.woken = wakeEnded(where, wakeState);
   result.handedOver = require("./shift").handOver(where);
@@ -366,4 +390,4 @@ function runTick(argv) {
   }
 }
 
-module.exports = { runTick, tick, TickError };
+module.exports = { runTick, tick, heartbeat, TickError };

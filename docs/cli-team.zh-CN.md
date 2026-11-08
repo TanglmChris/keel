@@ -43,6 +43,8 @@ patrol:
 
 `runner: tick` 告诉协调者的新会话和 `keel shift resume`：巡检在会话之外运行，所以不会再提醒它们重建计划任务。`keel tick task` 会打印 launchd 任务：一个 plist，每 300 秒在仓库的主 checkout 里调用一次 `keel tick`，每次运行都会从那里找到各个声明了的角色当前绑定的 worktree（所以把角色绑到别处不需要重装任务），日志写到聊天存储里的 `tick/tick.log`。同时打印安装它的两条命令和卸载它的一条命令。Keel 不替你安装，命令请自己运行。plist 里带的是打印它的那个 shell 的 `PATH`，所以打印时 `claude` 和 `git` 必须都在 `PATH` 上，只是 Claude 插件缓存目录（它属于某一个版本）会被去掉。它运行的是那个 `PATH` 上与打印它的 node 为同一个可执行文件的 `node`，例如 `/opt/homebrew/bin/node`，而不是带版本号的 `Cellar` 目标，所以 `brew upgrade` 不会弄坏这个任务；`keel chat wake add` 和聊天桥也一样。launchd 任务不得写入 `.claude/worktrees/` 下的路径或 `.venv` 里的路径，因为这两处都会被重新生成，任务随后每个间隔都失败，只在 `tick/tick.err` 留一行；打印出的任务因此写主 checkout，只有主 checkout 没有声明 `patrol:` 时才写角色绑定的 worktree，并说明原因。`keel --doctor` 会为每个 `dev.keel.*` LaunchAgent 打印一行 `launchd`，列出 node、`--repo` 或 `WorkingDirectory` 已不存在、或位于 `.claude/worktrees/` 下的那些，并给出重建它的命令。
 
+每次 `keel tick` 运行都会在 `tick/state.json` 里记录 `last_tick`，巡检未到期的那次也记，因为巡检自己的 `last_run` 一次巡检才动一次。`keel --doctor` 据此打印一行 `tick`：正常时给出上次运行的时间；超过 15 分钟（任务周期的三倍）没运行、或仓库声明了 `runner: tick` 却从未记录过运行时，报告为问题。巡检角色的会话启动也用一行说同样的事，`keel context --json` 以 `patrol.tick` 带出。任务没在跑时，tick 自己无法报告，所以只能靠这条痕迹；它只读这一个文件、不向宿主查询，因此不说原因：电脑睡眠与任务从未加载，看到的是同一行（#510）。
+
 每次巡检都会打印一行 `next:`，即推荐的下次运行时间，`keel tick` 会等到这个时间。不声明 `cadence: adaptive` 时，它就是 `every:`（规则 `fixed`）。声明后，取第一条成立的规则：
 
 | 规则 | 条件 | 默认 |

@@ -886,6 +886,15 @@ function resolveContext(repo, options) {
     context.patrol = { role: patrol.role, every: patrol.every };
     if (patrol.hostTask) context.patrol.hostTask = patrol.hostTask;
     if (patrol.runner) context.patrol.runner = patrol.runner;
+    // A tick that has gone silent is said at session start (#510 D5); only its own state is read.
+    if (patrol.runner === "tick") {
+      try {
+        const beat = require("./tick").heartbeat(require("./chat/store").locate(repo));
+        if (beat.state) context.patrol.tick = { state: beat.state, at: beat.at, text: beat.text };
+      } catch {
+        // no chat store here: nothing to report
+      }
+    }
   }
   context.warnings.push(...gitWarnings(repo));
   // A broken `authorize:` declaration is otherwise reported only by
