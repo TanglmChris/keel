@@ -2514,15 +2514,31 @@ function runDoctor(options) {
 function printLaunchdJobs() {
   const jobs = require("../src/core/launchd").inspectJobs();
   if (!jobs.length) return;
-  const gone = jobs.filter((job) => !job.exists);
-  for (const job of gone) {
-    printDoctorLine(
-      "launchd",
-      "problem",
-      `${job.name} runs ${job.program || "no program"}, which does not exist; re-create it with \`${job.recreate}\``
-    );
+  let problems = 0;
+  for (const job of jobs) {
+    if (!job.exists) {
+      problems += 1;
+      printDoctorLine(
+        "launchd",
+        "problem",
+        `${job.name} runs ${job.program || "no program"}, which does not exist; re-create it with \`${job.recreate}\``
+      );
+    }
+    // The directory it runs in (#503): gone, or a worktree Keel creates and
+    // prunes, so the job stops the day the worktree moves.
+    for (const directory of job.directories || []) {
+      if (directory.exists && !directory.regenerated) continue;
+      problems += 1;
+      printDoctorLine(
+        "launchd",
+        "problem",
+        directory.exists
+          ? `${job.name} runs in ${directory.path}, a worktree Keel creates and prunes, so it stops when that moves; re-create it with \`${job.recreate}\``
+          : `${job.name} runs in ${directory.path}, which does not exist; re-create it with \`${job.recreate}\``
+      );
+    }
   }
-  if (!gone.length) printDoctorLine("launchd", "ok", `${jobs.length} dev.keel job${jobs.length === 1 ? "" : "s"}, each naming a node that exists`);
+  if (!problems) printDoctorLine("launchd", "ok", `${jobs.length} dev.keel job${jobs.length === 1 ? "" : "s"}, each naming a node that exists and no directory that is gone or regenerated`);
 }
 
 // Each role's merged, unused task branches (#469 D5): a count pointing at

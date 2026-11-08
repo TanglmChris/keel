@@ -51,7 +51,26 @@ const RECREATE = [
   [/^dev\.keel\.chat-bridge/, "keel chat bridge install"],
 ];
 
-// Each `dev.keel.*` LaunchAgent with the program it runs and whether that exists.
+// A worktree under `.claude/worktrees/` is a checkout Keel creates and prunes (#503).
+const REGENERATED = /[\\/]\.claude[\\/]worktrees[\\/]/;
+
+function unescapeXml(value) {
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+// The directories a job runs in: its `WorkingDirectory` and the argument after
+// `--repo`, each once, with whether it exists and whether Keel regenerates it.
+function jobDirectories(text) {
+  const found = [
+    text.match(/<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/),
+    text.match(/<string>--repo<\/string>\s*<string>([^<]*)<\/string>/),
+  ];
+  const paths = [...new Set(found.filter(Boolean).map((match) => unescapeXml(match[1])))];
+  return paths.map((dir) => ({ path: dir, exists: fs.existsSync(dir), regenerated: REGENERATED.test(`${dir}${path.sep}`) }));
+}
+
+// Each `dev.keel.*` LaunchAgent with the program it runs and whether that
+// exists, and the directories it runs in (#503).
 function inspectJobs() {
   let names = [];
   try {
@@ -67,9 +86,9 @@ function inspectJobs() {
       // unreadable: reported as no program below
     }
     const match = text.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/);
-    const program = match ? match[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") : null;
+    const program = match ? unescapeXml(match[1]) : null;
     const recreate = (RECREATE.find(([pattern]) => pattern.test(name)) || [null, "the command that wrote it"])[1];
-    return { name, program, exists: Boolean(program) && fs.existsSync(program), recreate };
+    return { name, program, exists: Boolean(program) && fs.existsSync(program), recreate, directories: jobDirectories(text) };
   });
 }
 
