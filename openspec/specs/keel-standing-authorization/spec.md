@@ -10,10 +10,10 @@ Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` nami
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
 `issue`, `protocol-refresh`, `chat-reply`, `issue-close`, `cleanup`, `push-protected`,
-`shift-restore`, `self-shift`, `delete-branch` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`shift-restore`, `self-shift`, `delete-branch`, `push-tag` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
-resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, `chat-reply`, `push-protected`, and `delete-branch` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
+resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, `chat-reply`, `push-protected`, `delete-branch`, and `push-tag` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
 credentials that open one are account-wide, while `commit`, `push`, `release`, and `archive` are
 bounded by the checkout the declaration sits in, and so is `protocol-refresh`. Accepting a bare `issue` would make the narrow
 form optional and the wide one the default, so the bare entry MUST be reported with the required
@@ -285,7 +285,7 @@ Keel MUST read every indented, non-comment, non-blank line under `authorize:` as
 
 ### Requirement: A scoped authorization may name the roles it applies to
 
-Every scoped `authorize:` entry — `issue:`, `issue-close:`, `cleanup:`, `chat-reply:`, `push:<glob>` and `push-protected:` — MAY end in `@<pattern>`, where the pattern uses chat-role characters and `*`. Such an entry MUST apply only to a session whose chat role matches the pattern, and an entry without one MUST apply as before. What a session reads as authorized — the capsule's inherited autonomy, `keel context`, its chat-reply groups, and `keel --doctor`'s per-action lines — MUST leave out entries for other roles, except `push-protected`, which stays listed with its pattern because the guard refuses other roles by name. A session bound to no role MUST get no role-limited entry. The Claude write guard MUST keep the push check on while any push entry is declared for any role, and MUST allow a branch only through an entry that matches the session's role, refusing a branch that another role's entry covers by naming that pattern. `keel --doctor` MUST list, for each role bound in the repository, the scoped entries that apply to it. A malformed pattern MUST be refused like a malformed scope.
+Every scoped `authorize:` entry — `issue:`, `issue-close:`, `cleanup:`, `chat-reply:`, `push:<glob>`, `push-protected:` and `push-tag:` — MAY end in `@<pattern>`, where the pattern uses chat-role characters and `*`. Such an entry MUST apply only to a session whose chat role matches the pattern, and an entry without one MUST apply as before. What a session reads as authorized — the capsule's inherited autonomy, `keel context`, its chat-reply groups, and `keel --doctor`'s per-action lines — MUST leave out entries for other roles, except `push-protected`, which stays listed with its pattern because the guard refuses other roles by name. A session bound to no role MUST get no role-limited entry. The Claude write guard MUST keep the push check on while any push entry is declared for any role, and MUST allow a branch only through an entry that matches the session's role, refusing a branch that another role's entry covers by naming that pattern. `keel --doctor` MUST list, for each role bound in the repository, the scoped entries that apply to it. A malformed pattern MUST be refused like a malformed scope.
 
 #### Scenario: Grants follow the role
 - **WHEN** `authorize:` lists `push:design-*@rtl`, `push:review-*@ver*`, `issue:acme/widgets@rtl` and `chat-reply:soc@verify`, with `rtl` and `verify` bound
@@ -294,3 +294,19 @@ Every scoped `authorize:` entry — `issue:`, `issue-close:`, `cleanup:`, `chat-
 #### Scenario: A malformed role pattern is refused
 - **WHEN** `authorize:` lists `issue:acme/widgets@Not A Role`
 - **THEN** `keel --doctor` exits non-zero naming the entry
+
+### Requirement: A tag push is granted by its own scoped name
+
+`authorize:` MAY declare `push-tag:<tag glob>` or `push-tag:<tag glob>@<role pattern>`, more than once. The glob MUST use tag-name characters and `*`, and a bare `push-tag`, a malformed glob or a malformed role pattern MUST be refused naming the required form. A `push-tag:` entry MUST NOT make a bare `push` beside it a mixed declaration, because it widens no branch.
+
+#### Scenario: Doctor reports the grant and says it is enforced
+- **WHEN** `authorize:` lists `push-tag:v*` and `push-tag:cbb-parked-*@kaiwu-pm-cbb`
+- **THEN** `keel --doctor` reports `push-tag` authorized and scoped to `v*`, names the role-limited entry, and says the Claude write guard enforces it
+
+#### Scenario: A wrong form is refused naming the form
+- **WHEN** `authorize:` lists a bare `push-tag`, `push-tag:v$` or `push-tag:v*@Not`
+- **THEN** `keel --doctor` fails and names `push-tag:<tag glob>`
+
+#### Scenario: A bare push beside a tag grant is not mixed
+- **WHEN** `authorize:` lists `push` and `push-tag:v*`
+- **THEN** `keel --doctor` accepts the declaration

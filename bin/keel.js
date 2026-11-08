@@ -2700,7 +2700,7 @@ function printStandingAuthorizationSurface(repo) {
   // observes none that an agent runs, so the scope is a declaration carried to
   // the people who read it rather than a boundary anything holds. A reader who
   // took it for a sandbox would be relying on nothing.
-  if ([...scopes.entries()].some(([action, scope]) => scope !== null && action !== "push" && action !== "push-protected")) {
+  if ([...scopes.entries()].some(([action, scope]) => scope !== null && action !== "push" && action !== "push-protected" && action !== "push-tag")) {
     printDoctorLine(
       "scope",
       "carried",
@@ -2735,6 +2735,16 @@ function printStandingAuthorizationSurface(repo) {
       const reach = entries.filter((entry) => entry.scope !== null && (!entry.role || roleMatches(entry.role, name))).map((entry) => entry.entry);
       printDoctorLine("roles", name, reach.length ? reach.join(", ") : "no scoped grant");
     }
+  }
+  if (scopes.get("push-tag")) {
+    printDoctorLine(
+      "tag push",
+      "enforced",
+      "the Claude write guard enforces these globs: it allows a `git push` of "
+        + "an explicit tag only through them, and for a session of the role after `@`; "
+        + "`--tags`, `--follow-tags` and a tag deletion keep their verdicts; "
+        + "on Codex the scope is carried, not enforced"
+    );
   }
   if (scopes.get("push")) {
     printDoctorLine(

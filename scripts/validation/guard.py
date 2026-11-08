@@ -1129,6 +1129,58 @@ def validate_push_protected_declaration_scenario() -> int:
     return 0
 
 
+def validate_push_tag_declaration_scenario() -> int:
+    """Issue #499: `push-tag:<glob>[@<role>]` is accepted, reported and enforced by name."""
+    label = "push-tag-declaration:"
+    with tempfile.TemporaryDirectory(prefix="keel-push-tag-decl-") as raw_tmp:
+        root = Path(raw_tmp)
+
+        def fixture(name: str, entries: list[str]) -> Path:
+            repo = root / name
+            repo.mkdir()
+            write_authorize_config(repo, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+            return repo
+
+        doctor = run_keel(fixture("good", ["push-tag:v*", "push-tag:cbb-parked-*@kaiwu-pm-cbb"]), "--doctor")
+        if doctor.returncode != 0:
+            report(f"{label} doctor failed on a valid declaration: {doctor.stdout}{doctor.stderr}")
+            return 1
+        line = next((l for l in doctor.stdout.splitlines() if l.strip().startswith("push-tag:")), "")
+        for needle in ("authorized", "v*"):
+            if needle not in line:
+                report(f"{label} doctor's push-tag line lacks {needle!r}: {line!r}")
+                report(doctor.stdout)
+                return 1
+        if "push-tag:cbb-parked-*@kaiwu-pm-cbb" not in doctor.stdout:
+            report(f"{label} doctor does not name the role-limited entry: {doctor.stdout}")
+            return 1
+        tag_line = next((l for l in doctor.stdout.splitlines() if l.strip().startswith("tag push:")), "")
+        if "write guard enforces" not in tag_line:
+            report(f"{label} doctor's tag push line does not say the guard enforces it: {tag_line!r}")
+            return 1
+        if "does not enforce" in doctor.stdout:
+            report(f"{label} doctor calls the tag scope carried and not enforced: {doctor.stdout}")
+            return 1
+        beside = run_keel(fixture("beside-push", ["push", "push-tag:v*"]), "--doctor")
+        if beside.returncode != 0:
+            report(f"{label} a bare push beside push-tag:v* was refused: {beside.stdout}{beside.stderr}")
+            return 1
+        for name, entries in (
+            ("bare", ["push-tag"]),
+            ("bad-glob", ["push-tag:v$"]),
+            ("bad-role", ["push-tag:v*@Not"]),
+        ):
+            refused = run_keel(fixture(name, entries), "--doctor")
+            if refused.returncode == 0:
+                report(f"{label} {entries!r} was accepted.")
+                return 1
+            if "push-tag:<tag glob>" not in refused.stdout + refused.stderr:
+                report(f"{label} {entries!r} was refused without naming the form: {refused.stdout}")
+                return 1
+    report("push-tag-declaration scenario passed.")
+    return 0
+
+
 def validate_authorize_push_close_cleanup_scenario() -> int:
     """Issue #257: `push:<glob>`, `issue-close:<owner>/<repo>`, `cleanup:scratch`.
 
@@ -4260,6 +4312,131 @@ def validate_push_guard_follow_tags_scenario() -> int:
         if not expect("a --follow-tags push with no push scope", rtl, f"git push --follow-tags {branch}", "pass"):
             return 1
     report("push-guard-follow-tags scenario passed.")
+    return 0
+
+
+@contextlib.contextmanager
+def push_tag_session(prefix: str):
+    """Issue #499: two worktrees bound to roles, and the real hook run against them.
+
+    Yields `(pm, rtl, declare, expect)`. `pm` is bound to `kaiwu-pm-cbb` and `rtl`
+    to `rtl`; `declare` writes an `authorize:` block into both; `expect` runs the
+    real PreToolUse hook and checks the verdict and the words it names.
+    """
+    with tempfile.TemporaryDirectory(prefix=prefix) as raw:
+        base = Path(raw)
+        repo = mailbox_repository(base / "repo")
+        pm = chat_worktree(repo, base / "pm")
+        rtl = chat_worktree(repo, base / "rtl")
+        env = chat_environment()
+        run_keel(pm, "chat", "role", "--set", "kaiwu-pm-cbb", env=env)
+        run_keel(rtl, "chat", "role", "--set", "rtl", env=env)
+        hook_env = {
+            k: v for k, v in os.environ.items()
+            if k not in ("KEEL_CHAT_ROLE", "KEEL_MAIL_ROLE") and not k.startswith("GIT_CONFIG")
+        }
+        hook_env["CLAUDE_PLUGIN_ROOT"] = str(ROOT / PLUGIN_ROOT)
+
+        def declare(entries: list[str]) -> None:
+            for cwd in (pm, rtl):
+                write_authorize_config(cwd, "authorize:\n" + "".join(f"  - {e}\n" for e in entries))
+
+        def expect(label: str, what: str, cwd: Path, command: str, want: str, needles: tuple[str, ...] = ()) -> bool:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd), "permission_mode": "default"}
+            result = subprocess.run(
+                ["node", str(ROOT / PLUGIN_ROOT / "scripts/pretooluse-guard.js")],
+                cwd=cwd, env=hook_env, input=json.dumps(event), text=True, capture_output=True, check=False,
+            )
+            decision = pretooluse_decision(result) or {"permissionDecision": "pass"}
+            if decision.get("permissionDecision") != want:
+                verdict = "allowed" if decision.get("permissionDecision") == "pass" else decision.get("permissionDecision")
+                report(f"{label} {what} was {verdict}, not {want} ({command!r}): {decision!r}")
+                return False
+            reason = decision.get("permissionDecisionReason", "")
+            for needle in needles:
+                if needle not in reason:
+                    report(f"{label} {what} does not name {needle!r}: {reason!r}")
+                    return False
+            return True
+
+        yield pm, rtl, declare, expect
+
+
+def validate_push_tag_grant_scenario() -> int:
+    """Issue #499: a granted role pushes a granted tag; nobody else pushes it."""
+    label = "push-tag-grant:"
+    with push_tag_session("keel-push-tag-grant-") as (pm, rtl, declare, expect):
+        declare(["push-tag:cbb-parked-*@kaiwu-pm-cbb"])
+        granted = (
+            ("an explicit refs/tags refspec", "git push origin refs/tags/cbb-parked-1101-design"),
+            ("the `tag <name>` form", "git push origin tag cbb-parked-1101-design"),
+            ("HEAD to a new tag", "git push origin HEAD:refs/tags/cbb-parked-1101-verify"),
+            ("a tag to the same tag", "git push origin refs/tags/cbb-parked-1101-design:refs/tags/cbb-parked-1101-design"),
+        )
+        for what, command in granted:
+            if not expect(label, f"the granted role's push of {what}", pm, command, "pass"):
+                return 1
+        if not expect(label, "another role's push of a granted tag", rtl,
+                      "git push origin refs/tags/cbb-parked-1101-design", "deny", ("kaiwu-pm-cbb",)):
+            return 1
+        if not expect(label, "the granted role's push of a tag outside the glob", pm,
+                      "git push origin refs/tags/other-1", "deny", ("push-tag:",)):
+            return 1
+    report("push-tag-grant scenario passed.")
+    return 0
+
+
+def validate_push_tag_branches_scenario() -> int:
+    """Issue #499: a tag beside a branch is judged by its own rule, and a tag-only
+    declaration leaves branch pushes alone."""
+    label = "push-tag-branches:"
+    with push_tag_session("keel-push-tag-branches-") as (pm, rtl, declare, expect):
+        declare(["push:claude/*", "push-tag:v*"])
+        if not expect(label, "a granted branch and a granted tag together", rtl,
+                      "git push origin claude/x refs/tags/v1", "pass"):
+            return 1
+        if not expect(label, "an ungranted branch beside a granted tag", rtl,
+                      "git push origin main refs/tags/v1", "deny", ("`main`",)):
+            return 1
+        if not expect(label, "a granted branch beside an ungranted tag", rtl,
+                      "git push origin claude/x refs/tags/w1", "deny", ("push-tag:",)):
+            return 1
+        declare(["push-tag:v*"])
+        if not expect(label, "a branch push when only tags are declared", rtl, "git push origin feature-1", "pass"):
+            return 1
+        if not expect(label, "a granted tag when only tags are declared", rtl, "git push origin refs/tags/v1", "pass"):
+            return 1
+        if not expect(label, "an ungranted tag when only tags are declared", rtl,
+                      "git push origin refs/tags/w1", "deny", ("push-tag:",)):
+            return 1
+        declare(["push-protected:main", "push-tag:v*"])
+        if not expect(label, "a protected branch with a granted tag", rtl, "git push origin main refs/tags/v1", "ask",
+                      ("`main`",)):
+            return 1
+    report("push-tag-branches scenario passed.")
+    return 0
+
+
+def validate_push_tag_keeps_verdicts_scenario() -> int:
+    """Issue #499: the tag grant changes nothing about bulk tag pushes, deletions
+    or a repository without the grant."""
+    label = "push-tag-keeps-verdicts:"
+    with push_tag_session("keel-push-tag-verdicts-") as (pm, rtl, declare, expect):
+        declare(["push:claude/*", "push-tag:cbb-parked-*"])
+        for what, command, needles in (
+            ("--tags", "git push --tags origin", ("--tags",)),
+            ("--mirror", "git push --mirror origin", ("--mirror",)),
+            ("--follow-tags to an unprotected branch", "git push --follow-tags origin claude/x", ("--no-follow-tags",)),
+            ("--delete of a granted tag", "git push origin --delete refs/tags/cbb-parked-1101-design", ("is not a branch",)),
+            ("a colon refspec deleting a granted tag", "git push origin :refs/tags/cbb-parked-1101-design", ("is not a branch",)),
+        ):
+            if not expect(label, f"a push with {what}", rtl, command, "deny", needles):
+                return 1
+        declare(["push:claude/*"])
+        if not expect(label, "an explicit tag with no tag grant declared", rtl,
+                      "git push origin refs/tags/v1", "deny", ("is not a branch",)):
+            return 1
+    report("push-tag-keeps-verdicts scenario passed.")
     return 0
 
 

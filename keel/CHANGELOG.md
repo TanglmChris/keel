@@ -1,5 +1,16 @@
 # Keel Changelog
 
+## 5.222.0 - A repository can grant a tag push
+
+Issue #499, reported from kaiwu-ip on 2026-11-02 (Keel 5.215.0) and taken up at the owner's request on 2026-11-08. The Claude write guard refused every explicit tag refspec as `is not a branch`, a push carrying tags could only be asked about on a `push-protected:` branch, and the owner's in-session approval could not help because the deny fires before any ask; the owner had to type `! git push …` for two tags that preserved parked work.
+
+- **`push-tag:<tag glob>[@<role>]`** joins the `authorize:` vocabulary (the fifteenth name). A session of a matching role, or any session without `@role`, may run `git push origin refs/tags/<name>`, `<src>:refs/tags/<name>` or `git push origin tag <name>` for a tag the glob matches. `*` matches within one `/` segment. The grant never asks.
+- **A tag outside the grants is denied by name:** the message names `push-tag:` with the declared globs, or, when only another role's grant matches, that role (`kaiwu-pm-cbb` in the issue's case).
+- **Nothing else moves.** `--tags`, `--mirror`, `--follow-tags`, `push.followTags` and tag deletion (`--delete`, `:refs/tags/x`) keep their verdicts, no branch grant carries tags, and a repository with no `push-tag:` entry still reads `is not a branch`. A repository that declares only `push-tag:` limits tags and leaves branch pushes alone; a bare `push` beside it is allowed because it widens no branch.
+- **`keel --doctor` lists it** beside `push:` (`push-tag: authorized … scoped to …`, with the role-limited entries among those for other roles) and prints a `tag push: enforced` line; a bare `push-tag`, a malformed glob or a malformed role voids the declaration like any other typo.
+- **Specs and docs:** `keel-touch-write-guard` gains the tag-grant requirement, `keel-standing-authorization` gains `push-tag` in its closed set and a requirement of its own, and the READMEs and the `keel/config.yaml` comment say fifteen names.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.222.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.221.0 - A sender can post without waking
 
 Issue #502, filed 2026-11-04 from the kaiwu token review and taken up at the owner's request on 2026-11-08. A chat record wakes the addressed role's idle session through `signal/<role>`, and the woken session's cache is mostly cold, so each wake rewrites its whole context: in the issue's data (a multi-role project, 2026-10-21 to 11-04, Keel 5.216.0) turns started by a chat notice were 70.4% of usage, 764 of them read and ended, and 258 cache rewrites were about 18%. The sender had no way to say a record is only information.
