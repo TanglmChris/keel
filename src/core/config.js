@@ -44,6 +44,11 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // through `keel branches prune` (#469). Its one scope, `merged`, says which
   // branches it reaches; each deletion is recorded with its sha first.
   "delete-branch",
+  // Pushing an explicit tag whose name matches the glob, which the Claude
+  // write guard otherwise refuses as not a branch (#499); `@<role>` limits who
+  // may. It grants no bulk tag push and no tag deletion, and it widens no
+  // branch, so a bare `push` beside it is not a mixed declaration.
+  "push-tag",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -53,7 +58,7 @@ const STANDING_AUTHORIZATION_ACTIONS = [
 // actions are declared with the resource they may reach and refused bare —
 // accepting the bare form as a convenience would make the narrow form optional
 // and the wide one the default, which is the decision inverted.
-const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup", "push-protected", "delete-branch"]);
+const SCOPED_AUTHORIZATION_ACTIONS = new Set(["issue", "chat-reply", "issue-close", "cleanup", "push-protected", "delete-branch", "push-tag"]);
 
 // Actions whose scope narrows them but is not required (#257). A bare `push`
 // keeps the meaning it always had; `push:<branch glob>` limits it to matching
@@ -79,6 +84,8 @@ const AUTHORIZATION_SCOPES = {
   // `**` across them, as Touch globs do.
   push: { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
   "push-protected": { form: "<branch glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
+  // Tag-name characters and `*`, which matches within one `/` segment.
+  "push-tag": { form: "<tag glob>", pattern: /^[A-Za-z0-9._/*-]+$/ },
 };
 
 // `@<role pattern>` after any scope (#378): chat-role characters and `*`,
@@ -359,6 +366,14 @@ function standingAuthorizationUnknownMessage(unknown, problems = []) {
       );
       continue;
     }
+    if (problem.action === "push-tag") {
+      notes.push(
+        `\`${problem.entry}\` is not \`push-tag:<tag glob>\` or \`push-tag:<tag glob>@<role>\` — `
+          + "a glob of letters, digits, `.`, `_`, `-`, `/`, and `*`, and a chat role of lowercase "
+          + "letters, digits, and hyphens. It takes a tag glob because a tag push is granted by name."
+      );
+      continue;
+    }
     if (problem.action === "push") {
       notes.push(
         `\`${problem.entry}\` does not name a branch glob as \`push:<branch glob>\` — `
@@ -446,6 +461,7 @@ function readStandingAuthorization(repo, options = {}) {
   // author believes they granted the typo too.
   const pushGlobs = [];
   const protectedPushes = [];
+  const pushTags = [];
   for (const entry of declared) {
     const classified = classifyAuthorizationEntry(entry);
     if (classified.action === "push" && classified.scope !== null && !pushGlobs.includes(classified.scope)) {
@@ -453,6 +469,9 @@ function readStandingAuthorization(repo, options = {}) {
     }
     if (classified.action === "push-protected" && !protectedPushes.includes(classified.scope)) {
       protectedPushes.push(classified.scope);
+    }
+    if (classified.action === "push-tag" && !pushTags.includes(classified.scope)) {
+      pushTags.push(classified.scope);
     }
   }
   const anyScopedPush = entries.some((e) => (e.action === "push" && e.scope !== null) || e.action === "push-protected");
@@ -470,6 +489,7 @@ function readStandingAuthorization(repo, options = {}) {
       chatReplyGroups: [],
       pushGlobs: [],
       protectedPushes: [],
+      pushTags: [],
       otherRoles: [],
       entries: [],
       role,
@@ -480,7 +500,8 @@ function readStandingAuthorization(repo, options = {}) {
   if (chatReplyGroups.length) scopes.set("chat-reply", chatReplyGroups.join(", "));
   if (pushGlobs.length) scopes.set("push", pushGlobs.join(", "));
   if (protectedPushes.length) scopes.set("push-protected", protectedPushes.join(", "));
-  return { declared, scopes, chatReplyGroups, pushGlobs, protectedPushes, otherRoles, entries, role, unknown, message: null };
+  if (pushTags.length) scopes.set("push-tag", pushTags.join(", "));
+  return { declared, scopes, chatReplyGroups, pushGlobs, protectedPushes, pushTags, otherRoles, entries, role, unknown, message: null };
 }
 
 // `full_mode_paths:` — the paths whose change always routes Full, whatever the

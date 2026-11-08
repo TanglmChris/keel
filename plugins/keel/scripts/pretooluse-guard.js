@@ -204,17 +204,19 @@ function gitOut(cwd, args) {
   return result.status === 0 ? String(result.stdout || "").trim() : null;
 }
 
-// `push:` and `push-protected:` entries ({ glob, role }) of `authorize:`; a
-// role pattern after `@` limits either to matching sessions (#378).
+// `push:`, `push-protected:` and `push-tag:` entries ({ glob, role }) of
+// `authorize:`; a role pattern after `@` limits any of them to matching
+// sessions (#378, #499).
 function readPushGlobs(top) {
   let text = "";
   try {
     text = fs.readFileSync(path.join(top, "keel", "config.yaml"), "utf8");
   } catch {
-    return { globs: [], protectedEntries: [] };
+    return { globs: [], protectedEntries: [], tagEntries: [] };
   }
   const globs = [];
   const protectedEntries = [];
+  const tagEntries = [];
   let inBlock = false;
   for (const line of text.split(/\r?\n/)) {
     if (/^\s*#/.test(line) || line.trim() === "") continue;
@@ -229,8 +231,10 @@ function readPushGlobs(top) {
     if (entry) globs.push({ glob: entry[1], role: entry[2] || null });
     const guarded = bare.match(/^\s+-\s*push-protected:([^@\s]+)(?:@(\S+))?\s*$/);
     if (guarded) protectedEntries.push({ glob: guarded[1], role: guarded[2] || null });
+    const tagged = bare.match(/^\s+-\s*push-tag:([^@\s]+)(?:@(\S+))?\s*$/);
+    if (tagged) tagEntries.push({ glob: tagged[1], role: tagged[2] || null });
   }
-  return { globs, protectedEntries };
+  return { globs, protectedEntries, tagEntries };
 }
 
 // The chat role bound to the worktree at `top` (#245), for a role-limited
@@ -478,7 +482,9 @@ function pushDestination(dir) {
   return remote ? rest.slice(remote.length + 1) : null;
 }
 
-// Target branches of one push, or { undetermined: reason[, form] }.
+// Target branches of one push, and the explicit tags it names (#499), or
+// { undetermined: reason[, form] }. A tag is a target only when it is pushed:
+// a deletion, a bulk push and a push carrying tags keep their verdicts.
 function pushTargets(push) {
   if (push.undetermined) return push;
   // Whatever the refspec, the repository it pushes is unknown here (#486 D1).
@@ -533,7 +539,16 @@ function pushTargets(push) {
     return branch ? { targets: [branch], tags } : { undetermined: "the branch has no configured push destination" };
   }
   const targets = [];
-  for (const raw of refspecs) {
+  const tagTargets = [];
+  for (let k = 0; k < refspecs.length; k += 1) {
+    const raw = refspecs[k];
+    // git's `tag <name>` is `refs/tags/<name>:refs/tags/<name>`.
+    if (raw === "tag" && k + 1 < refspecs.length) {
+      k += 1;
+      if (deleting) return { undetermined: `\`tag ${refspecs[k]}\` is not a branch` };
+      tagTargets.push({ name: refspecs[k], raw: `tag ${refspecs[k]}` });
+      continue;
+    }
     const spec = raw.replace(/^\+/, "");
     let dst = spec;
     if (!deleting && spec.includes(":")) dst = spec.slice(spec.indexOf(":") + 1);
@@ -544,10 +559,16 @@ function pushTargets(push) {
       if (!dst) return { undetermined: "HEAD is detached" };
     }
     if (dst.startsWith("refs/heads/")) dst = dst.slice("refs/heads/".length);
-    else if (dst.startsWith("refs/")) return { undetermined: `\`${raw}\` is not a branch` };
+    else if (dst.startsWith("refs/tags/") && dst.length > "refs/tags/".length && !deleting && !spec.startsWith(":")) {
+      tagTargets.push({ name: dst.slice("refs/tags/".length), raw });
+      continue;
+    } else if (dst.startsWith("refs/")) return { undetermined: `\`${raw}\` is not a branch` };
     targets.push(dst);
   }
-  return { targets, tags };
+  // A push that also carries tags by itself keeps the verdict it had: the
+  // grant names the tags a push sends, and this one sends more (#327).
+  if (tags && tagTargets.length) return { undetermined: `\`${tagTargets[0].raw}\` is not a branch` };
+  return { targets, tagTargets, tags };
 }
 
 function checkPushes(event) {
@@ -560,11 +581,15 @@ function checkPushes(event) {
   for (const push of findPushes(command, cwd)) {
     const top = gitOut(push.dir || cwd, ["rev-parse", "--show-toplevel"]);
     if (!top) continue;
-    const { globs, protectedEntries } = readPushGlobs(top);
-    if (!globs.length && !protectedEntries.length) continue;
+    const { globs, protectedEntries, tagEntries } = readPushGlobs(top);
+    if (!globs.length && !protectedEntries.length && !tagEntries.length) continue;
+    // Branches are limited by `push:` and `push-protected:` alone: a repository
+    // declaring only tag grants leaves branch pushes alone (#499 D4).
+    const branchesLimited = globs.length > 0 || protectedEntries.length > 0;
     const declared = [
       ...globs.map((e) => `\`push:${e.glob}${e.role ? `@${e.role}` : ""}\``),
       ...protectedEntries.map((e) => `\`push-protected:${e.glob}${e.role ? `@${e.role}` : ""}\``),
+      ...tagEntries.map((e) => `\`push-tag:${e.glob}${e.role ? `@${e.role}` : ""}\``),
     ].join(", ");
     const result = pushTargets(push);
     if (result.form) {
@@ -583,6 +608,15 @@ function checkPushes(event) {
       );
       return 0;
     }
+    // No tag grant is declared: an explicit tag is, as before, not a branch.
+    if (!tagEntries.length && result.tagTargets && result.tagTargets.length) {
+      deny(
+        `Keel push guard: keel/config.yaml limits push to ${declared}, and the `
+          + `guard cannot tell which branch this push targets: \`${result.tagTargets[0].raw}\` is not a branch. `
+          + `Name the branch, as ${EXPLICIT_FORM}.`
+      );
+      return 0;
+    }
     // A push carrying tags passes on no `push:` glob; only a protected
     // branch's ask can carry it, so each branch must be a protected one.
     if (result.tags && !result.targets.every((b) => protectedEntries.some((e) => globPattern(e.glob).test(b)))) {
@@ -597,9 +631,25 @@ function checkPushes(event) {
     let role;
     const roleOf = () => (role === undefined ? (role = sessionRole(top)) : role);
     const mine = (e) => !e.role || roleMatches(e.role, roleOf());
-    const unlisted = result.tags
-      ? result.targets
-      : result.targets.filter((branch) => !globs.some((e) => mine(e) && globPattern(e.glob).test(branch)));
+    for (const tag of result.tagTargets || []) {
+      if (tagEntries.some((e) => mine(e) && globPattern(e.glob).test(tag.name))) continue;
+      // Another role's grant (#378): name who may push it.
+      const theirs = tagEntries.filter((e) => e.role && globPattern(e.glob).test(tag.name)).map((e) => e.role);
+      deny(
+        theirs.length
+          ? `Keel push guard: tag \`${tag.name}\` may be pushed by role ${theirs.join(" or ")} (keel/config.yaml `
+            + `push-tag), and this session is ${roleOf() ? `role ${roleOf()}` : "bound to no chat role"}.`
+          : `Keel push guard: this command pushes tag \`${tag.name}\`, and keel/config.yaml grants tags only through `
+            + `${tagEntries.map((e) => `\`push-tag:${e.glob}${e.role ? `@${e.role}` : ""}\``).join(", ")}. `
+            + "Push a matching tag, or ask the owner; the declaration is theirs to widen."
+      );
+      return 0;
+    }
+    const unlisted = !branchesLimited
+      ? []
+      : result.tags
+        ? result.targets
+        : result.targets.filter((branch) => !globs.some((e) => mine(e) && globPattern(e.glob).test(branch)));
     const outside = [];
     for (const branch of unlisted) {
       const entry = protectedEntries.find((e) => globPattern(e.glob).test(branch));
