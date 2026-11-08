@@ -1,0 +1,189 @@
+# Tasks
+
+## 1. The grant
+
+- [x] 1.1 Accept and report `push-tag:`
+  - Covers:
+    - keel-standing-authorization / A tag push is granted by its own scoped name / Doctor reports the grant and says it is enforced
+    - keel-standing-authorization / A tag push is granted by its own scoped name / A wrong form is refused naming the form
+    - keel-standing-authorization / A tag push is granted by its own scoped name / A bare push beside a tag grant is not mixed
+    - D1
+    - D6
+  - Read:
+    - openspec/changes/push-tag-grant/design.md
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validation/guard.py
+  - Touch:
+    - src/core/config.js
+    - bin/keel.js
+    - scripts/validation/guard.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario push-tag-declaration`: a repository declaring `push-tag:v*` and `push-tag:cbb-parked-*@kaiwu-pm-cbb`, run through `keel --doctor`, exits 0, prints a `push-tag:` line saying authorized and scoped to `v*`, names the role-limited entry among the entries for other roles, prints a `tag push` line saying the write guard enforces it, and does not print the `scope` note that a scope is carried and not enforced; `push` beside `push-tag:v*` exits 0; a bare `push-tag`, `push-tag:v$` and `push-tag:v*@Not` each exit non-zero and name `push-tag:<tag glob>`. Fails with: `push-tag-declaration:`
+    - M2 (regression): run one at a time, each passes: `--scenario authorize-push-close-cleanup`, `--scenario push-protected-declaration`, `--scenario standing-authorization-declaration`, `--scenario authorize-block-reads-every-line`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6eecf89ef4c976cbdfea766b230ed6751dd027463720276e4d9647ab8c2f930a (keel 5.220.0)
+    - M1: pass. `push-tag-declaration scenario passed.` (exit 0). `keel --doctor` on `push-tag:v*` and `push-tag:cbb-parked-*@kaiwu-pm-cbb` exits 0, prints `push-tag: authorized … scoped to v*`, names the role-limited entry, prints `tag push: enforced - the Claude write guard enforces these globs …` and no "does not enforce" note; `push` beside `push-tag:v*` exits 0; a bare `push-tag`, `push-tag:v$` and `push-tag:v*@Not` exit non-zero and name `push-tag:<tag glob>`.
+    - M1.red: fail. Before any code change, exit 1: `push-tag-declaration: doctor failed on a valid declaration: keel doctor for …/good`, the doctor reporting the unrecognized action.
+    - M1.green: pass. `src/core/config.js` takes `push-tag` as a scoped action with a tag glob and a malformed-entry note, and `readStandingAuthorization` returns `pushTags` and its scope; `bin/keel.js` prints the `tag push` line and leaves `push-tag` out of the carried-not-enforced note (D1, D6). The first green attempt failed on the line's wording ("allows" for "enforces"), which the scenario caught, and the text was corrected.
+    - M2: pass. Run one at a time at load 6.4, each exit 0: `authorize-push-close-cleanup`, `push-protected-declaration`, `standing-authorization-declaration` and `authorize-block-reads-every-line` scenarios passed.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel --doctor`, a tag grant is accepted, listed with its scope, said to be enforced, and each wrong form is refused naming the form (M1); the neighbouring authorization scenarios stay green (M2). Enforcement itself is task 1.2's.
+      - Scope check: `git status --short` lists `src/core/config.js`, `bin/keel.js`, `scripts/validation/guard.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 The write guard lets a granted role push a granted tag
+  - Covers:
+    - keel-touch-write-guard / A declared tag grant lets a session push the tags it names / A granted role pushes a granted tag
+    - keel-touch-write-guard / A declared tag grant lets a session push the tags it names / Another role or another tag is denied by name
+    - keel-touch-write-guard / A declared tag grant lets a session push the tags it names / Tags outside an explicit refspec keep their verdicts
+    - keel-touch-write-guard / A declared tag grant lets a session push the tags it names / Tags beside a branch are judged each by its own rule
+    - keel-touch-write-guard / A declared tag grant lets a session push the tags it names / A repository declaring only tag grants limits only tags
+    - D2
+    - D3
+    - D4
+    - D5
+  - Read:
+    - openspec/changes/push-tag-grant/design.md
+    - plugins/keel/scripts/pretooluse-guard.js
+    - scripts/validation/guard.py
+  - Touch:
+    - plugins/keel/scripts/pretooluse-guard.js
+    - scripts/validation/guard.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario push-tag-grant`: with `push-tag:cbb-parked-*@kaiwu-pm-cbb` declared, the real hook allows the session bound to `kaiwu-pm-cbb` to run `git push origin refs/tags/cbb-parked-1101-design`, `git push origin tag cbb-parked-1101-design`, `git push origin HEAD:refs/tags/cbb-parked-1101-verify` and `git push origin refs/tags/cbb-parked-1101-design:refs/tags/cbb-parked-1101-design`; denies the first from a session bound to `rtl` naming `kaiwu-pm-cbb`; and denies `refs/tags/other-1` from the granted role naming `push-tag:`. Fails with: `push-tag-grant:`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario push-tag-branches`: with `push:claude/*` and `push-tag:v*` declared, `git push origin claude/x refs/tags/v1` is allowed, `git push origin main refs/tags/v1` is denied naming `main`, and `git push origin claude/x refs/tags/w1` is denied naming `push-tag:`; with only `push-tag:v*`, `git push origin feature-1` and `refs/tags/v1` are allowed and `refs/tags/w1` is denied naming `push-tag:`; with `push-protected:main` and `push-tag:v*`, `git push origin main refs/tags/v1` asks. Fails with: `push-tag-branches:`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario push-tag-keeps-verdicts`: with `push:claude/*` and `push-tag:cbb-parked-*` declared, `--tags`, `--mirror`, `--follow-tags` to an unprotected branch, `--delete refs/tags/cbb-parked-1101-design` and `:refs/tags/cbb-parked-1101-design` are each denied, the deletions with `is not a branch`; with only `push:claude/*` declared, `refs/tags/v1` is denied with `is not a branch`. Detects: `a :refs/tags/ deletion counted as a push of that tag` -> `push-tag-keeps-verdicts:`
+    - M4 (regression): run one at a time, each passes: `--scenario push-guard-follow-tags`, `--scenario push-branch-guard`, `--scenario push-protected-guard`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6457d810d7ca9116be15987ff9f2835108e73d1e53da6c99661a4ce7ddd7df4b (keel 5.220.0)
+    - M1: pass. `push-tag-grant scenario passed.` (exit 0). With `push-tag:cbb-parked-*@kaiwu-pm-cbb` declared, the real hook passes the `kaiwu-pm-cbb` session for `refs/tags/cbb-parked-1101-design`, `tag cbb-parked-1101-design`, `HEAD:refs/tags/cbb-parked-1101-verify` and `refs/tags/…:refs/tags/…`; denies the `rtl` session naming `kaiwu-pm-cbb`; denies `refs/tags/other-1` naming `push-tag:`.
+    - M1.red: fail. Before any code change, exit 1: `push-tag-grant: another role's push of a granted tag was allowed, not deny ('git push origin refs/tags/cbb-parked-1101-design'): {'permissionDecision': 'pass'}`. The four granted pushes passed for the wrong reason, the guard being off when only `push-tag:` is declared, which is why the other-role arm is the one that decides.
+    - M1.green: pass. `readPushGlobs` reads `push-tag:` lines, `pushTargets` returns `tagTargets`, and `checkPushes` checks each tag against the entries for this session's role and names the other role's grant or `push-tag:` (D2, D3, D5).
+    - M2: pass. `push-tag-branches scenario passed.` (exit 0): a granted branch with a granted tag passes; `main` with a granted tag is denied naming `main`; a granted branch with `refs/tags/w1` is denied naming `push-tag:`; with only `push-tag:v*` a branch push and `refs/tags/v1` pass and `refs/tags/w1` is denied; `push-protected:main` with `refs/tags/v1` asks.
+    - M2.red: fail. Before any code change, exit 1: `push-tag-branches: a granted branch and a granted tag together was deny, not pass ('git push origin claude/x refs/tags/v1')`, the reason being `refs/tags/v1 is not a branch`.
+    - M2.green: pass. The same code as M1.green, plus `branchesLimited`, which leaves branch pushes alone when only tag grants are declared (D4).
+    - M3: pass. `push-tag-keeps-verdicts scenario passed.` (exit 0), before and after the code change, which is why it is a regression check: `--tags`, `--mirror`, `--follow-tags` to an unprotected branch, `--delete refs/tags/…` and `:refs/tags/…` are each denied, the deletions with `is not a branch`, and an explicit tag with no tag grant declared is denied with `is not a branch`.
+    - M3.detects: fail. With `&& !deleting && !spec.startsWith(":")` reduced to `&& !deleting` in `pushTargets`, exit 1: `push-tag-keeps-verdicts: a push with a colon refspec deleting a granted tag was allowed, not deny ('git push origin :refs/tags/cbb-parked-1101-design')`; the file was restored byte for byte (`cmp`) and the scenario passed again.
+    - M4: pass. Run one at a time at load 4.6, each exit 0: `push-guard-follow-tags`, `push-branch-guard`, `push-protected-guard` passed, and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real PreToolUse hook run in two worktrees bound to different roles, a granted role pushes granted tags in all four spellings, another role and an out-of-glob tag are denied by name, tags beside branches are judged each by its own rule, a tag-only declaration leaves branches alone, and bulk pushes, `--follow-tags` and both deletion spellings keep their verdicts (M1 to M3).
+      - Scope check: `git status --short` additionally lists `plugins/keel/scripts/pretooluse-guard.js`, in Touch of this task; the scenarios are in `scripts/validation/guard.py` and `registry.py`, also in Touch.
+      - Findings: Discard reason: with `push.followTags` set and only `push-tag:` declared, a plain branch push is denied as a push carrying tags (the same rule as with `push:`), so a project that wants both must also declare `push-protected:` or turn the config off; the issue asks for neither and the denial names `--no-follow-tags`.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 State it in the docs
+  - Covers:
+    - D1
+    - D6
+  - Read:
+    - README.md
+    - keel/config.yaml
+    - scripts/validation/docs.py
+  - Touch:
+    - README.md
+    - README.zh-CN.md
+    - keel/config.yaml
+    - scripts/validation/docs.py
+    - openspec/specs/keel-standing-authorization/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation prose and the checks that pin its wording; nothing here can fail before it is written, and 1.1 and 1.2 prove the behavior it describes.
+    - M1: `grep -n "push-tag" README.md README.zh-CN.md keel/config.yaml openspec/specs/keel-standing-authorization/spec.md` shows the name in the accepted-names lists, a paragraph that says what it grants and that `--tags`, `--follow-tags` and tag deletion are unchanged, the vocabulary count is fifteen where it was fourteen, and the published `keel-standing-authorization` closed-set sentence and its role-pattern sentence name `push-tag`.
+    - M2 (regression): `--scenario continuation-docs` and `--scenario surfaces-agree-with-code` pass, one at a time.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:e10df147e562e8ce16dc48e0ca94055134c6531ddb6f9aadcc92940f9dc94167 (keel 5.220.0)
+    - M1: pass. `grep -c "push-tag"` gives README.md 6, README.zh-CN.md 6, keel/config.yaml 2 and the published `keel-standing-authorization` spec 3: the name is in both accepted-names lists and in the config comment, a paragraph says what it grants and that `--tags`, `--mirror`, `--follow-tags`, `push.followTags` and tag deletion are unchanged, the count reads fifteen (`vocabulary is fifteen names long`, `The fifteen names above`), and the spec's closed-set, scoped-actions and role-pattern sentences name `push-tag`.
+    - M2: pass. Run one at a time, each exit 0: `continuation-docs scenario passed.`, `surfaces-agree-with-code scenario passed.` (it failed first with `keel-standing-authorization does not list `push-tag` in its closed vocabulary.`, which moved the published spec's sentence edits into this task and re-recorded the contract before any evidence), and `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.`
+    - Review:
+      - Status: pass
+      - Acceptance check: the surfaces an owner reads to learn the vocabulary (both READMEs, the config comment, the published spec) name `push-tag`, what it grants and what it leaves alone, and the checks that pin their wording agree with the code (M1, M2).
+      - Scope check: `git status --short` additionally lists `README.md`, `README.zh-CN.md`, `keel/config.yaml`, `scripts/validation/docs.py` and `openspec/specs/keel-standing-authorization/spec.md`, all in Touch after the one reauthorization below.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: Touch gained `openspec/specs/keel-standing-authorization/spec.md` before any evidence, because `surfaces-agree-with-code` reads that published sentence; the contract was re-recorded (1e9d1f6d → e10df147).
+
+## 2. Release
+
+- [x] 2.1 Release and promote the specs
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-standing-authorization/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the deltas are promoted into `keel-touch-write-guard` and `keel-standing-authorization`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:23e1b51945146ebf4057ba9401d111ffb7012fa495863383a2deae73d6fb726b (keel 5.220.0)
+    - M1: pass. `node scripts/bump_version.js minor` moved every marker 5.221.0 → 5.222.0; the changelog entry replaced the stub. `version-alignment scenario passed.` (exit 0).
+    - M2: pass. The `keel-touch-write-guard` requirement and the `keel-standing-authorization` requirement are appended to the published specs (the closed-set sentences were already edited in 1.3); `published-specs-validate-strictly scenario passed: 34 published specs validate strictly against openspec 1.14.0.` (exit 0). One scenario of the first draft, "Doctor lists the grant and a typo voids it", was dropped from the touch-write-guard delta and the published spec before this check, because no scenario ran its literal typo (`push-tag:v* x`); the doctor behavior is covered by the standing-authorization scenarios and by `push-tag-declaration`.
+    - M3: pass. `npm test`, started at load 4.3: `validation --all passed: baseline plus 379 scenarios, 1 skipped: output-survives-the-pipe.` (exit 0, `EXIT 0` in the log), the 375 of 5.221.0 plus this change's four.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release carries tasks 1.1 to 1.3's behavior, the markers agree at 5.222.0, the promoted specs validate, and the full suite passes.
+      - Scope check: `git status --short` lists the bumped markers, `keel/CHANGELOG.md`, the two published specs, the files of tasks 1.1 to 1.3 and this change's directory, all in Touch of 1.1, 1.2, 1.3 or 2.1.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "`shift-restore`, `self-shift`, `delete-branch` — and an absent, empty, or undeclared block MUST leave every action unauthorized" — the closed-set sentence of `keel-standing-authorization`, which lists fourteen names and which `surfaces-agree-with-code` reads against the code. Updated by: 1.3.
+- I2: "The fourteen names above are the whole vocabulary." and "the vocabulary is fourteen names long" — `README.md` (and the Chinese copy), plus the accepted-names lists in `README.md` and `keel/config.yaml` that the docs checks pin. Updated by: 1.3.
+- I3: "Every scoped `authorize:` entry — `issue:`, `issue-close:`, `cleanup:`, `chat-reply:`, `push:<glob>` and `push-protected:` — MAY end in `@<pattern>`" — the role-pattern requirement of `keel-standing-authorization` and the README sentence that mirrors it. Updated by: 1.3, for the spec and the README.
+- I4: "any other `refs/` target … `is not a branch`" — the guard's verdict for an explicit `refs/tags/<name>`, which a tag grant now turns into an allow. Discard reason: the message stays true for every ref that is not a granted tag, and for a push-only repository with no `push-tag:` entry, which M3 of 1.2 pins.
+
+## Expectation Coverage
+
+- E1: A session of a granted role can push a granted tag without the owner typing the push (#499, acceptance 1; D2, D3). Covered by: 1.2
+- E2: Another role or an out-of-glob tag is denied naming the grant; `--tags`, `--follow-tags` and tag deletion keep today's verdicts (#499, acceptance 2 and 3; D3). Covered by: 1.2
+- E3: `keel --doctor` lists the grant beside `push:` (#499, acceptance 4; D1, D6). Covered by: 1.1
+- E4: The release carries it. Covered by: 2.1
+- E5: Deleting a tag by grant (#499 does not ask for it). Discard reason: the issue's acceptance keeps deletion denied; a deletion needs its own decision and its own scope word.

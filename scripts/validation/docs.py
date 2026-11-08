@@ -613,7 +613,7 @@ ACCEPTED_AUTHORIZE_NAMES = (
     "commit, push, push:<branch glob>[@<role>], release, archive, continuation, "
     "issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], "
     "issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, "
-    "delete-branch:merged[@<role>]"
+    "delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>]"
 )
 
 
@@ -641,7 +641,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The fourteen names above are the whole vocabulary.",
+        "The fifteen names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:

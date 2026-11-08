@@ -228,6 +228,7 @@ SCENARIOS: tuple = (
     ),
     ("authorize-push-close-cleanup", guard.validate_authorize_push_close_cleanup_scenario),
     ("push-protected-declaration", guard.validate_push_protected_declaration_scenario),
+    ("push-tag-declaration", guard.validate_push_tag_declaration_scenario),
     ("authorize-block-reads-every-line", guard.validate_authorize_block_reads_every_line_scenario),
     (
         "standing-authorization-sync-confusion",
@@ -531,6 +532,9 @@ SCENARIOS: tuple = (
     ("push-guard-cd-before-push", guard.validate_push_guard_cd_before_push_scenario),
     ("push-guard-redirects", guard.validate_push_guard_redirects_scenario),
     ("push-guard-follow-tags", guard.validate_push_guard_follow_tags_scenario),
+    ("push-tag-grant", guard.validate_push_tag_grant_scenario),
+    ("push-tag-branches", guard.validate_push_tag_branches_scenario),
+    ("push-tag-keeps-verdicts", guard.validate_push_tag_keeps_verdicts_scenario),
     ("push-protected-guard", guard.validate_push_protected_guard_scenario),
     ("authorize-role-scoped", guard.validate_authorize_role_scoped_scenario),
     ("touch-guard-record-layer", guard.validate_touch_guard_record_layer_scenario),

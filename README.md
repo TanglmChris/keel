@@ -220,7 +220,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>]
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>]
   - commit
   - push
 ```
@@ -230,7 +230,7 @@ names `keel/config.yaml` as that entry's source so an inherited authorization is
 for one the task decided. A task that authors its own boundary keeps it.
 
 The ordinals below count names, not the forms in that comment: `push` and `push:<branch glob>` are
-one name, so the vocabulary is fourteen names long and `continuation` is the fifth.
+one name, so the vocabulary is fifteen names long and `continuation` is the fifth.
 
 `continuation`, the fifth name, is accepted and changes nothing. Moving from a durably complete
 task to the next unchecked task of the same change, inside a change whose `tasks.md` you approved,
@@ -244,7 +244,7 @@ nothing until corrected — fail-closed, never a silent grant.
 
 `issue:<owner>/<repo>`, the sixth name, names the resource it reaches, and it is refused without
 one; `chat-reply:<group>`, the eighth, `issue-close:<owner>/<repo>` and `cleanup:scratch`, the ninth
-and tenth, `push-protected:<branch glob>`, the eleventh, and `delete-branch:merged`, the fourteenth, are the others that do. The other names, `push` included, act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
+and tenth, `push-protected:<branch glob>`, the eleventh, `delete-branch:merged`, the fourteenth, and `push-tag:<tag glob>`, the fifteenth, are the others that do. The other names, `push` included, act on the checkout the declaration sits in, so each is already bounded by the repository you declared it in. The credentials that open an issue are not:
 `gh` is account-wide, so a bare `issue` would reach every repository your account can touch —
 silently the widest entry in the file, and wider than `push`. Naming the repository keeps the
 grant the size of what it says. Keel carries that scope to `keel --doctor` and to the compiled
@@ -275,8 +275,17 @@ refused. A permission mode that cannot be relied on to ask, `bypassPermissions` 
 refused too. Declaring it turns the push check on by itself, and a bare `push` beside it is
 refused.
 
-Every scoped entry — `push:`, `issue:`, `issue-close:`, `cleanup:`, `chat-reply:` and
-`push-protected:` — may end in `@<role>`, or a role pattern such as `@kaiwu-design-*`, where `*`
+`push-tag:<tag glob>`, optionally `@<role>`, lets a session push an explicit tag whose name the glob
+matches (#499): `git push origin refs/tags/<name>`, `<src>:refs/tags/<name>` and `git push origin
+tag <name>`. Without it the Claude write guard refuses every tag refspec as not a branch. A tag
+outside the globs, or one a different role's entry covers, is refused naming `push-tag:` or that
+role; the grant never asks. It changes nothing else: `--tags`, `--mirror`, `--follow-tags`,
+`push.followTags` and deleting a tag keep their verdicts, and no branch grant carries tags. A
+repository that declares only `push-tag:` limits tags and leaves branch pushes alone, and a bare
+`push` beside it is allowed because it widens no branch.
+
+Every scoped entry — `push:`, `issue:`, `issue-close:`, `cleanup:`, `chat-reply:`,
+`push-protected:` and `push-tag:` — may end in `@<role>`, or a role pattern such as `@kaiwu-design-*`, where `*`
 matches any run of role characters (#378). Such an entry reaches only a session whose chat role
 matches. A session reads the grants for its own role in the capsule, `keel context`,
 `keel --doctor` and its chat-reply groups, and `keel --doctor` lists, for each bound role, the
@@ -332,7 +341,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The fourteen names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The fifteen names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 
