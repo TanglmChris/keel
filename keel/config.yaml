@@ -313,17 +313,13 @@ external_agents:
 #     every: 30m
 #     host_task: rtl-ppa-pm-patrol
 #
-# Declared 2026-10-19 by the owner's decision to install a resident `keel tick`
-# for this repository, so a keel-maint CLI session's `keel shift ready --wake`
-# is carried out (stop the old session, start the new one) and an ended session
-# addressed in the chat is resumed. launchd runs `keel tick` every 300 s
-# (`keel tick task` prints the job); the patrol itself runs when its
-# recommended next run has passed.
-patrol:
-  role: keel-maint
-  every: 1h
-  runner: tick
-  cadence: adaptive
+# This repository declares no `patrol:` (owner, 2026-11-08: "去掉 patrol"). The
+# resident `keel tick` stays installed (launchd runs it every 300 s; `keel tick
+# task` prints the job), so a keel-maint CLI session's `keel shift ready --wake`
+# is still carried out (stop the old session, start the new one) and an ended
+# session addressed in the chat is still resumed; with no patrol declared, each
+# run reports that and runs no patrol (#509). Declared 2026-10-19, removed
+# 2026-11-08.
 
 # shift (optional): how a Claude Code CLI hand-over runs (#357, docs/cli-team.md).
 # `permission_mode:` is the mode the new session starts in — default,
