@@ -4001,12 +4001,14 @@ def validate_shift_cli_removes_after_exit_scenario() -> int:
 
 
 def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, ready_out: list | None = None,
-                         config_text: str | None = None, **fake_env: str):
+                         config_text: str | None = None, probe=None, **fake_env: str):
     """A delivered hand-over of `5b14fbae` from verify's worktree under the contract fake (#492).
 
     Returns the `rm` calls the fake logged and `keel shift status` from rtl.
     The row's `cwd` and the host's recorded `worktreePath` are the inputs.
     `ready_out`, when given, receives what `shift ready --wake` printed as text and then as `--json` (#506).
+    `probe`, when given, is called as `probe(verify, env, OLD)` once the hand-over is delivered and the old
+    session is still listed, to run commands as the replaced session (#506).
     """
     OLD = "5b14fbae-b6aa-40b6-a72a-b3f89d2c6eea"
     rtl, verify, env, _ = shift_scratch(base)
@@ -4039,6 +4041,8 @@ def handover_old_session(base: Path, row_cwd: Path, worktree_path: Path | None, 
             as_json = run_keel(verify, "shift", "ready", "--wake", "--json", "next: rerun R032", env=cli_env)
             ready_out.extend([readied.stdout, as_json.stdout])
         run_keel(verify, "tick", "--repo", str(rtl), env=env)
+        if probe is not None:
+            probe(verify, env, OLD)
         removals = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["argv"][:1] == ["rm"]]
         return removals, run_keel(rtl, "shift", "status", env=env).stdout, verify
     finally:
@@ -6651,4 +6655,128 @@ def validate_branches_pointed_out_scenario() -> int:
         report(f"{label} the scenario registry does not include it.")
         return 1
     report(f"{label.rstrip(':')} scenario passed.")
+    return 0
+
+
+def replaced_session_probe(results: dict):
+    """A `probe` for `handover_old_session` that runs the gates as the replaced session (#506)."""
+    def probe(verify: Path, env: dict, old: str) -> None:
+        queue = mailbox_common_dir(verify) / "keel-chat" / "shift" / "queue" / "verify.json"
+        results["entry"] = json.loads(queue.read_text())
+        results["queue_before"] = queue.read_bytes()
+        as_old = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": old}
+        as_other = {**env, "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_CODE_SESSION_ID": "0f0f0f0f-aaaa-bbbb-cccc-111122223333"}
+        as_none = {k: v for k, v in env.items() if k != "CLAUDE_CODE_SESSION_ID"}
+        results["start_old"] = run_keel(verify, "gate", "task-start", env=as_old)
+        results["ready_old"] = run_keel(verify, "shift", "ready", "--wake", "again", env=as_old)
+        results["complete_old"] = run_keel(verify, "gate", "task-complete", env=as_old)
+        results["start_other"] = run_keel(verify, "gate", "task-start", env=as_other)
+        results["start_none"] = run_keel(verify, "gate", "task-start", env=as_none)
+        results["guard_exists"] = (verify / "keel" / "guard.json").exists()
+        results["queue_after"] = queue.read_bytes()
+    return probe
+
+
+def validate_shift_replaced_refuses_scenario() -> int:
+    """Issue #506: a session a hand-over replaced cannot start a task or hand over again."""
+    label = "shift-replaced-refuses:"
+    results: dict = {}
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506b-") as raw:
+        try:
+            handover_old_session(Path(raw), Path("rtl"), Path("verify"), probe=replaced_session_probe(results))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+    entry = results.get("entry", {})
+    if entry.get("state") != "delivered" or not entry.get("new_session"):
+        report(f"{label} the fixture did not deliver a hand-over: {entry!r}")
+        return 1
+    start = results["start_old"].stdout
+    for needle in ("Status: fail", "Problem:", "handed over", "verify", entry["new_session"]):
+        if needle not in start:
+            report(f"{label} task-start as the replaced session lacks {needle!r}: {start!r}")
+            return 1
+    ready = results["ready_old"]
+    if ready.returncode == 0:
+        report(f"{label} shift ready as the replaced session exited 0: {ready.stdout!r}")
+        return 1
+    for needle in ("verify", entry["new_session"]):
+        if needle not in ready.stderr + ready.stdout:
+            report(f"{label} shift ready does not name {needle!r}: {ready.stderr!r}")
+            return 1
+    if results["guard_exists"]:
+        report(f"{label} task-start wrote a guard manifest for the replaced session.")
+        return 1
+    if results["queue_after"] != results["queue_before"]:
+        report(f"{label} the hand-over entry changed after the refused commands.")
+        return 1
+    report("shift-replaced-refuses scenario passed.")
+    return 0
+
+
+def validate_shift_unreplaced_not_refused_scenario() -> int:
+    """Issue #506: another session, no session, and task-complete are not refused for it."""
+    label = "shift-unreplaced-not-refused:"
+    results: dict = {}
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506c-") as raw:
+        try:
+            handover_old_session(Path(raw), Path("rtl"), Path("verify"), probe=replaced_session_probe(results))
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+    new_session = results["entry"]["new_session"]
+    for what in ("start_other", "start_none", "complete_old"):
+        shown = results[what].stdout + results[what].stderr
+        if "handed over" in shown:
+            report(f"{label} {what} carries the replaced-session wording: {shown!r}")
+            return 1
+        if new_session in shown:
+            report(f"{label} {what} names the new session: {shown!r}")
+            return 1
+    report("shift-unreplaced-not-refused scenario passed.")
+    return 0
+
+
+def validate_shift_replaced_told_scenario() -> int:
+    """Issue #506: the replaced session is told first, when it starts and when it is prompted."""
+    label = "shift-replaced-told:"
+    seen: dict = {}
+
+    def probe(verify: Path, env: dict, old: str) -> None:
+        queue = mailbox_common_dir(verify) / "keel-chat" / "shift" / "queue" / "verify.json"
+        seen["new_session"] = json.loads(queue.read_text())["new_session"]
+        for event, extra in (("session-start", {"source": "resume"}), ("user-prompt-submit", {"prompt": "are you still there"})):
+            for who, session_id in (("old", old), ("other", "0f0f0f0f-aaaa-bbbb-cccc-111122223333")):
+                payload = {"session_id": session_id, "cwd": str(verify), "hook_event_name": event, **extra}
+                ran = subprocess.run(
+                    ["node", str(ROOT / "bin" / "keel.js"), "chat", "hook", event],
+                    cwd=verify, env=env, input=json.dumps(payload), text=True, capture_output=True, check=False,
+                )
+                try:
+                    context = json.loads(ran.stdout or "{}").get("hookSpecificOutput", {}).get("additionalContext", "")
+                except ValueError:
+                    context = ran.stdout
+                seen[(event, who)] = (ran.returncode, context)
+
+    with tempfile.TemporaryDirectory(prefix="keel-shift-506d-") as raw:
+        try:
+            handover_old_session(Path(raw), Path("rtl"), Path("verify"), probe=probe)
+        except RuntimeError as error:
+            report(f"{label} {error}")
+            return 1
+    for event in ("session-start", "user-prompt-submit"):
+        code, context = seen[(event, "old")]
+        if code != 0:
+            report(f"{label} the {event} hook exited {code} for the old session.")
+            return 1
+        first = context.splitlines()[0] if context else ""
+        for needle in ("handed over", "verify", seen["new_session"], "Tell the user"):
+            if needle not in first:
+                report(f"{label} the {event} context for the old session does not start with {needle!r}: {context!r}")
+                return 1
+        _, other = seen[(event, "other")]
+        if "handed over" in other:
+            report(f"{label} the {event} context for another session carries the notice: {other!r}")
+            return 1
+    report("shift-replaced-told scenario passed.")
     return 0

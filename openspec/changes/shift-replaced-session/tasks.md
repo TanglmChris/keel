@@ -1,0 +1,172 @@
+# Tasks
+
+## 1. The replaced session
+
+- [x] 1.1 Recognize a replaced session and refuse `task-start` and `ready`
+  - Covers:
+    - keel-shift-change / A session a hand-over replaced is told and cannot begin new work / The old session cannot start a task or hand over again
+    - keel-shift-change / A session a hand-over replaced is told and cannot begin new work / Other sessions are not refused for this reason
+    - D1
+    - D2
+    - D4
+    - D5
+    - D6
+  - Read:
+    - openspec/changes/shift-replaced-session/design.md
+    - src/core/shift.js
+    - src/core/gates.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/shift.js
+    - src/core/gates.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-replaced-refuses`: after a real delivered hand-over of session `5b14fbae-…` under the contract fake, run as that session (`CLAUDE_CODE_SESSION_ID` and `CLAUDE_CODE_ENTRYPOINT=cli` set) in its worktree, `keel gate task-start` prints `Status: fail` and a `session-replaced` problem naming the role and the new session and writes no `keel/guard.json`, and `keel shift ready --wake` exits non-zero with the same words and leaves the queue file byte for byte unchanged. Fails with: `shift-replaced-refuses:`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-unreplaced-not-refused`: in the same state, `keel gate task-start` run with another session id and with no session id carries no `session-replaced` problem, and `keel gate task-complete` run as the old session carries none either. Detects: `replacedBy ignoring the session id` -> `shift-unreplaced-not-refused:`
+    - M3 (regression): run one at a time, each passes: `--scenario shift-cli-keeps-worktree-in-use`, `--scenario shift-ready-says-session-stays`, `--scenario core-gates`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5edcaae929bc7e84f9d1afd93f4c581810a7bf97277572462be6a948bd76030a (keel 5.222.0)
+    - M1: pass. `shift-replaced-refuses scenario passed.` (exit 0). After a real delivered hand-over of `5b14fbae-…` under the contract fake (new session `newsess1`), run as that session: `keel gate task-start` prints `Status: fail` and a `Problem:` saying the session was handed over for role `verify` to `newsess1`; `keel shift ready --wake` exits non-zero with the same words; `keel/guard.json` is absent and the queue file is byte for byte what it was.
+    - M1.red: fail. Before any code change, exit 1: `shift-replaced-refuses: task-start as the replaced session lacks 'Status: fail': ''`, the gate having printed nothing on stdout.
+    - M1.green: pass. `replacedBy`, `replacedNotice` and `replacedNoticeHere` in `src/core/shift.js` (D1, D2), a check at the head of `ready` (D4), and a `session-replaced` failure for the stage `task-start` in `runGate` (D4).
+    - M2: pass. `shift-unreplaced-not-refused scenario passed.` (exit 0), before and after the code change, which is why it is a regression check: `task-start` with another session id and with none, and `task-complete` as the old session, carry neither the wording nor the new session's id.
+    - M2.detects: fail. With `item.session === sessionId &&` removed from `replacedBy`, exit 1: `shift-unreplaced-not-refused: start_other carries the replaced-session wording: 'Keel gate: task-start\nStatus: fail\n…Problem: This session was handed over for role verify …'`; the file was restored byte for byte (`cmp`) and the scenario passed again. The declaration in the check, `replacedBy ignoring the session id`, is the mutation made.
+    - M3: pass. Run one at a time at load 7.4, each exit 0: `shift-cli-keeps-worktree-in-use`, `shift-ready-says-session-stays`, `core-gates`, and `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`
+    - Review:
+      - Status: pass
+      - Acceptance check: with a real delivered hand-over, the replaced session's `task-start` fails and `ready` is refused, both naming the role and the new session, with no guard written and the queue untouched; other sessions and `task-complete` are unaffected (M1 to M3). The notice at session start is task 1.2's.
+      - Scope check: `git status --short` lists `src/core/shift.js`, `src/core/gates.js`, `scripts/validation/shift.py`, `scripts/validation/registry.py` and this change's directory, all in Touch or the change's record layer.
+      - Findings: Discard reason: only the role's latest hand-over is consulted (D5), so a kept session two shifts back is not recognized; the queue keeps one entry per role and such sessions are normally removed, and the issue's case is the latest one.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Tell the replaced session first
+  - Covers:
+    - keel-shift-change / A session a hand-over replaced is told and cannot begin new work / The old session is told when it starts or is prompted
+    - D2
+    - D3
+  - Read:
+    - openspec/changes/shift-replaced-session/design.md
+    - src/core/chat/notice.js
+    - src/core/shift.js
+    - scripts/validation/shift.py
+  - Touch:
+    - src/core/chat/notice.js
+    - scripts/validation/shift.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-replaced-told`: after the same delivered hand-over, `keel chat hook session-start` and `keel chat hook user-prompt-submit` fed a payload with the old session's `session_id` print a context whose first line names the role, the new session and "tell the user"; the same hooks fed another session id print no such line. Fails with: `shift-replaced-told:`
+    - M2 (regression): run one at a time, each passes: `--scenario chat-wakes-without-no-wake`, `--group chat --jobs 4`, `--scenario assertion-shape-count`.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d84ca923e7d2c506e800aae1aff896ffc1fe5008020299bdc59708df11f43f20 (keel 5.222.0)
+    - M1: pass. `shift-replaced-told scenario passed.` (exit 0). After the same delivered hand-over, `keel chat hook session-start` (source `resume`) and `keel chat hook user-prompt-submit` fed the old session's `session_id` print an `additionalContext` whose first line holds `handed over`, `verify`, the new session `newsess1` and `Tell the user`; fed another session id, neither carries the notice. Both exit 0.
+    - M1.red: fail. Before any code change, exit 1: `shift-replaced-told: the session-start context for the old session does not start with 'handed over': ''`.
+    - M1.green: pass. `hook()` in `src/core/chat/notice.js` asks `replacedBy` for the payload's `session_id` (else `CLAUDE_CODE_SESSION_ID`) on `session-start` and `user-prompt-submit` and puts the notice first in the context of both (D3).
+    - M2: pass. Run one at a time at load 7.6, each exit 0: `chat-wakes-without-no-wake scenario passed.`, `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.` and the whole chat group (`--group chat --jobs 4`, last line `evidence: 26 deterministic, 30 against a stand-in host, none on a real host`).
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel chat hook` events with a hook payload, the replaced session's start and prompt both begin with the notice naming the role and the new session, and a different session id gets none (M1); the chat group still passes (M2).
+      - Scope check: `git status --short` additionally lists `src/core/chat/notice.js`, in Touch; the scenario is in `scripts/validation/shift.py` and `registry.py`, also in Touch.
+      - Findings: Discard reason: a first prompt that `decideSession` handles returns before the notice is built, so a replaced session whose very first prompt is such a decision is told at its next prompt instead; that path is for a freshly bound session and not the issue's resumed one.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 State it in the docs
+  - Covers:
+    - D5
+    - D6
+  - Read:
+    - docs/shift-change.md
+  - Touch:
+    - docs/shift-change.md
+    - docs/shift-change.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation prose; nothing here can fail before it is written, and 1.1 and 1.2 prove the behavior it describes.
+    - M1: `grep -n "replaced\|取代" docs/shift-change.md docs/shift-change.zh-CN.md` shows that a session a hand-over replaced is told first, that `task-start` and `shift ready` refuse it, that it is judged by the hand-over record alone and only the role's latest one, and that nothing else is blocked.
+    - M2 (regression): `--scenario docs-zh-match-english` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6a8ac9a7c0edccfa203a90d3c8c8ffe6e5db937a7e88d9fcd71e1c5dde349bdb (keel 5.222.0)
+    - M1: pass. `grep -c "replaced\|取代"` gives 2 in `docs/shift-change.md` and 1 in `docs/shift-change.zh-CN.md`: a paragraph in "Changing your own shift" says a replaced session may still be woken because `claude rm` would delete the shared worktree, that the chat hook tells it first on `SessionStart` and `UserPromptSubmit`, that `task-start` and `shift ready` refuse it writing nothing while reading, chatting, `status`, `task-complete` and file writes are not blocked, that the test is the latest `delivered` record alone with no liveness probe and no session two hand-overs back, and that the user must end the new shift first.
+    - M2: pass. `docs-zh-match-english scenario passed.` (exit 0).
+    - Review:
+      - Status: pass
+      - Acceptance check: the shift-change doc and its Chinese copy state what 1.1 and 1.2 proved, including the limits (M1).
+      - Scope check: `git status --short` additionally lists `docs/shift-change.md` and `docs/shift-change.zh-CN.md`, both in Touch.
+      - Findings: none.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Release
+
+- [ ] 2.1 Release and promote the spec
+  - Covers:
+    - E4
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - openspec/specs/keel-shift-change/spec.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry, and the spec promotion. Tasks 1.1 to 1.3 prove the behavior, and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the delta is promoted into `keel-shift-change`, and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Autonomy boundary:
+    - Default: hard-stop
+    - Pre-authorized fallback: none
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d11f4dec921b1720c6b6c77aa66e11ba2282686c65f714c4e2b719e565344bc3 (keel 5.222.0)
+    - M1: pending
+    - M2: pending
+    - M3: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "an old session whose worktree is the new shift's stays in `claude agents`" — the shift-change doc's sentence on why the old session is not removed, which is silent on what the stayed session is told and refused. Updated by: 1.3.
+
+## Expectation Coverage
+
+- E1: The replaced session knows it was replaced when it starts or is prompted (#506, expectation 1, first half; D2, D3). Covered by: 1.2
+- E2: `keel gate task-start` and `keel shift ready` refuse it, pointing at the new session; the write guard is not extended (#506, expectation 1, second half; D1, D4, D5, D6; the owner's answer of 2026-11-08). Covered by: 1.1
+- E3: Marking a handed-over session in the host list, and `claude rm` keeping the worktree (#506, expectation 3). Discard reason: both need Claude Code; Keel cannot mark a session it must not wake (Remote Control writes titles back, #399), and a feature request to Anthropic is drafted separately for the owner to approve.
+- E4: The release carries it. Covered by: 2.1
