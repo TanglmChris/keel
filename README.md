@@ -2,11 +2,11 @@
 
 **English** | [中文](README.zh-CN.md)
 
-> OpenSpec execution discipline for AI coding agents — Claude Code, Codex, and OpenCode.
+> OpenSpec execution discipline for AI coding agents — Claude Code, Codex, OpenCode, and DSH.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen.svg)
-![Targets](https://img.shields.io/badge/targets-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20OpenCode-blue.svg)
+![Targets](https://img.shields.io/badge/targets-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20OpenCode%20%C2%B7%20DSH-blue.svg)
 
 ## What Keel is for
 
@@ -159,8 +159,10 @@ In your project's root, set it up once:
 
 ```bash
 keel --init                 # default target: claude
-keel --init --target codex  # or: opencode
+keel --init --target codex  # or: opencode, dsh
 ```
+
+`--target dsh` (DSH, DeepSeek Harness) writes, checks and removes exactly the files `--target codex` does: DSH reads the repository `AGENTS.md` and `.agents/skills`, so there is no separate DSH copy, and uninstalling one removes them for the other. DSH's factory profiles carry no session-start hook, so every capability is `manual` and the `AGENTS.md` bootstrap ("run `keel context` first") is the entry; `keel --doctor --target dsh` reports whether a `dsh` is on PATH and says so.
 
 `keel --init` runs OpenSpec init/update and writes Keel's host surface. Then, every time you
 start or resume work:

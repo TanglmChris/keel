@@ -20,7 +20,7 @@ const CAPABILITY_COMMANDS = {
     "keel project --target <target> --event worktree --expected-owner <owner> --json",
 };
 
-const SUPPORTED_TARGETS = new Set(["claude", "codex", "opencode"]);
+const SUPPORTED_TARGETS = new Set(["claude", "codex", "opencode", "dsh"]);
 
 function codexHome() {
   const configured = (process.env.CODEX_HOME || "").trim();
@@ -49,6 +49,9 @@ const PLUGIN_RUNTIME_OBSERVATION =
   + "native runtime evidence and remain advisory or manual until probed";
 
 function pluginObservation(repo, target) {
+  if (target === "dsh") {
+    return "DSH takes no Keel plugin; it reads the repository's AGENTS.md and .agents/skills";
+  }
   if (target === "opencode") {
     return "OpenCode has no v4 native plugin surface; manual CLI compatibility only";
   }
@@ -97,6 +100,13 @@ function targetObservation(repo, target) {
     } else {
       observations.push("Claude hook activation evidence is incomplete");
     }
+  } else if (target === "dsh") {
+    observations.push(
+      "DSH reads AGENTS.md and .agents/skills, and its factory profiles carry "
+        + "no session-start, resume or compaction hook (probed with DSH "
+        + "0.2.2-rc.1, 2026-11-08), so the AGENTS.md bootstrap is the entry; "
+        + "installation, trust and behavior are not verifiable from Keel"
+    );
   } else if (target === "codex") {
     const hooks = path.join(codexHome(), "hooks.json");
     observations.push(
