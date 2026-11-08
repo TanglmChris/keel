@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.226.0 - change-close honors `skip_specs`
+
+Issue #517, reported from a business repository on 2026-11-08 (Keel 5.222.0). A change whose `.openspec.yaml` declares `skip_specs: true` and has no `specs/` directory is `specs: skipped` for OpenSpec, yet `keel gate change-close` failed it with `missing-delta-spec`, so a tidy-up change that adds or modifies no capability could never be archived without bypassing the gate.
+
+- **A marked change passes the delta-spec check,** for `--action archive` and `--action sync`. The marker is the line `skip_specs: true` in `.openspec.yaml`; an absent file, an unreadable one, `skip_specs: false` or any other value counts as undeclared and keeps requiring a delta spec.
+- **A marker beside a spec file fails by name:** `skip-specs-with-specs` names the first file under `specs/`, as OpenSpec's own validate rejects the combination.
+- The gate does not ask OpenSpec whether it honors the marker; `keel openspec archive` stays the authority.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.226.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.225.0 - DSH is a target
 
 Issue #504, reported on 2026-11-07 (Keel 5.216.0, DSH 0.2.0-rc.2) and taken up on 2026-11-08 (DSH 0.2.2-rc.1) after the owner approved stage S1 of the design on the issue and chose that DSH share Codex's files. `keel capabilities --target dsh`, `keel project --target dsh` and `keel --init --target dsh` answered `invalid target: dsh`.
