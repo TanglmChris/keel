@@ -771,6 +771,282 @@ def validate_launchd_stable_node_scenario() -> int:
     return 0
 
 
+def validate_tick_task_names_main_checkout_scenario() -> int:
+    """Issue #503: the launchd job names a path that outlives a worktree.
+
+    `keel tick task` wrote the worktree the patrol role was bound to when it
+    ran, a checkout Keel creates and prunes, so the installed job named a path
+    that moved. It now names the repository's main checkout, from which
+    `keel tick` finds the bound worktree on every run, and falls back to the
+    bound worktree, saying so, only when the main checkout declares no patrol.
+    """
+    label = "tick-task-names-main-checkout:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-503-") as raw:
+        base = Path(raw)
+        rtl, verify, env, _ = shift_scratch(base)
+        write_text(rtl / "openspec/specs/.keep", "")
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n  runner: tick\n")
+        for args in (["add", "-A"], ["commit", "-q", "-m", "patrol"]):
+            subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+        main = os.path.realpath(rtl)
+
+        def named(text: str, pattern: str) -> str:
+            return (re.search(pattern, text, re.S) or [None, ""])[1]
+
+        def repo_of(text: str) -> str:
+            return named(text, r"<string>--repo</string>\s*<string>(.*?)</string>")
+
+        def directory_of(text: str) -> str:
+            return named(text, r"<key>WorkingDirectory</key>\s*<string>(.*?)</string>")
+
+        # The role leaves the main checkout for linked worktrees under .claude/worktrees/.
+        run_keel(rtl, "chat", "role", "--set", "main", env=env)
+        wa = chat_worktree(rtl, rtl / ".claude" / "worktrees" / "wa")
+        wb = chat_worktree(rtl, rtl / ".claude" / "worktrees" / "wb")
+        bound = run_keel(wa, "chat", "role", "--set", "rtl", env=env)
+        if bound.returncode != 0:
+            report(f"{label} could not bind the role to a worktree: {bound.stdout!r} {bound.stderr!r}")
+            return 1
+
+        from_a = run_keel(wa, "tick", "task", env=env)
+        if from_a.returncode != 0:
+            report(f"{label} keel tick task failed in a worktree: {from_a.stderr!r}")
+            return 1
+        if repo_of(from_a.stdout) != main or directory_of(from_a.stdout) != main:
+            report(f"{label} the job printed from a worktree does not name the main checkout {main!r}: "
+                   f"--repo {repo_of(from_a.stdout)!r}, WorkingDirectory {directory_of(from_a.stdout)!r}")
+            return 1
+        for tree in (wa, wb):
+            if os.path.realpath(tree) in from_a.stdout:
+                report(f"{label} the job printed from a worktree still names {os.path.realpath(tree)!r}: {from_a.stdout!r}")
+                return 1
+        from_main = run_keel(rtl, "tick", "task", env=env)
+        if from_main.returncode != 0:
+            report(f"{label} keel tick task failed in the main checkout: {from_main.stderr!r}")
+            return 1
+        if repo_of(from_main.stdout) != main or directory_of(from_main.stdout) != main:
+            report(f"{label} the job printed from the main checkout does not name it: {from_main.stdout!r}")
+            return 1
+        for needle in ("<integer>300</integer>", "<string>tick</string>", "launchctl bootstrap", "Keel creates nothing"):
+            if needle not in from_main.stdout:
+                report(f"{label} the job printed from the main checkout does not carry {needle!r}: {from_main.stdout!r}")
+                return 1
+
+        # Binding the role elsewhere needs no new job.
+        run_keel(wa, "chat", "role", "--unset", "--leave-branches", env=env)
+        rebound = run_keel(wb, "chat", "role", "--set", "rtl", env=env)
+        if rebound.returncode != 0:
+            report(f"{label} could not rebind the role to another worktree: {rebound.stdout!r} {rebound.stderr!r}")
+            return 1
+        from_b = run_keel(wb, "tick", "task", env=env)
+        if from_b.stdout != from_a.stdout:
+            report(f"{label} the job printed after rebinding the role differs from the one printed before: "
+                   f"{from_a.stdout!r} then {from_b.stdout!r}")
+            return 1
+        ticked = run_keel(verify, "tick", "--repo", main, "--json", env=env)
+        try:
+            patrol = json.loads(ticked.stdout)["patrols"][0]
+        except (ValueError, KeyError, IndexError):
+            report(f"{label} keel tick --repo {main} printed no patrol result: {ticked.stdout!r} {ticked.stderr!r}")
+            return 1
+        if not patrol.get("ran"):
+            report(f"{label} after rebinding, the tick did not run the patrol: {patrol!r}")
+            return 1
+        if patrol.get("worktree") != os.path.realpath(wb):
+            report(f"{label} after rebinding, the tick ran the patrol in {patrol.get('worktree')!r}, not {os.path.realpath(wb)!r}")
+            return 1
+
+        # A main checkout that declares no patrol cannot stand in: the worktree is named, and why.
+        solo = mailbox_repository(base / "solo")
+        wc = chat_worktree(solo, solo / ".claude" / "worktrees" / "wc")
+        write_authorize_config(wc, "patrol:\n  role: sr\n  every: 60m\n  runner: tick\n")
+        subprocess.run(["git", "add", "-A"], cwd=wc, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "patrol"], cwd=wc, check=True, capture_output=True)
+        run_keel(wc, "chat", "role", "--set", "sr", env=env)
+        fallback = run_keel(wc, "tick", "task", env=env)
+        if fallback.returncode != 0:
+            report(f"{label} keel tick task failed where the main checkout declares no patrol: {fallback.stderr!r}")
+            return 1
+        if repo_of(fallback.stdout) != os.path.realpath(wc):
+            report(f"{label} with no patrol in the main checkout the job does not name the bound worktree: {fallback.stdout!r}")
+            return 1
+        if "declares no `patrol:`" not in fallback.stdout:
+            report(f"{label} the fallback job does not say the main checkout declares no patrol: {fallback.stdout!r}")
+            return 1
+    if "tick-task-names-main-checkout" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("tick-task-names-main-checkout scenario passed.")
+    return 0
+
+
+def validate_tick_skips_missing_bound_worktree_scenario() -> int:
+    """Issue #503: a bound worktree that was removed does not stop the patrol.
+
+    `roles.json` keeps a role's binding after `git worktree remove`. The tick
+    took the first bound worktree and started the patrol in a directory that
+    was gone; it now uses the first bound worktree that exists, and says so
+    when none does.
+    """
+    label = "tick-skips-missing-bound-worktree:"
+    with tempfile.TemporaryDirectory(prefix="keel-tick-503-gone-") as raw:
+        base = Path(raw)
+        rtl, _verify, env, _ = shift_scratch(base)
+        write_text(rtl / "openspec/specs/.keep", "")
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n  runner: tick\n")
+        for args in (["add", "-A"], ["commit", "-q", "-m", "patrol"]):
+            subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+        # `a-gone` sorts before `rtl`, so the removed worktree is the one a plain "first bound" picks.
+        gone = chat_worktree(rtl, base / "a-gone")
+        bound = run_keel(gone, "chat", "role", "--set", "rtl", env=env)
+        if bound.returncode != 0:
+            report(f"{label} could not bind the role to the worktree to remove: {bound.stdout!r} {bound.stderr!r}")
+            return 1
+        removed = subprocess.run(["git", "worktree", "remove", "--force", str(gone)], cwd=rtl,
+                                 text=True, capture_output=True, check=False)
+        if removed.returncode != 0 or gone.exists():
+            report(f"{label} could not remove the worktree: {removed.stderr!r}")
+            return 1
+        bindings = json.loads((mailbox_common_dir(rtl) / "keel-chat" / "roles.json").read_text(encoding="utf-8"))
+        if not any(p.endswith("/a-gone") for p in bindings):
+            report(f"{label} the removed worktree is no longer bound, so the case is not reproduced: {bindings!r}")
+            return 1
+
+        def tick() -> subprocess.CompletedProcess[str]:
+            return run_keel(rtl, "tick", "--repo", str(rtl), "--json", env=env)
+
+        first = tick()
+        try:
+            patrol = json.loads(first.stdout)["patrols"][0]
+        except (ValueError, KeyError, IndexError):
+            report(f"{label} the tick printed no patrol result: {first.stdout!r} {first.stderr!r}")
+            return 1
+        if first.returncode != 0:
+            report(f"{label} the tick exited {first.returncode} with one bound worktree gone and one present: {first.stderr!r}")
+            return 1
+        if not patrol.get("ran"):
+            report(f"{label} with one bound worktree gone and one present, the tick ran no patrol: {patrol!r}")
+            return 1
+        if patrol.get("worktree") != os.path.realpath(rtl):
+            report(f"{label} with one bound worktree gone and one present, the patrol ran in {patrol.get('worktree')!r}, not {os.path.realpath(rtl)!r}")
+            return 1
+
+        # Only the removed worktree stays bound.
+        run_keel(rtl, "chat", "role", "--set", "main", env=env)
+        second = tick()
+        try:
+            patrol = json.loads(second.stdout)["patrols"][0]
+        except (ValueError, KeyError, IndexError):
+            report(f"{label} the second tick printed no patrol result: {second.stdout!r} {second.stderr!r}")
+            return 1
+        if second.returncode != 0:
+            report(f"{label} the tick exited {second.returncode} with only a removed worktree bound: {second.stderr!r}")
+            return 1
+        if patrol.get("ran"):
+            report(f"{label} the tick ran a patrol with only a removed worktree bound: {patrol!r}")
+            return 1
+        for needle in ("no longer exist", "keel chat role --prune"):
+            if needle not in str(patrol.get("why")):
+                report(f"{label} the tick does not say {needle!r} for a role bound only to a removed worktree: {patrol!r}")
+                return 1
+    if "tick-skips-missing-bound-worktree" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("tick-skips-missing-bound-worktree scenario passed.")
+    return 0
+
+
+def validate_launchd_doctor_names_job_directories_scenario() -> int:
+    """Issue #503: `keel --doctor` checks where a job runs, not only its node.
+
+    A tick job names `--repo` and `WorkingDirectory`; when that directory is
+    gone, or is a worktree Keel creates and prunes, launchd keeps firing and the
+    job fails with no trace but `tick.err`, while doctor said `launchd: ok`
+    because it read only the first program argument.
+    """
+    label = "launchd-doctor-names-job-directories:"
+    with tempfile.TemporaryDirectory(prefix="keel-launchd-503-") as raw:
+        base = Path(raw)
+        rtl, cx, env, _ = chat_wake_scratch(base)
+        write_text(rtl / "openspec/specs/.keep", "")
+        write_authorize_config(rtl, "patrol:\n  role: rtl\n  every: 60m\n  runner: tick\n")
+        for args in (["add", "-A"], ["commit", "-q", "-m", "patrol"]):
+            subprocess.run(["git", *args], cwd=rtl, check=True, capture_output=True)
+        main = os.path.realpath(rtl)
+        worktree = chat_worktree(rtl, rtl / ".claude" / "worktrees" / "wa")
+        printed = run_keel(rtl, "tick", "task", env=env)
+        if printed.returncode != 0:
+            report(f"{label} keel tick task failed: {printed.stderr!r}")
+            return 1
+        if "<?xml" not in printed.stdout:
+            report(f"{label} keel tick task printed no plist: {printed.stdout!r}")
+            return 1
+        plist = printed.stdout[printed.stdout.index("<?xml"):printed.stdout.index("</plist>") + 8]
+        agents = base / "agents"
+        agents.mkdir(exist_ok=True)
+        job = agents / "dev.keel.tick.x.plist"
+
+        def runs_in(directory: str) -> str:
+            text = re.sub(r"(<string>--repo</string>\s*<string>).*?(</string>)", lambda m: m.group(1) + directory + m.group(2), plist, flags=re.S)
+            return re.sub(r"(<key>WorkingDirectory</key>\s*<string>).*?(</string>)", lambda m: m.group(1) + directory + m.group(2), text, flags=re.S)
+
+        def doctor() -> tuple[int, str]:
+            ran = run_keel(rtl, "--doctor", env=env)
+            return ran.returncode, next((line for line in ran.stdout.splitlines() if line.startswith("launchd:")), "")
+
+        job.write_text(runs_in(main), encoding="utf-8")
+        baseline_status, baseline = doctor()
+        if not baseline.startswith("launchd: ok"):
+            report(f"{label} a job naming the main checkout is not reported ok: {baseline!r}")
+            return 1
+
+        gone = base / "gone-checkout"
+        job.write_text(runs_in(str(gone)), encoding="utf-8")
+        status, line = doctor()
+        if not line.startswith("launchd: problem"):
+            report(f"{label} a job running in a removed directory is not reported as a problem: {line!r}")
+            return 1
+        for needle in ("dev.keel.tick.x.plist", str(gone), "keel tick task"):
+            if needle not in line:
+                report(f"{label} the problem line for a removed directory does not name {needle!r}: {line!r}")
+                return 1
+        if status != baseline_status:
+            report(f"{label} a removed directory changed doctor's exit status from {baseline_status} to {status}.")
+            return 1
+
+        job.write_text(runs_in(os.path.realpath(worktree)), encoding="utf-8")
+        status, line = doctor()
+        if not line.startswith("launchd: problem"):
+            report(f"{label} a job running in a worktree under .claude/worktrees is not reported as a problem: {line!r}")
+            return 1
+        for needle in ("dev.keel.tick.x.plist", os.path.realpath(worktree), "keel tick task"):
+            if needle not in line:
+                report(f"{label} the problem line for a regenerated worktree does not name {needle!r}: {line!r}")
+                return 1
+        if status != baseline_status:
+            report(f"{label} a regenerated worktree changed doctor's exit status from {baseline_status} to {status}.")
+            return 1
+
+        # A job with neither key is judged by its node alone.
+        job.unlink()
+        added = run_keel(cx, "chat", "wake", "add", env=env)
+        if added.returncode != 0:
+            report(f"{label} keel chat wake add failed: {(added.stdout + added.stderr).strip()!r}")
+            return 1
+        if not list(agents.glob("dev.keel.chat-wake.*.plist")):
+            report(f"{label} keel chat wake add wrote no LaunchAgent: {added.stdout.strip()!r}")
+            return 1
+        _, line = doctor()
+        if not line.startswith("launchd: ok"):
+            report(f"{label} a chat waker with no directory is not reported ok: {line!r}")
+            return 1
+    if "launchd-doctor-names-job-directories" not in {name for name, _ in registry.SCENARIOS}:
+        report(f"{label} scenario is not registered.")
+        return 1
+    report("launchd-doctor-names-job-directories scenario passed.")
+    return 0
+
+
 def validate_shift_check_skips_host_keep_awake_scenario() -> int:
     """Issue #447: the host's own keep-awake is not a loose end of the shift.
 
