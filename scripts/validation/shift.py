@@ -812,8 +812,8 @@ def validate_tick_task_names_main_checkout_scenario() -> int:
         if from_a.returncode != 0:
             report(f"{label} keel tick task failed in a worktree: {from_a.stderr!r}")
             return 1
-        if repo_of(from_a.stdout) != main or directory_of(from_a.stdout) != main:
-            report(f"{label} the job printed from a worktree does not name the main checkout {main!r}: "
+        if repo_of(from_a.stdout) != main or directory_of(from_a.stdout) != "/":
+            report(f"{label} the job printed from a worktree does not name the main checkout {main!r} after --repo and / as WorkingDirectory: "
                    f"--repo {repo_of(from_a.stdout)!r}, WorkingDirectory {directory_of(from_a.stdout)!r}")
             return 1
         for tree in (wa, wb):
@@ -824,8 +824,8 @@ def validate_tick_task_names_main_checkout_scenario() -> int:
         if from_main.returncode != 0:
             report(f"{label} keel tick task failed in the main checkout: {from_main.stderr!r}")
             return 1
-        if repo_of(from_main.stdout) != main or directory_of(from_main.stdout) != main:
-            report(f"{label} the job printed from the main checkout does not name it: {from_main.stdout!r}")
+        if repo_of(from_main.stdout) != main or directory_of(from_main.stdout) != "/":
+            report(f"{label} the job printed from the main checkout does not name the main checkout {main!r} after --repo and / as WorkingDirectory: {from_main.stdout!r}")
             return 1
         for needle in ("<integer>300</integer>", "<string>tick</string>", "launchctl bootstrap", "Keel creates nothing"):
             if needle not in from_main.stdout:
@@ -904,8 +904,8 @@ def validate_tick_task_without_patrol_scenario() -> int:
                 return 1
             repo = named(printed.stdout, r"<string>--repo</string>\s*<string>(.*?)</string>")
             directory = named(printed.stdout, r"<key>WorkingDirectory</key>\s*<string>(.*?)</string>")
-            if repo != main or directory != main:
-                report(f"{label} the job printed in {where} does not name the main checkout {main!r}: --repo {repo!r}, WorkingDirectory {directory!r}")
+            if repo != main or directory != "/":
+                report(f"{label} the job printed in {where} does not name the main checkout {main!r} after --repo and / as WorkingDirectory: --repo {repo!r}, WorkingDirectory {directory!r}")
                 return 1
             if os.path.realpath(wa) in printed.stdout:
                 report(f"{label} the job printed in {where} names the worktree {os.path.realpath(wa)!r}: {printed.stdout!r}")

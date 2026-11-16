@@ -146,7 +146,7 @@ Define how a role declares what it is waiting for in the chat, and how a host-sc
 
 ### Requirement: A host-run tick runs the patrol when due
 
-`keel tick` MUST be one model-free step: for each role `patrol:` declares that is bound to a worktree that exists and whose last recorded `next_at` is absent or has passed, it MUST fetch `origin` there and run `keel patrol --since-last --notify` as that role, then record that role's `next_at`; for each other declared role it MUST say the patrol is not due and run nothing. A role bound to several worktrees MUST use the first, in sorted order, whose directory exists; a role whose bound worktrees are all gone MUST get a line saying they no longer exist and naming `keel chat role --prune`, and no patrol run. `keel tick task` MUST print a launchd job that calls `keel tick` every 300 seconds and the commands that install it, and MUST create nothing. The job MUST name the repository's main checkout as `--repo` and as `WorkingDirectory`, so that binding the role elsewhere or pruning a worktree does not change what the installed job names; only when the repository has no main checkout, or its `keel/config.yaml` declares no `patrol:`, MUST it name the worktree the role is bound to, and the printed text MUST then say why. With `runner: tick` under `patrol:`, the patrolling role's reminder MUST name `keel tick` and MUST NOT ask it to re-create a session schedule.
+`keel tick` MUST be one model-free step: for each role `patrol:` declares that is bound to a worktree that exists and whose last recorded `next_at` is absent or has passed, it MUST fetch `origin` there and run `keel patrol --since-last --notify` as that role, then record that role's `next_at`; for each other declared role it MUST say the patrol is not due and run nothing. A role bound to several worktrees MUST use the first, in sorted order, whose directory exists; a role whose bound worktrees are all gone MUST get a line saying they no longer exist and naming `keel chat role --prune`, and no patrol run. `keel tick task` MUST print a launchd job that calls `keel tick` every 300 seconds and the commands that install it, and MUST create nothing. The job MUST name the repository's main checkout as `--repo` and MUST run from the filesystem root (`WorkingDirectory` `/`), so that no tool that waits for a checkout to be idle counts the job as a holder of it, and so that binding the role elsewhere or pruning a worktree does not change what the installed job names; only when the repository has no main checkout, or its `keel/config.yaml` declares no `patrol:`, MUST it name the worktree the role is bound to, and the printed text MUST then say why. With `runner: tick` under `patrol:`, the patrolling role's reminder MUST name `keel tick` and MUST NOT ask it to re-create a session schedule.
 
 #### Scenario: The patrol runs only when due
 - **WHEN** `patrol:` declares `runner: tick` and `keel tick` runs three times, the third after the recorded `next_at` was moved into the past
@@ -154,11 +154,11 @@ Define how a role declares what it is waiting for in the chat, and how a host-sc
 
 #### Scenario: The launchd job is printed, not installed
 - **WHEN** `keel tick task` runs from the main checkout
-- **THEN** it prints a plist with `StartInterval` 300 and `tick` and the main checkout as `--repo` and as `WorkingDirectory`, the `launchctl bootstrap` command, and `Keel creates nothing`, and writes no file
+- **THEN** it prints a plist with `StartInterval` 300 and `tick`, the main checkout as `--repo`, `/` as `WorkingDirectory`, the `launchctl bootstrap` command, and `Keel creates nothing`, and writes no file
 
 #### Scenario: A job printed from a worktree names the main checkout
 - **WHEN** `keel tick task` runs from a linked worktree under `.claude/worktrees/` to which the patrol role is bound, and the main checkout's `keel/config.yaml` declares the `patrol:`
-- **THEN** the plist's `--repo` and `WorkingDirectory` are the main checkout and neither names the worktree
+- **THEN** the plist's `--repo` is the main checkout, its `WorkingDirectory` is `/`, and neither names the worktree
 
 #### Scenario: Binding the role elsewhere needs no new job
 - **WHEN** `keel tick task` is printed from worktree A bound to the role, the role is then bound to worktree B instead, and `keel tick --repo <the printed repository>` runs
@@ -278,11 +278,11 @@ Under `keel patrol --since-last`, each risk about a CLI hand-off and each risk a
 
 ### Requirement: A tick job does not need a patrol
 
-`keel tick task` MUST print a launchd job for a repository whose `keel/config.yaml` declares no `patrol:`, naming the main checkout when it exists, and MUST say that the job runs no patrol: each run resumes ended sessions and carries hand-overs out. A `patrol:` Keel cannot read MUST still be refused with its message, and a declared patrol MUST keep the behavior of the existing job requirements.
+`keel tick task` MUST print a launchd job for a repository whose `keel/config.yaml` declares no `patrol:`, naming the main checkout as `--repo` when it exists and running from `/`, and MUST say that the job runs no patrol: each run resumes ended sessions and carries hand-overs out. A `patrol:` Keel cannot read MUST still be refused with its message, and a declared patrol MUST keep the behavior of the existing job requirements.
 
 #### Scenario: A repository with no patrol gets a job
 - **WHEN** `keel/config.yaml` declares no `patrol:` and `keel tick task` runs from the main checkout, and again from a linked worktree under `.claude/worktrees/`
-- **THEN** both exit 0 and print a plist whose `--repo` and `WorkingDirectory` are the main checkout, name no worktree, and say that the repository declares no `patrol:` and that the job resumes ended sessions and carries hand-overs out
+- **THEN** both exit 0 and print a plist whose `--repo` is the main checkout and whose `WorkingDirectory` is `/`, name no worktree, and say that the repository declares no `patrol:` and that the job resumes ended sessions and carries hand-overs out
 
 #### Scenario: An unreadable patrol is still refused
 - **WHEN** `keel/config.yaml` has a `patrol:` with a role and no `every:`, and `keel tick task` runs
