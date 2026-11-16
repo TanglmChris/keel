@@ -92,7 +92,7 @@
 
 ## 3. Reviewable release candidate
 
-- [ ] 3.1 Commit the verified 5.228.0 release candidate
+- [x] 3.1 Commit the verified 5.228.0 release candidate
   - Mode: repo-action
   - Covers:
     - E2
@@ -105,13 +105,13 @@
     - M2: `git diff --exit-code HEAD -- src/core/tick.js scripts/validation/shift.py package.json npm-shrinkwrap.json openspec/specs/keel-coordinator-patrol/spec.md` proves the verified product snapshot is committed.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:bb5433fd52865ad752be5b160c50f73be48d641a39f449555e078149a05542de (keel 5.227.0)
-    - M1: pending
-    - M2: pending
+    - M1: pass. Commit a777311b has subject `5.228.0: run tick jobs from the filesystem root (#524)` and contains all 29 reviewed files, including the implementation, aligned markers, published spec and task evidence.
+    - M2: pass. `git diff --exit-code HEAD -- src/core/tick.js scripts/validation/shift.py package.json npm-shrinkwrap.json openspec/specs/keel-coordinator-patrol/spec.md` exits 0; the tested product snapshot is committed unchanged.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the verified 5.228.0 snapshot and prior task evidence are committed on the existing review branch, proved through Git's public log, show and diff commands.
+      - Scope check: repository action only; no product files changed during this task. Only this task's permitted evidence record was updated after committing. No push, merge, archive or task completion was performed by the commit action itself.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
@@ -125,3 +125,11 @@
 - E1: The tick job no longer has its cwd inside the main checkout (#524; D1, D2). Covered by: 1.1
 - E2: The release carries it. Covered by: 2.1
 - E3: An already-installed plist keeps working until the owner re-installs it (#524 does not ask Keel to rewrite it; Keel registers nothing). Discard reason: the owner's rule that Keel never touches LaunchAgents or launchctl; the changelog tells the owner to re-run `keel tick task` and its install commands.
+
+## Archive Review — 2026-11-16
+
+- Status: pass
+- Acceptance check: E1 is proved by 1.1's public-interface red/green evidence and the complete 2.1 regression run; E2's release candidate, aligned markers, spec promotion and commit are proved by 2.1 and 3.1; E3 explicitly leaves installed host jobs unchanged and the changelog names the manual upgrade step. Both modified requirements in the delta already match the published spec.
+- Scope check: reviewed all product changes against 8e490e82; they remain within the union of tasks 1.1 and 2.1 Touch. Remaining closure writes only task evidence and moves this change into the archive. No additional behavior or host configuration change is included.
+- Findings: none. No unresolved follow-up is left by this change. Symptom-based memory checks on both hosts found no stale Keel claim requiring an edit.
+- Sync: the previously promoted delta is already present; archive uses `--skip-specs` to preserve the reviewed published spec without reapplying it.
