@@ -557,6 +557,11 @@ function fillRecordSlots(repo, options) {
   };
 }
 
+function syncGateCheck(repo, stage) {
+  if (!require("./config").readSyncDeclaration(repo).lock) return { problems: [], warnings: [] };
+  return require("./lock").gateSyncCheck(repo, stage);
+}
+
 function taskStart(repo, options) {
   if (!options.record) return taskStartChecked(repo, options);
   const filled = fillRecordSlots(repo, options);
@@ -636,6 +641,10 @@ function taskStartChecked(repo, options) {
       );
     }
   }
+  // The branch lock at a sync point (#526 D12): read only, and only when the
+  // repository declares it.
+  const syncCheck = syncGateCheck(repo, "task-start");
+  problems.push(...syncCheck.problems);
   const result = gateResult(
     "task-start",
     problems.length > 0 ? "fail" : "pass",
@@ -645,6 +654,7 @@ function taskStartChecked(repo, options) {
     [
       ...redGreenObligation(compiled),
       ...taskShapeWarnings(repo, selection, task, compiled),
+      ...syncCheck.warnings,
     ],
     problems.length === 0
       ? compiled
@@ -2400,6 +2410,9 @@ function changeClose(repo, options) {
     }
   }
 
+  const syncCheck = syncGateCheck(repo, "change-close");
+  problems.push(...syncCheck.problems);
+  warnings.push(...syncCheck.warnings);
   const status =
     problems.length > 0
       ? "fail"

@@ -49,6 +49,11 @@ const STANDING_AUTHORIZATION_ACTIONS = [
   // may. It grants no bulk tag push and no tag deletion, and it widens no
   // branch, so a bare `push` beside it is not a mixed declaration.
   "push-tag",
+  // Keel's own pushes of branch-lock refs under `refs/keel/lock/` (#526 D10):
+  // acquiring, renewing, releasing, taking over and breaking a lock, and
+  // nothing else. A work branch Keel pushes still needs `push` or a matching
+  // `push:<glob>`. Bare: a lock ref is in this repository's own remote.
+  "device-sync",
 ];
 
 // The actions whose credential reaches further than the checkout the
@@ -180,6 +185,7 @@ const CONFIG_DECLARATIONS = [
   "patrol",
   "shift",
   "branches",
+  "sync",
   "owner_language",
 ];
 
@@ -1166,6 +1172,38 @@ function readBranchesDeclaration(repo) {
   return declared;
 }
 
+// `sync:` (#526 D11): `lock`, a boolean that turns on the branch lock at the
+// sync points, and `ttl`, the lease length from 5 minutes to 24 hours. A
+// declaration Keel cannot fully read is named and behaves as absent, the rule
+// every other declaration here follows.
+const SYNC_TTL_DEFAULT = "30m";
+const SYNC_KEYS = ["lock", "ttl"];
+
+function readSyncDeclaration(repo) {
+  const block = configBlockLines(repo, "sync");
+  if (!block) return { declared: false, lock: false, ttl: SYNC_TTL_DEFAULT, ttlSeconds: 1800, message: null };
+  const absent = (message) => ({ declared: false, lock: false, ttl: SYNC_TTL_DEFAULT, ttlSeconds: 1800, message });
+  if (block.inline) return absent(`keel/config.yaml \`sync:\` is written inline (\`${block.inline}\`); give \`lock:\` and \`ttl:\` as indented entries. It is ignored until then.`);
+  const values = {};
+  for (const line of block.lines) {
+    const entry = line.match(/^\s+(\w+)\s*:\s*(\S+)\s*$/);
+    if (!entry || !SYNC_KEYS.includes(entry[1])) {
+      return absent(`keel/config.yaml \`sync:\` has a line Keel cannot read: \`${line.trim()}\`; it takes only \`lock: true|false\` and \`ttl: <n>m|<n>h\`. The declaration is ignored until it is corrected.`);
+    }
+    values[entry[1]] = entry[2];
+  }
+  if (values.lock !== undefined && !["true", "false"].includes(values.lock)) {
+    return absent(`keel/config.yaml \`sync:\` declares \`lock: ${values.lock}\`, which is not true or false; the declaration is ignored until it is corrected.`);
+  }
+  const ttl = values.ttl === undefined ? SYNC_TTL_DEFAULT : values.ttl;
+  const match = ttl.match(/^(\d+)([mh])$/);
+  const seconds = match ? Number(match[1]) * (match[2] === "h" ? 3600 : 60) : NaN;
+  if (!match || seconds < 300 || seconds > 86400) {
+    return absent(`keel/config.yaml \`sync:\` declares \`ttl: ${ttl}\`; a TTL is <n>m or <n>h from 5 minutes to 24 hours. The declaration is ignored until it is corrected.`);
+  }
+  return { declared: true, lock: values.lock === "true", ttl, ttlSeconds: seconds, message: null };
+}
+
 function durationSeconds(value) {
   const match = String(value || "").match(/^(\d+)([smhd])$/);
   return match ? Number(match[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[match[2]] : null;
@@ -1191,6 +1229,7 @@ module.exports = {
   readPatrolDeclarations,
   readShiftDeclaration,
   readBranchesDeclaration,
+  readSyncDeclaration,
   durationSeconds,
   patrolReminder,
   readIssueRoles,

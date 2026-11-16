@@ -571,6 +571,48 @@ function pushTargets(push) {
   return { targets, tagTargets, tags };
 }
 
+// This hook also ships without src/core; read the same small sync declaration
+// and lock trailers locally, without contacting the remote or creating an id.
+function syncLockEnabled(top) {
+  let text;
+  try { text = fs.readFileSync(path.join(top, "keel", "config.yaml"), "utf8"); } catch { return false; }
+  let inside = false;
+  const values = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+#.*$/, "");
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    if (!inside) {
+      if (/^sync\s*:\s*$/.test(line)) inside = true;
+      continue;
+    }
+    if (!/^\s/.test(line)) break;
+    const entry = line.match(/^\s+(lock|ttl)\s*:\s*(\S+)\s*$/);
+    if (!entry) return false;
+    values[entry[1]] = entry[2];
+  }
+  const ttl = (values.ttl || "30m").match(/^(\d+)([mh])$/);
+  if (!ttl) return false;
+  const seconds = Number(ttl[1]) * (ttl[2] === "h" ? 3600 : 60);
+  return values.lock === "true" && seconds >= 300 && seconds <= 86400;
+}
+
+function foreignBranchHolder(top, branch) {
+  const message = gitOut(top, ["log", "-1", "--format=%B", `refs/keel/lock/${branch}`]);
+  if (!message) return null;
+  const fields = {};
+  for (const line of message.split("\n")) {
+    const match = line.match(/^([A-Za-z-]+): (.*)$/);
+    if (match && !(match[1] in fields)) fields[match[1]] = match[2];
+  }
+  if (fields["keel-lock"] !== "held" || !(Date.parse(fields.Expires) + 5 * 60000 >= Date.now())) return null;
+  let device = process.env.KEEL_DEVICE;
+  if (!device || !/^[A-Za-z0-9._-]{1,64}$/.test(device)) {
+    const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    try { device = JSON.parse(fs.readFileSync(path.join(common, "keel-chat", "device.json"), "utf8")).id; } catch { device = null; }
+  }
+  return fields.Device && fields.Device === device ? null : fields.Holder || "unknown holder";
+}
+
 function checkPushes(event) {
   const command = event.tool_input && typeof event.tool_input.command === "string"
     ? event.tool_input.command : "";
@@ -582,6 +624,19 @@ function checkPushes(event) {
     const top = gitOut(push.dir || cwd, ["rev-parse", "--show-toplevel"]);
     if (!top) continue;
     const { globs, protectedEntries, tagEntries } = readPushGlobs(top);
+    const syncLock = syncLockEnabled(top);
+    if (syncLock) {
+      const targets = pushTargets(push);
+      if (!targets.undetermined && !targets.form) {
+        for (const branch of targets.targets || []) {
+          const holder = foreignBranchHolder(top, branch);
+          if (holder) {
+            deny(`Keel push guard: branch ${branch} is held by ${holder}; run \`keel lock acquire --branch ${branch}\` before pushing.`);
+            return 0;
+          }
+        }
+      }
+    }
     if (!globs.length && !protectedEntries.length && !tagEntries.length) continue;
     // Branches are limited by `push:` and `push-protected:` alone: a repository
     // declaring only tag grants leaves branch pushes alone (#499 D4).

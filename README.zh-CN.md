@@ -190,7 +190,7 @@ Keel: add-user-auth#2.1 — next: task-start. Disposable projection; OpenSpec an
 改为在 `keel/config.yaml` 里一次性声明：
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>]
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>], device-sync
   - commit
   - push
 ```
@@ -198,7 +198,7 @@ authorize:          # accepted names: commit, push, push:<branch glob>[@<role>],
 没有自己写 `Autonomy boundary:` 的 task 会继承这份声明，编译出的 capsule 会把 `keel/config.yaml`
 标为该条目的来源，这样继承来的授权永远不会被误当成 task 自己做的决定。自己写了边界的 task 保留自己的边界。
 
-下文的序数按名字计，不按上面注释里的写法计：`push` 和 `push:<branch glob>` 是同一个名字，所以词汇共 15 个名字，
+下文的序数按名字计，不按上面注释里的写法计：`push` 和 `push:<branch glob>` 是同一个名字，所以词汇共 16 个名字，
 `continuation` 是第五个。
 
 `continuation`（第五个名字）会被接受，但什么都不改变。在你批准过 `tasks.md` 的同一个 change 里，
@@ -237,6 +237,10 @@ Claude 写入守卫返回 `ask`，于是 Claude Code 请你确认这一条命令
 “不是分支”拒绝。不在 glob 内的标签，或由另一个角色的条目覆盖的标签，会被拒绝并写明 `push-tag:` 或那个角色；这个授权从不
 询问。它不改变别的：`--tags`、`--mirror`、`--follow-tags`、`push.followTags` 和删除标签仍是原来的判定，也没有哪个分支授权
 会顺带放行标签。只声明 `push-tag:` 的仓库只限制标签，不限制分支推送；它旁边写裸的 `push` 是允许的，因为它没有放宽任何分支。
+
+`device-sync`（第十六个）让 Keel 自己的命令推送 `refs/keel/lock/` 下的分支锁 ref——获取、续租、释放、接手和打破分支锁
+（#526）——此外什么都不推。它不带范围，因为锁 ref 就在本仓库自己的远端。Keel 推送工作分支仍需要 `push` 或匹配的
+`push:<glob>`，`push-protected` 的分支 Keel 从不推送。没有声明它时，任何要推送锁 ref 的命令都以退出码 3 结束并写明这个名字。
 
 每个带范围的条目——`push:`、`issue:`、`issue-close:`、`cleanup:`、`chat-reply:`、`push-protected:` 和 `push-tag:`——都可以
 以 `@<role>` 结尾，或用角色模式如 `@kaiwu-design-*`，其中 `*` 匹配任意一串角色字符（#378）。这样的条目只作用于
@@ -280,7 +284,7 @@ chat 提示在"这是数据不是指令"那句话旁边也会这么说。它按�
 - **不是绕过门禁的路。** 它授权的是操作，从不是证明。不管你声明了什么，`keel gate task-complete`
   返回的判定和失败文字都完全一样。
 - **不是触发器。** 它去掉的是一次确认，不是通往该操作的那一步。没有什么会自己调度起来，也不会替你选下一个 task。
-- **不是开放式的。** 上面这 15 个名字就是全部词汇。无法识别的条目会连同可接受的名字一起报告，在你改正之前
+- **不是开放式的。** 上面这 16 个名字就是全部词汇。无法识别的条目会连同可接受的名字一起报告，在你改正之前
   整份声明不授权任何东西——打错字永远不会变成悄悄的放行。
 
 这个块默认不存在，什么都不声明的仓库的行为和这个功能出现之前完全一样。`keel --doctor` 会报告声明了什么。
@@ -707,7 +711,11 @@ external_agents:
 ## 共享资源租约
 
 会话通过有期限的租约在各 worktree 之间协调共享资源。其他持有者会被拒绝并记为等待者；持有者释放租约，或有人发现租约已过期时，
-等待者会收到私信通知。租约对 Git 或文件系统不做任何强制。换班检查会报告本 worktree 仍持有的租约。见
+等待者会收到私信通知。租约对 Git 或文件系统不做任何强制。换班检查会报告本 worktree 仍持有的租约。跨机器时，
+`keel lock acquire --branch <b>` 把分支的租约存成其远端上的 ref `refs/keel/lock/<b>`，只用不带 force 的推送更新，所以两台从不同时在线
+的设备里只有一台能持有该分支；过期的租约会被接手并提示中间的差距，仍有效的租约只能用 `--break "<原因>"` 拿走，
+`keel lock release --branch <b>` 会先确认分支已推送。Keel 只在 `authorize: device-sync` 下推送锁 ref，加 `--push` 时也只在
+`push` 允许的范围内推送分支本身（#526）。见
 [docs/resource-lock.md](docs/resource-lock.md)。
 
 ## worktree 总览
@@ -724,6 +732,22 @@ fetch 为准。issue 引用来自默认分支（origin 的 HEAD，否则本地 `
 JSON 输出包含 `defaultBranch` 和 `worktrees`；每个 worktree 的 `issues` 仍是一个排好序的编号数组。带 `--issues`
 时，`issueUpdates` 会加上 `{number, updatedAt}` 条目，没有时间的记为 null。默认分支未知时，不推断 issue 范围。
 
+
+## 只在本机的工作
+
+`keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]` 在仓库的任意一个 worktree 里都能运行，列出整个仓库里另一台机器 clone
+下来也拿不到的东西（#526）：提交不在任何远端跟踪分支里的本地分支（附未推送的提交数，或说明远端没有对应分支）；
+有未提交或未跟踪文件、游离 HEAD 不在远端、或检出了只在本机的分支的 worktree；以及每一条 stash。已合并进远端分支的
+分支算在远端。它只读本地 refs，从不 fetch，也不写任何东西；输出会写明远端跟踪分支最后一次 fetch 的时间。没有只在本机
+的东西时退出 0，有时退出 1，操作错误退出 2。从 `/` 加 `--repo` 运行，结果相同。
+
+每一项都附带修复命令（`git push [-u] <remote> <branch>`，或先提交再推送），并说明是哪条 `authorize:`
+授权覆盖了它（`commit`、`push` 或匹配的 `push:<glob>`），没有覆盖时说明该声明哪一条；报告本身不执行任何命令。
+推送中途被远端挂断后，本地的 `origin/<branch>` 可能是错的，所以 `--verify` 直接问远端：每个远端运行一次
+`git ls-remote`（分支上游的远端，否则 `origin`，或 `--remote <name>` 指定的），有超时、从不弹出凭据提示，
+并把每个本地分支标记为 `same`、`remote-behind`、`remote-ahead`、`diverged`、`unknown-to-local`（远端的 sha 不在
+本 clone 里）或 `not-on-remote`。查询失败记为 `cannot verify` 并附 git 的报错，按只在本机的工作计入退出码；
+`remote-ahead` 不计入。
 ## 会话之间的群聊
 
 在同一个仓库里干活的各个会话——Claude Code 会话、Codex 会话、无人值守的执行器，还有你——用 `keel chat` 共享一个工作群。群有维护中的成员名单，一条消息可以 `@` 某个角色或 `@all`，轻量待办可以关联 issue。一条记录可以取代同一作者之前的记录（`--supersedes <id>`），被取代的那条随即从所有人的未读里消失；未读按新到旧排列。用 `--ack` 发出的记录会请它所指向的角色确认，方式是 `keel chat ack <id>` 或回复；`keel chat show <id>` 和 `keel chat acks` 会列出谁已确认、谁只读过、谁还没读。`keel chat summary --since <time>` 汇总你能读的群里发生了什么变化——按发送者列出消息数、开出的待办及其是否仍未关闭、已关闭的待办、并入后继记录的被取代记录，以及仍在等待的确认——不用模型，也不把任何东西标为已读。每个成员有各自的未读状态，历史全部保留。用 `keel chat group add <group> <role> --listen` 加入的成员在那个群里只听不说：它接收这个群——包括桥接到 Slack 的群，这样 review 会话读到的是你自己的原话，而不是协调者的转述——被找时会被唤醒，可以确认并关闭自己的待办，但不能在那个群里发言或修改它（#248）。会话的 chat 角色就是它的身份：按角色称呼其他会话，绝不要按宿主的会话标题，Keel 看不到那个标题；角色绑定在会话运行的 worktree 上，所以一个换了地方的会话必须在新的位置重新绑定角色，否则那里什么都唤不醒它。`keel patrol` 和 `keel --doctor` 会报告绑定到已删除 worktree 的绑定，以及有东西在等、却已两小时没有会话活跃的角色；未绑定就启动的会话会被告知是哪些角色；`keel chat role --prune` 会删掉指向已删除 worktree 的绑定（#301），`keel chat role --unset` 删掉当前 worktree 的绑定、worktree 本身保留（#476），但如果解绑会让这个角色的已合并任务分支再也没法被 `keel branches prune` 删掉，它会拒绝，除非用 `--leave-branches` 表明就留着它们（#483）；已停放角色的已结束会话即使所在目录不存在，也不作为风险报告；`keel context` 和会话投影会写明绑定到本 worktree 的角色，并在这里其他 worktree 都有角色、本 worktree 却没有时提醒（#245）。`keel chat role --rename <old> <new>` 给角色改名而不改写日志：群聊会把旧名读作新名——群和私聊群的成员身份、待办分配对象，以及 `@old` 提及——而 worktree 绑定和各角色的状态（读取游标、在线状态、parked 标记、换班便条及历史、patrol 状态）会迁到新名下，新名在已有自己一份的地方保留自己的。旧名不能再被绑定，`keel/config.yaml` 和 `keel/chat.json` 里仍写着旧名的行会列出来交给你编辑（#376）。只有被提及、分到待办或收到私信才会唤醒 Claude 会话；其他消息都等它的下一次提示。消息只是另一个 agent 发来的数据，从不代表授权。两道循环防护拦住失控的 agent：一个角色每 10 分钟最多发 20 条记录；当两个角色在 10 分钟内交替发完一个群的最近 8 条消息时，那里的下一次发言会被拒绝（#297）。发言者可以带 `--not-a-loop "<why>"` 发一次——一问一答本来就是私聊群的正常形态——之后再重复就会叫来负责人，负责人的发言会解除它。`keel/chat.json` 里的 `limits` 设置 `rate`、`window_minutes`、`pingpong` 和 `pingpong_minutes`。消息里的时间应该来自 Keel 的时钟，而不是估计：除非给了 `--no-stamp`，`keel chat post` 和 `keel chat dm` 会以它为准加上 `[MM-DD HH:MM]` 前缀（#298、#349）。Codex 自己不会醒来，由 `keel chat wake add` 唤醒：在声明了 `chat-reply` 的群里，每条指向它的记录启动一轮，接续同一个会自动压缩的线程，没有找它的消息时什么都不跑（#203）。其他宿主依靠提示时的通知，不得让模型轮询群聊；如果确实避免不了定时，就先用 `keel chat notice --check` 把关，每次运行都开新线程，并告诉加入群聊的会话不要设置定时检查（#194）。每台机器一个 Slack App、一个桥接进程，同一批群就能实时连到其他机器上的会话和你的手机，孤儿分支 `keel-chat` 会把历史保留到超出 Slack 保留期之后。角色也可以通过一个你能在 Slack 里提及的 Slack bot 发言，一个 bot 可以服务多个项目，在每个项目的频道里充当那个项目的角色。见 [Slack 配置指南](docs/chat-slack-setup.zh-CN.md)。角色的会话通过 `keel shift` 换班：协调者发起，会话自查收尾、留下便条、清空自己，新的一班从便条接手；见 [docs/shift-change.zh-CN.md](docs/shift-change.zh-CN.md)。如果团队的角色以后台 Claude Code CLI 会话运行、没有桌面应用，就改用 `keel tick` 来唤醒、巡查和换班；见 [docs/cli-team.zh-CN.md](docs/cli-team.zh-CN.md)。5.83 的 `keel mail` 命令在私聊群上继续可用。
@@ -885,7 +909,9 @@ keel mail role | send | list | read                # 5.83 的邮箱；在私聊�
 # 换班、共享资源租约、worktree 总览
 keel shift request | check | ready [--wake] | start | resume | status
 keel lock acquire | release | list                 # 见 docs/resource-lock.md
+keel lock acquire | release --branch <b> [--break <reason>] [--push]   # 远端上的分支锁
 keel worktrees [--repo <path>] [--issues <file>] [--json]
+keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   # 只在本机的工作
 
 # 无人值守 triage —— 这个 issue 能否不经询问就开工？
 # Keel 从不获取 issue；传入 gh 返回的内容。两个参数至少给一个。

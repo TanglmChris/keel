@@ -211,6 +211,7 @@ function tick(where, now = new Date()) {
   const result = { patrol: null, woken: [] };
   // First, so a run that fails later still counts as a run (#510 D1).
   store.writeJsonAtomic(where, stateFile(where), { ...readState(where), last_tick: store.isoLocal(now) });
+  result.sync = require("./lock").renewHeld(where);
   const wakeState = readState(where);
   result.woken = wakeEnded(where, wakeState);
   result.handedOver = require("./shift").handOver(where);
@@ -290,7 +291,7 @@ function render(result) {
   const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
   const quota = result.quota ? [`keel tick: ${result.quota.text}`] : [];
   const issues = result.issues ? [`keel tick: ${result.issues.text}`] : [];
-  return [...handed, ...woke, ...quota, ...issues,...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
+  return [...(result.sync || []), ...handed, ...woke, ...quota, ...issues,...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
 }
 
 function renderPatrol(p) {

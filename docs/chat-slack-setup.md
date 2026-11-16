@@ -285,6 +285,8 @@ keel chat archive pull
 
 `"archive": "off"` turns automatic archiving off.
 
+The archive carries the records, read positions, members and presence, and the hand-over notes `keel shift ready` writes once under `shift-notes/` when a branch lock is declared, so a device that takes over reads the note after `keel chat archive pull` (#526). The rewritten `shift/<role>.md`, shift history and transcript copies stay on the machine that wrote them.
+
 **CI:** if your workflows run on every pushed branch, exclude this one, for example `branches-ignore: [keel-chat]`. Otherwise each archive push starts a build.
 
 ## Pausing, stopping, removing

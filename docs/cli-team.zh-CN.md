@@ -65,6 +65,8 @@ CLI 会话不能清空自己，所以换班改为替换会话。角色和在任�
 
 等待器每隔几秒在 `claude agents` 里查一次这个会话（`keel tick` 每次运行也做同样的事，作为等待器没了时的后备；两者之间有一把锁，不会各启动一个会话；仓库不装 tick 也能换班）。`claude agents` 显示会话还在忙，或者在等输入（它正卡在向你提的问题上），就继续等：交接绝不会打断一场对话。它看的是 status，不是任务状态 state：state 只是对会话最后一条消息的归类，不代表这一轮有没有结束（#393）。会话一旦空闲、已停或已不在，就用 `claude stop` 停掉它（对话会保留），不再恢复它。然后在同一个 worktree 里用 `claude --bg -n "<角色> · <月-日 时:分>" --permission-mode <模式> [--model <模型>] [--effort <档位>]` 加「运行 `keel context` 和 `keel shift resume`」的提示启动一个新会话。新一班从干净的上下文开始，会话 id 是新的，名字也是自己的：角色名加本地开班时间，所以在 `claude agents` 和 claude.ai 上没有两班同名。旧会话保留它启动时的名字，不再改名：改名要恢复旧会话，而开着 Remote Control 的会话会用 claude.ai 上的标题把改名盖回去（#399）。模式取自 `keel/config.yaml`，没有声明时为 `auto`：
 
+声明了 `sync: lock: true` 时，如果按上次拉取到的锁，角色所在 worktree 的分支正被另一台设备持有，排队的交接不会启动新会话：条目会记下 `waiting_on: branch <b> is held by <持有者> until <时间>`，`keel shift status` 会显示它，挂起超过 15 分钟时巡检会报告（#526）。每次 tick 还会为本设备持有的分支锁续租。 声明了 `device-sync` 后，续租先确认远端仍由本设备持有有效锁，再仅按 `push` 或匹配的 `push:<glob>` 推送工作分支，跳过 `push-protected`。推送或续租失败时让租约到期，同一故障只报告一次。提示钩子仅在 TTL 的三分之一过去后续租，不推送工作分支，失败时保持安静。
+
 ```yaml
 shift:
   permission_mode: auto   # default、acceptEdits、auto、plan 或 bypassPermissions
@@ -84,3 +86,5 @@ shift:
 ## 权限
 
 `keel tick` 在所有会话之外运行，不需要任何会话权限。各会话自己通过 Bash 运行 `keel` 和 `git` 命令。交接启动的会话使用声明的 `permission_mode`，被恢复的会话沿用它启动时的模式。所以每个角色的第一个会话，请用你希望它一直保持的模式启动，并像对待无人值守的桌面会话那样，给它工作所需的 `permissions.allow` 条目。仅桌面端需要的条目（`mcp__ccd_session_mgmt__*`、`mcp__scheduled-tasks__*`），以及 `self-shift`、`shift-restore` 两项声明，在这里都不需要。
+
+巡检会将超过 24 小时仍只在本机的分支提交、游离 HEAD 和 stash 列为持续风险。它只读取本地引用，不把未提交文件算入此项；`--since-last --notify` 对不变的风险只通知一次。有范围的巡检覆盖对应角色，仓库巡检还覆盖没有 worktree 的分支和 stash。`keel --doctor` 显示设备标识、持有的分支锁、到期时间、上次续租时间，以及 tick 是否运行过或由 Claude 提示钩子续租。

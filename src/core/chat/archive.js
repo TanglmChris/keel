@@ -4,7 +4,8 @@
 // 90 days and deletes after a year; the project's own repository keeps
 // everything, on an orphan branch `keel-chat` that never meets `main`.
 //
-// Only the synced layer is archived — records, cursors, aliases, presence —
+// Only the synced layer is archived — records, cursors, aliases, presence,
+// hand-over notes —
 // the files that are written by one writer and never rewritten in place, so
 // two machines' archives merge by the union of their paths. The commit is
 // made with plumbing and a temporary index: the worktree, the real index, and
@@ -23,7 +24,10 @@ const { loadChatConfig } = require("./config");
 
 const { ChatError } = store;
 const BRANCH = "refs/heads/keel-chat";
-const SYNCED_ROOTS = ["groups", "cursors", "members", "presence"];
+// `shift-notes/` holds hand-over notes, each written once under a new name
+// (#526 D9), so it merges by the union of paths like the rest; the rewritten
+// `shift/<role>.md` stays out.
+const SYNCED_ROOTS = ["groups", "cursors", "members", "presence", "shift-notes"];
 
 function git(where, args, { env = {}, input = null, allowFail = false } = {}) {
   const result = spawnSync("git", args, {

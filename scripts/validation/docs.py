@@ -641,7 +641,7 @@ def validate_continuation_docs_scenario() -> int:
     # to spell all of it: a reader copies from the list they are shown.
     for needle in (
         f"accepted names: {ACCEPTED_AUTHORIZE_NAMES}",
-        "The fifteen names above are the whole vocabulary.",
+        "The sixteen names above are the whole vocabulary.",
         "`protocol-refresh`, the seventh name",
     ):
         if needle not in readme:

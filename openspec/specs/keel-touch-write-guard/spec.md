@@ -276,7 +276,7 @@ Enforcement binds the host's file-writing tools, so a write issued by a shell co
 
 ### Requirement: A push outside the declared branches is refused
 
-While `keel/config.yaml` declares at least one `push:<glob>` entry, the Claude write guard MUST examine every `Bash` call for `git push` invocations, whether or not a task manifest is active and whether or not the rest of the `authorize:` declaration is valid, and MUST deny the call when any push's target branch matches no declared glob, naming the branch and the globs. It MUST determine a target from an explicit refspec — the destination of `src:dst`, `src` alone, `HEAD` as the current branch, `:dst` as a delete — or, with no refspec, from the branch's configured push destination. When it cannot determine a target — `--all`, `--branches`, `--mirror`, `--tags`, an option it does not know, shell expansion in the push, a tag refspec, or no configured push destination — it MUST deny the call and name `git push origin <branch>` as the form to use. When a `cd` or `pushd` precedes the push in the same call, whatever its refspec, it MUST deny the call, say that the directory changes before the push, and name `git -C <directory> push` as the form to use. A `Bash` call with no `git push`, and any call while no `push:<glob>` is declared, MUST pass unchanged. Codex keeps its `manual` guard capability.
+While `keel/config.yaml` declares at least one `push:<glob>` entry, the Claude write guard MUST examine every `Bash` call for `git push` invocations, whether or not a task manifest is active and whether or not the rest of the `authorize:` declaration is valid, and MUST deny the call when any push's target branch matches no declared glob, naming the branch and the globs. It MUST determine a target from an explicit refspec — the destination of `src:dst`, `src` alone, `HEAD` as the current branch, `:dst` as a delete — or, with no refspec, from the branch's configured push destination. When it cannot determine a target — `--all`, `--branches`, `--mirror`, `--tags`, an option it does not know, shell expansion in the push, a tag refspec, or no configured push destination — it MUST deny the call and name `git push origin <branch>` as the form to use. When a `cd` or `pushd` precedes the push in the same call, whatever its refspec, it MUST deny the call, say that the directory changes before the push, and name `git -C <directory> push` as the form to use. A `Bash` call with no `git push`, and any call while no `push:<glob>` is declared, MUST pass this check unchanged; the branch-lock check is separate. Codex keeps its `manual` guard capability.
 
 #### Scenario: A push to a declared branch passes
 - **WHEN** `push:claude/*` is declared and a `Bash` call runs `git add -A && git push -u origin claude/fix`
@@ -381,3 +381,19 @@ When the Claude write guard reads `git push` arguments from a `Bash` command, it
 #### Scenario: A repository declaring only tag grants limits only tags
 - **WHEN** only `push-tag:v*` is declared and a session pushes `git push origin feature-1`, then `git push origin refs/tags/v1`, then `git push origin refs/tags/w1`
 - **THEN** the first two are allowed and the third is denied naming `push-tag:`
+
+### Requirement: A push to a branch another device holds is refused
+
+Where `sync: lock: true` is declared, the Claude write guard MUST deny a `git push` whose target branch it can determine and whose last-fetched lock is held live by another device, naming the holder and `keel lock acquire --branch <b>`, whether or not a `push:<glob>` is declared. An undeterminable target MUST be left to the existing rules.
+
+#### Scenario: A push to a held branch is refused
+- **WHEN** the lock is declared, the fetched lock of `feat` is held live by `pm@mac-1a2b3c4d`, and a session on another device runs `git push origin feat`
+- **THEN** the call is denied naming `pm@mac-1a2b3c4d` and `keel lock acquire --branch feat`
+
+#### Scenario: The holder's push passes
+- **WHEN** this device holds `feat`'s lock live and runs `git push origin feat`
+- **THEN** the call proceeds unless another existing rule denies it
+
+#### Scenario: Without the declaration nothing changes
+- **WHEN** no `sync:` is declared
+- **THEN** the guard's verdict for `git push origin feat` is what it was before

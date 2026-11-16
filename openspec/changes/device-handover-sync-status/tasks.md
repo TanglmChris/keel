@@ -1,0 +1,640 @@
+# Tasks
+
+## 1. The repository-wide report
+
+- [x] 1.1 `keel sync status` lists what exists only on this machine
+  - Covers:
+    - keel-sync-status / One command lists what exists only on this machine
+    - keel-sync-status / The listing is read-only and its exit code says whether anything is local-only
+    - D1
+    - D2
+    - D4
+    - F2
+    - F9
+    - F17
+  - Touch:
+    - src/core/sync.js
+    - src/core/worktrees.js
+    - src/core/branches.js
+    - bin/keel.js
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-lists-local-only`: in a temporary repository with a bare remote, the real `keel sync status --json` lists the branch two commits ahead, the branch with no remote counterpart, the worktree with one untracked file and the stash entry, and not the branch merged into `origin/main`; the text says counts are as of the last fetch with its time, and the command exits 1. Fails with: `unknown command`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-read-only-exit-codes`: a clean repository exits 0; outside a repository and with an unknown argument it exits 2; refs, `git status` and the chat store are byte-identical before and after, no `fetch` ran, and a run with working directory `/` and `--repo <worktree>` prints the same report.
+    - M3 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario worktree-overview`, `node scripts/run_python.js scripts/validate_plugin.py --scenario branches-lists-merged`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:3d3f8e8dd98b3d2880e01334c763666d111ef3e2e90869223c10867ac171d961 (keel 5.228.0)
+    - M1: pass (2026-11-16, Linux, git 2.34.1). `sync-status-lists-local-only scenario passed.` The real `keel sync status --json` lists `feat` (2 unpushed), `scratch` (no remote counterpart), worktree `b` (1 untracked path), worktree `a` (on `feat`) and the one stash, not `done` (merged into `origin/main`) and not the clean main checkout; exit 1; the text says the refs are read as of the last fetch (`never fetched`); refs, stash, status, FETCH_HEAD and the chat store unchanged.
+    - M1.red: fail. Before `src/core/sync.js` existed: `sync-status-lists-local-only: \`keel sync status\` is an unknown command here (exit 2): keel: repo path was provided more than once`.
+    - M1.green: pass. `src/core/sync.js` (status, render, runSync) reusing `worktrees.listWorktrees` and its `GIT_OPTIONAL_LOCKS=0` reader, dispatched from `bin/keel.js`; the scenario passes.
+    - M2: pass. `sync-status-read-only-exit-codes scenario passed.` Clean repository exits 0 with `Nothing is only on this machine.`; outside a repository and `--bogus` each exit 2 with nothing on stdout; a run inside worktree `a` and a run from `/` with `--repo <a>` give identical JSON and exit 1; repository state unchanged.
+    - M2.red: fail. Before the command existed: `sync-status-read-only-exit-codes: a clean repository should exit 0 saying nothing is only on this machine: exit 2,  keel: repo path was provided more than once`.
+    - M2.green: pass. Same implementation; exit codes 0/1/2 from `runSync`, `--repo` resolved to an absolute path and every read made in a named directory.
+    - M3: pass. Each run alone, exit 0: `worktree-overview: scenario passed`, `branches-lists-merged scenario passed.`, `surfaces-agree-with-code scenario passed.`, `assertion-shape-count scenario passed: 74 sites, a bound on a shape and not a count of defects.`; also `readme-states-the-cli` and `readme-zh-matches-english` passed for the new README lines.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the public CLI, `keel sync status` lists every kind of local-only work (branch ahead, branch with no remote, dirty worktree, worktree on a local-only branch, stash), omits merged work, is read-only, says when refs were last fetched, and exits 0/1/2 as specified, identically from `/` (M1, M2).
+      - Scope check: `git status --short` lists `README.md`, `README.zh-CN.md`, `bin/keel.js`, `scripts/validation/registry.py`, `scripts/validation/sync.py`, `src/core/sync.js`, `src/core/worktrees.js` and this change's directory — all in Touch or the record layer. `docs/commands*.md` list only slash commands, so they needed no line.
+      - Findings: Resolved here: M3 — `keel worktrees` failed outright on git before 2.36 because `git worktree list --porcelain -z` is unknown there (reproduced on git 2.34.1: `keel worktrees` exit 1, `error: 未知开关 \`z'`); `listWorktrees` now falls back to newline-separated porcelain, proved by M3 (`worktree-overview` passes on git 2.34.1) and by M1, which reads worktrees through it.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 `--verify` compares the remote's sha, and the report names the fix
+  - Covers:
+    - keel-sync-status / `--verify` compares the remote's real sha
+    - keel-sync-status / `--verify` classifies each local branch against the remote's sha
+    - keel-sync-status / A failed lookup is never reported as pushed
+    - keel-sync-status / The report names the fix
+    - keel-sync-status / The report says which authorization covers the fix
+    - D3
+    - D5
+    - A4
+  - Touch:
+    - src/core/sync.js
+    - bin/keel.js
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-verify-classifies`: through the real CLI, with the remote's `feat` moved to a commit the local objects lack while `origin/feat` locally equals the tip, `--verify` reports `unknown-to-local` and exits 1; with `feat` three commits past a hand-advanced `origin/feat` it reports `remote-behind`; with three branches on one remote a `git` wrapper on `PATH` logs exactly one `ls-remote`; a remote not named `origin` is verified with `--remote`; without `--verify` no `ls-remote` runs. Fails with: `unknown-to-local`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-verify-failure`: with the remote unreachable `--verify` reports `cannot verify` with git's error per branch, none as `same`, exits 1, and the run without `--verify` completes from local refs.
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-push-guidance`: with `authorize: [push:feat*]` the report prints `git push origin feat` and says `push:feat*` covers it; with none it prints `git push -u origin scratch`, names `push` or `push:scratch`, and the remote gains no branch.
+    - M4 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-lists-local-only` and `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-read-only-exit-codes` still pass.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:01564f464ac4fc6148c966f1ad43df06ae4112a4853f4fdcf87b365969b46bd0 (keel 5.228.0)
+    - M1: pass (2026-11-16, Linux, git 2.34.1). `sync-status-verify-classifies scenario passed.` Without `--verify`, `feat` (remote moved by another clone) and `partial` (tracking ref advanced by hand) look pushed and a logging `git` wrapper records no `ls-remote`; with `--verify` the run exits 1 with `feat` `unknown-to-local`, `partial` `remote-behind`, `main` `same`, exactly one `ls-remote` logged for the three branches, and the text names the states; a clone whose remote is `hub` verifies `main` as `same` with `--remote hub`.
+    - M1.red: fail. Before `--verify` existed: `sync-status-verify-classifies: --verify should exit 1 and report feat as unknown-to-local: exit 2, keel sync: Unknown argument --verify.`
+    - M1.green: pass. `verify()`, `lookup()` (one `git ls-remote --heads` per remote, `GIT_TERMINAL_PROMPT=0`, ssh `BatchMode`, 30 s limit) and `classify()` in `src/core/sync.js`; `--remote` overrides the remote.
+    - M2: pass. `sync-status-verify-failure scenario passed.` With `origin` pointing at a missing repository, `--verify` exits 1, `main` is `cannot verify` carrying git's error, no branch is `same`, and the run without `--verify` exits 0 from local refs.
+    - M2.red: fail. `sync-status-verify-failure: --verify against an unreachable remote should exit 1, got 2: keel sync: Unknown argument --verify.`
+    - M2.green: pass. A failed lookup is returned, not thrown, and every branch of that remote is `cannot verify`; `unverified` counts it in the exit code.
+    - M3: pass. `sync-status-push-guidance scenario passed.` With `authorize: [push:feat*]`, the line under `feat` prints `git push origin feat` and `authorized by \`push:feat*\``; under `scratch` it prints `git push -u origin scratch` and `declare \`push\` or \`push:scratch\``; `git ls-remote` shows no `scratch` on the remote afterwards.
+    - M3.red: fail. `sync-status-push-guidance: feat's fix \`git push origin feat\` is not printed: branch feat: 1 unpushed commit (remote origin/feat)`.
+    - M3.green: pass. `attachFixes()` reads `readStandingAuthorization` (`declared`, `pushGlobs`) and matches globs with `branches.globRegExp`; `render()` prints a `fix:` line under each item.
+    - M4: pass. Each run alone, exit 0: `sync-status-lists-local-only scenario passed.`, `sync-status-read-only-exit-codes scenario passed.`; also `assertion-shape-count` (74 sites), `surfaces-agree-with-code`, `readme-states-the-cli` and `readme-zh-matches-english` passed after `--verify` and `--remote` were added to `keel --help` and both READMEs.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the public CLI, `--verify` asks the remote once per remote and classifies each branch against the remote's own sha, catching the stale and partial-push cases a local ref hides (M1); a failed lookup is `cannot verify` and never `same` (M2); every local-only item prints its fix and the `authorize:` entry covering it, and nothing is pushed (M3); the plain listing is unchanged (M4).
+      - Scope check: `git status --short` lists `README.md`, `README.zh-CN.md`, `bin/keel.js`, `scripts/validation/registry.py`, `scripts/validation/sync.py`, `src/core/sync.js`, `src/core/worktrees.js` (from 1.1) and this change's directory, all within the Touch of 1.1 and 1.2 or the record layer.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. The branch lock
+
+- [x] 2.1 Probe what the lock ref relies on, against a bare repository and GitHub
+  - Mode: diagnose-only
+  - Covers:
+    - A1
+    - F11
+    - D6
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this is a diagnosis that reproduces and reports; it writes no product file, so nothing it writes can fail first.
+    - M1: in a temporary bare repository, `git push <remote> <sha>:refs/keel/lock/probe` creates the ref, a child commit fast-forwards it, a push from a clone that did not fetch the second is rejected as non-fast-forward, a default `git fetch` does not bring `refs/keel/*` and `git fetch <remote> +refs/keel/lock/*:refs/keel/lock/*` does; each outcome is recorded with the command and its output.
+    - M2: after the owner authorizes it at the start of this task, the same create, fast-forward and rejected pushes against a throwaway ref `refs/keel/probe-<random>` on this repository's GitHub remote are recorded, and the throwaway ref is removed by the owner-authorized command the task names. A refusal records the message and returns the change to authoring with the `refs/heads/keel-lock/<branch>` fallback.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:38b5139374417227a8d656a5fbbd2fe9bb517e17cfd155f42e946332f49f0f43 (keel 5.228.0)
+    - M1: pass (2026-11-16, git 2.34.1, temporary bare repository). Empty-tree commits pushed to `refs/keel/lock/probe`: create `* [new reference] … -> refs/keel/lock/probe`; child commit `76af374..a3c6d21 … -> refs/keel/lock/probe`; a commit whose parent was the first, pushed after the second, `! [rejected] … -> refs/keel/lock/probe (non-fast-forward)`, exit 1, and `ls-remote` still showed the second; a default `git fetch origin` brought 0 `refs/keel/*` refs and `git fetch origin +refs/keel/lock/*:refs/keel/lock/*` brought `a3c6d21… refs/keel/lock/probe`.
+    - M2: pass (2026-11-16, owner authorized in conversation). Against `https://github.com/TanglmChris/keel.git`, ref `refs/keel/probe-0b9f04d3`: create `* [new reference] 1834d7ac… -> refs/keel/probe-0b9f04d3` exit 0; fast-forward `1834d7ac..68f6f473` exit 0; stale child of the first `! [rejected] b9361102… (non-fast-forward)` exit 1; `git ls-remote origin "refs/keel/*"` showed `68f6f473… refs/keel/probe-0b9f04d3`; `git fetch origin +refs/keel/probe-0b9f04d3:refs/keel-probe-check/…` fetched it (local check ref deleted); `git push origin :refs/keel/probe-0b9f04d3` `- [deleted]` exit 0, and `ls-remote` then listed 0 `refs/keel/*` refs. GitHub accepts the namespace and enforces fast-forward on it; A1 holds and the `refs/heads/keel-lock/<branch>` fallback is not needed.
+    - Review:
+      - Status: pass
+      - Acceptance check: both behaviors the lock is built on are observed, locally and on GitHub: creation and fast-forward of a `refs/keel/*` ref are accepted, a push built on a stale observation is rejected as non-fast-forward without changing the ref, and the ref is reachable only by an explicit refspec (M1, M2).
+      - Scope check: no worktree file was written; `git status --short` is unchanged from the end of 1.2. The only remote effect was the throwaway ref, created and deleted under the owner's authorization; no branch or tag was touched and no force was used.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.2 The `device-sync` authorization and the `sync:` declaration
+  - Covers:
+    - keel-standing-authorization / A repository declares standing authorization in a closed vocabulary / `device-sync` is accepted bare and authorizes only Keel's lock-ref pushes
+    - keel-resource-lock / A repository may require the branch lock at its sync points
+    - D10
+    - D11
+    - F4
+  - Touch:
+    - src/core/config.js
+    - src/core/context.js
+    - bin/keel.js
+    - scripts/validation/guard.py
+    - scripts/validation/docs.py
+    - keel/config.yaml
+    - openspec/specs/keel-standing-authorization/spec.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario device-sync-authorization-name`: `authorize: [device-sync]` is read as standing-authorized with no unrecognized-entry error, `sync` alone still reports the `change-close --action` hint, and a bare `issue` is still refused. Fails with: `device-sync`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-declaration-read`: `sync:` with `lock: true` and `ttl: 45m` is read as in force with a 45-minute lease; `ttl: soon`, `ttl: 3m` and an unknown key are each named by `keel context` and `keel --doctor` and leave every verdict as with no declaration. Fails with: `sync-declaration-read`
+    - M3 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario standing-authorization-declaration`, `node scripts/run_python.js scripts/validate_plugin.py --scenario standing-authorization-sync-confusion`, `node scripts/run_python.js scripts/validate_plugin.py --scenario config-documents-in-declaration-order`, `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:911492bec34521a78aeb185174e466a19a04c46c256c80bd611a292fbf119390 (keel 5.228.0)
+    - M1: pass (2026-11-16). `device-sync-authorization-name scenario passed.` With `authorize: [device-sync]`, `keel context` has no unrecognized-entry warning and `keel --doctor` prints `device-sync: authorized`; `authorize: [sync]` still carries the `change-close --action` hint and its accepted-name list now includes `device-sync`; a bare `issue` is still refused with `issue:<owner>/<repo>`.
+    - M1.red: fail. Before the name existed: `device-sync-authorization-name: \`device-sync\` was reported as unrecognized: … keel/config.yaml declares unrecognized action: device-sync; accepted names are commit, push, …`.
+    - M1.green: pass. `device-sync` added, bare, to `STANDING_AUTHORIZATION_ACTIONS` in `src/core/config.js`.
+    - M2: pass. `sync-declaration-read scenario passed.` `sync: {lock: true, ttl: 45m}` gives `keel context --json` `sync: {"lock": true, "ttl": "45m", "ttlSeconds": 2700}` and `keel --doctor` `sync: declared - lock: true, ttl 45m`; `ttl: soon`, `ttl: 3m`, an unknown key `colour` and `lock: maybe` are each named in `keel context`'s warnings and the doctor `sync` line, and leave no `sync` object; with no declaration there is none.
+    - M2.red: fail. `sync-declaration-read: context's \`sync\` should be the lock in force with a 45-minute lease, got None.`
+    - M2.green: pass. `readSyncDeclaration()` in `src/core/config.js` (`sync` added to `CONFIG_DECLARATIONS` after `branches`), reported by `src/core/context.js` and `printSyncDoctor()` in `bin/keel.js`.
+    - M3: pass. Each run alone, exit 0: `standing-authorization-declaration`, `standing-authorization-sync-confusion`, `config-documents-in-declaration-order`, `surfaces-agree-with-code` (after the closed-vocabulary requirement was promoted under the reauthorization), `assertion-shape-count` (74 sites); also `readme-states-the-cli` and `readme-zh-matches-english` after both READMEs named `device-sync` as the sixteenth name. `published-specs-validate-strictly` reported its pinned-openspec skip on this host; `keel openspec validate keel-standing-authorization --strict` gives the same 10 pre-existing length warnings before and after the promotion and no error.
+    - Review:
+      - Status: pass
+      - Acceptance check: `device-sync` is an accepted bare name, visible as authorized through `keel --doctor`, and the existing refusals (`sync`, bare `issue`) are unchanged (M1); `sync:` is read with `lock` and `ttl` and any unreadable line is named by both surfaces and ignored (M2); the closed vocabulary in the published spec, `keel/config.yaml` and both READMEs agree with the code (M3).
+      - Scope check: `git status --short` adds `keel/config.yaml`, `openspec/specs/keel-standing-authorization/spec.md`, `src/core/config.js`, `src/core/context.js` to the files of 1.1–1.2; all are in 2.2's reauthorized Touch. `docs/commands*.md` and `scripts/validation/guard.py`/`docs.py` needed no change.
+      - Findings: Discard reason: the task originally put every spec promotion in 4.1, but `surfaces-agree-with-code` binds the published vocabulary to the code, so the promotion moved into this task by the recorded reauthorization; later tasks whose code another surface check binds to a published spec will need the same, and will stop to ask.
+    - Blocker: none
+    - Reauthorizations: 2026-11-16, owner in conversation — Touch gains `openspec/specs/keel-standing-authorization/spec.md`, because `surfaces-agree-with-code` (M3) requires the published closed vocabulary to list every name `config.js` accepts, so `device-sync` and its approved MODIFIED delta are promoted in this task rather than in 4.1. No evidence had been recorded.
+
+- [x] 2.3 `keel lock --branch`: acquire, renew, release, take-over and `--break` over `refs/keel/lock/*`
+  - Covers:
+    - keel-resource-lock / A session leases a shared resource with an expiry and a note
+    - keel-resource-lock / A branch lock is a lease kept as a remote ref and updated only by fast-forward
+    - keel-resource-lock / A branch lock is exclusive across devices and renewed by its holder
+    - keel-resource-lock / A branch lock is acquired only where the previous holder finished
+    - keel-resource-lock / An expired branch lock is taken over with a warning, and a live one only by breaking it
+    - keel-resource-lock / Releasing a branch lock confirms the push
+    - keel-resource-lock / Keel pushes a lock ref only under `device-sync`, and a work branch only under `push`
+    - keel-resource-lock / Lock events reach the roles through the chat
+    - keel-sync-status / The listing shows each local branch's lock
+    - D6
+    - D7
+    - D8
+    - D10
+    - D19
+    - D22
+    - F11
+    - F12
+    - F18
+    - A2
+  - Touch:
+    - src/core/lock.js
+    - src/core/sync.js
+    - bin/keel.js
+    - docs/resource-lock.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/commands.md
+    - docs/commands.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario branch-lock-race`: two devices (two clones of one bare remote, each with its own device id) running `keel lock acquire --branch feat` at once give exactly one exit 0 and one exit 1; the remote ref holds one `held` commit with `Seq: 1` and the winner's `Holder` as `<role>@<device>`; the holder acquiring again renews to `Seq: 2`; the loser is refused naming holder, expiry and head, is listed as a waiter, and the remote ref is unchanged; local leases without `--branch` behave as before. Fails with: `--branch`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario branch-lock-head-and-expiry`: after `released` with `Head` C3 a device at C1 is refused naming C3 and acquires after fast-forwarding; a lock stale past `Expires` plus 5 minutes is taken with `Took-over:` and the output shows the last head and the remote sha; `--break "reason"` takes a live lock with `Broke:`; `--break` with no reason exits 2; every push fast-forwarded and no `--force` appears in the `git` wrapper's log; the previous holder's role has a chat record of the take-over.
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario branch-lock-release`: release after a verified push publishes `released` with `Head` equal to the remote's `feat` and messages the waiter; over an unpushed commit, an untracked file or another device's lock it exits 1 and the lock is unchanged.
+    - M4: `node scripts/run_python.js scripts/validate_plugin.py --scenario branch-lock-push-authorization`: without `device-sync` acquire and release exit 3 naming it and the remote is unchanged; with `device-sync` and `push:claude/*` a renewal that would push `feat` renews the lock, leaves the remote `feat` unchanged and names `push:claude/*`; a `push-protected` branch is skipped and reported; a failing `pre-push` hook is reported once; `keel lock list` and `keel sync status` show each branch's lock.
+    - M5 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario resource-lock`, `node scripts/run_python.js scripts/validate_plugin.py --scenario lock-notice-best-effort`, `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-status-lists-local-only`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7d13d7eb0cb72a7b6ab6ff64fc22788c7d86e1ec8e5263bb45f6b34014638486 (keel 5.228.0)
+    - M1: pass (2026-11-16, Linux, git 2.34.1). `branch-lock-race scenario passed.` Two clones of one bare remote, each its own device, run `keel lock acquire --branch feat` concurrently: exit codes `[0, 1]`, the loser says the lock was taken, the remote `refs/keel/lock/feat` is one `held` commit with `Seq: 1` and `Holder: <winner role>@<device>`; the winner renews to `Seq: 2`; the loser is then refused with exit 1 naming holder, `expires` and `head`, the remote ref unchanged, and `keel lock list --json` on the loser lists it among feat's waiters; a local lease without `--branch` still prints `enforces nothing`.
+    - M1.red: fail. `branch-lock-race: \`keel lock acquire --branch feat\` from two devices should give one 0 and one 1, got [1, 1]: [('', 'keel lock: Unknown option --branch.'), …]`.
+    - M1.green: pass. `acquireBranch()` / `observe()` / `pushLock()` in `src/core/lock.js`: one `ls-remote` for branch and lock, explicit-refspec fetch, an empty-tree lock commit parented on the observed lock, pushed without force; a rejection re-observes and names the new holder.
+    - M2: pass. `branch-lock-head-and-expiry scenario passed.` After a planted `released` lock with `Head` C3, b at C1 is refused (exit 1) naming C3 and the lock is unchanged; after `git pull --ff-only` it acquires with `Seq: 5`; a planted `held` lock whose `Expires` is 2000-01-01 is taken with `Took-over: pm@gone-11111111` and the output shows the old head and C3; b's chat store holds the take-over record for `pm`; `--break` with no reason exits 2 with the lock unchanged; `--break "A's machine is gone"` takes a live lock with `Broke: pm@live-22222222 — A's machine is gone`, the new lock's parent is the live commit, and the logging `git` wrapper shows no forced push.
+    - M2.red: fail. `branch-lock-head-and-expiry: a device behind the released head should be refused naming it: exit 1, keel lock: Unknown option --branch.`
+    - M2.green: pass. `liveFor()` with the 5-minute grace, the released-`Head` and remote-tip containment checks, `Took-over`/`Broke` trailers, and `notify()` to the previous holder's role.
+    - M3: pass. `branch-lock-release scenario passed.` In one store with two devices (`KEEL_DEVICE`), pm acquires and verify is refused and recorded as a waiter; release over an unpushed commit exits 1 naming `git push origin feat`, over an untracked `loose.txt` exits 1 naming it, from the other device exits 1 naming `pm@laptop-aaaaaaaa`, each leaving the remote lock unchanged; after pushing, release publishes `released` with `Head` equal to the pushed tip and verify's direct group carries the `released` message.
+    - M3.red: fail. `branch-lock-release: a could not acquire feat: keel lock: Unknown option --branch.`
+    - M3.green: pass. `releaseBranch()`: own live lock, clean worktree of the checked-out branch, remote contains local tip, then `released`; waiters read from `keel-chat/locks/branches/<branch>.json` are messaged.
+    - M4: pass. `branch-lock-push-authorization scenario passed.` Without `device-sync`, `lock acquire|release --branch` exit 3 naming it and no lock ref exists; with `device-sync` and `push:claude/*`, `--push` takes the lock, leaves the remote `feat` unchanged and names `push:claude/*`; a `push-protected:release/*` branch is reported as push-protected; a `pre-push` hook printing `fast_check failed` appears exactly once in the output; `keel lock list` and `keel sync status` both show feat's lock and `pm@` holder.
+    - M4.red: fail. `branch-lock-push-authorization: \`lock acquire --branch\` without device-sync should exit 3 naming it: 1 keel lock: Unknown option --branch.`
+    - M4.green: pass. `requireDeviceSync()` (exit 3), `pushBranch()` honoring `push`/`push:<glob>`/`push-protected`, hook output kept once ahead of a failed lock push, and `sync.js` listing `locks` (and, under `--verify`, a lock that moved on the remote in the same single `ls-remote`).
+    - M5: pass. Each run alone, exit 0: `resource-lock`, `lock-notice-best-effort`, `sync-status-lists-local-only`, `sync-status-read-only-exit-codes`, `sync-status-verify-classifies` (still one `ls-remote`), `sync-status-verify-failure`, `sync-status-push-guidance`, `surfaces-agree-with-code`, `assertion-shape-count` (74 sites); `readme-states-the-cli` and `readme-zh-matches-english` after both READMEs and `keel --help` named `--branch`, `--break` and `--push`.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel lock` CLI against bare remotes, the branch lock is exclusive across devices by fast-forward alone (M1), starts only where the previous holder finished, takes an expired lease with a visible gap and a live one only with a reason, never forcing (M2), releases only after a verified push and tells its waiters (M3), and pushes lock refs only under `device-sync` and branches only where `push` allows (M4); local leases and `keel sync status` are unchanged where they should be (M5).
+      - Scope check: this task changed `src/core/lock.js`, `src/core/sync.js`, `bin/keel.js`, `docs/resource-lock.md`, `README.md`, `README.zh-CN.md`, `scripts/validation/sync.py` and `scripts/validation/registry.py`, all in its Touch; the other modified files belong to 1.1–2.2.
+      - Findings: Discard reason: a waiter is recorded in the requester's own chat store and the holder learns of it by a chat record, so a holder on another machine messages that waiter on release only where the archive or Slack bridge carries the chat, as D19 states; a cross-store waiter list would need a second remote ref per waiter, which the design does not authorize.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.4 The chat archive carries hand-over notes written once
+  - Covers:
+    - keel-chat-slack-bridge / The chat store is archived to an orphan branch without exposing it publicly
+    - D9
+    - F6
+    - F7
+    - F13
+  - Touch:
+    - src/core/chat/archive.js
+    - src/core/chat/notice.js
+    - docs/chat-slack-setup.md
+    - docs/chat-slack-setup.zh-CN.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario archive-carries-shift-notes`: a file under `shift-notes/pm/` is committed by `keel chat archive sync` to `keel-chat`, imported byte for byte by `keel chat archive pull` on a second clone, and `shift/pm.md` is never archived; a public repository with no `archive_public` still commits locally and does not push. Fails with: `shift-notes`
+    - M2 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario chat-archive`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:fe42cd4174dbae75c628a30f479efc0eb52fa094f7e9f127490aa39346ae9952 (keel 5.228.0)
+    - M1: pass (2026-11-16). `archive-carries-shift-notes scenario passed.` With a stub `gh` reporting PUBLIC and no archive settings, `keel chat archive sync` commits `shift-notes/pm/20261116T080000Z-mac-1a2b3c4d.md` to the local `keel-chat` branch, archives no `shift/` file, and pushes nothing; with `"archive": {"remote": "origin"}` it pushes; a second clone's `keel chat archive pull` imports the note byte for byte.
+    - M1.red: fail. `archive-carries-shift-notes: the local keel-chat commit does not carry the shift-notes file: []`.
+    - M1.green: pass. `shift-notes` added to `SYNCED_ROOTS` in `src/core/chat/archive.js`, which both `listSynced` and `importMissing` read; the comment in `src/core/chat/notice.js` updated.
+    - M2: pass. Each run alone, exit 0: `chat-archive scenario passed.`, `surfaces-agree-with-code scenario passed.`, `assertion-shape-count scenario passed: 74 sites, …`.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel chat archive sync|pull`, a hand-over note written once under `shift-notes/` reaches a second clone, the rewritten `shift/<role>.md` never does, and a public repository still commits locally without pushing (M1); the existing archive behavior is unchanged (M2).
+      - Scope check: this task changed `src/core/chat/archive.js`, `src/core/chat/notice.js`, `docs/chat-slack-setup.md`, `docs/chat-slack-setup.zh-CN.md`, `scripts/validation/sync.py` and `scripts/validation/registry.py`, all in its Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## 3. The sync points
+
+- [x] 3.1 `task-start` and `change-close` check the lock and the pushed state
+  - Covers:
+    - keel-core-gates / Gate execution is deterministic and write-bounded
+    - keel-core-gates / Under the lock declaration, task-start requires this device's lock and pushed work
+    - keel-core-gates / Under the lock declaration, change-close requires everything pushed
+    - D12
+    - F3
+  - Touch:
+    - src/core/gates.js
+    - src/core/lock.js
+    - AGENTS.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-gates-lock`: with `sync: lock: true`, through `keel gate task-start` and `keel gate change-close`: a device holding a live lock with the branch pushed passes `task-start` with one `ls-remote` logged; another device holding it, an expired lease or no lock fails naming the state and `keel lock acquire --branch <b>` or `keel shift resume`; an unpushed commit fails naming it and `git push origin <branch>`; a stale `origin/<branch>` equal to HEAD while the remote differs fails naming both shas and `git fetch`; an unreachable remote fails with `cannot verify`; `change-close` also fails on one uncommitted path and passes when clean and at the remote sha; no gate pushed, renewed or wrote project state, and `task-complete` ran no `ls-remote`. Fails with: `sync-gates-lock`
+    - M2 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-gates-without-declaration`: with no `sync:`, an unpushed commit and the remote unreachable, both gates return their present verdicts and no `ls-remote` is logged.
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-declaration-read`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:3a75d7556482a38e4ff04b85260c1fac4614598438b191d3133aa9948b917156 (keel 5.228.0)
+    - M1: pass (2026-11-16). `sync-gates-lock scenario passed.` With `sync: lock: true`, through `keel gate task-start|change-close --json` on a fixture change: no lock → `sync-no-lock` naming `keel lock acquire --branch feat`; after acquiring, `task-start` passes with exactly one `ls-remote` and no `push`/`fetch` logged and the remote lock unchanged; an unpushed commit → `sync-unpushed` naming `git push origin feat`; the remote moved to a commit this clone lacks → `sync-remote-unknown` naming `git fetch` and both shas; another device's `--break` → `sync-lock-not-held` naming `verify@dev-b`; a 1-second own lease after it lapses → `sync-lease-expired`; `change-close` with `loose.txt` → `sync-uncommitted` naming it, and with a clean pushed branch no `sync-*` problem; `task-complete` logged no `ls-remote`; an unreachable remote → `sync-cannot-verify` at both gates.
+    - M1.red: fail. `sync-gates-lock: no lock: expected a sync-no-lock problem, got pass []`.
+    - M1.green: pass. `gateSyncCheck()` in `src/core/lock.js` (one `ls-remote`, device id read and never created, no fetch, no write) called from `taskStartChecked` and `changeClose` in `src/core/gates.js` only when `readSyncDeclaration(repo).lock`.
+    - M2: pass. `sync-gates-without-declaration scenario passed.` With no `sync:`, an unpushed commit and an unreachable remote, `task-start` passes, neither gate has a `sync-*` problem, and no `ls-remote` is logged.
+    - M3: pass. Each run alone, exit 0: `sync-declaration-read`, `surfaces-agree-with-code`, `assertion-shape-count` (74 sites); also `readme-states-the-cli` and the protocol scenarios `context-names-the-protocol-refresh`, `delegation-resident-text`, `resident-topic-matching`, `session-start-source-repo-protocol`, `source-repo-bootstrap-skip` after the `AGENTS.md` gates paragraph named the declared read.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real gates, the lock and the pushed state are required at `task-start` and `change-close` only under the declaration, each failure names its fix, a failed lookup never passes, the gates never push, fetch, renew or write, and `task-complete` is unchanged (M1, M2).
+      - Scope check: this task changed `src/core/gates.js`, `src/core/lock.js`, `AGENTS.md`, `scripts/validation/sync.py` and `scripts/validation/registry.py`, all in its Touch; the rest of the modified files belong to earlier tasks.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/527 — the `AGENTS.md` comment says `keel --install` rewrites the managed block from `assets/bootstrap/AGENTS.md`, yet that asset is a thin bootstrap and the full protocol text exists only in this repository's `AGENTS.md`; which file is the source of the resident gates paragraph is part of the holistic review, and 4.1 re-checks it before release.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.2 `keel context` warns about local-only work and sends the session to the lock
+  - Covers:
+    - keel-stateless-continuity / Context warns when work exists only on this machine
+    - keel-stateless-continuity / Context sends the session to the lock before a task
+    - D15
+    - F2
+    - F9
+    - F16
+  - Touch:
+    - src/core/context.js
+    - src/core/sync.js
+    - src/core/lock.js
+    - plugins/keel/scripts/session-start.js
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario context-warns-local-only`: through the real `keel context --json`, one stash entry and one branch with no remote counterpart give one warning counting them and naming `keel sync status`, with `status` and `nextAction` equal to those without them; a clean repository and one with no remote give none. Fails with: `keel sync status`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario context-lock-next-action`: with `sync: lock: true` and context otherwise `ready` with `task-start`, a fetched lock held live by another device gives `nextAction.kind` `lock-acquire` with `keel lock acquire --branch feat` and the holder in the reasons; a lock released by this worktree's role gives `shift-resume` with `keel shift resume`; `status` and the selection are unchanged; a live lock held by this device leaves `nextAction` as without the declaration; the SessionStart projection shows the same command. Fails with: `lock-acquire`
+    - M3 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario sync-declaration-read`, `node scripts/run_python.js scripts/validate_plugin.py --scenario the-next-action-is-a-command`, `node scripts/run_python.js scripts/validate_plugin.py --scenario a-paused-change-is-not-the-next-action`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5e09ff4d0744368b29b5ef644c954296d7244938b032f02e55f503bc8f855191 (keel 5.228.0)
+    - M1: pass (2026-11-16). `context-warns-local-only scenario passed.` With one stash entry and a branch `scratch` with no remote counterpart, `keel context --json` carries exactly one warning containing `1 local-only branch`, `1 stash` and `keel sync status`, with `status`, `nextAction` and `selection` equal to the clean run, and a logging `git` wrapper shows no `ls-remote` or `fetch`; a clean repository and one with no remote carry no such warning.
+    - M1.red: fail. `context-warns-local-only: expected one warning naming \`keel sync status\`, got []`.
+    - M1.green: pass. `localOnlyWarning()` in `src/core/context.js`, built on `sync.status()`.
+    - M2: pass. `context-lock-next-action scenario passed.` With `sync: lock: true` and the fixture otherwise `ready` with `task-start`: feat held live by `verify@dev-b` gives `nextAction` `{kind: lock-acquire, command: keel lock acquire --branch feat}` with the holder in `reasons`, `status` `ready` and selection task `1.1`; the SessionStart hook's additional context shows `keel lock acquire --branch feat`; after `pm@dev-b` released it, `pm@dev-a` gets `{kind: shift-resume, command: keel shift resume}`; once `pm@dev-a` holds it, `nextAction` is `task-start` again.
+    - M2.red: fail. `context-lock-next-action: with feat held live by another device, nextAction should be lock-acquire \`keel lock acquire --branch feat\`, got {'kind': 'task-start', 'command': 'keel gate task-start --change demo --task 1.1'}`.
+    - M2.green: pass. `lockNextAction()` in `src/core/context.js` (last fetched lock ref, device id read only, `liveFor` with the grace for another holder) and, in `plugins/keel/scripts/session-start.js`, a `- first run` line naming the next action's command for `lock-acquire`/`shift-resume`.
+    - M3: pass. Each run alone, exit 0: `sync-declaration-read`, `the-next-action-is-a-command`, `a-paused-change-is-not-the-next-action`, `stateless-continuity`, `surfaces-agree-with-code`, `assertion-shape-count` (74 sites), and every registered scenario whose name contains `session-start` or `projection`.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel context` and SessionStart hook, local-only work is warned about offline without moving selection (M1), and under the lock a session is sent to `keel lock acquire --branch <b>` or `keel shift resume` before a task, with status and selection kept, and left alone when it holds the lock (M2).
+      - Scope check: this task changed `src/core/context.js`, `src/core/lock.js` (exports), `plugins/keel/scripts/session-start.js`, `scripts/validation/sync.py` and `scripts/validation/registry.py`, all in its Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.3 The shift check, `ready`, `resume` and the hand-over use the stash, the lock and the archived note
+  - Covers:
+    - keel-shift-change / The readiness check reports what would be lost or left running
+    - keel-shift-change / Ready releases the branch lock after the check passes
+    - keel-shift-change / The stored note lists what is not on the remote
+    - keel-shift-change / Resume is the takeover
+    - keel-shift-change / A hand-over waits while another device holds the branch
+    - D9
+    - D14
+    - D16
+    - D17
+    - F1
+    - F15
+    - F17
+  - Touch:
+    - src/core/shift.js
+    - src/core/lock.js
+    - src/core/sync.js
+    - docs/shift-change.md
+    - docs/shift-change.zh-CN.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-check-stash-and-notes`: through the real `keel shift check`, a stash of this worktree's branch is an item and exits 1; a stash of `other`, a custom-message stash and a branch `scratch` with no worktree are notes naming `keel sync status`; dropping the first stash gives exit 0; with the lock declared and held a note says `keel shift ready` releases it. Fails with: `stash`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-ready-releases-lock`: with the lock declared, `keel shift ready "next: rerun R007"` on a clean pushed worktree writes the note under `shift-notes/pm/`, syncs the archive, and releases the lock with `Head` at the remote sha and `Note` naming that path; the stored note ends with a `## Not on the remote at hand-over` section naming `scratch`; with the remote unreachable it exits 1 and stores nothing; without the declaration the section is appended and no lock is touched; with nothing to list the note is exactly the text given.
+    - M3: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-resume-takes-over`: on a second clone after `keel chat role --set pm`, `keel shift resume` switches the worktree to `feat` at A's head, acquires the lock, pulls the archive and prints A's note with its commits marked; a live lock held elsewhere and an untracked file each make it exit 1 naming the cause and change nothing.
+    - M4: `node scripts/run_python.js scripts/validate_plugin.py --scenario handover-waits-for-lock`: with the lock declared and a hand-off for `pm` queued while another device holds `feat` live, `keel tick` (with a stub `claude`) starts no session and `keel shift status` names `feat` and the holder.
+    - M5 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-change`, `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-check-skips-host-keep-awake`, `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-resume-checks-commits`, `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-cli-handover-claims-once`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a24694807cdf5106a7a56753b0f841c0ef6ce26a03c8a17389249aa8a1f4ff06 (keel 5.228.0)
+    - M1: pass (2026-11-16). `shift-check-stash-and-notes scenario passed.` Through `keel shift check --json` on `feat`: the stash of `feat` is the one `stash` item and the check exits 1; the stash of `other` (`WIP on other`), a stash stored with the custom message `custom message`, and branch `scratch` (no worktree, no remote) are notes naming `keel sync status`; dropping the `feat` stash gives exit 0; with `sync: lock: true` and the lock held, a note says `keel shift ready` releases it.
+    - M1.red: fail. `shift-check-stash-and-notes: the stash of feat should be the one stash item and exit 1: exit 0, items []`.
+    - M1.green: pass. `check()` in `src/core/shift.js` reads `sync.status()` once: a stash whose subject names this branch is an item, the rest of the local-only work becomes notes (also kept as `localOnly`), and `heldBranchLock()` adds the lock note.
+    - M2: pass. `shift-ready-releases-lock scenario passed.` With the lock held and `archive.remote` declared: with `origin` unreachable `keel shift ready "next: rerun R007"` exits 1 (`the branch lock of feat could not be released, so no note was stored: cannot verify origin: …`) and neither `shift/pm.md` nor `shift-notes/` exists; with the remote back it releases the lock with `Head` at HEAD and `Note` naming `shift-notes/pm/<UTC>-<device>.md`, which holds the note and is in the local `keel-chat` tree, and the stored note ends with `## Not on the remote at hand-over` naming `scratch`; without the declaration the section is appended and no `refs/keel/` ref exists; with nothing to list the note ends with the text and has no section.
+    - M2.red: fail. `shift-ready-releases-lock: with the remote unreachable ready should exit 1 and store nothing: 0`.
+    - M2.green: pass. `releaseForShift()` writes the note once, calls `lock.releaseBranch(..., { notePath })`, removes the note and its empty directories on failure, then runs `archive.sync()`; `ready()` appends the local-only section before release and reports where the note went.
+    - M3: pass. `shift-resume-takes-over scenario passed.` On clone b (bound `pm`, on `main`), after a's `ready`, `keel shift resume` leaves b on `feat` at a's head, the lock `held` by `pm@<b's device>`, and prints a's note; on a third clone c, an untracked `untracked.txt` makes resume exit 1 naming it, and then, with b holding `feat` live, resume exits 1 naming b's holder and prints no note.
+    - M3.red: fail. `shift-resume-takes-over: b should be on feat at a's head c8ec4e30.`
+    - M3.green: pass. `takeOver()` in `src/core/shift.js`: dirty check, explicit-refspec fetch of `refs/keel/lock/*`, the worktree branch's lock else this role's latest by `Seq`, refusal of a live lock held elsewhere, switch or create the tracking branch and fast-forward, `lock.acquireBranch()`, `archive.pull()`, and the archived note copied in as the waiting note so the existing resume flow prints and files it.
+    - M4: pass. `handover-waits-for-lock scenario passed.` With b holding `feat` and a's lock refs fetched, a queued hand-off for `pm` plus `keel tick` from `/` with a stub `claude` starts no `--bg` session; the queue entry's `waiting_on` names `feat` and b's holder, and `keel shift status` shows both.
+    - M4.red: fail. `handover-waits-for-lock: a session was started while b holds feat: ['--bg -n pm · 11-16 16:55 …'] keel tick: pm's hand-off delivered`.
+    - M4.green: pass. `waitsForLock()` filters the queue in `handOver()` and records `waiting_on`; `describeHandOff()` shows a lock wait as `pending: branch … is held by …`.
+    - M5: pass. Each run alone, exit 0: `shift-change`, `shift-check-skips-host-keep-awake`, `shift-resume-checks-commits`, `shift-cli-handover-claims-once`, `surfaces-agree-with-code`, `assertion-shape-count` (74 sites); in addition all 44 registered scenarios whose name contains `shift` passed, and `readme-states-the-cli`/`readme-zh-matches-english` after the docs.
+    - Review:
+      - Status: pass
+      - Acceptance check: through the real `keel shift check|ready|resume|status` and `keel tick`, this branch's stash holds the shift while other local-only work is only named (M1), `ready` hands the branch over by releasing the lock with an archived note and stores nothing when that fails (M2), `resume` on another clone is the takeover and refuses a dirty worktree or a live lock elsewhere (M3), and a hand-over waits while another device holds the branch (M4).
+      - Scope check: this task changed `src/core/shift.js`, `docs/shift-change.md`, `docs/shift-change.zh-CN.md`, `docs/cli-team.md`, `docs/cli-team.zh-CN.md`, `scripts/validation/sync.py` and `scripts/validation/registry.py`, all in its Touch; `src/core/lock.js` and `src/core/sync.js` needed no further change.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.4 The tick and the prompt hook renew this device's leases
+  - Covers:
+    - keel-resource-lock / The holder's leases are renewed by the tick and the prompt hook
+    - D10
+    - D13
+    - F8
+    - F10
+    - F18
+  - Touch:
+    - src/core/tick.js
+    - src/core/lock.js
+    - src/core/chat/notice.js
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-renews-and-pushes`: `keel tick` started from `/` for a repository whose `feat` lock this device holds, with `push` declared, renews it (later `Expires`, `Head` at the remote's `feat`) and fast-forward pushes a committed commit; a lock another device took is left alone with one report; without `device-sync` the existing `fetch` is the only network command; no acquire, break, release, other-branch push or `ls-remote` of the tick's own appears in the `git` wrapper's log. Fails with: `tick-renews-and-pushes`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario prompt-hook-renews-when-due`: through `keel chat hook user-prompt-submit`, two prompts within a third of the TTL renew once, the next due prompt with the remote unreachable prints nothing and exits 0, and a worktree whose lock is not ours renews nothing.
+    - M3 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario tick-task-names-main-checkout`, `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-standing-risk-once`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:de5d3a2227c6d9a34c6e5a2127b494d6470a3da914f48a0da713afa790ff3c94 (keel 5.228.0)
+    - M1: pass (2026-11-16, Linux): tick-renews-and-pushes scenario passed. Real CLI from / renews Seq 1 to 2 with later Expires, pushes the committed feat tip and records that remote Head; stale observation of a takeover causes no push and one report; without device-sync no lock network call occurs.
+    - M1.red: fail before implementation: tick-renews-and-pushes: tick must renew from /; remote lock stayed Seq 1.
+    - M1.green: pass: tick-renews-and-pushes scenario passed after renewHeld and renewOnly were integrated.
+    - M2: pass: prompt-hook-renews-when-due scenario passed. Two real hook calls renew once, an unreachable remote exits 0 with no output, and a foreign lock causes no network calls.
+    - M2.red: fail before hook integration: prompt-hook-renews-when-due: two due prompts must renew only once.
+    - M2.green: pass after hook integration: prompt-hook-renews-when-due scenario passed.
+    - M3: pass, each run separately: tick-task-names-main-checkout, patrol-standing-risk-once, surfaces-agree-with-code, assertion-shape-count (74 sites).
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 and M2 exercise the real tick and prompt hook with a bare remote; ownership is rechecked before push and renewal, expiry prevents automatic acquisition, and prompt failures remain silent.
+      - Scope check: only tick.js, lock.js, chat/notice.js, the two cli-team docs, validation/sync.py and registry.py changed since task-start; all are in Touch.
+      - Findings: Resolved here: M1 — automatic renewal checks ownership before any branch push, and refuses expired or foreign locks rather than acquiring them.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.5 The write guard refuses a push to a branch another device holds
+  - Covers:
+    - keel-touch-write-guard / A push outside the declared branches is refused
+    - keel-touch-write-guard / A push to a branch another device holds is refused
+    - D18
+    - F14
+  - Touch:
+    - plugins/keel/scripts/pretooluse-guard.js
+    - src/core/lock.js
+    - scripts/validation/guard.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario guard-refuses-push-to-held-branch`: through the real PreToolUse hook with `sync: lock: true` and no `push:<glob>`, a `Bash` `git push origin feat` while the fetched lock is held live by another device is denied naming the holder and `keel lock acquire --branch feat`; the holder's own push proceeds; an undeterminable target is left to the existing rules; with no `sync:` the verdict is unchanged. Fails with: `keel lock acquire --branch feat`
+    - M2 (regression): run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario push-branch-guard`, `node scripts/run_python.js scripts/validate_plugin.py --scenario push-protected-guard`, `node scripts/run_python.js scripts/validate_plugin.py --scenario push-guard-cd-before-push`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a2330e9442d1896b0213acf48a6869b1afbabeb4ec67ad3a8d0af1b0d403cfdd (keel 5.228.0)
+    - M1: pass: guard-refuses-push-to-held-branch scenario passed. Real PreToolUse hook denies foreign-held feat with no push glob, names pm@dev-a and the acquisition command, permits the holder, leaves undetermined targets to existing rules and preserves the verdict without sync.
+    - M1.red: fail before implementation: guard-refuses-push-to-held-branch: must deny naming keel lock acquire --branch feat: None.
+    - M1.green: pass after independent local lock check: guard-refuses-push-to-held-branch scenario passed.
+    - M2: pass separately: push-branch-guard, push-protected-guard, push-guard-cd-before-push, surfaces-agree-with-code, assertion-shape-count (74 sites).
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 exercises actual Bash hook events, including foreign ownership, own ownership and absent declarations; M2 preserves the existing push policies.
+      - Scope check: changes since task-start are confined to pretooluse-guard.js, validation/guard.py and registry.py plus this task record, all authorized.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.6 The patrol reports old local-only work once, and doctor reports the locks
+  - Covers:
+    - keel-coordinator-patrol / Work held only on this machine past 24 hours is a standing risk
+    - keel-coordinator-patrol / A work-held risk reads the same on every run and from local refs only
+    - keel-resource-lock / Doctor reports the branch locks of this device
+    - D20
+    - D21
+    - A3
+    - F8
+  - Touch:
+    - src/core/patrol.js
+    - src/core/sync.js
+    - bin/keel.js
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-old-local-only-risk`: through the real `keel patrol --since-last --notify`, a covered worktree whose oldest unpushed commit is 30 hours old sends exactly one `keel-patrol` message naming the role and branch across three runs; 2 hours adds none; a commit added between runs sends nothing new; a 3-day-old stash is named once where the patrol covers the repository; twenty uncommitted paths with no unpushed commit add none; no `fetch` or `ls-remote` ran. Fails with: `keel-patrol`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario doctor-reports-branch-locks`: `keel --doctor` prints a `sync` line naming the declaration, the device id, the held `feat` lock with its expiry and last renewal, and whether the tick or the hook renews. Fails with: `sync`
+    - M3 (regression): `node scripts/run_python.js scripts/validate_plugin.py --scenario patrol-standing-risk-once`, and run one at a time, each passes: `node scripts/run_python.js scripts/validate_plugin.py --scenario surfaces-agree-with-code`, `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count`.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:58c8999976a575d83741c49a34b76710364f7707f52b9e76ae0d7623829d65b5 (keel 5.228.0)
+    - M1: pass: patrol-old-local-only-risk scenario passed. A real patrol sends one covered verify/feat risk across three runs and another commit, skips two-hour work and twenty dirty paths, sends one old stash risk, and makes no fetch or ls-remote.
+    - M1.red: fail before implementation: patrol-old-local-only-risk: keel-patrol must send one old feat risk, got 0.
+    - M1.green: pass after oldLocalOnlyRisks integration: patrol-old-local-only-risk scenario passed.
+    - M2: pass: doctor-reports-branch-locks scenario passed. The sync lines name lock true, 30m, dev-a, feat, exact expiry, last renewal and the prompt hook.
+    - M2.red: fail before implementation: doctor-reports-branch-locks: sync line lacks dev-a; only lock true and ttl 30m were shown.
+    - M2.green: pass after device/lock/renewal diagnostic integration: doctor-reports-branch-locks scenario passed.
+    - M3: pass separately: patrol-standing-risk-once, surfaces-agree-with-code, assertion-shape-count (74 sites).
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 proves old work, cutoff, stable deduplication, covered-role naming and offline behavior through the public patrol; M2 proves the public doctor output names actual lock metadata.
+      - Scope check: only patrol.js, sync.js, bin/keel.js, cli-team docs, validation/sync.py and registry.py changed since task-start, within Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.7 Repair release validation on a checkout with nested worktrees and a Linux subreaper
+  - Covers:
+    - E12
+    - D23
+    - F19
+  - Touch:
+    - scripts/bump_version.js
+    - scripts/validation/baseline.py
+    - scripts/validation/sync.py
+    - scripts/validation/registry.py
+    - src/core/shift.js
+    - docs/host-contract.md
+    - .claude/worktrees/keel-maint-cli/.claude/skills/openspec-apply-change/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.claude/skills/openspec-archive-change/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.claude/skills/openspec-propose/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.codex/skills/openspec-apply-change/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.codex/skills/openspec-archive-change/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.codex/skills/openspec-propose/SKILL.md
+    - .claude/worktrees/keel-maint-cli/.codex/skills/openspec-sync-specs/SKILL.md
+    - .claude/worktrees/keel-maint-cli/AGENTS.md
+    - .claude/worktrees/keel-maint-cli/CLAUDE.md
+    - .claude/worktrees/keel-maint-cli/assets/bootstrap/AGENTS.md
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario release-skips-nested-worktrees`: through the actual version bump and baseline validator in a temporary repository, a nested Git checkout under `.claude/worktrees/` is byte-identical after a minor bump, while the outer package increments and its baseline ignores the nested checkout's old marker. Fails with: `release-skips-nested-worktrees`
+    - M2: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-check-skips-host-keep-awake`: the actual shift check on Linux reports the adopted orphan and ordinary background sleep, excludes this host's own keep-awake, and exits 0 after only the latter remains. Fails with: `shift-check-skips-host-keep-awake`
+    - M3 (regression): `git -C .claude/worktrees/keel-maint-cli diff --exit-code` proves the eleven accidental marker-only edits were restored, and `node scripts/run_python.js scripts/validate_plugin.py --scenario assertion-shape-count` passes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f58f536e13b5740724c3edd5845dad8390764724087160ec06558969a9c8bc52 (keel 5.228.0)
+    - M1: pass: release-skips-nested-worktrees scenario passed. Actual minor bump changes the outer package only; both nested marker files remain byte-identical, and the fixture baseline passes despite its old 5.28.0 marker.
+    - M1.red: fail before the fix: release-skips-nested-worktrees: bump modified another checkout: AGENTS.md.
+    - M1.green: pass after bump sweep and baseline recognize nested .git boundaries: release-skips-nested-worktrees scenario passed.
+    - M2: pass: shift-check-skips-host-keep-awake scenario passed on Linux. Actual shift check names the orphan and sleep, excludes only the live host keep-awake, and becomes ready after those loose ends are killed.
+    - M2.red: fail before the fix: shift-check-skips-host-keep-awake: keel shift check does not name an orphaned caffeinate (PID 1386993); sleep was listed.
+    - M2.green: pass after the Linux adopted-group exclusion: shift-check-skips-host-keep-awake scenario passed.
+    - M3: pass: all eleven complete file diffs were proved to contain only the 5.228.0 to 5.229.0 marker change before restoration; restored bytes match their own HEAD; git -C .claude/worktrees/keel-maint-cli diff --exit-code exits 0. assertion-shape-count passes at 74 sites.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 proves release writes and reads stop at the independent checkout; M2 proves the public shift check on the actual Linux host with its subreaper; M3 proves the owner-authorized restoration has no residual diff.
+      - Scope check: only bump_version.js, validation/baseline.py, validation/sync.py, registry.py, shift.js, host-contract.md and the eleven explicitly listed restoration paths changed since task-start, all in Touch.
+      - Findings: Resolved here: M1, M2, M3 — nested checkout pollution and the observed Linux orphan omission are repaired; native migrated memory was searched by symptom and contained no matching obsolete workaround.
+    - Blocker: none
+    - Reauthorizations: owner approved the bounded restoration and supplementary release/Linux repairs on 2026-11-16. Restore only the eleven files whose complete diff is a 5.228.0 to 5.229.0 marker change; preserve every other byte and stop on a mismatch.
+
+## 4. Release
+
+- [x] 4.1 Release and promote the nine specs
+  - Covers:
+    - E10
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - scripts/validation/docs.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - docs/host-contract.md
+    - openspec/specs/keel-sync-status/spec.md
+    - openspec/specs/keel-resource-lock/spec.md
+    - openspec/specs/keel-standing-authorization/spec.md
+    - openspec/specs/keel-core-gates/spec.md
+    - openspec/specs/keel-stateless-continuity/spec.md
+    - openspec/specs/keel-shift-change/spec.md
+    - openspec/specs/keel-chat-slack-bridge/spec.md
+    - openspec/specs/keel-touch-write-guard/spec.md
+    - openspec/specs/keel-coordinator-patrol/spec.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this task changes only version markers, a changelog entry and the spec promotion; tasks 1.1–3.6 prove the behavior and nothing written here can fail before it is written.
+    - M1: `node scripts/bump_version.js minor` moves every marker to the next minor version, and `node scripts/run_python.js scripts/validate_plugin.py --scenario version-alignment` passes with that state.
+    - M2: the deltas are promoted into their published specs (one new, eight modified), and `node scripts/run_python.js scripts/validate_plugin.py --scenario published-specs-validate-strictly` passes.
+    - M3 (regression): `npm test` passes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:65bd41ab80627db25dc57c7443ca5b087b2acaf5032b841b20fe422c9e1ac77a (keel 5.228.0)
+    - M1: pass: version-alignment scenario passed at 5.229.0. The initial bump stopped on a read-only .codex skill; the same bump was completed with the original 5.228.0 source version, skipping already-updated markers rather than incrementing twice.
+    - M2: pass: published-specs-validate-strictly scenario passed: 36 published specs validate strictly against the locally installed lockfile dependency openspec 1.14.0; one new and eight modified specs promoted.
+    - M3: pass (2026-11-16): npm test exits 0, baseline plus 425 scenarios; evidence: 278 deterministic, 147 against a stand-in host, none on a real host. First full run failed baseline, continuation-docs, shift-check-skips-host-keep-awake, dsh-binary, release-evidence-classes, a-declared-dependency-is-resolved and the-tarball-is-the-repository. Owner-authorized dependency installation, docs assertion repair, new-source index registration and completed task 3.7 resolved these; the complete final rerun passed. Full log: /tmp/keel-device-handover-full-test-final.log.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 aligns every release marker at 5.229.0; M2 validates all 36 published specs using the installed lockfile dependency; M3 validates the complete final candidate through baseline and 425 scenarios. E1-E12 each have behavior evidence, an explicit discard rationale, or their named release task; no real-host deployment is claimed.
+      - Scope check: version manifests, resident/bootstrap markers, OpenSpec skill markers, common.py, approved docs.py assertion, changelog, host contract and nine published specs are all in the reauthorized Touch. Task 3.7 separately owns the bounded restoration and supplementary code repairs; the nested checkout is clean.
+      - Findings: Resolved here: M3 — the stale fifteen-name documentation assertion now expects sixteen, with owner approval; the final full suite proves it. Durable owner: https://github.com/TanglmChris/keel/issues/528 — npm audit reports the existing transitive zod 4.4.3 as high severity under GHSA-mrhx-c7xc-m3w5; no dependency versions were changed.
+    - Blocker: none
+    - Reauthorizations: owner approved adding scripts/validation/docs.py on 2026-11-16 to change the stale fifteen-name assertion to sixteen after device-sync was added; Acceptance and Verify remain unchanged.
+
+- [x] 4.2 Commit the verified release candidate
+  - Mode: repo-action
+  - Covers:
+    - E10
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this commits the verified release snapshot; it introduces no new behavior.
+    - M1: `git log -1 --format=%s` names the release and #526, and `git show --stat HEAD` includes the implementation, version markers, published specs and task evidence.
+    - M2: `git diff --exit-code HEAD -- src/core/lock.js src/core/sync.js package.json npm-shrinkwrap.json openspec/specs/keel-resource-lock/spec.md` proves the verified snapshot is committed.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b7508045f08333a82d65fb2841bd18c0f0715c35707be2d154216cecea8024a7 (keel 5.228.0)
+    - M1: pass: git log -1 --format=%s prints feat(sync): release 5.229.0 with cross-device hand-over (#526). git show --stat HEAD contains 72 files, including implementation, 5.229.0 manifests, nine published specs and all change artifacts/task evidence.
+    - M2: pass: git diff --exit-code HEAD -- src/core/lock.js src/core/sync.js package.json npm-shrinkwrap.json openspec/specs/keel-resource-lock/spec.md exits 0 with no output; the verified product snapshot is committed.
+    - Review:
+      - Status: pass
+      - Acceptance check: the release candidate is committed on codex/device-handover-sync-status with version and #526 in its subject, all implementation/spec/evidence files included, and M2 confirms the tested product bytes equal HEAD.
+      - Scope check: repo-action with Touch none; only Git branch/index/commit state and this task record were changed. No product file was edited, no push/sync/archive occurred.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "MUST report as items: uncommitted changes; commits reachable from HEAD that no remote-tracking ref contains" — the readiness-check requirement of `keel-shift-change`, and the list of what `keel shift check` reports in `docs/shift-change.md` and `docs/shift-change.zh-CN.md`. Updated by: 3.3, 4.1
+- I2: "Core gates MUST run locally without network access or model calls" — the `keel-core-gates` requirement this change modifies. Updated by: 4.1
+- I3: "they are local, model-free, write-bounded" — the gates paragraph of the resident protocol in `AGENTS.md`. Updated by: 3.1
+- I4: "Fourteen independent declarations live here" and `CONFIG_DECLARATIONS` — `keel/config.yaml` and `src/core/config.js`, one short once `sync:` exists. Updated by: 2.2
+- I5: "A lease enforces nothing on Git or the filesystem" and "Every worktree sees the same leases" — `docs/resource-lock.md`, silent about branch locks kept on the remote. Updated by: 2.3
+- I6: "`shift-restore`, `self-shift`, `delete-branch`, `push-tag`" — the accepted `authorize:` names in `keel-standing-authorization` and `keel/config.yaml`, one short once `device-sync` exists. Updated by: 2.2, 4.1
+- I7: "(records, cursors, members, presence)" and "the chat archive syncs none of `shift/`" — the archive requirement of `keel-chat-slack-bridge`, `docs/chat-slack-setup*.md`, and the comment in `src/core/chat/notice.js`. Updated by: 2.4, 4.1
+- I8: "It MUST refuse a missing `--for` or `--note`" — the first `keel-resource-lock` requirement, which now applies only without `--branch`. Updated by: 4.1
+- I9: "and any call while no `push:<glob>` is declared, MUST pass unchanged" — the push-scope requirement of `keel-touch-write-guard`, no longer true under `sync: lock: true`. Updated by: 3.5, 4.1
+
+- I10: "for marker_file in sorted(ROOT.rglob" — scripts/validation/baseline.py scans another checkout as if it shipped with this one, and the sweep in scripts/bump_version.js crosses that same boundary. Updated by: 3.7
+
+## Expectation Coverage
+
+- E1: A session on any machine can list, from one command, every worktree, local branch and stash that is not on the remote, reusing `keel worktrees` and `keel branches` (#526 direction 2; D1, D2, D4). Covered by: 1.1
+- E2: "Pushed" is confirmed against the remote's real sha, and a failed lookup is never a pass (#526; D3). Covered by: 1.2
+- E3: The report names the fix and the authorization that covers it (#526 direction 4; D5). Covered by: 1.2
+- E4: The lock ref's fast-forward behavior and GitHub's acceptance of `refs/keel/*` are verified before the lock is built on them (A1, F11). Covered by: 2.1
+- E5: The cross-device lock is a `keel lock` resource: exclusive, renewed by its holder, taken over when expired with a warning, broken only with a reason, never forced, with waiters and chat records (owner decisions 2026-11-16; D6, D7, D8, D19). Covered by: 2.3
+- E6: Keel pushes lock refs only under `device-sync` and work branches only where `push` already allows; `sync:` gates everything (D10, D11). Covered by: 2.2, 2.3
+- E7: A device takes over by `keel shift resume` and receives the previous device's finished work and note through the chat archive (owner's seamless-switch requirement; D9, D14). Covered by: 2.4, 3.3
+- E8: The sync points are enforced by the gates, `shift ready`, the write guard and the hand-over, and `keel context` sends the session to the lock (owner decisions 2026-11-16, including the next-action change; D12, D15, D16, D17, D18). Covered by: 3.1, 3.2, 3.3, 3.5
+- E9: The Mac's tick and the prompt hook keep the lease alive from `/`; the patrol and doctor report what is held or left only here (owner instruction 2026-11-16; D13, D20, D21). Covered by: 3.4, 3.6
+- E10: The release carries it. Covered by: 4.1, 4.2
+- E11: Uncommitted work is not carried across devices, by the owner's rule; a mid-task switch goes through `keel shift ready`. Discard reason: the owner chose to sync at finished work and hand-over (2026-11-16); the proposal states it.
+
+- E12: Owner-approved release repair (2026-11-16): a release must leave nested Git checkouts alone; restore only this run's eleven accidental marker edits; a Linux adopted orphan must remain a shift loose end. Covered by: 3.7

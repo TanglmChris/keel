@@ -1,6 +1,6 @@
 # Keel project configuration.
 #
-# Fourteen independent declarations live here, each documented below in this
+# Fifteen independent declarations live here, each documented below in this
 # order: fast_check, which names a command; authorize, which names repository
 # actions this project has decided may proceed without being asked each time;
 # precedents, which points at a directory of decisions already made and the
@@ -15,8 +15,10 @@
 # which names the role that runs `keel patrol` and how often; shift, which
 # names how a CLI hand-over starts the new session and how many old ones stay
 # listed; branches, which names the trunks a task branch counts as merged into
-# and the branches never to delete; and owner_language, which names the
-# language every message to the owner is written in.
+# and the branches never to delete; sync, which names whether a branch lock
+# held on the remote guards the sync points and how long its lease lasts; and
+# owner_language, which names the language every message to the owner is
+# written in.
 
 # fast_check (optional): your project's fast inner-loop check — a
 # seconds-scale command run at a local pre-push (see
@@ -31,7 +33,7 @@
 # release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh,
 # chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>],
 # push-protected:<branch glob>[@<role>], shift-restore, self-shift,
-# delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>] — and an unrecognized entry is reported
+# delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>], device-sync — and an unrecognized entry is reported
 # with the accepted names rather than silently granted or silently dropped, so
 # the declaration authorizes nothing until it is corrected. An absent or empty
 # block authorizes nothing, which is the default and leaves behavior exactly as
@@ -362,6 +364,26 @@ external_agents:
 #       - cbb_open
 #     keep:
 #       - release/**
+#
+# This repository declares none.
+
+# sync (optional): the branch lock that makes switching devices safe (#526).
+# `lock: true` keeps one lease per branch as the ref refs/keel/lock/<branch> on
+# the branch's remote, updated only by a push without force, so two devices
+# that are never online together cannot both hold a branch. With it,
+# `task-start` and `change-close` check that this device holds the lock and that
+# the work is on the remote, `keel shift ready` releases the lock and
+# `keel shift resume` takes it over. `ttl:` is the lease, <n>m or <n>h from 5
+# minutes to 24 hours, 30m by default. Keel pushes a lock ref only under
+# `authorize: device-sync`, and a work branch only where `push` already allows
+# it. `keel sync status` lists what is only on this machine with or without it.
+# A line Keel cannot read is named by `keel context` and `keel --doctor`, and
+# the declaration is then ignored.
+#
+# Example:
+#   sync:
+#     lock: true
+#     ttl: 30m
 #
 # This repository declares none.
 

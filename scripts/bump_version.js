@@ -122,6 +122,8 @@ function sweepVersionMarkers(dir, oldVersion, newVersion, touched) {
     const relative = path.relative(ROOT, full);
     if (MARKER_SKIP_PREFIXES.some((prefix) => relative.startsWith(prefix))) continue;
     if (entry.isDirectory()) {
+      // A linked worktree or nested clone owns its own release markers.
+      if (fs.existsSync(path.join(full, ".git"))) continue;
       sweepVersionMarkers(full, oldVersion, newVersion, touched);
       continue;
     }

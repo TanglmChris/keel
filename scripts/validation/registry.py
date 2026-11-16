@@ -12,6 +12,7 @@ from validation import chatwake
 from validation import dsh
 from validation import skipspecs
 from validation import feedback
+from validation import sync
 
 
 
@@ -531,11 +532,37 @@ SCENARIOS: tuple = (
     ("chat-no-wake-dm", chat.validate_chat_no_wake_dm_scenario),
     ("chat-wakes-without-no-wake", chat.validate_chat_wakes_without_no_wake_scenario),
     ("worktree-overview", shift.validate_worktree_overview_scenario),
+    ("sync-status-lists-local-only", sync.validate_sync_status_lists_local_only_scenario),
+    ("sync-status-read-only-exit-codes", sync.validate_sync_status_read_only_exit_codes_scenario),
+    ("sync-status-verify-classifies", sync.validate_sync_status_verify_classifies_scenario),
+    ("sync-status-verify-failure", sync.validate_sync_status_verify_failure_scenario),
+    ("sync-status-push-guidance", sync.validate_sync_status_push_guidance_scenario),
+    ("device-sync-authorization-name", sync.validate_device_sync_authorization_name_scenario),
+    ("sync-declaration-read", sync.validate_sync_declaration_read_scenario),
+    ("branch-lock-race", sync.validate_branch_lock_race_scenario),
+    ("branch-lock-head-and-expiry", sync.validate_branch_lock_head_and_expiry_scenario),
+    ("branch-lock-release", sync.validate_branch_lock_release_scenario),
+    ("branch-lock-push-authorization", sync.validate_branch_lock_push_authorization_scenario),
+    ("archive-carries-shift-notes", sync.validate_archive_carries_shift_notes_scenario),
+    ("sync-gates-lock", sync.validate_sync_gates_lock_scenario),
+    ("sync-gates-without-declaration", sync.validate_sync_gates_without_declaration_scenario),
+    ("context-warns-local-only", sync.validate_context_warns_local_only_scenario),
+    ("context-lock-next-action", sync.validate_context_lock_next_action_scenario),
+    ("shift-check-stash-and-notes", sync.validate_shift_check_stash_and_notes_scenario),
+    ("shift-ready-releases-lock", sync.validate_shift_ready_releases_lock_scenario),
+    ("shift-resume-takes-over", sync.validate_shift_resume_takes_over_scenario),
+    ("handover-waits-for-lock", sync.validate_handover_waits_for_lock_scenario),
+    ("tick-renews-and-pushes", sync.validate_tick_renews_and_pushes_scenario),
+    ("prompt-hook-renews-when-due", sync.validate_prompt_hook_renews_when_due_scenario),
+    ("patrol-old-local-only-risk", sync.validate_patrol_old_local_only_risk_scenario),
+    ("doctor-reports-branch-locks", sync.validate_doctor_reports_branch_locks_scenario),
+    ("release-skips-nested-worktrees", sync.validate_release_skips_nested_worktrees_scenario),
     ("init-never-downgrades-openspec", install.validate_init_never_downgrades_openspec_scenario),
     ("native-plugin-marketplaces", hosts.validate_native_plugin_marketplaces_scenario),
     ("native-plugin-install-matrix", hosts.validate_native_plugin_install_matrix_scenario),
     ("touch-write-guard", guard.validate_touch_write_guard_scenario),
     ("push-branch-guard", guard.validate_push_branch_guard_scenario),
+    ("guard-refuses-push-to-held-branch", guard.validate_guard_refuses_push_to_held_branch_scenario),
     ("push-guard-cd-before-push", guard.validate_push_guard_cd_before_push_scenario),
     ("push-guard-redirects", guard.validate_push_guard_redirects_scenario),
     ("push-guard-follow-tags", guard.validate_push_guard_follow_tags_scenario),

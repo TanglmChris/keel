@@ -52,8 +52,20 @@ Session state a clear destroys and Keel cannot see — scheduled jobs such as a 
 - Temporary worktrees in a Claude scratchpad of a session started in this worktree. Other temporary worktrees, such as another session's, are listed as notes and do not block.
 - Open todos assigned to the role, and unread messages that would wake it.
 - For a role that requested shift changes: roles whose note waits and that it has not started since (`unstarted`).
+- A stash entry made on the worktree's branch (#526). The repository's other work that exists only on this machine — branches with no worktree that no remote has, other worktrees' uncommitted or unpushed work, stashes of other branches — is listed as notes naming `keel sync status`, and does not block, because it is not this session's to clear.
 
 A project can run its own checks beside it, such as build products under a scratch directory, from a script that calls `keel shift check` first.
+
+## Switching devices (#526)
+
+With `sync: lock: true` in `keel/config.yaml` and `authorize: device-sync`, a branch is held by one device at a time through a lock kept on the remote (see [resource-lock.md](resource-lock.md)), and the shift change is where it changes hands:
+
+- `keel shift check` notes that this device holds the branch's lock and that `ready` releases it.
+- `keel shift ready` writes the note once under `shift-notes/<role>/` in the chat store, releases the lock — which first confirms the worktree is clean and the branch is on the remote — with the note's path, and runs `keel chat archive sync`. If the release fails, nothing is stored. Whether the archive is pushed follows the archive's own rule, and the output says when the note stayed on this machine.
+- On the other device, `keel chat role --set <role>` then `keel shift resume` is the takeover: it refuses a dirty worktree, fetches the locks, switches the worktree to the branch this role last held, fast-forwarded to the remote, takes the lock, pulls the archive and prints the note. A lock held live by another device is refused, naming it.
+- With or without the lock, `ready` appends a `## Not on the remote at hand-over` section listing what stays on this machine, so the next shift sees it first.
+
+Work not yet committed is not carried across devices: commit and push before `ready`.
 
 ## The note
 

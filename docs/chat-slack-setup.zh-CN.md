@@ -292,6 +292,8 @@ keel chat archive pull
 
 不想自动归档，设置 `"archive": "off"`。
 
+归档包含消息记录、阅读位置、成员和在线状态，以及声明了分支锁时 `keel shift ready` 在 `shift-notes/` 下只写一次的交接 note，所以接手的设备执行 `keel chat archive pull` 后就能读到 note（#526）。会被原地改写的 `shift/<role>.md`、换班历史和 transcript 副本只留在写下它们的机器上。
+
 **CI 注意：** 如果你的 workflow 对每个推送的分支都运行，记得把这个分支排除掉，比如 `branches-ignore: [keel-chat]`。不然每次推送归档都会触发一次构建。
 
 ## 暂停、停止、移除

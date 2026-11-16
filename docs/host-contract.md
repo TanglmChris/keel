@@ -63,3 +63,9 @@ The race between the waiter and a tick is decided by Keel's lock and claim, not 
 ## In each run and release
 
 A passing `npm test` or `--group` run ends with an `evidence:` line. It counts the scenarios that ran deterministically and those that ran against a stand-in host. A stand-in host here means a fake host program, the host's environment, a host data directory, or a hook payload. The line also says that none ran on a real host. Each GitHub release carries the same counts in an `## Evidence` section, together with the number of `measured` rows on this page. `node scripts/run_python.js scripts/validate_plugin.py --evidence` lists which scenario is which. The classification is derived from Keel's own sources (#408).
+
+## Cross-device branch leases
+
+With `sync: lock: true` and `device-sync` declared, `keel tick` renews only this device's live branch leases in existing worktrees and pushes work branches only under the existing push authorization. It runs from `/` with an explicit repository. The Claude prompt hook renews when a third of the TTL has passed and stays silent on failure; Codex keeps manual hook capability. A queued CLI hand-over waits while the last fetched branch lock belongs to another device. Bare-remote tests prove Git behavior and hook payload tests prove integration; they do not prove launchd scheduling or Claude activation on this machine.
+
+On Linux a host subreaper may adopt an orphan process. A keep-awake whose original process-group leader is gone remains a shift loose end, even when the adopting parent is in the checker’s ancestry. The public `shift-check-skips-host-keep-awake` regression exercises this on the Linux validation host. Release marker writes and validation also stop at nested Git checkout boundaries; `release-skips-nested-worktrees` verifies both against a temporary real checkout.

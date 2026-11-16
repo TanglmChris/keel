@@ -52,8 +52,20 @@
 - 在本 worktree 里启动的会话、其 Claude scratchpad 下的临时 worktree。其他临时 worktree（比如别的会话的）只作为提示列出，不影响是否就绪。
 - 分配给该角色的未完成待办，以及会唤醒它的未读消息。
 - 对发起过换班请求的角色：便条在等、而它此后还没有 `start` 的角色（`unstarted`）。
+- 在本 worktree 当前分支上做的 stash（#526）。仓库里其他只在本机的工作——没有 worktree、远端也没有的分支，其他 worktree 未提交或未推送的工作，其他分支的 stash——只作为提示列出并写明 `keel sync status`，不影响是否就绪，因为那不归这个会话清理。
 
 项目可以在旁边加自己的检查，比如临时目录下的构建产物：写个脚本，先调用 `keel shift check`，再查本项目特有的项。
+
+## 切换设备（#526）
+
+在 `keel/config.yaml` 里声明 `sync: lock: true` 并授权 `authorize: device-sync` 后，一个分支同一时间只由一台设备持有，靠的是存在远端的锁（见 [resource-lock.md](resource-lock.md)），换班就是锁交接的时刻：
+
+- `keel shift check` 会提示本设备持有该分支的锁，`ready` 会释放它。
+- `keel shift ready` 把便条在聊天存储的 `shift-notes/<角色>/` 下只写一次，释放锁（释放前先确认 worktree 干净、分支已在远端）并在锁里记下便条路径，然后执行 `keel chat archive sync`。释放失败就什么都不存。归档是否推送按归档自己的规则，便条只留在本机时输出会说明。
+- 在另一台设备上，先 `keel chat role --set <角色>`，再 `keel shift resume` 就是接手：worktree 不干净会拒绝；它拉取锁，把 worktree 切到这个角色上次持有的分支并快进到远端，拿到锁，拉取归档，打印便条。锁仍被别的设备有效持有时会拒绝，并写明是谁。
+- 不论有没有锁，`ready` 都会在便条末尾追加 `## Not on the remote at hand-over` 一节，列出留在本机的东西，下一班先看到。
+
+未提交的工作不会跨设备带走：`ready` 之前先提交并推送。
 
 ## 便条
 
