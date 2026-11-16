@@ -1,5 +1,14 @@
 # Keel Changelog
 
+## 5.228.0 - The tick job runs from the filesystem root
+
+Issue #524 (Keel 5.227.0): the launchd job `keel tick task` prints set `WorkingDirectory` to the repository's main checkout although it already passes `--repo`, so every tick, every 300 s, sat inside the checkout and any tool that refuses to touch a checkout while a process has its cwd there counted it as a holder. In one repository an hourly "fast-forward the main checkout when idle" job deferred a full hour each time the two overlapped.
+
+- **The printed plist has `WorkingDirectory` `/`,** and `--repo` still names the main checkout (or the bound worktree where the checkout cannot stand in, as in #503 and #509). The printed text says the job runs from the root.
+- **Nothing the tick runs depends on its cwd:** each child it starts names its directory, and the host's `claude agents --json --all` answers the same from `/` as from the checkout.
+- **An installed job does not change by itself.** Keel registers nothing: to move a running job off the checkout, re-run `keel tick task` and its two install commands (bootout the old one first). `keel --doctor` accepts both the old and the new plist.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.228.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.227.0 - A chat record wakes a session once
 
 Issue #516, reported from kaiwu-ip on 2026-11-08 (plugin 5.217.0, Keel 5.222.0). Every message that woke a role woke its Claude session twice, because a record touches both `signal/<role>` and the signal of each worktree bound to the role and a bound session watches both; and each wake listed every unread record again, so a session parked on a question piled up long, identical notices.
