@@ -150,7 +150,7 @@
       - Findings: Resolved here: M1 — full regression and version alignment pass; #527 remains deliberately deferred.
     - Blocker: none
     - Reauthorizations: none
-- [ ] 2.2 Commit the verified priority patch
+- [x] 2.2 Commit the verified priority patch
   - Mode: repo-action
   - Covers:
     - D1
@@ -162,12 +162,12 @@
     - M1: `git log -2 --stat` records the priority repair candidate and its final verification records; product implementation and patched lock match the tested bytes in HEAD.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:8040d2279d61c23cab6b759891971a43b445f7f12c4826f1bfd032a19b0fb299 (keel 5.229.0)
-    - M1: pending
+    - M1: pass: git log -2 --stat records a352e246 verification records atop e5f05c25 priority candidate; git diff e5f05c25 -- src/core/codex-host.js scripts/test_codex_host.js npm-shrinkwrap.json is empty. Cloud exact-head Full gates passed and repository automation merged PR #532 as 6a14ae1f.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: candidate and final verification are durably committed; code, behavior tests and dependency lock remain identical to the verified candidate.
+      - Scope check: commit a352e246 only changes the two selected changes’ task evidence; no product bytes changed.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
