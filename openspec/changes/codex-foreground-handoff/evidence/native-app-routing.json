@@ -1,0 +1,37 @@
+{
+  "package": {
+    "codexAppBrand": "chatgpt",
+    "codexBuildFlavor": "prod",
+    "version": "26.1023.51421"
+  },
+  "main": {
+    "name": ".vite/build/main-UOTY8NmV.js",
+    "sha256": "ad73b094efd3d5037bceb90b285cb20d6319c4043d3b7f52ee7fade6e3015c7a"
+  },
+  "routing": {
+    "name": ".vite/build/application-network-startup-DMyt3FBI.js",
+    "sha256": "c4497beb1a68f4322acd6ec2fd1a44c06c24025b115b12324aefae5569849e9d"
+  },
+  "observedFacts": {
+    "localDaemonFlag": "CODEX_APP_SERVER_USE_LOCAL_DAEMON=1",
+    "flagRequiresEmptyConfigOverrides": true,
+    "standardLocalAppAddsPluginConfigOverride": true,
+    "flagAloneNotProvenSufficient": true,
+    "urlOverride": "CODEX_APP_SERVER_WS_URL",
+    "forceCliOverride": "CODEX_APP_SERVER_FORCE_CLI=1 disables websocket routing",
+    "nativeWebsocketSupportsUnixScheme": true,
+    "localhostHostnameAvoidsSocksRouting": true,
+    "daemonProbeRunsVersionOnly": true,
+    "daemonVersion": "0.167.2",
+    "appBundledCliVersion": "0.165.0-alpha.1.2",
+    "minimumDaemonVersion": "0.141.0"
+  },
+  "candidate": {
+    "url": "ws+unix://localhost/home/tlm/.codex/app-server-control/app-server-control.sock:/rpc",
+    "stage": "static native App routing plus native proxy socket protocol proved; actual App startup not tested",
+    "requiresOwnerApprovedAppRestart": true,
+    "noTcpListener": true,
+    "noSshChange": true,
+    "noDaemonRestart": true
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "cwd": "/tmp/keel541-owned-TWsQQi/role",
+  "startedAt": "2026-11-17T07:52:16.146Z",
+  "id": "01a1e87e-0822-7b00-8926-f5c5f6e2d305",
+  "policy": {
+    "reviewer": "auto_review",
+    "approvalPolicy": "on-request",
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": false,
+      "excludeSlashTmp": false
+    }
+  },
+  "turn": {
+    "id": "01a1e87e-0dfb-7711-92e9-12b81046f3fe",
+    "rootTurnId": "01a1e87e-0dfb-7711-92e9-12b81046f3fe",
+    "items": [],
+    "itemsView": "notLoaded",
+    "status": "inProgress",
+    "error": null,
+    "startedAt": null,
+    "completedAt": null,
+    "durationMs": null
+  }
+}

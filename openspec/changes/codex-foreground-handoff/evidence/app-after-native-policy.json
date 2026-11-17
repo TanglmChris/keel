@@ -1,0 +1,56 @@
+{
+  "threadId": "01a1e87e-0822-7b00-8926-f5c5f6e2d305",
+  "contexts": [
+    {
+      "turn": "01a1e87e-0dfb-7711-92e9-12b81046f3fe",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "turn": "01a1e8d3-1d15-7893-804e-2fda1725b0c7",
+      "cwd": "/tmp/keel541-owned-TWsQQi",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "turn": "01a1e8d3-4e68-7ff0-8fa4-e87b429c04a2",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "turn": "01a1e8d5-e312-7281-93e7-fd03a4ce351d",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/home/tlm/.codex/visualizations/2026/11/17/01a1e87e-0822-7b00-8926-f5c5f6e2d305"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  ]
+}

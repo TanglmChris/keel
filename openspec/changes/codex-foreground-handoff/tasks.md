@@ -1,0 +1,93 @@
+# Tasks
+
+- [x] 1.1 Diagnose native serial ownership and same-id recovery
+  - Mode: diagnose-only
+  - Covers:
+    - D1
+    - D2
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: actual native lifecycle and installed-version capability measurement precedes implementation selection.
+    - M1: Inspect native installed schemas/help and private owned fixtures for writer refusal/release, per-thread idle retention, explicit reviewer and cwd restoration; compare real App/daemon behavior where authorized fixture input is available. Retain original ids, policy snapshots and outcome evidence. Do not mutate Kaiwu roles/registries, install/restart daemons or bypass writer protection.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:910e3bfa552387ae6312af3ee48b5067c2c40a75441028186624b56158bd8ae6 (keel 5.229.3)
+    - M1: Native experimental schemas/help inspected; real owned fixtures measured writer refusal/release, busy and idle App queue consumption, duplicate native queue adds, same-id actual pwd restoration, and zero-model-turn reviewer persistence plus first App input. Evidence: openspec/changes/codex-foreground-handoff/evidence/diagnosis.md; public checkpoint https://github.com/TanglmChris/keel/issues/541#issuecomment-6944250292 .
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 measures installed native behavior and actual App/daemon work, not schema shape or listing alone. Diagnosis completes; full product acceptance remains open on issue 541.
+      - Scope check: Touch none respected. Only this change record/evidence and disposable private fixtures changed; git status contains only this change directory. No production role, daemon lifecycle, global policy or product file changed.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — independent App/backend writers reject reverse busy input; App-only queue execution changes persistence semantics and needs owner acceptance. Existing reviewer persistence and same-id cwd mechanisms are measured but not product implementation or production verification.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+- None.
+
+## Expectation Coverage
+- E1: Native writer and identity capability diagnosis (D1,D2). Covered by:1.1
+- E2: Public implementation, real App/background acceptance, formal release and recovery/runbook. Durable owner: https://github.com/TanglmChris/keel/issues/541
+
+- [x] 1.2 Verify native shared endpoint entry points
+  - Mode: diagnose-only
+  - Covers:
+    - D3
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: measure installed public native transport and integration capabilities before implementation or any host configuration changes.
+    - M1: Read public App/CLI capabilities and official docs; probe native app-server proxy with initialization and read-only requests on owned fixture threads only. Identify a verified supported App entry point or precisely state the missing endpoint configuration capability and minimal external operation needed. Preserve all production roles, host settings and daemon lifecycle.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:043b2729f399c632455410e3777abd531c9f780138d6066b15d9dbff674cb2a6 (keel 5.229.3)
+    - M1: Public installed help and official docs read; native proxy HTTP Upgrade/initialize/owned thread read passed, while raw JSONL timed out. Installed Linux App routing and version conditions measured; process-selected environment confirmed stdio route. Native WebSocket URL candidate and exact idle-window App restart/rollback documented in evidence/shared-endpoint-experiment.md and https://github.com/TanglmChris/keel/issues/541#issuecomment-6944761563 . No actual App connection change performed.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 distinguishes a measured native protocol from unverified App startup, identifies the config-overrides condition blocking a naive local-daemon flag, and names the precise remaining external operation instead of asserting impossibility.
+      - Scope check: Touch none; only own change records/evidence and temporary diagnostic scripts changed. No model calls, App/SSH/global settings, production state or daemon lifecycle modifications.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — native URL route is build-specific and needs owner-approved idle-window App startup plus real acceptance; version publication and production recovery remain unfulfilled.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.25 Publish portable diagnostic checkpoint
+  - Mode: repo-action
+  - Covers:
+    - D5
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized repository checkpoint action, not product behavior or a feature implementation.
+    - M1: Check staged paths are confined to this change, validate JSON and checkpoint instructions, run git diff --cached --check, commit the evidence/task snapshot and verify its tree. Preserve task 1.3 pending and clearly identify Linux-only runtime work; no product completion claim or release.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:af48c69282d5abb8e6eeaa7e0ef5a97151ce01d513c5005e67aa9468292dded9 (keel 5.229.3)
+    - M1: Committed tree verified as 33 paths confined to this change. Strict OpenSpec validation passed; 22 JSON files parse; window runner and pinned client syntax checks passed; staged diff check passed. CONTINUE.md records the portable entry point, Linux-only task 1.3, original window deadline and remaining product/release acceptance. No product source changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual committed tree contains the evidence, task anchors and continuation guide; runtime task 1.3 remains unchecked and no release or deployment success is claimed.
+      - Scope check: git show confirms every checkpoint path is inside this change. Unrelated local chat identity/account metadata removed from publication copies; runtime originals untouched.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — live controlled window and full product delivery remain pending; the checkpoint is a repository handover, not completion.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.3 Execute owner-approved native shared-endpoint window
+  - Mode: diagnose-only
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: controlled native App configuration experiment and live fixture acceptance; no product implementation is part of this slice.
+    - M1: Snapshot all local chat activity, owned fixture identity/policy/history and daemon identity, preserve current work and arm only a bounded independent one-time relaunch after normal App exit. Do not interrupt active work or restart a daemon. Record exact recovery/rollback entry points. Verify actual App reconnects to the shared instance with private fixtures, or retain concrete blocked/failed evidence without changing acceptance.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:990f3a6be611705800486247f32e159516c35070c1a6d6f7213e0f0a05f58262 (keel 5.229.3)
+    - M1: Preparation complete. Human window authorization recorded in D4; real native Quit item confirmed via App-owned standard DBusMenu, no force signals. Independent bounded unit keel541-app-window.service armed; current phase waiting-for-all-native-tray-jobs-idle. Script and pinned native client preserved under evidence/window-runner.cjs and evidence/window-native-client.cjs; live state /tmp/keel541-app-window/state.json. App PID 914946 and daemon PID 1933800/start times pinned. All three production registry hashes captured in evidence/production-registry-pre-window.json. Same helper unit reloaded within original window after read-only check confirmed App/daemon unchanged and current model turn still Running. Guard revision 2 uses native menu events, 300ms fallback and immediate second idle check; original deadline 2026-11-17T11:28:14.238Z preserved. Original runner retained as evidence/window-runner-v1.cjs. Actual App switch and behavior acceptance remain pending, not complete.
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: Native tray still reports active chief and another local chat; helper waits for all jobs including this current turn to become idle, expires after 1200 seconds without forced action. Chief reports an active Goal can re-enter; no Goal state is changed.
+    - Reauthorizations: none

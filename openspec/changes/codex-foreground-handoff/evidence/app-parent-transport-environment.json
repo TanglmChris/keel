@@ -1,0 +1,30 @@
+[
+  {
+    "pid": 915503,
+    "ppid": 914946,
+    "comm": "codex",
+    "executable": "/usr/lib/chatgpt/resources/codex",
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 914946,
+    "ppid": 1747,
+    "comm": "ChatGPT",
+    "executable": "/usr/lib/chatgpt/ChatGPT",
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 1747,
+    "ppid": 1579,
+    "comm": "gnome-shell",
+    "executable": "/usr/bin/gnome-shell (deleted)",
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 1579,
+    "ppid": 1,
+    "comm": "systemd",
+    "executable": "/usr/lib/systemd/systemd (deleted)",
+    "selectedEnvironment": {}
+  }
+]

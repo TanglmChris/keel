@@ -1,0 +1,14 @@
+{
+  "binary": "/usr/lib/chatgpt/resources/codex",
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "operations": [
+    "initialize",
+    "initialized",
+    "thread/read"
+  ],
+  "responses": [],
+  "timeout": true,
+  "code": null,
+  "signal": "SIGTERM",
+  "stderr": ""
+}

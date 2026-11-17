@@ -1,0 +1,83 @@
+## Context
+F1 — Keel5.229.3 managed delivery checks recorded thread/worktree/endpoint, persists claims and refuses unknown outcomes. Basis: src/core/codex-host.js and archived #531/#537 evidence.
+F2 — Downstream reports App stdio runtime0.165.0-alpha.1.2 and Unix daemon0.167.2 are distinct execution instances; shared history does not prove shared writer. App input has encountered active-writer refusal, and chief/PM/flow now report cwd mismatch against original bound worktrees. Basis: https://github.com/TanglmChris/keel/issues/541 and its comments; locally unverified production report.
+F3 — Official documentation says last-subscriber unsubscribe unloads after an inactivity grace period and documents thread_unload_delay_secs. Basis: https://learn.chatgpt.com/docs/app-server . Docs alone do not establish actual installed release timing or cross-process handoff.
+## Goals / Non-Goals
+Preserve owned id/history/claims and actual thread-level policy while enabling verifiable serial App/background work. Do not force a particular socket, adopt arbitrary desktop threads, weaken cwd checks, mutate production registrations or bypass native writer protection.
+## Decisions
+D1 — Start with read-only inspection and isolated owned fixture diagnosis under the existing protocol. Inspect installed schemas/help, native lifecycle configuration, writer refusal/release and supported cwd/reviewer overrides; obtain actual foreground/background evidence before authoring implementation. Basis: verified user request in kaiwu PM chat to progress #541/#546, issue contract, prior user authorization for real managed-team validation. Only private fixture sessions may be created, used and cleaned up.
+D2 — Default review behavior stays unchanged unless explicitly requested at thread scope; on-request and workspace-write stay intact and no global reviewer configuration is edited. Basis: issue #541 explicit requirement.
+## Hidden Knowledge / Assumptions
+Q1 — Which installed native APIs/configuration safely release or queue writer ownership between App and background processes? Resolve by:1.1; no product implementation until measured.
+Q2 — Which native cwd restore and policy-preservation operations are supported without changing owned id/history/claims? Resolve by:1.1; production drift remains refused until a safe explicit procedure exists.
+## Coupled Iteration Contract
+None.
+## Risks / Trade-offs
+Reading shared metadata cannot establish remote writer inactivity. Idle grace and writer lock lifetimes require measurement. No daemon bootstrap is run, only help/status/schema are read. A failed capability test is evidence, not authority to replace a thread or disable protection. #535 goals are finalized, with implementation owned by #544; they do not activate new execution rules here.
+## Open Questions
+Q1 and Q2 above; unresolved implementation or deployment choices return to authoring.
+
+## Diagnostic checkpoint (task 1.1 complete)
+F4 — Native queues were consumed by actual busy and idle App execution on the
+same owned fixture thread; duplicate client UUID queue/add calls create duplicate
+entries. Claims and history reconciliation are still required in a product adapter.
+F5 — A backend-owned active turn caused immediate real App input to fail with
+active-writer refusal. Per-thread idle unload does not establish a shared execution
+endpoint or a persistent App-side connection to the backend.
+F6 — Native resume with explicit cwd/runtimeWorkspaceRoots restored actual pwd
+execution on the same owned fixture id. No production project attachment was tested.
+F7 — Explicit native thread/settings/update persisted auto_review on a blank
+thread without a model turn; cold resume and the first actual App turn retained
+auto_review/on-request/workspace-write. This resolves the initialization mechanism
+question without hidden warm-up.
+Basis for F4–F7: evidence/diagnosis.md and its recorded JSON fixtures; public
+checkpoint https://github.com/TanglmChris/keel/issues/541#issuecomment-6944250292 .
+
+Q3 — App-only execution with backend queue producers avoids the demonstrated
+two-writer contention, but does not provide independent execution after the App
+runtime exits. This is a material acceptance change, not an implementation detail.
+Owner: human project owner; structured choice requested. Until explicit acceptance,
+retain the existing foreground communication plus persistent backend requirements.
+Chief clarified that its own authority does not downgrade these requirements.
+
+F8 — Official OpenAI documentation describes SSH connections configured through
+the desktop Connections UI and remote CLI/TUI app-server connections. These are
+candidate native shared-host routes, not proof that this installed Linux App is
+already attached to the current backend. No SSH configuration, remote-control
+pairing, bootstrap or daemon start/restart was performed. Sources (2026-11-17):
+https://learn.chatgpt.com/docs/remote-connections and
+https://learn.chatgpt.com/docs/developer-commands .
+
+Implementation and release remain owned by issue 541. Diagnostic task completion
+does not approve App-only execution, activate issue 535/544 policies, or prove
+production deployment. Official release notification responsibility is recorded at
+https://github.com/TanglmChris/keel/issues/541#issuecomment-6944100669 .
+
+D3 — Continue original-acceptance shared-endpoint investigation using installed
+public CLI help, official documentation and isolated read-only protocol probes.
+Native app-server proxy is a candidate: determine its protocol and whether the
+installed Linux App exposes a supported route to it. No App connection, SSH,
+production configuration or daemon lifecycle mutation is authorized by this
+slice. User acceptance of App-only execution is not a prerequisite for this
+read-only investigation, nor inferred from it. Basis: original issue 541 goals
+and existing isolated diagnosis authorization; chief's scope clarification.
+
+D4 — Human owner explicitly approved the idle-window experiment in this chat:
+all local chats/tools idle and work preserved; normal App exit and a one-time
+process-local CODEX_APP_SERVER_WS_URL connection to the existing Unix daemon;
+no daemon restart, SSH or global configuration change; rollback via original
+launcher without the variable. This approval is not App-only acceptance. Only
+private fixture validation precedes product implementation or production recovery.
+An independent bounded relaunch helper may wait for normal App exit, preserve
+logs and launch once; it must never kill the App or restart a daemon. The App
+must be exited through a supported normal user action if no tool exposes one.
+
+
+D5 — Owner explicitly requested checking the controlled switch, continuing issue
+541, committing and pushing local evidence/task state, and preparing Mac takeover.
+Publish a portable checkpoint of this change only, preserving task 1.3 as pending
+until actual evidence closes it. No production source changes, window reset, issue
+closure or release can ride along with this checkpoint; issue 527 remains deferred.
+The commit/push request is explicit; repository standing authorization also names
+commit and push. Linux-only runtime evidence must be distinguished from portable
+repository state, and unrelated chat/account metadata is omitted from publication.

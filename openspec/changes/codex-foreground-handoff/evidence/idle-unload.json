@@ -1,0 +1,56 @@
+{
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "repo": "/tmp/keel541-owned-TWsQQi",
+  "cwd": "/tmp/keel541-owned-TWsQQi/role",
+  "startedAt": "2026-11-17T07:35:07.872Z",
+  "threads": [
+    {
+      "zero": false,
+      "id": "01a1e86e-5771-7150-852f-3e20f24b3352",
+      "startPolicy": {
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "auto_review",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": false,
+          "excludeSlashTmp": false
+        }
+      },
+      "startStatus": {
+        "type": "idle"
+      },
+      "unsubscribe": {
+        "status": "unsubscribed"
+      },
+      "after2s": {
+        "type": "idle"
+      }
+    },
+    {
+      "zero": true,
+      "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+      "startPolicy": {
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "auto_review",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": false,
+          "excludeSlashTmp": false
+        }
+      },
+      "startStatus": {
+        "type": "idle"
+      },
+      "unsubscribe": {
+        "status": "unsubscribed"
+      },
+      "after2s": {
+        "type": "notLoaded"
+      }
+    }
+  ]
+}
