@@ -1142,7 +1142,12 @@ def validate_shift_check_stash_and_notes_scenario() -> int:
         (r.repo / "seed").write_text("other change\n", encoding="utf-8")
         r.git("stash", "push", "-q")
         r.git("checkout", "-q", "feat")
-        loose = r.git("commit-tree", r.git("hash-object", "-t", "tree", "/dev/null"), "-m", "detached")
+        # Modern Git rejects storing an ordinary commit as a stash. Generate
+        # a real stash object without adding a branch-shaped reflog entry.
+        (r.repo / "seed").write_text("custom stash change\n", encoding="utf-8")
+        loose = r.git("stash", "create", "detached")
+        r.git("checkout", "--", "seed")
+        r.git("stash", "show", "--stat", loose)
         r.git("stash", "store", "-m", "custom message", loose)
         (r.repo / "seed").write_text("feat change\n", encoding="utf-8")
         r.git("stash", "push", "-q")

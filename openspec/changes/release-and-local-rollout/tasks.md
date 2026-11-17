@@ -1,6 +1,6 @@
 # Tasks
 
-- [ ] 1.1 Commit the authorized rollout plan
+- [x] 1.1 Commit the authorized rollout plan
   - Mode: repo-action
   - Covers:
     - D1
@@ -13,6 +13,49 @@
     - M1: `git show --stat HEAD` records the rollout proposal, design, delta spec and task contract without product source changes.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:a27789ebb1866ca638e8317b6f54fb64d0152b7010c68ec89576dcdf5d4f90e1 (keel 5.228.0)
+    - M1: pass: commit 83663159 contains the five rollout planning artifacts; no product source changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: Explicit owner rollout authorization is recorded with observable checks and delayed notification.
+      - Scope check: Git repository state and own task record only; Touch none.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.15 Make the release stash fixture portable across Git versions
+  - Covers:
+    - D2
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - scripts/validation/sync.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-check-stash-and-notes` uses a valid Git-generated stash with a custom message; `git stash show` accepts it, current-branch stash remains blocking and custom/other-branch stashes remain notes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:be322bf5dd5c03987334538225c8bdffba681a3c665174bd7d83ff3b7688bbce (keel 5.228.0)
+    - M1: pass: shift-check-stash-and-notes scenario passes on local Git 2.34.1; git stash show accepts the custom Git-generated stash and branch blocking/note assertions remain green.
+    - M1.red: fail: git stash show --stat rejected the previous ordinary commit with exit 128; CI Git stash store also rejected it with exit 128.
+    - M1.green: pass: the exact scenario exits 0 after creating a genuine stash object.
+    - Review:
+      - Status: pass
+      - Acceptance check: The fixture now uses git stash create rather than an ordinary parentless commit; observed shift semantics are unchanged.
+      - Scope check: Only scripts/validation/sync.py and own task records changed.
+      - Findings: Resolved here: M1 — modern Git rejects the previous non-stash object; the public stash precondition now verifies portability.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.16 Commit the portable release fixture
+  - Mode: repo-action
+  - Covers:
+    - D2
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: commits the targeted tested fixture correction without introducing further behavior.
+    - M1: `git show --stat HEAD` names the portable stash fixture repair and includes only scripts/validation/sync.py plus rollout records; the tested fixture bytes match HEAD.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:056f9db23870cc27859a84636027895edb06f899e12986b443ab8cb1df71a1f8 (keel 5.228.0)
     - M1: pending
     - Review:
       - Status: pending
@@ -28,13 +71,13 @@
     - D2
     - keel-codex-host-team / Release rollout verifies the installed host before notification
   - Touch:
-    - none
+    - docs/codex-validation.md
   - Verify:
     - Strategy: evidence-first
     - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
     - M1: The exact-head Full gate passes, repository automation lands the PR, GitHub v5.229.0 exists and npm serves @christang/keel@5.229.0. Do not merge with the agent.
   - Evidence:
-    - Contract: pending
+    - Contract: keel-task-capsule/v1 sha256:30071f3c3ce163a27e9c1e636974a7c37808e2a727b05e45095679522e9ae657 (keel 5.228.0)
     - M1: pending
     - Review:
       - Status: pending
@@ -50,7 +93,7 @@
     - D1
     - keel-codex-host-team / Release rollout verifies the installed host before notification
   - Touch:
-    - none
+    - docs/codex-validation.md
   - Verify:
     - Strategy: evidence-first
     - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
@@ -95,7 +138,7 @@
     - D4
     - keel-codex-host-team / Release rollout verifies the installed host before notification
   - Touch:
-    - none
+    - docs/codex-validation.md
   - Verify:
     - Strategy: evidence-first
     - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
