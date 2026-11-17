@@ -1,0 +1,182 @@
+# Tasks
+
+- [x] 1.1 Diagnose blank thread lifetime and exact-id persistence
+  - Mode: diagnose-only
+  - Covers:
+    - D1
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: measure a real host lifecycle before choosing a repair; no implementation is authorized by this diagnostic slice.
+    - M1: Start an isolated owned blank role through the public CLI, close creation/observation connections, wait at least three minutes and inspect first status/delivery behavior. Compare exact-id resume and authoritative host persistence fields; preserve all failures and thread identities, without model work or replacement.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7b3ff6ccc44b3ffb4b949eb1f3645005d6df9775724ecbe5115476640c1133d0 (keel 5.229.1)
+    - M1: pass: evidence/blank-loss.json records public start followed by 190 seconds disconnected, read failure and same-id no-rollout resume failure. evidence/native-persistence-controls.json records both name/set and archive/unarchive surviving 190 seconds as notLoaded and resuming identical IDs idle with zero turns. Exact 0.167.2 schema and official thread_processor source confirm native metadata and persistence operations.
+    - Review:
+      - Status: pass
+      - Acceptance check: delayed closed-connection measurements reproduce the defect and distinguish durable same-id initialization from impossible resume of the lost control.
+      - Scope check: only isolated own test threads, temporary fixtures and this change evidence were written; no product or kaiwu files changed.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/537 — implement verified native initialization; already lost production IDs have no rollout and cannot be silently reconstructed.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Persist new owned identities through native naming
+  - Covers:
+    - D2
+    - D3
+    - keel-codex-host-team / Successful blank role initialization supports delayed first delivery
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` proves public start and handover name/read the original ID before success; naming and read-identity failures retain created IDs and pending outcomes, retry starts no substitute, and prior delivery ownership/deduplication checks pass.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:3c11a4636a6065e792e1adce99007a20f50dc5c49a334e9a6b0779ef66d3e394 (keel 5.229.1)
+    - M1: pass: node --test scripts/test_codex_host.js passes five public CLI tests. Host fixture drops unnamed blank threads after connection close; first status survives initialization. Start and handover use the original ID; failed naming/read identity and retries preserve pending identities without substitution.
+    - M1.red: fail: /tmp/keel-537-behavior-red.log omitting initialization makes first status fail with thread not loaded: fixture-thread-1; initial red also reports missing native persistence.
+    - M1.green: pass: five tests, zero failures, /tmp/keel-537-green.log; actual implementation restored byte-for-byte after the behavior mutation.
+    - Review:
+      - Status: pass
+      - Acceptance check: black-box CLI survives connection closure and proves failure retention; name/read ordering completes before managed status is written.
+      - Scope check: only src/core/codex-host.js and scripts/test_codex_host.js changed.
+      - Findings: Resolved here: M1 — native naming materializes owned blank roles; handover records pending successor identity before initialization. Real lifecycle verification follows under1.3.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 Verify delayed first work on the real host
+  - Mode: diagnose-only
+  - Covers:
+    - D4
+    - keel-codex-host-team / Successful blank role initialization supports delayed first delivery
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
+    - M1: Run public start then disconnect for at least190 seconds; public status observes original notLoaded ID and public deliver completes the first real model turn on that same ID, with zero hidden warm-up turns and duplicate delivery adding no turn. Retain sanitized evidence.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9eda9cc8f86724656d76be601d34c3dbcc4f507a96857c5fc58a050ef74c65d3 (keel 5.229.1)
+    - M1: pass: evidence/delayed-first-work.json records public start of01a1e794-ffe7-7c90-9ac3-c78395a02fea, creation CLI exit and190 seconds disconnected, public status notLoaded with zero turns, and first actual turn01a1e797-f6ba-7451-8d27-27044dbc6509 completed FIRST_READY. Final count1, duplicate returns original turn, own probe archived.
+    - Review:
+      - Status: pass
+      - Acceptance check: real same-id first work survives the measured unload window with no implicit model warm-up or duplicate execution.
+      - Scope check: only temporary own repository, test thread and change evidence affected; no product or kaiwu files modified in this task.
+      - Findings: Resolved here: M1 — delayed first turn completes on the initialized blank identity.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.4 Document initialization and lost-role boundaries
+  - Covers:
+    - D2
+    - D3
+  - Touch:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
+    - M1: Bilingual CLI and host acceptance documents state native role naming, pending identity retention, delayed first use evidence and no silent reconstruction of a lost rollout; documentation consistency check passes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:40b67c757053f96aef9b6eb836b704dacfac3842a2b2c06d2af7e726937426ac (keel 5.229.1)
+    - M1: pass: python3 scripts/validate_plugin.py --scenario docs-zh-match-english passes. Both CLI languages and host/native validation documents describe native naming, pending created IDs, no hidden model turns, lost-rollout limits and the actual190-second same-ID first work.
+    - Review:
+      - Status: pass
+      - Acceptance check: measured initialization/first-use behavior and prior lost-role limits are accurately stated without implying native hook trust or automatic reconstruction.
+      - Scope check: only the four declared documentation paths changed.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.0 Align patch version markers
+  - Covers:
+    - D4
+  - Touch:
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - npm-shrinkwrap.json
+    - package.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
+    - M1: `node scripts/bump_version.js 5.229.2` aligns package/plugin/protocol metadata, release changelog names #537 and nested Git worktrees remain untouched.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:12d5a185c00a54eb0676d6da197a539bbfa1eee09d41d6f78d4c9ccfb2bbb616 (keel 5.229.1)
+    - M1: pass:5.229.2 package/plugin/protocol markers and release changelog aligned in the19 preflight-listed paths; nested keel-maint-cli worktree status remains clean. Initial sandbox EROFS at .codex overlays left a partial bump; only remaining declared marker paths were completed with authorized elevated access, then the version script completed successfully.
+    - Review:
+      - Status: pass
+      - Acceptance check: shipped version claims consistently name5.229.2 and the release entry describes measured #537 behavior and retained unknown outcomes.
+      - Scope check: version edits stay within the19 declared release paths; no nested checkout changes.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.1 Commit priority candidate for cloud verification
+  - Mode: repo-action
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
+    - M1: `git show --stat HEAD` records tested public/real-host initialization repair, documentation,5.229.2 metadata and this evidence. Final local full suite remains pending under2.2; only exact-head cloud gates permit repository landing.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:2d1a630392225fa0ee582db2a1be61292795ebc9a3b07f16c9ee6db16d471219 (keel 5.229.1)
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.2 Verify final combined patch regression
+  - Mode: diagnose-only
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
+    - M1: `npm test` passes the candidate baseline and all scenarios, npm audit has zero vulnerabilities, and repository-locked OpenSpec strictly validates the published specs. Product bytes stay identical to2.1.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+- None.
+
+## Expectation Coverage
+- E1: Establish native blank-role lifecycle (D1). Covered by: 1.1
+- E2: Initialize native same-id persistence (D2). Covered by: 1.2
+- E3: Retain unknown creation and existing lost IDs (D3). Covered by: 1.2
+- E4: Real delayed first model work (D4). Covered by: 1.3
+- E5: Formal release and installed downstream validation. Durable owner: https://github.com/TanglmChris/keel/issues/537

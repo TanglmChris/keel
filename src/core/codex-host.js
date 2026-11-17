@@ -184,6 +184,15 @@ async function run(args) {
     if (!host || typeof host.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
     client.notify("initialized");
     const result = {socket: options.socket, host};
+    async function initializeThread(thread) {
+      // Native metadata writes materialize fresh persistent threads without a
+      // model turn. Blank thread/start alone has no durable rollout yet.
+      await client.call("thread/name/set", {threadId: thread.id, name: options.role});
+      const verified = (await client.call("thread/read", {threadId: thread.id, includeTurns: false})).thread;
+      if (!verified || verified.id !== thread.id || verified.cwd !== where.worktree) {
+        throw Error("initialized managed role identity mismatch");
+      }
+    }
     if (action === "start") {
       fs.mkdirSync(path.dirname(file), {recursive: true});
       const fd = fs.openSync(file, "wx");
@@ -193,6 +202,8 @@ async function run(args) {
       const started = await client.call("thread/start", {cwd: where.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"});
       const thread = started.thread;
       if (!thread || !thread.id || thread.cwd !== where.worktree) throw Error("Codex created thread with unexpected identity");
+      store.writeJsonAtomic(where, file, {state: "creation-pending", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket});
+      await initializeThread(thread);
       const entry = {state: "managed", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket};
       store.writeJsonAtomic(where, file, entry);
       store.setRole(where, options.role);
@@ -237,6 +248,9 @@ async function run(args) {
           store.writeJsonAtomic(where, file, recorded);
           const next = (await client.call("thread/start", {cwd: recorded.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"})).thread;
           if (!next || !next.id || next.cwd !== recorded.worktree) throw Error("successor identity mismatch; handover retained");
+          recorded.handover.thread = next.id;
+          store.writeJsonAtomic(where, file, recorded);
+          await initializeThread(next);
           const history = [...(recorded.history || []), {thread: recorded.thread, note: options.note}];
           delete recorded.handover;
           Object.assign(recorded, {thread: next.id, history, note: options.note});
