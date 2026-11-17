@@ -10,7 +10,7 @@ Keel MUST read an optional `authorize:` declaration from `keel/config.yaml` nami
 actions the owner has authorized to proceed without a per-occurrence confirmation. The accepted
 action names MUST be a closed set — `commit`, `push`, `release`, `archive`, `continuation`,
 `issue`, `protocol-refresh`, `chat-reply`, `issue-close`, `cleanup`, `push-protected`,
-`shift-restore`, `self-shift`, `delete-branch`, `push-tag` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
+`shift-restore`, `self-shift`, `delete-branch`, `push-tag`, `device-sync` — and an absent, empty, or undeclared block MUST leave every action unauthorized.
 
 An action whose credential reaches further than the action itself MUST be declared with the
 resource it may reach, and MUST be refused in its bare form. `issue`, `issue-close`, `cleanup`, `chat-reply`, `push-protected`, `delete-branch`, and `push-tag` are such actions — `chat-reply` because a reply in a Slack-enabled group leaves the machine — and `issue`'s case is the model: the
@@ -76,6 +76,11 @@ diagnostic call.
 - **THEN** Keel reports it as an unrecognized entry, naming it
 - **AND THEN** the whole declaration authorizes nothing, exactly as any other unrecognized entry
   voids it
+
+#### Scenario: `device-sync` is accepted bare and authorizes only Keel's lock-ref pushes
+- **WHEN** the `authorize:` block lists `device-sync`
+- **THEN** Keel resolves it as standing-authorized without a resource, and a session's own `git push` is neither authorized nor refused by it
+- **AND THEN** it authorizes Keel's commands to push only lock refs under `refs/keel/lock/`, and a work branch still needs `push` or a matching `push:<glob>`
 
 ### Requirement: A task inherits standing authorization only where it authored none
 

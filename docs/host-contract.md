@@ -52,7 +52,7 @@ The first three sessions were measured on 2026-10-21 with Claude Code 2.1.304, u
 ## Outside this contract
 
 - **The Claude desktop app path** (scheduled-task wake, `clear_session`, Remote Control restore) is not maintained for this team. The owner moved the team to background CLI sessions on 2026-10-19.
-- **Codex** has no automated hand-over or wake. A Codex shift ends with "start a new session in this worktree", which a person does. Keel makes no host call there to verify.
+- **Existing Codex desktop chats** are not adopted by the managed adapter. Persisted notLoaded metadata is not proof that a desktop chat is idle.
 
 ## Unverified
 
@@ -63,3 +63,22 @@ The race between the waiter and a tick is decided by Keel's lock and claim, not 
 ## In each run and release
 
 A passing `npm test` or `--group` run ends with an `evidence:` line. It counts the scenarios that ran deterministically and those that ran against a stand-in host. A stand-in host here means a fake host program, the host's environment, a host data directory, or a hook payload. The line also says that none ran on a real host. Each GitHub release carries the same counts in an `## Evidence` section, together with the number of `measured` rows on this page. `node scripts/run_python.js scripts/validate_plugin.py --evidence` lists which scenario is which. The classification is derived from Keel's own sources (#408).
+
+## Cross-device branch leases
+
+With `sync: lock: true` and `device-sync` declared, `keel tick` renews only this device's live branch leases in existing worktrees and pushes work branches only under the existing push authorization. It runs from `/` with an explicit repository. The Claude prompt hook renews when a third of the TTL has passed and stays silent on failure; Codex keeps manual hook capability. A queued CLI hand-over waits while the last fetched branch lock belongs to another device. Bare-remote tests prove Git behavior and hook payload tests prove integration; they do not prove launchd scheduling or Claude activation on this machine.
+
+On Linux a host subreaper may adopt an orphan process. A keep-awake whose original process-group leader is gone remains a shift loose end, even when the adopting parent is in the checker’s ancestry. The public `shift-check-skips-host-keep-awake` regression exercises this on the Linux validation host. Release marker writes and validation also stop at nested Git checkout boundaries; `release-skips-nested-worktrees` verifies both against a temporary real checkout.
+
+## Managed Codex roles
+
+`keel codex start` records the endpoint, role, worktree and thread identity in the existing chat store. `keel codex drain` and `keel tick` use existing unread/addressing/parking rules, persist one claim before starting a turn, and leave uncertain outcomes for inspection. A busy role waits; no replacement server is started after an endpoint failure. A stale creation record or lock is retained for explicit inspection, never silently removed or replayed.
+
+| Boundary | Keel behavior | Evidence |
+| --- | --- | --- |
+| Two roles on one explicitly selected Unix WebSocket host | Real addressed records start completed model turns; repeated drain retains the original turn IDs | measured: Codex 0.167.2, Linux, 2026-11-17; `docs/codex-validation.md` |
+| Idle hand-over | Retain old identity and note, create one successor, include note in its next delivery | measured: same host; successor returned `KEEL_REAL_HANDOVER_NOTE` |
+| Busy or uncertain operation | Wait when active; do not replay a pending claim or create another successor | scenario: `codex-managed-host` |
+| Native hooks | Source matches patch and Bash tools; no automatic trust or enforcement promotion | deterministic source policy tests; native interface denial measured on CLI 0.164.0, shipped activation remains unverified |
+
+A socket that accepts RPCs does not establish model connectivity. The installed system daemon inherited an old localhost proxy and its model requests retried with `Connection failed: error sending request`; the real acceptance used the identical managed binary on an explicit isolated endpoint with the working current environment. Restarting the system daemon was excluded to preserve unrelated work. Approvals still require the owner's native host interface. Compaction remains manual.

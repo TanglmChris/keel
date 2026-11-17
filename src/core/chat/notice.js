@@ -458,7 +458,7 @@ function segmentsFile(where, role) {
 }
 
 // Where Keel keeps a copy of a role's ended transcript (#343). It stays on this
-// machine: the chat archive syncs none of `shift/`.
+// machine: the chat archive syncs `shift-notes/` and none of `shift/`.
 function keptFile(where, role, transcript) {
   return path.join(where.root, "shift", "transcripts", role, `${path.basename(transcript)}.gz`);
 }
@@ -744,6 +744,11 @@ function hook(event, input, { mail = false } = {}) {
   // The owner's language is restated on every prompt, role or not (#305 D4).
   let languageLine = null;
   if (where && event === "user-prompt-submit") {
+    try {
+      require("../lock").renewHeld(where, { prompt: true });
+    } catch {
+      // Prompt-time renewal never blocks or reports a network failure.
+    }
     try {
       const { readOwnerLanguage, ownerLanguageRule } = require("../config");
       const language = readOwnerLanguage(where.worktree);

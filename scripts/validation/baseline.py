@@ -308,6 +308,9 @@ def validate_paths(errors: list[str]) -> None:
         relative = marker_file.relative_to(ROOT).as_posix()
         if relative.startswith(("node_modules/", "openspec/changes/archive/", "keel/archive/")):
             continue
+        # Nested clones and linked worktrees are independent checkouts.
+        if any((parent / ".git").exists() for parent in marker_file.parents if parent != ROOT and ROOT in parent.parents):
+            continue
         try:
             text = marker_file.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):

@@ -153,7 +153,10 @@ function liveProcesses(worktree) {
     // The keep-awake the session's host runs under it (#447 D1): its parent is
     // one of the checker's ancestors, the host process itself. Not init, which
     // every orphan has for a parent and every process for an ancestor.
-    if (row.ppid > 1 && own.has(row.ppid) && HOST_KEEP_AWAKE.test(row.command)) continue;
+    // Linux subreapers can adopt an orphan into our ancestry. Its original
+    // process-group leader has exited; that does not make it our keep-awake.
+    const adoptedGroup = process.platform === "linux" && !table.has(row.pgid);
+    if (!adoptedGroup && row.ppid > 1 && own.has(row.ppid) && HOST_KEEP_AWAKE.test(row.command)) continue;
     found.push(row);
   }
   return found.sort((a, b) => a.pid - b.pid);
@@ -195,6 +198,36 @@ function check(where, role) {
   } else {
     const local = git(where.worktree, ["log", "--format=%h %s", "-n", "20", "HEAD", "--not", "--remotes"]);
     for (const line of local.out.split("\n").filter(Boolean)) items.push({ kind: "unpushed", detail: line });
+  }
+
+  // What is only on this machine (#526 D16): a stash of this worktree's branch
+  // is this shift's to clear; the rest of the repository's local-only work is
+  // named, never counted, because it is not this session's.
+  const localOnly = [];
+  let synced = null;
+  try {
+    synced = require("./sync").status(where.worktree);
+  } catch {
+    synced = null;
+  }
+  if (synced) {
+    const here = git(where.worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const branch = here.ok ? here.out : null;
+    const checkedOut = new Set(require("./worktrees").listWorktrees(where.worktree).map((row) => row.branch).filter(Boolean));
+    for (const stash of synced.stashes) {
+      if (branch && stash.branch === branch) items.push({ kind: "stash", detail: `${stash.ref}: ${stash.subject}` });
+      else localOnly.push(`stash ${stash.ref}: ${stash.subject}`);
+    }
+    for (const row of synced.branches) {
+      if (!checkedOut.has(row.branch)) localOnly.push(`branch ${row.branch}: ${row.remote ? `${row.unpushed} unpushed commit(s)` : "no remote counterpart"}`);
+    }
+    for (const row of synced.worktrees) {
+      if (realpath(row.path) === where.worktree) continue;
+      localOnly.push(`worktree ${row.path}: ${row.missing ? "missing" : [row.dirty ? `${row.dirty} uncommitted or untracked path(s)` : "", row.localBranch ? `branch ${row.branch} not on the remote` : "", row.detachedUnpushed ? "detached head on no remote" : ""].filter(Boolean).join(", ")}`);
+    }
+    for (const line of localOnly) notes.push(`only on this machine, not counted: ${line}; \`keel sync status\` lists it with its fix`);
+    const held = heldBranchLock(where);
+    if (held) notes.push(`branch ${held.branch}: this device holds its lock (${held.lock.holder}, expires ${held.lock.expires}); \`keel shift ready\` releases it`);
   }
 
   if (fs.existsSync(path.join(where.worktree, "keel", "guard.json"))) {
@@ -250,7 +283,7 @@ function check(where, role) {
   // A pointer, never a loose item and never a deletion (#469 D5).
   const merged = role ? mergedBranchNote(where, role) : null;
   if (merged) notes.push(merged);
-  return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes };
+  return { ready: items.length === 0, worktree: where.worktree, role: role || null, items, notes, localOnly };
 }
 
 // How many of the role's task branches are merged and unused, pointing at
@@ -378,6 +411,110 @@ function readNoteText(options) {
 // when this worktree has none and that role has an open request. An unbound
 // worktree refuses to file under itself while role requests are open, since
 // such a note would answer none of them.
+// The branch lock this device holds on the worktree's branch, as last
+// fetched, under \`sync: lock: true\` (#526 D16); null otherwise.
+function heldBranchLock(where) {
+  if (!require("./config").readSyncDeclaration(where.worktree).lock) return null;
+  const here = git(where.worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!here.ok || !here.out) return null;
+  const locks = require("./lock");
+  const sha = git(where.worktree, ["rev-parse", "--verify", "--quiet", `${locks.LOCK_PREFIX}${here.out}`]);
+  const lock = sha.ok ? locks.parseLock(where.worktree, sha.out) : null;
+  const device = locks.existingDeviceId(where);
+  if (!lock || lock.state !== "held" || !device || lock.device !== device) return null;
+  return { branch: here.out, lock };
+}
+
+// Releases the held branch lock with the note written once under
+// shift-notes/ (#526 D9), then archives it. A failed release leaves nothing.
+function releaseForShift(where, role, note) {
+  const held = heldBranchLock(where);
+  if (!held) return null;
+  const locks = require("./lock");
+  const device = locks.deviceId(where);
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const relative = `shift-notes/${role || path.basename(where.worktree)}/${stamp}-${device}.md`;
+  const file = path.join(where.root, ...relative.split("/"));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, note, { flag: "wx" });
+  let released;
+  try {
+    released = locks.releaseBranch(where, where.worktree, held.branch, { notePath: relative });
+  } catch (error) {
+    fs.rmSync(file, { force: true });
+    for (const dir of [path.dirname(file), path.dirname(path.dirname(file))]) {
+      try {
+        fs.rmdirSync(dir);
+      } catch {
+        // not empty, or already gone
+      }
+    }
+    throw new ShiftError(`the branch lock of ${held.branch} could not be released, so no note was stored: ${error.message}`);
+  }
+  let archived = null;
+  try {
+    archived = require("./chat/archive").sync(where);
+  } catch (error) {
+    archived = { error: error.message };
+  }
+  return {
+    branch: held.branch, head: released.lock.head, note: relative,
+    archived: archived && !archived.error ? { pushed: Boolean(archived.pushed), why: archived.reason || null } : { pushed: false, why: archived ? archived.error : null },
+  };
+}
+
+// \`keel shift resume\` is the takeover under \`sync: lock: true\` (#526 D14):
+// the worktree's branch lock, else the latest lock this role last held, is
+// taken after switching the worktree to that branch at the remote's tip.
+function takeOver(where, role) {
+  if (!require("./config").readSyncDeclaration(where.worktree).lock) return null;
+  const cwd = where.worktree;
+  const dirty = git(cwd, ["status", "--porcelain=v1", "--untracked-files=all"]).out.split("\n").filter(Boolean).map((line) => line.slice(3));
+  if (dirty.length) throw new ShiftError(`${cwd} has uncommitted or untracked paths: ${dirty.join(", ")}; resume switches branches and discards nothing, so commit or move them first.`);
+  const remotes = git(cwd, ["remote"]).out.split("\n").filter(Boolean);
+  if (!remotes.length) return null;
+  const remote = remotes.includes("origin") ? "origin" : remotes[0];
+  const fetched = git(cwd, ["fetch", "--no-tags", "-q", remote, "+refs/keel/lock/*:refs/keel/lock/*"]);
+  if (!fetched.ok) throw new ShiftError(`cannot fetch the branch locks from ${remote}: ${fetched.err || fetched.out}`);
+  const locks = require("./lock");
+  const all = locks.branchLocks(where, cwd);
+  const here = git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const current = here.ok ? here.out : null;
+  const target = all.find((lock) => lock.branch === current)
+    || all.filter((lock) => role && locks.roleOf(lock.holder) === role).sort((x, y) => y.seq - x.seq)[0];
+  if (!target) return null;
+  const device = locks.existingDeviceId(where);
+  if (target.state === "held" && target.device !== device && locks.liveFor(target, Date.now(), locks.GRACE_MS)) {
+    throw new ShiftError(`branch ${target.branch} is held by ${target.holder} until ${target.expires}; nothing was switched or taken. `
+      + `Wait for its \`keel shift ready\`, or take it with \`keel lock acquire --branch ${target.branch} --break "<reason>"\`.`);
+  }
+  const branch = target.branch;
+  const tracking = git(cwd, ["fetch", "--no-tags", "-q", remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`]);
+  if (!tracking.ok) throw new ShiftError(`cannot fetch ${branch} from ${remote}: ${tracking.err || tracking.out}`);
+  const exists = git(cwd, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).ok;
+  const switched = branch === current ? { ok: true }
+    : exists ? git(cwd, ["switch", "-q", branch]) : git(cwd, ["switch", "-q", "-c", branch, "--track", `${remote}/${branch}`]);
+  if (!switched.ok) throw new ShiftError(`cannot switch to ${branch}: ${switched.err || switched.out}`);
+  const forward = git(cwd, ["merge", "-q", "--ff-only", `${remote}/${branch}`]);
+  if (!forward.ok) throw new ShiftError(`${branch} cannot fast-forward to ${remote}/${branch}: ${forward.err || forward.out}`);
+  let taken;
+  try {
+    taken = locks.acquireBranch(where, cwd, branch, {});
+  } catch (error) {
+    throw new ShiftError(`the branch lock of ${branch} could not be taken: ${error.message}`);
+  }
+  try {
+    require("./chat/archive").pull(where);
+  } catch {
+    // the note may already be here, or the archive be off; said below if absent
+  }
+  const notePath = target.note ? path.join(where.root, ...target.note.split("/")) : null;
+  return {
+    branch, head: git(cwd, ["rev-parse", "HEAD"]).out, from: target.holder, messages: taken.messages || [],
+    note: notePath && fs.existsSync(notePath) ? notePath : null, notePath: target.note || null,
+  };
+}
+
 function readyRole(where, options) {
   const bound = store.currentRole(where);
   if (options.role) {
@@ -477,8 +614,11 @@ function ready(where, options) {
   if (!result.ready && !options.forceReason) {
     throw new ShiftError(`${renderCheck(result)}\nResolve these, or give --force-reason "<why they may stay>".`);
   }
-  const text = readNoteText(options).replace(/\s+$/, "");
+  let text = readNoteText(options).replace(/\s+$/, "");
   if (!text.trim()) throw new ShiftError("keel shift ready needs the shift note: give it as text, with --file, or on stdin.");
+  // What stays on this machine goes into the note (#526 D16).
+  const leftHere = [...(result.localOnly || []), ...(options.forceReason ? result.items.map((item) => `${item.kind}: ${item.detail}`) : [])];
+  if (leftHere.length) text = `${text}\n\n## Not on the remote at hand-over\n\n${leftHere.map((line) => `- ${line}`).join("\n")}`;
   const stamp = store.isoLocal(new Date());
   const desktop = desktopSession();
   const pid = desktop ? desktopProcess() : null;
@@ -498,6 +638,9 @@ function ready(where, options) {
     options.forceReason && result.items.length ? `\nLeft as is (${options.forceReason}):\n${result.items.map((item) => `- ${item.kind}: ${item.detail}`).join("\n")}` : "",
   ].filter((line, index) => index < 2 || line !== "").concat("").join("\n");
   const note = ownNotePath(where, role);
+  // Under the lock, the hand-over is the lock changing hands (#526 D9): a
+  // release that fails stores no note at all.
+  const handed = releaseForShift(where, role, `${head}\n${text}\n`);
   writeFileAtomic(note, `${head}\n${text}\n`);
   // Requests are chat records; without a role there is none to close (D2).
   const open = role ? shiftRequests(where, role).filter((r) => r.open) : [];
@@ -517,7 +660,7 @@ function ready(where, options) {
   // waiter carries it out within seconds; `keel tick` stays as the fallback (#388 D1).
   const queued = options.wake && cli ? queueHandOff(where, role, cli) : null;
   const waiter = options.wake && !queued ? armWake(where, role, since) : queued ? armHandOver(where, role) : null;
-  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, queued, startedBy: role ? null : options.forceReason, desktop, pid, cli, worktree: where.worktree };
+  return { role: role || null, note, closed: open.map((todo) => todo.id), waiter, queued, startedBy: role ? null : options.forceReason, desktop, pid, cli, worktree: where.worktree, handed };
 }
 
 // --- the CLI hand-off queue (#357) --------------------------------------------------
@@ -892,10 +1035,27 @@ function resolveShiftModel(worktree, declared) {
 // finished or gone one is retired (stopped) and a new session starts. A claim
 // left by a runner that died is settled, and a failed start is tried again
 // (#408). `only` limits the step to one role (the waiter's).
+// A hand-over starts no session while another device holds the branch of the
+// role's worktree, by the last fetched lock (#526 D17); the entry says why.
+function waitsForLock(where, entry) {
+  if (!entry.worktree || !require("./config").readSyncDeclaration(where.worktree).lock) return false;
+  const here = git(entry.worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!here.ok || !here.out) return false;
+  const locks = require("./lock");
+  const sha = git(entry.worktree, ["rev-parse", "--verify", "--quiet", `${locks.LOCK_PREFIX}${here.out}`]);
+  const lock = sha.ok ? locks.parseLock(entry.worktree, sha.out) : null;
+  if (!lock || lock.state !== "held" || lock.device === locks.existingDeviceId(where) || !locks.liveFor(lock, Date.now(), locks.GRACE_MS)) return false;
+  const why = `branch ${here.out} is held by ${lock.holder} until ${lock.expires}`;
+  const current = store.readJsonFile(queueFile(where, entry.role));
+  if (current && current.waiting_on !== why) store.writeJsonAtomic(where, queueFile(where, entry.role), { ...current, waiting_on: why });
+  return true;
+}
+
 function handOver(where, only = null) {
   const { readShiftDeclaration } = require("./config");
   const claude = process.env.KEEL_CLAUDE || "claude";
-  const queuedEntries = handOffs(where).filter((entry) => actionable(entry) && (!only || entry.role === only));
+  const queuedEntries = handOffs(where).filter((entry) => actionable(entry) && (!only || entry.role === only))
+    .filter((entry) => !waitsForLock(where, entry));
   if (!queuedEntries.length) return [];
   const queried = queryAgents(claude);
   const sessions = queried.rows;
@@ -975,7 +1135,8 @@ function describeHandOff(entry) {
     ? `delivered ${entry.delivered_at} as session ${entry.new_session || "(id not printed)"}${entry.new_name ? ` "${entry.new_name}"` : ""}${entry.model ? ` on model ${entry.model} (${entry.model_source})` : ""}`
     : entry.state === "failed" ? `failed ${entry.failed_at}: ${entry.error}; ${retryNote(entry)}`
       : entry.state === "starting" ? `starting since ${entry.starting_at} (attempt ${entry.attempts} of ${HANDOVER_ATTEMPTS})`
-      : entry.waiting_on ? `pending: cannot ask the host — ${entry.waiting_on}` : "pending: waits for the session to go idle";
+      : entry.waiting_on && /^branch .* is held by /.test(entry.waiting_on) ? `pending: ${entry.waiting_on}`
+        : entry.waiting_on ? `pending: cannot ask the host — ${entry.waiting_on}` : "pending: waits for the session to go idle";
   // An entry from before #399 recorded whether the old session's rename showed.
   const renamed = entry.state === "delivered" && "renamed" in entry ? (entry.renamed ? `; old session renamed "${entry.renamed}"` : "; rename not shown") : "";
   const removed = (entry.removed || []).length ? `; older sessions removed from \`claude agents\` (transcripts kept by Keel): ${entry.removed.join(", ")}` : "";
@@ -1233,8 +1394,11 @@ function removeAtResume(where, role, text) {
 
 function resume(where, named = null) {
   const role = resumeRole(where, named);
+  const taken = takeOver(where, role);
+  // A note handed over on another machine arrives with the archive (#526 D14).
+  if (taken && taken.note && !waitingNote(where, role)) writeFileAtomic(ownNotePath(where, role), fs.readFileSync(taken.note, "utf8"));
   const note = waitingNote(where, role);
-  if (!note) return { role: role || null, note: null, text: null };
+  if (!note) return { role: role || null, note: null, text: null, taken };
   const text = fs.readFileSync(note, "utf8");
   const stamp = store.isoLocal(new Date()).replace(/[:+]/g, "");
   const history = path.join(shiftDir(where), "history", `${role || path.basename(note, ".md")}-${stamp}.md`);
@@ -1254,7 +1418,7 @@ function resume(where, named = null) {
       ? store.post(where, { group, text, refs: [REF] })
       : store.writeRecord(where, { group, kind: "message", from: role, refs: [REF], text })).id;
   }
-  return { role, note: history, text, told, removed: removeAtResume(where, role, text), waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree) };
+  return { role, note: history, text, told, removed: removeAtResume(where, role, text), waiting: role ? unstarted(where, role) : [], commits: noteCommits(where.worktree, text, knownSessionIds(where)), merged_branch: mergedBranch(where.worktree), fetched: lastFetch(where.worktree), taken };
 }
 
 function status(where) {
@@ -1663,7 +1827,12 @@ function runShift(argv) {
         const result = ready(where, { ...options, text: rest.join(" ") });
         const whose = result.role || "this worktree (no chat role, so no request to close)";
         const hint = clearHint(result, where);
-        out({ ...result, clear: hint }, `Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${hint}`);
+        const handedText = result.handed
+          ? `Released the branch lock of ${result.handed.branch} at ${String(result.handed.head || "none").slice(0, 8)} with the note ${result.handed.note}; `
+            + (result.handed.archived.pushed ? "the chat archive carrying it was pushed.\n"
+              : `the note stayed on this machine (${result.handed.archived.why || "the archive was not pushed"}).\n`)
+          : "";
+        out({ ...result, clear: hint }, `${handedText}Stored the shift note for ${whose} at ${result.note}${result.closed.length ? ` and closed ${result.closed.join(", ")}` : ""}.\n${hint}`);
         return 0;
       }
       case "wake-wait": {
@@ -1697,8 +1866,12 @@ function runShift(argv) {
       }
       case "resume": {
         const result = resume(where, options.role);
+        const takenText = result.taken
+          ? `Took over branch ${result.taken.branch} at ${result.taken.head.slice(0, 8)} from ${result.taken.from}.${result.taken.messages.length ? ` ${result.taken.messages.join(" ")}` : ""}`
+            + `${result.taken.notePath && !result.taken.note ? ` Its note ${result.taken.notePath} is not here; run \`keel chat archive pull\` once the archive is pushed.` : ""}\n\n`
+          : "";
         if (!result.note) {
-          out(result, `No shift note waits for ${result.role || "this worktree"}.`);
+          out(result, `${takenText}No shift note waits for ${result.role || "this worktree"}.`);
           return 0;
         }
         // A new shift of the patrolling role re-creates its schedule (#260).
@@ -1734,7 +1907,7 @@ function runShift(argv) {
         const removed = (result.removed || []).length
           ? `\n\nRemoved old sessions from claude agents: ${result.removed.join(", ")}; \`keel shift history ${result.role} --show <id>\` prints each.`
           : "";
-        out(result, `${result.text.replace(/\s+$/, "")}${commits}${stale}\n\n(The note moved to ${result.note}.)${removed}${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
+        out(result, `${takenText}${result.text.replace(/\s+$/, "")}${commits}${stale}\n\n(The note moved to ${result.note}.)${removed}${still}${remind ? `\n\n${patrolReminder(patrol)}` : ""}${remote}`);
         return 0;
       }
       case "history": {

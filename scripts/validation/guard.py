@@ -5884,3 +5884,37 @@ def validate_external_agent_exit_status_scenario() -> int:
 
     report("external-agent-exit-status scenario passed.")
     return 0
+
+
+def validate_guard_refuses_push_to_held_branch_scenario() -> int:
+    from validation.sync import _Devices, _declare_in
+    label = "guard-refuses-push-to-held-branch:"
+    with tempfile.TemporaryDirectory(prefix="keel-guard-lock-") as raw:
+        d = _Devices(Path(raw), "authorize:\n  - device-sync\nsync:\n  lock: true\n")
+        mine = {**d.env(d.a), "KEEL_DEVICE": "dev-a"}
+        other = {**mine, "KEEL_DEVICE": "dev-b"}
+        d.keel(d.a, "lock", "acquire", "--branch", "feat", env=mine)
+        def decide(command: str, env: dict) -> dict | None:
+            event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(d.a)}
+            ran = subprocess.run(["node", str(ROOT / PLUGIN_ROOT / "scripts/pretooluse-guard.js")],
+                                 cwd=d.a, env=env, input=json.dumps(event), text=True, capture_output=True)
+            return pretooluse_decision(ran)
+        denied = decide("git push origin feat", other)
+        if not denied or denied.get("permissionDecision") != "deny":
+            report(f"{label} must deny naming keel lock acquire --branch feat: {denied}")
+            return 1
+        reason = denied.get("permissionDecisionReason", "")
+        for expected in ("pm@dev-a", "keel lock acquire --branch feat"):
+            if expected not in reason:
+                report(f"{label} denial missing {expected}: {denied}")
+                return 1
+        for command, env in (("git push origin feat", mine), ("git push --all origin", other), ('git push origin "$BRANCH"', other)):
+            if decide(command, env):
+                report(f"{label} existing rule must allow {command} here")
+                return 1
+        _declare_in(d, d.a, "authorize:\n  - device-sync\n")
+        if decide("git push origin feat", other):
+            report(f"{label} no sync declaration must preserve the old verdict")
+            return 1
+    report("guard-refuses-push-to-held-branch scenario passed.")
+    return 0

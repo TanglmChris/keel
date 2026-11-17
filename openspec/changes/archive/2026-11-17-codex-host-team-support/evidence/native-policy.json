@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-17",
+  "cliVersion": "0.164.0",
+  "session": "01a1e719-5c7e-74a2-8f82-73afd84e28b1",
+  "trust": "known inline hook definitions enabled for one invocation only; production trust unchanged",
+  "patchInputField": "tool_input.command",
+  "allowedPatch": {
+    "path": "allowed.txt",
+    "content": "accepted\n",
+    "result": "completed"
+  },
+  "forbiddenPatch": {
+    "path": "forbidden.txt",
+    "exists": false,
+    "result": "denied: forbidden.txt is outside Touch for fixture#1.1"
+  },
+  "push": {
+    "command": "git push origin main",
+    "remoteConfigured": false,
+    "result": "denied: keel/config.yaml limits push to push:codex/*"
+  },
+  "priorRed": "native command field was unrecognized and allowed.txt was incorrectly denied; fixed and repeated actual native probe",
+  "limits": [
+    "This isolated hook invocation does not establish updated plugin trust or enforcement in an existing desktop chat.",
+    "Compaction and approval automation remain manual."
+  ]
+}

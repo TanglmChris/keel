@@ -117,9 +117,12 @@ release that changes the hook definitions needs that review again.
 Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
 unread mail at session start and the next user input without marking it read.
 If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
-explicitly. Codex does not wake itself while idle; `keel chat wake add` in its worktree
-starts a turn when something addressed to it arrives (#203). Native write-guard
-enforcement remains unverified.
+explicitly. For a team owned by Keel, use `keel codex start --role <role> --repo <worktree>`
+with a reachable Codex app-server endpoint (`--socket <path>` selects one explicitly).
+`keel codex drain` and `keel tick` deliver addressed records to those managed roles;
+`keel codex handover` retains a note and creates a successor only after the role is idle.
+Existing desktop chats are not adopted. Native write-guard enforcement and compaction
+remain manual until the current installation is behaviorally verified.
 See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
 evidence, limitations and the clean-consumer Full-mode check.
 
@@ -222,7 +225,7 @@ because a permission granted in conversation does not survive a context reset. D
 `keel/config.yaml` instead:
 
 ```yaml
-authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>]
+authorize:          # accepted names: commit, push, push:<branch glob>[@<role>], release, archive, continuation, issue:<owner>/<repo>[@<role>], protocol-refresh, chat-reply:<group>[@<role>], issue-close:<owner>/<repo>[@<role>], cleanup:scratch[@<role>], push-protected:<branch glob>[@<role>], shift-restore, self-shift, delete-branch:merged[@<role>], push-tag:<tag glob>[@<role>], device-sync
   - commit
   - push
 ```
@@ -232,7 +235,7 @@ names `keel/config.yaml` as that entry's source so an inherited authorization is
 for one the task decided. A task that authors its own boundary keeps it.
 
 The ordinals below count names, not the forms in that comment: `push` and `push:<branch glob>` are
-one name, so the vocabulary is fifteen names long and `continuation` is the fifth.
+one name, so the vocabulary is sixteen names long and `continuation` is the fifth.
 
 `continuation`, the fifth name, is accepted and changes nothing. Moving from a durably complete
 task to the next unchecked task of the same change, inside a change whose `tasks.md` you approved,
@@ -285,6 +288,12 @@ role; the grant never asks. It changes nothing else: `--tags`, `--mirror`, `--fo
 `push.followTags` and deleting a tag keep their verdicts, and no branch grant carries tags. A
 repository that declares only `push-tag:` limits tags and leaves branch pushes alone, and a bare
 `push` beside it is allowed because it widens no branch.
+
+`device-sync`, the sixteenth, lets Keel's own commands push the branch-lock refs under
+`refs/keel/lock/` — acquiring, renewing, releasing, taking over and breaking a branch lock (#526) —
+and nothing else. It is bare because a lock ref lives in this repository's own remote. A work
+branch Keel pushes still needs `push` or a matching `push:<glob>`, and a `push-protected` branch is
+never pushed by Keel. Without it every command that would push a lock ref exits 3 naming it.
 
 Every scoped entry — `push:`, `issue:`, `issue-close:`, `cleanup:`, `chat-reply:`,
 `push-protected:` and `push-tag:` — may end in `@<role>`, or a role pattern such as `@kaiwu-design-*`, where `*`
@@ -343,7 +352,7 @@ Three things the declaration is not:
   anything.
 - **Not a trigger.** It removes a confirmation, not the step that reaches the action. Nothing
   schedules itself, and no next task is selected for you.
-- **Not open-ended.** The fifteen names above are the whole vocabulary. An unrecognized entry is
+- **Not open-ended.** The sixteen names above are the whole vocabulary. An unrecognized entry is
   reported with the accepted names and the declaration authorizes nothing until you fix it — a
   typo never becomes a silent grant.
 
@@ -853,7 +862,7 @@ the brief, so `egress_deny` guards what is handed over, not what it can open.
 
 ## Shared resource leases
 
-Sessions coordinate shared resources across worktrees through bounded leases. Other holders are refused and recorded as waiters; when a holder releases a lease, or a lease is found to have expired, the waiters are told through direct chat messages. A lease enforces nothing on Git or the filesystem. The shift check reports those its worktree still holds. See [docs/resource-lock.md](docs/resource-lock.md).
+Sessions coordinate shared resources across worktrees through bounded leases. Other holders are refused and recorded as waiters; when a holder releases a lease, or a lease is found to have expired, the waiters are told through direct chat messages. A lease enforces nothing on Git or the filesystem. The shift check reports those its worktree still holds. Across machines, `keel lock acquire --branch <b>` keeps a branch's lease as the ref `refs/keel/lock/<b>` on its remote, updated only by a push without force, so of two devices that are never online together exactly one holds the branch; an expired lease is taken over with a warning of the gap, a live one only with `--break "<reason>"`, and `keel lock release --branch <b>` first confirms the branch is pushed. Keel pushes lock refs only under `authorize: device-sync`, and with `--push` the branch itself only where `push` allows it (#526). See [docs/resource-lock.md](docs/resource-lock.md).
 
 ## Worktree overview
 
@@ -872,6 +881,28 @@ with exit 1 and its filename. JSON output contains `defaultBranch` and `worktree
 each worktree's `issues` remains a sorted array of numbers. With `--issues`,
 `issueUpdates` adds `{number, updatedAt}` entries, with null for an absent time.
 Without a known default branch, no issue range is inferred.
+
+## What exists only on this machine
+
+`keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]` lists, for the whole repository from any of
+its worktrees, what a session on another machine could not get by cloning (#526): each
+local branch whose tip no remote-tracking ref contains, with its unpushed commit count
+or that it has no remote counterpart; each worktree with uncommitted or untracked paths,
+a detached head on no remote, or a local-only branch checked out; and every stash entry.
+A branch merged into a remote branch is on the remote. It reads local refs only, never
+fetches, and writes nothing; the output names when the remote-tracking refs were last
+fetched. Exit 0 when nothing is only on this machine, 1 when something is, 2 for an
+operational error. The same report runs from `/` with `--repo`.
+
+Each local-only item carries its fix — `git push [-u] <remote> <branch>`, or commit then
+push — and says which `authorize:` entry covers it (`commit`, `push` or a matching
+`push:<glob>`) or which to declare; the report runs none of them. A local
+`origin/<branch>` can lie after a push the remote hung up on, so `--verify` asks the
+remote itself: one `git ls-remote` per remote (each branch's upstream remote, else
+`origin`, or `--remote <name>`), time-limited and never prompting, and marks each local
+branch `same`, `remote-behind`, `remote-ahead`, `diverged`, `unknown-to-local` (the
+remote's sha is not in this clone) or `not-on-remote`. A lookup that fails is
+`cannot verify` with git's error and counts like local-only work; `remote-ahead` does not.
 
 ## Group chat between sessions
 
@@ -1056,7 +1087,9 @@ keel mail role | send | list | read                # the 5.83 mailbox; works on 
 # Shift change, shared resource leases, worktree overview
 keel shift request | check | ready [--wake] | start | resume | status
 keel lock acquire | release | list                 # see docs/resource-lock.md
+keel lock acquire | release --branch <b> [--break <reason>] [--push]   # a branch lock on the remote
 keel worktrees [--repo <path>] [--issues <file>] [--json]
+keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   # what exists only on this machine
 
 # Unattended triage — may this issue start work without asking?
 # Keel never fetches the issue; pass what gh returned. At least one of the two.

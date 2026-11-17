@@ -1,5 +1,22 @@
 # Keel Changelog
 
+## 5.229.0 - Work and hand-over across devices
+
+- Managed Codex teams: explicit WebSocket endpoint inspection, role/thread/worktree ownership, addressed mailbox delivery through drain/tick, durable deduplication and idle hand-over with retained context. Existing desktop chats are not adopted.
+- Codex hook source covers native patch paths and shell push policy. Runtime trust and compaction remain manual; actual two-role 0.167.2 acceptance is recorded separately from stand-in suite evidence.
+
+
+Issue #526 (2026-11-16): unpushed work, stale tracking refs and machine-local hand-over notes made switching between Linux, Mac and VPS leave finished work behind.
+
+- **`keel sync status [--verify] [--json]`** lists local-only branches, worktrees and stashes, shows locks, and prints the fix and its authorization. The offline view says when refs were fetched; verification compares the remote’s actual sha and never treats an unreachable remote as pushed.
+- **`keel lock acquire|release --branch`** keeps an exclusive lease in `refs/keel/lock/*`, advanced without force. The holder renews, expired leases can be taken over with a warning, and a live lease needs a reason to break. Lock pushes require `device-sync`; work branch pushes retain `push` scopes and hooks.
+- **`sync: lock: true` enforces the sync points.** Task-start and change-close verify the lock and remote branch; context names the acquisition or takeover command; the push guard refuses a branch held elsewhere; queued hand-overs wait.
+- **Hand-over notes travel in the chat archive.** Shift ready writes an immutable note and releases only after confirming the branch is pushed. Shift resume fast-forwards the branch, acquires its lease and retrieves the note. Uncommitted files are not carried between devices.
+- **Renewal and visibility:** the tick renews this device’s live leases and pushes only authorized work branches, including when started from `/`; the prompt hook renews when due and fails silently. Patrol reports old local-only work once; doctor names the device, locks and renewal state.
+- Git 2.34 worktree listing falls back to newline porcelain when `-z` is unavailable.
+- Release marker updates and validation leave nested Git checkouts alone. On Linux, an orphan keep-awake adopted by the host subreaper is still a shift loose end when its original process-group leader has exited.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.229.0; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.228.0 - The tick job runs from the filesystem root
 
 Issue #524 (Keel 5.227.0): the launchd job `keel tick task` prints set `WorkingDirectory` to the repository's main checkout although it already passes `--repo`, so every tick, every 300 s, sat inside the checkout and any tool that refuses to touch a checkout while a process has its cwd there counted it as a holder. In one repository an hourly "fast-forward the main checkout when idle" job deferred a full hour each time the two overlapped.
