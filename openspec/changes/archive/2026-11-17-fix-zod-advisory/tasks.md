@@ -34,7 +34,7 @@
 
 ## Change Evidence
 
-- C1: pending
+- C1: pass: npm test on the final 5.229.1 combined candidate passes baseline plus 426 scenarios (278 deterministic, 148 stand-in host). Log /tmp/keel-531-final-full.log; compatible Zod 4.6.7 installed with zero audit findings.
 
 ## Invalidates
 
@@ -43,4 +43,5 @@
 ## Expectation Coverage
 
 - E1: Patched dependency with a bounded graph change and observable validation compatibility (D1, D2). Covered by: 1.1
-- E2: Published/local deployment and #531 lifecycle fix remain separately owned. Durable owner: https://github.com/TanglmChris/keel/issues/531
+- E2: Published/local deployment of the repaired dependency remains tracked until release verification. Durable owner: https://github.com/TanglmChris/keel/issues/528
+- E3: Distinct managed lifecycle fix. Durable owner: https://github.com/TanglmChris/keel/issues/531

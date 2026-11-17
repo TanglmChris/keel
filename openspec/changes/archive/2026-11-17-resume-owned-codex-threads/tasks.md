@@ -91,7 +91,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.15 Commit the priority candidate for required cloud verification
+- [x] 2.15 Commit the priority candidate for required cloud verification
   - Mode: repo-action
   - Covers:
     - D1
@@ -104,15 +104,15 @@
     - M1: `git show --stat HEAD` contains 5.229.1 metadata, the unit/real-host-verified owned resume repair, compatible Zod lock and their evidence. No merge or publication is performed by this commit; exact-head Full gate is required before repository automation lands it.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:65b05aeeb3fc878369e6f5e242a9165bcf9227259f741453df3749e23e9a496c (keel 5.229.0)
-    - M1: pending
+    - M1: pass: commit e5f05c25 records 5.229.1 metadata, owned recovery code/tests, actual second-round evidence and compatible Zod 4.6.7 lock; final local full regression remains running under 2.1.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: reviewable priority candidate is committed for exact-head cloud validation; this task makes no full-regression or publication claim.
+      - Scope check: Git state and own record only; implementation and metadata bytes are unchanged by the commit.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
-- [ ] 2.1 Prepare the compatible patch release and final regression
+- [x] 2.1 Prepare the compatible patch release and final regression
   - Covers:
     - D1
     - D3
@@ -142,15 +142,15 @@
     - M1: `node scripts/bump_version.js 5.229.1` aligns all release/protocol/plugin markers; `npm test` passes the final combined #531/#528 candidate, `npm audit --json` has no vulnerabilities and published specs validate strictly. Nested Git worktrees remain untouched.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:faf8823326c8377cef42f3464b0e7cf3fd1a6c905e62b4a1a5b74f9a89dac3f0 (keel 5.229.0)
-    - M1: pending
+    - M1: pass: bump script aligned 5.229.1 package/plugin/protocol metadata without touching nested Git worktrees; npm test passes baseline plus 426 scenarios, 278 deterministic and 148 stand-in host, log /tmp/keel-531-final-full.log. Patched dependency audit is zero and all 37 existing published specs validate strictly.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: the combined release candidate preserves all prior behavior checks while adding measured owned recovery and removing the dependency advisory; native second-round evidence remains separate from suite classification.
+      - Scope check: version writes are exactly the 19 preflight-listed metadata/marker paths. Product repair bytes committed under 2.15 match the locally tested candidate; nested checkout remains independent.
+      - Findings: Resolved here: M1 — full regression and version alignment pass; #527 remains deliberately deferred.
     - Blocker: none
     - Reauthorizations: none
-- [ ] 2.2 Commit the verified priority patch
+- [x] 2.2 Commit the verified priority patch
   - Mode: repo-action
   - Covers:
     - D1
@@ -159,15 +159,15 @@
   - Verify:
     - Strategy: evidence-first
     - Reason: commits the verified source, dependency repair, metadata and evidence without further product changes.
-    - M1: `git show --stat HEAD` records the priority owned-resume fix and patched lock; product files match the tested bytes in HEAD.
+    - M1: `git log -2 --stat` records the priority repair candidate and its final verification records; product implementation and patched lock match the tested bytes in HEAD.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:8040d2279d61c23cab6b759891971a43b445f7f12c4826f1bfd032a19b0fb299 (keel 5.229.0)
+    - M1: pass: git log -2 --stat records a352e246 verification records atop e5f05c25 priority candidate; git diff e5f05c25 -- src/core/codex-host.js scripts/test_codex_host.js npm-shrinkwrap.json is empty. Cloud exact-head Full gates passed and repository automation merged PR #532 as 6a14ae1f.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: candidate and final verification are durably committed; code, behavior tests and dependency lock remain identical to the verified candidate.
+      - Scope check: commit a352e246 only changes the two selected changes’ task evidence; no product bytes changed.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
