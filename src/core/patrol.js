@@ -573,6 +573,7 @@ function runPatrol(argv) {
     // stand until resolved, so `--since-last` sends each once (#476 D1, D2).
     const covered = (name) => name === role || options.coverage.covers(name);
     result.standing = [
+      ...require("./sync").oldLocalOnlyRisks(where, covered, options.coverage.repositoryWide),
       ...require("./shift").handOffRisks(where, Date.now(), covered),
       ...require("./chat/notice").movedSessionRisks(where, covered),
     ];

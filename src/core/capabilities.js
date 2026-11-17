@@ -145,6 +145,11 @@ function probeCapabilities(repo, target) {
     schemaVersion: 1,
     target,
     capabilities,
+    ...(target === "codex" ? {host: {managedRoles: {
+      level: "manual",
+      evidence: "Managed role commands require an explicit verified endpoint and recorded worktree/thread ownership; source tests and dated real-host evidence do not establish this installation's connectivity or trust.",
+      command: "keel codex status|start|deliver|handover|drain --repo <path> --json",
+    }}} : {}),
     guard: guardDiagnostics(repo, target),
     compaction: compactionDiagnostics(target),
     warnings: [
@@ -246,6 +251,11 @@ function renderCapabilities(result) {
       `${key}: ${capability.level} - ${capability.evidence}; `
         + `command: ${capability.command}`
     );
+  }
+  if (result.host) {
+    for (const [dimension, entry] of Object.entries(result.host)) {
+      lines.push(`host ${dimension}: ${entry.level} - ${entry.evidence}; command: ${entry.command}`);
+    }
   }
   if (result.guard) {
     for (const [dimension, entry] of Object.entries(result.guard)) {

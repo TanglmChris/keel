@@ -19,6 +19,7 @@ const {
   readMergeDeclaration,
   readReadOnlyRoles,
   readPatrolDeclaration,
+  readSyncDeclaration,
   readOwnerLanguage,
   ownerLanguageRule,
 } = require("./config");
@@ -786,6 +787,56 @@ function gitWarnings(repo) {
     : [];
 }
 
+function localOnlyWarning(repo) {
+  let found;
+  try {
+    found = require("./sync").status(repo);
+  } catch {
+    return null;
+  }
+  if (!found.hasRemote || !found.localOnly) return null;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const parts = [];
+  if (found.branches.length) parts.push(plural(found.branches.length, "local-only branch", "local-only branches"));
+  if (found.worktrees.length) parts.push(plural(found.worktrees.length, "worktree with uncommitted or unpushed work", "worktrees with uncommitted or unpushed work"));
+  if (found.stashes.length) parts.push(plural(found.stashes.length, "stash entry", "stash entries"));
+  return `Only on this machine (selection-neutral, from local refs): ${parts.join(", ")}; \`keel sync status\` lists them with their fixes.`;
+}
+
+// Under `sync: lock: true` a task waits for this device to hold the branch's
+// lock (#526 D15): the next action becomes taking it, read from the last
+// fetched lock ref, never the network. Status and selection stay.
+function lockNextAction(repo, context) {
+  if (!context.nextAction || !["task-start", "task-complete"].includes(context.nextAction.kind)) return;
+  const run = (args) => {
+    const r = spawnSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
+    return r.status === 0 ? String(r.stdout || "").trim() : "";
+  };
+  const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (!branch) return;
+  const lockModule = require("./lock");
+  const sha = run(["rev-parse", "--verify", "--quiet", `${lockModule.LOCK_PREFIX}${branch}`]);
+  const lock = sha ? lockModule.parseLock(repo, sha) : null;
+  let device = null;
+  try {
+    device = lockModule.existingDeviceId(require("./chat/store").locate(repo));
+  } catch {
+    device = null;
+  }
+  const now = Date.now();
+  if (lock && lock.state === "held" && device && lock.device === device && now <= Date.parse(lock.expires || "")) return;
+  const free = lock && (lock.state === "released" || (lock.state === "held" && !lockModule.liveFor(lock, now, lockModule.GRACE_MS)));
+  const mine = lock && context.role && lockModule.roleOf(lock.holder) === context.role;
+  if (free && mine) {
+    context.nextAction = { kind: "shift-resume", command: "keel shift resume" };
+  } else {
+    context.nextAction = { kind: "lock-acquire", command: `keel lock acquire --branch ${branch}` };
+  }
+  context.reasons.push(lock
+    ? `The branch lock of ${branch}, as last fetched, is ${lock.state} by ${lock.holder} (expires ${lock.expires || "unknown"}), not held by this device; sync: lock: true needs it before a task.`
+    : `Branch ${branch} has no lock as last fetched; sync: lock: true needs this device to hold it before a task.`);
+}
+
 // A session whose bound chat role is listed in `read_only_roles:` owns no
 // change, so it gets one idle line instead of candidates (#246 D4).
 function readOnlyContext(repo, readOnly) {
@@ -896,7 +947,18 @@ function resolveContext(repo, options) {
       }
     }
   }
+  // `sync:` (#526 D11): reported when in force, named when unreadable.
+  const syncDeclaration = readSyncDeclaration(repo);
+  if (syncDeclaration.message) context.warnings.push(syncDeclaration.message);
+  if (syncDeclaration.declared) {
+    context.sync = { lock: syncDeclaration.lock, ttl: syncDeclaration.ttl, ttlSeconds: syncDeclaration.ttlSeconds };
+  }
   context.warnings.push(...gitWarnings(repo));
+  // What exists only on this machine (#526 D15): one offline line, which never
+  // changes status, selection or the next action.
+  const localOnly = localOnlyWarning(repo);
+  if (localOnly) context.warnings.push(localOnly);
+  if (syncDeclaration.lock) lockNextAction(repo, context);
   // A broken `authorize:` declaration is otherwise reported only by
   // `keel --doctor`, an explicitly-invoked diagnostic — surfaced here too so a
   // session that runs `keel context` first (per `AGENTS.md`) learns the

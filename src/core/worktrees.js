@@ -24,11 +24,16 @@ function git(cwd, args, optional = false) {
   return String(result.stdout || "").replace(/\n$/, "");
 }
 
-// NUL delimiters preserve spaces, quotes and newlines in worktree paths.
+// NUL delimiters preserve spaces, quotes and newlines in worktree paths. Git
+// before 2.36 has no `-z` there (#526: git 2.34 refused it and `keel worktrees`
+// failed outright), so it falls back to newline-separated fields, which read
+// every path that holds no newline.
 function listWorktrees(repo) {
   const rows = [];
   let row = null;
-  for (const field of git(repo, ["worktree", "list", "--porcelain", "-z"]).split("\0")) {
+  const nul = git(repo, ["worktree", "list", "--porcelain", "-z"], true);
+  const fields = nul !== null ? nul.split("\0") : git(repo, ["worktree", "list", "--porcelain"]).split("\n");
+  for (const field of fields) {
     if (field.startsWith("worktree ")) {
       row = { path: field.slice(9), branch: null, head: null, locked: null, prunable: null };
       rows.push(row);
@@ -177,4 +182,4 @@ function runWorktrees(argv) {
   }
 }
 
-module.exports = { WorktreesError, runWorktrees, branchIssues, defaultBranch };
+module.exports = { WorktreesError, runWorktrees, branchIssues, defaultBranch, listWorktrees, git };

@@ -103,8 +103,11 @@ Usage:
   keel branches prune [repo] [--role <role>] [--json]   (delete them, local and remote, under authorize: delete-branch:merged; exit 3 without it)
   keel shift request|check|ready|start|resume|status ...   (a role's shift change; see keel shift --help)
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
+  keel lock acquire|release --branch <b> [--break <reason>] [--push]   (a branch lock kept on the remote; device-sync)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
+  keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
+  keel codex status|start|deliver|handover|drain [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
   keel tick [--repo <path>] [--json]                   (one model-free step for a host scheduler; keel tick task prints the job)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update]
@@ -2538,6 +2541,7 @@ function runDoctor(options) {
   printTickIssueChecks(repo);
   printTickHeartbeat(repo);
   printMergedBranches(repo);
+  printSyncDoctor(repo);
   printLaunchdJobs();
 
   return authorizationOk ? checkStatus : 1;
@@ -2615,6 +2619,37 @@ function printTickHeartbeat(repo) {
   if (!where) return;
   const beat = require("../src/core/tick").heartbeat(where, new Date());
   if (beat.state) printDoctorLine("tick", beat.state === "ok" ? "ok" : "problem", beat.text);
+}
+
+// `sync:` (#526 D11, D21): the declaration as read; the branch locks this
+// device holds are added by the lock itself.
+function printSyncDoctor(repo) {
+  const declared = require("../src/core/config").readSyncDeclaration(repo);
+  if (declared.message) {
+    printDoctorLine("sync", "unreadable", declared.message);
+    return;
+  }
+  if (!declared.declared) {
+    printDoctorLine("sync", "not declared", "no branch lock at the sync points; `keel sync status` still lists what is only on this machine");
+    return;
+  }
+  printDoctorLine("sync", "declared", `lock: ${declared.lock}, ttl ${declared.ttl}`);
+  const store = require("../src/core/chat/store");
+  const where = store.locate(repo);
+  if (!where) return;
+  const lock = require("../src/core/lock");
+  const device = lock.existingDeviceId(where);
+  const heartbeat = require("../src/core/tick").heartbeat(where);
+  const renewal = heartbeat.at ? `tick (${heartbeat.text}); prompt hook on Claude when due`
+    : "prompt hook on Claude when due; tick has no recorded run here";
+  printDoctorLine("sync device", "ok", `${device || "no device id yet"}; renewal: ${renewal}`);
+  for (const held of lock.branchLocks(where, repo).filter((row) => row.state === "held" && row.device === device)) {
+    const renewed = spawnSync("git", ["log", "-1", "--format=%cI", held.sha], {
+      cwd: repo, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    });
+    printDoctorLine("sync lock", lock.liveFor(held, Date.now(), 0) ? "held" : "expired",
+      `${held.branch} by ${held.holder}, expires ${held.expires}, last renewal ${String(renewed.stdout || "unknown").trim()}`);
+  }
 }
 
 function printMergedBranches(repo) {
@@ -3345,6 +3380,10 @@ function runAction(options) {
 }
 
 function main() {
+  if (process.argv[2] === "codex") {
+    require("../src/core/codex-host").run(process.argv.slice(3)).then(code => { process.exitCode = code; });
+    return 0;
+  }
   // `keel mail` parses its own arguments: it is host-neutral messaging between
   // sessions (#180), sharing no option with the gate and projection commands.
   if (process.argv[2] === "mail") {
@@ -3371,6 +3410,10 @@ function main() {
   // `keel feedback` likewise: a redacted issue draft for Keel (#505).
   if (process.argv[2] === "feedback") {
     return require("../src/core/feedback").runFeedback(process.argv.slice(3));
+  }
+  // `keel sync` likewise: what exists only on this machine (#526).
+  if (process.argv[2] === "sync") {
+    return require("../src/core/sync").runSync(process.argv.slice(3));
   }
   if (process.argv[2] === "worktrees") {
     return require("../src/core/worktrees").runWorktrees(process.argv.slice(3));

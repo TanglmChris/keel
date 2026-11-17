@@ -607,6 +607,13 @@ function main() {
         + `(${context.selection.source}); next action: `
         + `${context.nextAction ? context.nextAction.kind : "unknown"}.`
     );
+    // Under `sync: lock: true` the task waits for the branch lock (#526 D15):
+    // the command that takes it comes first, with the reason it is needed.
+    if (context.nextAction && ["lock-acquire", "shift-resume"].includes(context.nextAction.kind)
+        && context.nextAction.command) {
+      const why = (context.reasons || []).find((reason) => /branch lock|no lock/.test(String(reason)));
+      lines.push(`- first run \`${context.nextAction.command}\`${why ? `: ${String(why).slice(0, MAX_REASON_LENGTH)}` : "."}`);
+    }
     if (reinject) {
       const recorded = recordedContract(cwd, context.selection);
       if (recorded) {
