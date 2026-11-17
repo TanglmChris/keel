@@ -107,6 +107,7 @@ Usage:
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
   keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
+  keel codex status|start|deliver|handover|drain [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
   keel tick [--repo <path>] [--json]                   (one model-free step for a host scheduler; keel tick task prints the job)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update]
@@ -3379,6 +3380,10 @@ function runAction(options) {
 }
 
 function main() {
+  if (process.argv[2] === "codex") {
+    require("../src/core/codex-host").run(process.argv.slice(3)).then(code => { process.exitCode = code; });
+    return 0;
+  }
   // `keel mail` parses its own arguments: it is host-neutral messaging between
   // sessions (#180), sharing no option with the gate and projection commands.
   if (process.argv[2] === "mail") {

@@ -1,0 +1,84 @@
+{
+  "hostVersion": "0.167.2",
+  "date": "2026-11-17",
+  "endpoint": "explicit isolated Unix WebSocket service, same managed binary; current environment without stale daemon proxy",
+  "roles": {
+    "worker-a": {
+      "initialThread": "01a1e709-ec67-75a0-9002-dc0b90e391d2",
+      "addressedRecord": "20261117T010558596Z-owner-78babf",
+      "initialTurns": [
+        {
+          "id": "01a1e70a-0fc0-7511-b5f9-1f21b001b36e",
+          "status": "completed",
+          "answers": [
+            "KEEL_REAL_WORKER_A_OK"
+          ]
+        }
+      ],
+      "finalThread": "01a1e70a-3cb5-7bc0-ace5-0bd3eec36230",
+      "finalTurns": [
+        {
+          "id": "01a1e70a-d007-72b1-97b2-0df23979f948",
+          "status": "completed",
+          "answers": [
+            "KEEL_REAL_HANDOVER_NOTE"
+          ]
+        }
+      ]
+    },
+    "worker-b": {
+      "initialThread": "01a1e709-ecd9-7ff0-9248-6e761582235e",
+      "addressedRecord": "20261117T010558598Z-owner-e02726",
+      "initialTurns": [
+        {
+          "id": "01a1e70a-1019-7a21-a2d1-1e8548d8d300",
+          "status": "completed",
+          "answers": [
+            "`keel context` reported that the session is idle. No OpenSpec change or task is selected, and there\u2019s no next action. The installed Keel version is `5.228.0`. The command printed no protocol version or warnings."
+          ]
+        }
+      ],
+      "finalThread": "01a1e709-ecd9-7ff0-9248-6e761582235e",
+      "finalTurns": [
+        {
+          "id": "01a1e70a-1019-7a21-a2d1-1e8548d8d300",
+          "status": "completed",
+          "answers": [
+            "`keel context` reported that the session is idle. No OpenSpec change or task is selected, and there\u2019s no next action. The installed Keel version is `5.228.0`. The command printed no protocol version or warnings."
+          ]
+        },
+        {
+          "id": "01a1e70a-d090-7d12-a3e7-30f9252050d9",
+          "status": "completed",
+          "answers": [
+            "KEEL_REAL_WORKER_B_OK"
+          ]
+        }
+      ]
+    }
+  },
+  "repeat": [
+    {
+      "role": "worker-a",
+      "record": "20261117T010558596Z-owner-78babf",
+      "state": "already-delivered",
+      "turn": "01a1e70a-0fc0-7511-b5f9-1f21b001b36e"
+    },
+    {
+      "role": "worker-b",
+      "record": "20261117T010558598Z-owner-e02726",
+      "state": "already-delivered",
+      "turn": "01a1e70a-1019-7a21-a2d1-1e8548d8d300"
+    }
+  ],
+  "handover": {
+    "state": "handed-over",
+    "thread": "01a1e70a-3cb5-7bc0-ace5-0bd3eec36230",
+    "note": "KEEL_REAL_HANDOVER_NOTE: preserve the completed acceptance result; await next addressed record."
+  },
+  "limits": [
+    "System daemon inherited stale localhost:7890 proxy and model requests failed with Connection failed: error sending request; it was not restarted. Only this exercise's probes were interrupted.",
+    "Existing desktop chats were not adopted or modified.",
+    "Native compaction and automatic approval handling remain unverified/manual; no hook enforcement is inferred from adapter tests."
+  ]
+}

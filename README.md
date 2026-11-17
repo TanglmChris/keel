@@ -117,9 +117,12 @@ release that changes the hook definitions needs that review again.
 Bind a mailbox role with `keel mail role --set codex-maint`; trusted hooks announce
 unread mail at session start and the next user input without marking it read.
 If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
-explicitly. Codex does not wake itself while idle; `keel chat wake add` in its worktree
-starts a turn when something addressed to it arrives (#203). Native write-guard
-enforcement remains unverified.
+explicitly. For a team owned by Keel, use `keel codex start --role <role> --repo <worktree>`
+with a reachable Codex app-server endpoint (`--socket <path>` selects one explicitly).
+`keel codex drain` and `keel tick` deliver addressed records to those managed roles;
+`keel codex handover` retains a note and creates a successor only after the role is idle.
+Existing desktop chats are not adopted. Native write-guard enforcement and compaction
+remain manual until the current installation is behaviorally verified.
 See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
 evidence, limitations and the clean-consumer Full-mode check.
 

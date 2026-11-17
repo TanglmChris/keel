@@ -168,6 +168,8 @@ function wakeEnded(where, state) {
   state.woken = state.woken || {};
   const woken = [];
   for (const role of roles) {
+    // A managed Codex role must never fall through to the Claude CLI waker.
+    if (fs.existsSync(path.join(where.root, "codex-roles", `${role}.json`))) continue;
     if (notice.parkOf(where, role)) continue;
     const entry = notice.asleep(where, role);
     if (!entry || !entry.cli) continue;
@@ -213,6 +215,7 @@ function tick(where, now = new Date()) {
   store.writeJsonAtomic(where, stateFile(where), { ...readState(where), last_tick: store.isoLocal(now) });
   result.sync = require("./lock").renewHeld(where);
   const wakeState = readState(where);
+  result.codex = require("./codex-host").wakeManaged(where);
   result.woken = wakeEnded(where, wakeState);
   result.handedOver = require("./shift").handOver(where);
   if (result.woken.length) {
@@ -289,9 +292,11 @@ function tick(where, now = new Date()) {
 function render(result) {
   const woke = (result.woken || []).map((w) => `keel tick: ${w.ok ? "resumed" : "could not resume"} ${w.role}'s CLI session ${w.session} for ${w.record}`);
   const handed = (result.handedOver || []).map((h) => `keel tick: ${h.role}'s hand-off ${h.state}${h.new_session ? ` as session ${h.new_session}` : ""}${h.error ? `: ${h.error}` : ""}`);
+  const codex = (result.codex || []).filter(entry => entry.state !== "already-delivered")
+    .map(entry => `keel tick: Codex ${entry.role}: ${entry.error || entry.state}${entry.record ? ` for ${entry.record}` : ""}`);
   const quota = result.quota ? [`keel tick: ${result.quota.text}`] : [];
   const issues = result.issues ? [`keel tick: ${result.issues.text}`] : [];
-  return [...(result.sync || []), ...handed, ...woke, ...quota, ...issues,...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
+  return [...(result.sync || []), ...handed, ...woke, ...codex, ...quota, ...issues,...(result.patrols || [result.patrol]).map(renderPatrol)].join("\n");
 }
 
 function renderPatrol(p) {

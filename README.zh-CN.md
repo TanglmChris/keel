@@ -130,6 +130,12 @@ rm -rf "$tmp_dir"
 ```
 </details>
 
+Keel 托管的 Codex 团队通过 `keel codex start --role <role> --repo <worktree>` 创建角色，
+`--socket <path>` 指定可连接的 app-server 套接字。`keel codex drain` 和 `keel tick`
+只投递发给该角色的记录；`keel codex handover` 在角色空闲后保留交接说明并创建后继。
+现有桌面聊天不会被自动接管。原生写入拦截和压缩后的重新注入仍需当前安装的实际验证，能力报告保持 manual。
+详见 [Codex 验收记录](docs/codex-validation.md) 和 [CLI 团队说明](docs/cli-team.zh-CN.md)。
+
 ## 怎么用
 
 在项目根目录，先设置一次：

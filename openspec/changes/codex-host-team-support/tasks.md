@@ -1,0 +1,282 @@
+# Tasks
+
+## 1. Shared host transport
+
+- [x] 1.1 Inspect the configured Codex host without side effects
+  - Covers:
+    - keel-codex-host-team / A Codex host is inspected through its shared control endpoint
+    - D3
+    - D4
+  - Touch:
+    - src/core/codex-host.js
+    - bin/keel.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node --test scripts/test_codex_host.js` invokes the real `keel codex status` CLI against an isolated WebSocket host and asserts initialization plus thread status; closed and silent endpoints fail by name within the deadline and never request thread/resume, thread/start or turn/start.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:658ec9960d4c855c51a53edee4dd7d6ed29618892dff981cc4b5da2c6db9c62f (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js, two real CLI tests pass against an isolated WebSocket host; initialization/read only, closed endpoint error and silent endpoint bounded timeout verified.
+    - M1.red: fail before implementation: actual CLI exits 2, keel: repo path was provided more than once; status command absent.
+    - M1.green: pass after implementation, 2 tests, 0 failures.
+    - Review:
+      - Status: pass
+      - Acceptance check: public CLI exercises the transport boundary, validates status, refuses unavailable hosts and meets the timeout; no session mutations occur.
+      - Scope check: only codex-host.js, bin/keel.js and test_codex_host.js product paths changed; all in Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## 2. Managed roles (author after transport proof)
+
+- [x] 2.1 Record managed role identity and bounded host lifecycle
+  - Covers:
+    - keel-codex-host-team / Managed roles have explicit session ownership
+    - D4
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node --test scripts/test_codex_host.js` runs the public start command in a temporary Git repository, records one role/thread/worktree/endpoint association, rejects a repeated role start before another host mutation, and status by role validates the recorded endpoint and cwd.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:460204e944a89dd2fb42cd4eec0a74d0a347caef1130b9a2b143c6ae412ebcec (keel 5.228.0)
+    - M1: pass: public CLI start records role/thread/worktree/endpoint; status succeeds by recorded identity, repeated start makes no second thread/start. node --test scripts/test_codex_host.js: 2 passed.
+    - M1.red: fail: start command rejected with Usage: keel codex status; expected exit 0, actual 1.
+    - M1.green: pass: 2 tests, 0 failures after managed identity implementation.
+    - Review:
+      - Status: pass
+      - Acceptance check: real CLI and isolated host verify one creation, durable identity association and repeated-start refusal; production checks role endpoint and worktree before inspection.
+      - Scope check: only codex-host.js and test_codex_host.js changed since task-start, both in Touch.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 2.2 Deliver addressed work once and hand over only after completion
+  - Covers:
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+    - D2
+    - D4
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: `node --test scripts/test_codex_host.js` delivers the same record twice through the CLI and asserts one turn/start; active work remains waiting and no successor starts; idle hand-over writes the note and one successor with prior session retained in the role history. Failed or uncertain delivery remains pending and cannot silently retry.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:0582e66914ff84d8b4938860e7034aaf641eef257e3a7cc5bb3bbc2bd473c063 (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js: 2 passed, covering public CLI duplicate delivery (one turn/start), active-role waiting (no successor), idle successor with note/history, uncertain delivery retained without another turn/start and foreign lock preservation.
+    - M1.red: fail before implementation: deliver rejected by CLI Usage, actual exit 1 versus expected 0.
+    - M1.green: pass after delivery and hand-over integration, two tests, zero failures.
+    - Review:
+      - Status: pass
+      - Acceptance check: actual CLI invokes only the expected host mutations, persists uncertain claims, preserves note/history and refuses duplicate starts. Active work is not replaced.
+      - Scope check: only codex-host.js and test_codex_host.js changed in this slice, within Touch.
+      - Findings: Resolved here: M1 — lock cleanup now removes only a lock successfully acquired by this invocation.
+    - Blocker: none
+    - Reauthorizations: none
+
+## 3. Native hooks and real acceptance (author after host lifecycle proof)
+
+- [x] 3.1 Verify startup, compaction and denial with trusted native hooks
+  - Mode: diagnose-only
+  - Covers:
+    - keel-codex-host-team / Codex hook claims require runtime evidence
+    - D3
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this probes the installed native hook interface and records evidence without product writes; there is no implementation to fail first.
+    - M1: inspect installed Codex runtime configuration and supported hook tools, and exercise only isolated hook definitions whose contents are known; record activation/trust limits and actual denial or unverified behavior. Do not change production hook trust, permissions or active user sessions.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:89fb483db0bf70c99380591db443430d33537e5a49083a390fbf3bd4501ebd03 (keel 5.228.0)
+    - M1: pass: Codex 0.164.0 isolated native invocation at /tmp/keel-hook-probe-ivano4ee ran SessionStart and blocked the only pwd tool call with KEEL_ISOLATED_DENIAL. Captured event identifies Bash with tool_input.command. Known inline scripts enabled for that invocation only; production trust unchanged. Compaction and shipped Keel guard enforcement remain unverified.
+    - Review:
+      - Status: pass
+      - Acceptance check: actual runtime events and blocked tool output distinguish native evidence from direct script tests; no enforcement promotion is inferred.
+      - Scope check: no product writes; only this task record and an isolated temporary fixture changed.
+      - Findings: Discard reason: no compaction enforcement claim is made because this isolated probe did not trigger compaction; native compaction remains manual. Hook patch and shell coverage will be implemented and verified in 3.2.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 3.2 Connect native guards and managed mailbox scheduling
+  - Covers:
+    - keel-codex-host-team / Codex hook claims require runtime evidence
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+    - D1
+    - D4
+  - Touch:
+    - plugins/keel/hooks/codex.json
+    - plugins/keel/scripts/pretooluse-guard.js
+    - src/core/codex-host.js
+    - src/core/tick.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` rejects native patch edits outside Touch (including move destinations), preserves allowed patches, routes shell push checks, drains only addressed waking records through the existing chat store, and leaves active or uncertain records without duplicate turns. Host tests cover reconnect ownership and transport frame boundaries.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:1dae68e56aa1e693593abda8c062264743f438cb052f45ce44885f5c8882e891 (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js, 3 tests passed. Public drain uses real mailbox records, skips no_wake and deduplicates repeated drains. Native patch denies forbidden paths and move destinations, permits allowed patch. WebSocket replies are fragmented and a 70KB delivery succeeds. Existing uncertain/busy/foreign-lock checks pass.
+    - M1.red: fail: native patch returned no denial (null.permissionDecision); after adding mailbox case, drain rejected with Usage and exit 1 before scheduling implementation.
+    - M1.green: pass: 3 tests, 0 failures after native tool and mailbox integration.
+    - Review:
+      - Status: pass
+      - Acceptance check: actual public CLI and existing store exercise addressed scheduling and idempotency; direct hook tests establish patch policy without claiming native activation. Native interface evidence remains separately recorded in 3.1.
+      - Scope check: changes confined to the five declared Touch paths; product transport formatting and framing remain in codex-host.js.
+      - Findings: Resolved here: M1 — native patches now check move destinations; managed roles cannot fall through to Claude tick wake; long and fragmented frames are supported.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 3.25 Complete the app-server initialization handshake
+  - Covers:
+    - keel-codex-host-team / A Codex host is inspected through its shared control endpoint
+    - D3
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` requires initialized notification after initialize and before any host operation, and exercises existing lifecycle, framing and native guard checks through the public CLI.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:233ea05b9e8609a4753a29f3cf1978ce5a311671d704fb5b1364cc23b7928210 (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js, 3 tests passed with initialized required before thread/read, thread/start and turn/start.
+    - M1.red: fail: required-handshake fixture disconnected the CLI before thread/read, actual exit 1 instead of expected 0.
+    - M1.green: pass: all 3 tests after sending initialized on every connection.
+    - Review:
+      - Status: pass
+      - Acceptance check: public CLI now follows the documented initialize then initialized handshake and retains all existing boundary behavior checks.
+      - Scope check: only codex-host.js and test_codex_host.js changed in this correction.
+      - Findings: Resolved here: M1 — earlier stand-in accepted an incomplete initialization, so this is a concrete integration correction rather than a second feature slice. Real turn completion remains required by 3.3.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 3.3 Run the two-role exercise and record host evidence
+  - Mode: diagnose-only
+  - Covers:
+    - keel-codex-host-team / Two managed roles prove the completed integration
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: live managed host acceptance measures real sessions rather than a deterministic implementation red-green loop.
+    - M1: in an isolated temporary Git repository with distinct role worktrees, start two managed Codex roles, send addressed mailbox work, drain through the public CLI, observe actual final results, repeat delivery without a second turn, and hand over an idle role with note and successor identity. Record real sessions and host limitations separately from stand-in evidence; leave existing desktop chats untouched.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:526dd11a0e54d2700ae61781886dc88d26ef95e97b5a18e46a70cdc7482977ff (keel 5.228.0)
+    - M1: pass: evidence/real-host.json records actual 0.167.2 sessions, addressed mailbox records and completed turns. Both roles returned explicit final markers; repeated drain returned already-delivered with original turn IDs. Successor 01a1e70a-3cb5-7bc0-ace5-0bd3eec36230 received the retained note and returned KEEL_REAL_HANDOVER_NOTE.
+    - Review:
+      - Status: pass
+      - Acceptance check: real model results and completed host turns prove two-role delivery, identity, deduplication and successor context; evidence separates these from stand-in tests and documents the stale system-daemon proxy.
+      - Scope check: no product files modified; isolated temporary repositories, explicit fixture endpoint and this change record only. Existing desktop sessions untouched; only our failed probes interrupted.
+      - Findings: Discard reason: restarting the existing system daemon to repair its old proxy environment is deliberately excluded because it can interrupt unrelated sessions. Acceptance used the identical 0.167.2 binary on an explicitly configured isolated endpoint with the current working network environment.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 3.4 Update capability reporting, documentation and release evidence
+  - Covers:
+    - keel-codex-host-team / Codex hook claims require runtime evidence
+    - keel-codex-host-team / Two managed roles prove the completed integration
+    - D1
+    - D3
+    - D4
+  - Touch:
+    - src/core/capabilities.js
+    - bin/keel.js
+    - scripts/test_codex_host.js
+    - scripts/validation/codexhost.py
+    - scripts/validation/registry.py
+    - README.md
+    - README.zh-CN.md
+    - docs/host-contract.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/codex-validation.md
+    - keel/CHANGELOG.md
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` asserts public CLI capability diagnostics and help name managed roles and explicit endpoint commands while native enforcement and compaction stay manual; lifecycle and guard behavior stay green.
+    - M2 (regression): `npm test` passes the complete baseline and registered scenarios, including the new public Codex host tests.
+    - M3 (regression): `keel openspec validate codex-host-team-support --strict` validates the completed change and its delta requirements.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7dddf8fb5228bf0d58dbdf080505eeadd6d895519b8f8587d16b21c1dc783716 (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js, 4 tests passed; public capabilities names managed roles and explicit endpoint requirements, guard and compaction remain manual, and root help lists codex commands.
+    - M1.red: fail: public capability test could not read host.managedRoles before diagnostics implementation.
+    - M1.green: pass: all 4 public CLI tests after capability/help integration.
+    - M2: pass: npm test exits 0; baseline plus 426 scenarios, 278 deterministic and 148 stand-in host. Full log /tmp/keel-codex-full-test-registered.log. Initial run rejected three untracked new package files; Git intent-to-add registration corrected the pack inventory, and the full rerun passed without changing package contents.
+    - M3: pass: keel openspec validate codex-host-team-support --strict reports valid, including all four delta capabilities.
+    - Review:
+      - Status: pass
+      - Acceptance check: CLI diagnostics preserve evidence limits; bilingual docs explain endpoint ownership, scheduling, uncertain claims and native limitations. Real-host evidence remains distinct from the registered stand-in suite.
+      - Scope check: documentation, capability/help and scenario registration changes are confined to Touch. Product files already dirty at task start were not modified beyond those declared here. Git intent-to-add registers approved new files but changes no product bytes.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## 4. Final lifecycle review
+
+- [x] 4.1 Close lifecycle validation and scheduler visibility gaps
+  - Covers:
+    - keel-codex-host-team / A Codex host is inspected through its shared control endpoint
+    - keel-codex-host-team / Managed roles have explicit session ownership
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+    - keel-touch-write-guard / Native Codex patches share the Touch evaluator
+    - keel-shift-change / Managed Codex hand-over uses explicit owned identity
+    - keel-stateless-continuity / Managed host bindings do not select continuity authority
+    - D1
+    - D4
+  - Touch:
+    - src/core/codex-host.js
+    - src/core/tick.js
+    - plugins/keel/scripts/pretooluse-guard.js
+    - docs/codex-validation.md
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` uses the measured native tool_input.command patch shape for allowed and forbidden edits, proves reserved or renamed roles are refused before host creation, public tick actually delivers addressed work and renders host failures, rejects missing host identity, ignores server notifications as RPC acknowledgements, and prior patch, hand-over and idempotency assertions remain green. Delivery reloads its durable registry after acquiring the operation lock before deciding whether to start work.
+    - M2 (regression): `npm test` preserves the full release baseline and all registered scenarios after the final lifecycle corrections.
+    - M3: repeat the isolated native Codex CLI policy probe using the reviewed repository hook for this invocation only; allowed patch succeeds, forbidden patch and unauthorized branch push are actually blocked, with no production trust change.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c9498e6fd545bbb9e10ac5dff4c16d16d8f9f926febc2314d073325e49455931 (keel 5.228.0)
+    - M1: pass: node --test scripts/test_codex_host.js, 5 tests passed. Reserved and renamed roles cause no thread/start; tick sends actual addressed records and renders pending-identity errors; repeated/concurrent records start one turn; command-shaped native patches preserve allowed and forbidden paths. Fragmented notifications cannot acknowledge RPCs and missing initialization identity fails by name. Durable registry is reloaded under the acquired lock.
+    - M1.red: fail: reserved role created a host thread before rejection; native allowed patch was denied as uninspectable; tick stdout omitted its managed-host error. New regression run reported 3 failed tests before corrections.
+    - M1.green: pass: all 5 tests after final corrections, including measured native event shape and real public tick delivery.
+    - M2: pass: npm test exits 0 after final product corrections: baseline plus 426 scenarios; 278 deterministic, 148 against a stand-in host. Full log /tmp/keel-codex-full-test-final.log. git diff --check and strict change validation also pass.
+    - M3: pass: actual CLI 0.164.0 session 01a1e719-5c7e-74a2-8f82-73afd84e28b1 created allowed.txt with accepted newline, blocked forbidden.txt with exact outside-Touch reason and blocked git push origin main under push:codex/*. evidence/native-policy.json records sanitized results. Current production trust unchanged.
+    - M3.red: fail: actual native session 01a1e713-da6c-7b61-8ba4-b7abcbd45a69 denied allowed.txt because tool_input.command was unrecognized; no file created.
+    - M3.green: pass: final native probe created allowed.txt and left forbidden.txt absent; both forbidden patch and push were blocked before execution.
+    - Review:
+      - Status: pass
+      - Acceptance check: measured native shape is now the fixture input and actual allowed/denied calls prove behavior, while public CLI tests cover ownership, mailbox scheduling, visible errors, framing and idempotency. Full regression preserves Claude behavior. Two-role model completion and successor context remain independently recorded in 3.3.
+      - Scope check: only codex-host.js, tick.js, the native guard script, test_codex_host.js and codex-validation.md changed, all in Touch; own evidence/design records use the record layer.
+      - Findings: Resolved here: M1 and M3 — actual native patch field supported, reserved names checked before mutation, delivery identity refreshed under lock, server notices excluded from RPC acknowledgements, and managed tick errors visible. Discard reason: current desktop plugin trust, automatic approvals and compaction enforcement are deliberately not promoted from isolated evidence. No code follow-up remains in this change. Existing dependency finding remains separately owned by https://github.com/TanglmChris/keel/issues/528.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 4.2 Commit the verified managed-team candidate
+  - Mode: repo-action
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: this records the already tested candidate in Git and introduces no product behavior.
+    - M1: `git log -1 --format=%s` names managed Codex teams and `git show --stat HEAD` contains the implementation, hooks, validation, docs and OpenSpec evidence.
+    - M2: `git diff --exit-code HEAD -- src/core/codex-host.js src/core/tick.js plugins/keel/scripts/pretooluse-guard.js scripts/test_codex_host.js` proves the tested product snapshot is committed.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:79fe1578e10d74f5da13ad0ab57f73d1281094dbd4d4227f5ab1c0638229493f (keel 5.228.0)
+    - M1: pending
+    - M2: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "Codex has no automated hand-over or wake" — docs/host-contract.md; becomes stale only after the corresponding behavior is proven. Updated by: 2.2, 3.4
+
+## Expectation Coverage
+
+- E1: Shared-host inspection is bounded and never resumes unrelated desktop work (D3, D4). Covered by: 1.1
+- E2: Managed role identity, addressed delivery and bounded hand-over (D1, D2, D4). Covered by: 2.1, 2.2
+- E3: Native capability claims and real two-role proof (D3). Covered by: 3.1, 3.2, 3.3, 3.4

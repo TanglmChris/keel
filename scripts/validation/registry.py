@@ -13,11 +13,13 @@ from validation import dsh
 from validation import skipspecs
 from validation import feedback
 from validation import sync
+from validation import codexhost
 
 
 
 
 SCENARIOS: tuple = (
+    ("codex-managed-host", codexhost.validate_codex_managed_host_scenario),
     ("stateless-continuity", shift.validate_stateless_continuity_scenario),
     ("context-per-worktree", shift.validate_context_per_worktree_scenario),
     ("read-only-role", shift.validate_read_only_role_scenario),

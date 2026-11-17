@@ -43,7 +43,10 @@ function readStdin() {
   }
 }
 
+let denied = false;
+
 function deny(reason) {
+  denied = true;
   process.stdout.write(
     `${JSON.stringify({
       hookSpecificOutput: {
@@ -762,8 +765,8 @@ function checkPushes(event) {
   return 0;
 }
 
-function main() {
-  const input = readStdin();
+function main(suppliedEvent = null) {
+  const input = suppliedEvent ? JSON.stringify(suppliedEvent) : readStdin();
   let event = {};
   try {
     event = JSON.parse(input || "{}");
@@ -779,6 +782,23 @@ function main() {
   if (!fs.existsSync(path.join(repo, "keel", "guard.json"))) {
     const handed = handOff(__filename, input, 8000);
     if (handed !== null) return handed;
+  }
+
+  if (event.tool_name === "apply_patch") {
+    const patch = typeof event.tool_input === "string" ? event.tool_input
+      : event.tool_input && (event.tool_input.command || event.tool_input.patch || event.tool_input.input);
+    const targets = typeof patch === "string"
+      ? [...patch.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm)].map(match => match[1].trim())
+      : [];
+    if (!targets.length && fs.existsSync(path.join(repo, "keel", "guard.json"))) {
+      deny("Keel write guard: native patch paths could not be inspected; file edits fail closed.");
+      return 0;
+    }
+    for (const file of targets) {
+      main({...event, tool_name: "Edit", tool_input: {file_path: file}});
+      if (denied) break;
+    }
+    return 0;
   }
 
   if (event.tool_name === "Bash") return checkPushes(event);

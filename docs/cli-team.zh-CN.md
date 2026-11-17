@@ -88,3 +88,20 @@ shift:
 `keel tick` 在所有会话之外运行，不需要任何会话权限。各会话自己通过 Bash 运行 `keel` 和 `git` 命令。交接启动的会话使用声明的 `permission_mode`，被恢复的会话沿用它启动时的模式。所以每个角色的第一个会话，请用你希望它一直保持的模式启动，并像对待无人值守的桌面会话那样，给它工作所需的 `permissions.allow` 条目。仅桌面端需要的条目（`mcp__ccd_session_mgmt__*`、`mcp__scheduled-tasks__*`），以及 `self-shift`、`shift-restore` 两项声明，在这里都不需要。
 
 巡检会将超过 24 小时仍只在本机的分支提交、游离 HEAD 和 stash 列为持续风险。它只读取本地引用，不把未提交文件算入此项；`--since-last --notify` 对不变的风险只通知一次。有范围的巡检覆盖对应角色，仓库巡检还覆盖没有 worktree 的分支和 stash。`keel --doctor` 显示设备标识、持有的分支锁、到期时间、上次续租时间，以及 tick 是否运行过或由 Claude 提示钩子续租。
+
+## Keel 托管的 Codex 角色
+
+每个角色使用独立 Git worktree。用正确的网络环境启动 `codex app-server --listen unix:///path/to/team.sock`，或使用现有托管守护进程。Keel 只连接指定主机，失败时不会另起服务：
+
+```bash
+keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --json
+keel codex status --repo /path/to/role-worktree --role worker --json
+keel codex drain --repo /path/to/repository --json
+keel codex handover --repo /path/to/role-worktree --role worker --note "已完成、待完成和授权边界" --json
+```
+
+未指定 `--socket` 时，start 使用 `$CODEX_HOME/app-server-control/app-server-control.sock`，通常位于 `~/.codex/`；后续调用使用记录中的端点。`keel tick` 按现有信箱的定向、停用和 no_wake 规则投递未读记录，调度仍由宿主负责。同一角色切换到托管模式前，应停止旧的 `keel chat wake` 监视器，保证只有一个投递者。
+
+显式投递用 `keel codex deliver --role worker --record <稳定编号> --text <内容>`，同时指定工作目录。相同编号只启动一个工作回合；结果不确定时保留 pending，不自动重试。忙碌时返回 waiting，等待下一次 drain/tick。需要批准的操作仍在原生 Codex 界面处理。不可达或 notLoaded 的角色会明确报错，不会被当作空闲或被替换；先在所选宿主中检查并恢复确实属于该角色的会话，再继续。创建或交接结果不确定时先核实宿主和保留的记录，不要删记录重试。
+
+交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。不自动接管现有桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。

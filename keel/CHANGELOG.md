@@ -2,6 +2,10 @@
 
 ## 5.229.0 - Work and hand-over across devices
 
+- Managed Codex teams: explicit WebSocket endpoint inspection, role/thread/worktree ownership, addressed mailbox delivery through drain/tick, durable deduplication and idle hand-over with retained context. Existing desktop chats are not adopted.
+- Codex hook source covers native patch paths and shell push policy. Runtime trust and compaction remain manual; actual two-role 0.167.2 acceptance is recorded separately from stand-in suite evidence.
+
+
 Issue #526 (2026-11-16): unpushed work, stale tracking refs and machine-local hand-over notes made switching between Linux, Mac and VPS leave finished work behind.
 
 - **`keel sync status [--verify] [--json]`** lists local-only branches, worktrees and stashes, shows locks, and prints the fix and its authorization. The offline view says when refs were fetched; verification compares the remote’s actual sha and never treats an unreachable remote as pushed.

@@ -88,3 +88,21 @@ On the CLI, `keel shift resume` asks for nothing to be restored: the new session
 The tick runs outside every session and needs no session permission. The sessions themselves run `keel` and `git` commands through Bash. A session started by a hand-off runs in the declared `permission_mode`, and a resumed session keeps the mode it was started with. So start each role's first session in the mode you want it to keep, and give it the `permissions.allow` entries its work needs, as you would for an unattended desktop session. The desktop-only entries (`mcp__ccd_session_mgmt__*`, `mcp__scheduled-tasks__*`) and the `self-shift` and `shift-restore` declarations are not needed.
 
 The patrol reports a branch or detached head with local-only commits older than 24 hours, and a stash older than 24 hours, as a standing risk. It uses local refs only, excludes uncommitted paths, and sends unchanged risks once under `--since-last --notify`. Scoped patrols report their covered roles; the repository patrol also covers branches without worktrees and stashes. `keel --doctor` shows the device id, held branch locks, expiry, last renewal, and whether the tick has run or the Claude prompt hook renews.
+
+## Managed Codex roles
+
+Create a distinct Git worktree per role. Start a Codex app-server with the intended network environment, or use the existing managed daemon. Keel connects to it and never starts a replacement automatically:
+
+```bash
+codex app-server --listen unix:///path/to/team.sock
+keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --json
+keel codex status --repo /path/to/role-worktree --role worker --json
+keel codex drain --repo /path/to/repository --json
+keel codex handover --repo /path/to/role-worktree --role worker --note "Completed work, remaining work, and authority" --json
+```
+
+With no `--socket`, start selects `$CODEX_HOME/app-server-control/app-server-control.sock` (normally `~/.codex/...`); later operations use the recorded endpoint. `keel tick` drains the same addressed unread records using the existing mailbox rules. Keel schedules nothing; the owner's scheduler must run tick. Stop an older `keel chat wake` watcher before using the managed adapter for the same role, to keep a single delivery owner.
+
+`deliver --role worker --record <stable-id> --text <text>` also accepts explicit work. The record id is an idempotency key: a repeated delivered id starts no second turn; uncertain results remain pending for inspection. Busy roles return waiting and require a later drain/tick. Read status to inspect approval waits; use the native Codex interface for approval decisions. An unavailable or notLoaded managed thread is reported and never replaced or treated as idle. Inspect/resume only the owned thread through the selected host before retrying. After an uncertain creation or hand-over, inspect the host and retained registry instead of deleting the record and trying again.
+
+Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. This adapter does not adopt existing desktop chats, alter hook trust, or report unproven guard/compaction enforcement. See `docs/codex-validation.md` for dated real-host evidence and limitations.
