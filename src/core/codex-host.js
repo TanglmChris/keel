@@ -131,7 +131,7 @@ async function run(args) {
     while (args.length) {
       const flag = args.shift();
       if (flag === "--json") options.json = true;
-      else if (["--socket", "--thread", "--timeout", "--role", "--repo", "--record", "--text", "--note"].includes(flag)) {
+      else if (["--socket", "--thread", "--timeout", "--role", "--repo", "--record", "--text", "--note", "--approvals-reviewer"].includes(flag)) {
         const value = args.shift();
         if (!value || value.startsWith("--")) throw Error(`${flag} needs a value`);
         options[flag.slice(2)] = value;
@@ -139,6 +139,9 @@ async function run(args) {
         if (flag === "--timeout") explicitTimeout = true;
       } else throw Error(`Unknown argument ${flag}`);
     }
+    const requestedReviewer = options["approvals-reviewer"];
+    if (requestedReviewer && !["user", "auto_review"].includes(requestedReviewer)) throw Error("approvals-reviewer must be user or auto_review");
+    if (requestedReviewer && action !== "start") throw Error("--approvals-reviewer is only accepted by start");
     const ms = Number(options.timeout);
     if (!Number.isInteger(ms) || ms < 50 || ms > 60000) throw Error("timeout must be 50–60000 milliseconds");
     const fs = require("node:fs");
@@ -180,31 +183,40 @@ async function run(args) {
       if (action === "handover" && !options.note) throw Error("handover needs --note");
     }
     client = await connect(options.socket, ms);
-    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}});
+    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}, ...(requestedReviewer || recorded?.approvalsReviewer ? {capabilities: {experimentalApi: true}} : {})});
     if (!host || typeof host.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
     client.notify("initialized");
     const result = {socket: options.socket, host};
-    async function initializeThread(thread) {
+    function verifyReviewerPolicy(reply, reviewer) {
+      if (!reviewer) return;
+      if (reply.approvalsReviewer !== reviewer) throw Error("Codex thread reviewer mismatch; original identity retained");
+      if (reply.approvalPolicy !== "on-request") throw Error("Codex thread approval policy mismatch; original identity retained");
+      if (reply.sandbox?.type !== "workspaceWrite") throw Error("Codex thread sandbox mismatch; original identity retained");
+    }
+    async function initializeThread(thread, reviewer) {
       // Native metadata writes materialize fresh persistent threads without a
       // model turn. Blank thread/start alone has no durable rollout yet.
       await client.call("thread/name/set", {threadId: thread.id, name: options.role});
+      if (reviewer) await client.call("thread/settings/update", {threadId: thread.id, approvalsReviewer: reviewer, approvalPolicy: "on-request"});
       const verified = (await client.call("thread/read", {threadId: thread.id, includeTurns: false})).thread;
       if (!verified || verified.id !== thread.id || verified.cwd !== where.worktree) {
         throw Error("initialized managed role identity mismatch");
       }
     }
     if (action === "start") {
+      const reviewerPolicy = requestedReviewer ? {approvalsReviewer: requestedReviewer} : {};
       fs.mkdirSync(path.dirname(file), {recursive: true});
       const fd = fs.openSync(file, "wx");
-      fs.writeFileSync(fd, JSON.stringify({state: "creation-pending", role: options.role, worktree: where.worktree, socket: options.socket}));
+      fs.writeFileSync(fd, JSON.stringify({state: "creation-pending", role: options.role, worktree: where.worktree, socket: options.socket, ...reviewerPolicy}));
       fs.closeSync(fd);
       reservation = file;
-      const started = await client.call("thread/start", {cwd: where.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"});
+      const started = await client.call("thread/start", {cwd: where.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel", ...reviewerPolicy});
       const thread = started.thread;
       if (!thread || !thread.id || thread.cwd !== where.worktree) throw Error("Codex created thread with unexpected identity");
-      store.writeJsonAtomic(where, file, {state: "creation-pending", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket});
-      await initializeThread(thread);
-      const entry = {state: "managed", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket};
+      store.writeJsonAtomic(where, file, {state: "creation-pending", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket, ...reviewerPolicy});
+      verifyReviewerPolicy(started, requestedReviewer);
+      await initializeThread(thread, requestedReviewer);
+      const entry = {state: "managed", role: options.role, thread: thread.id, worktree: where.worktree, socket: options.socket, ...reviewerPolicy};
       store.writeJsonAtomic(where, file, entry);
       store.setRole(where, options.role);
       Object.assign(result, entry);
@@ -221,12 +233,15 @@ async function run(args) {
         }
         Object.assign(result, {state: "already-delivered", turn: claims[key].turn});
       } else {
-        if (action === "deliver" && thread.status && thread.status.type === "notLoaded") {
+        if (action === "deliver" && thread.status && (thread.status.type === "notLoaded" || (recorded.approvalsReviewer && thread.status.type === "idle"))) {
           // Only this recorded owned identity may be loaded. Keep this same
           // connection alive through the subsequent turn/start and preserve
-          // the thread's saved permissions rather than overriding them.
-          thread = (await client.call("thread/resume", {threadId: recorded.thread, serviceName: "keel"}, explicitTimeout ? ms : Math.max(ms, 15000))).thread;
+          // saved sandbox/approval settings. An explicitly chosen reviewer
+          // belongs to the managed role and follows its later deliveries.
+          const resumed = await client.call("thread/resume", {threadId: recorded.thread, serviceName: "keel", ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
+          thread = resumed.thread;
           if (!owned(thread)) throw Error("resumed managed role identity mismatch");
+          if (thread.status?.type === "idle") verifyReviewerPolicy(resumed, recorded.approvalsReviewer);
         }
         if (!thread.status || !["idle", "active"].includes(thread.status.type)) {
           throw Error("managed role state is not verified idle or active; no work started");
@@ -237,7 +252,7 @@ async function run(args) {
           claims[key] = {record: options.record, state: "pending"};
           recorded.deliveries = claims;
           store.writeJsonAtomic(where, file, recorded);
-          const turn = (await client.call("turn/start", {threadId: recorded.thread, input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
+          const turn = (await client.call("turn/start", {threadId: recorded.thread, ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {}), input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
           if (!turn || !turn.id) throw Error("Codex returned no turn identity; claim retained");
           claims[key] = {record: options.record, state: "delivered", turn: turn.id};
           store.writeJsonAtomic(where, file, recorded);
@@ -246,11 +261,13 @@ async function run(args) {
           if (recorded.handover) throw Error("handover outcome unknown; no successor started");
           recorded.handover = {state: "pending", note: options.note};
           store.writeJsonAtomic(where, file, recorded);
-          const next = (await client.call("thread/start", {cwd: recorded.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"})).thread;
+          const successor = await client.call("thread/start", {cwd: recorded.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel", ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})});
+          const next = successor.thread;
           if (!next || !next.id || next.cwd !== recorded.worktree) throw Error("successor identity mismatch; handover retained");
           recorded.handover.thread = next.id;
           store.writeJsonAtomic(where, file, recorded);
-          await initializeThread(next);
+          verifyReviewerPolicy(successor, recorded.approvalsReviewer);
+          await initializeThread(next, recorded.approvalsReviewer);
           const history = [...(recorded.history || []), {thread: recorded.thread, note: options.note}];
           delete recorded.handover;
           Object.assign(recorded, {thread: next.id, history, note: options.note});

@@ -1,0 +1,11 @@
+{
+  "threadId": "01a1e965-4dbf-71e1-8f8a-ca8a96e4a314",
+  "endpoint": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "scope": "Foreign daemon observation of a private thread whose first real App turn completed",
+  "observedAt": "2026-11-17T12:27:54.248Z",
+  "host": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel541-owner-view-readonly; 1)",
+  "foreignThreadStatus": {
+    "type": "notLoaded"
+  },
+  "backgroundTerminalsError": "thread not found: 01a1e965-4dbf-71e1-8f8a-ca8a96e4a314"
+}

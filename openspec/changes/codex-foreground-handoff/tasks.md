@@ -113,7 +113,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.1 Add explicit persisted thread reviewer to public managed CLI
+- [x] 2.1 Add explicit persisted thread reviewer to public managed CLI
   - Covers:
     - D2
     - D6
@@ -127,22 +127,87 @@
     - M2 (regression): Run node --test scripts/test_codex_host.js; existing default role lifecycle, direct delivery, claims/unknown outcomes, locking, native persistence, scope enforcement and recovery remain green.
     - M3: On a private owned local native fixture, invoke the public CLI start with explicit auto_review, disconnect and cold-read/resume without an override, then verify the first actual App input retains auto_review/on-request/workspace-write and original cwd/id. Native start must use zero model turns; record actual versions and the real turn/policy evidence. Do not restart any App/daemon or touch production registrations for this check.
   - Evidence:
-    - Contract: pending
-    - M1: pending
-    - M1.red: pending
-    - M1.green: pending
-    - M2: pending
-    - M3: pending
-    - M3.red: pending
-    - M3.green: pending
+    - Contract: keel-task-capsule/v1 sha256:c852e0e2d6f6ce804b7748b3685b3c206877ff923b9a16523cb6637ba836ceb8 (keel 5.229.3)
+    - M1: Public CLI native-boundary cases pass for explicit user/auto_review start, cold delivery, successor persistence, invalid flags, policy mismatch, persistence failures and unknown creation. All 14 host tests passed. Evidence: evidence/reviewer-host-green.txt.
+    - M1.red: Vertical red cases captured before each fix: Unknown argument --approvals-reviewer; cold delivery used user instead of auto_review; successor saved user; mismatched native policy reported managed success; unknown creation omitted declared reviewer. Evidence: evidence/reviewer-red-1.txt through evidence/reviewer-red-5.txt.
+    - M1.green: Same public CLI tests passed after their respective changes; final complete host test run reports 14 pass, 0 fail. Evidence: evidence/reviewer-host-green.txt.
+    - M2: node --test scripts/test_codex_host.js passed all 14 tests, including the unchanged lifecycle, mailbox, locking, guard and recovery cases.
+    - M3: Source public CLI created owned reviewer-cli-long-budget on native 0.167.2 with explicit 30000ms budget. Cold resume without reviewer override returned auto_review/on-request/workspaceWrite with 0 model turns and same id/cwd; first real App turn completed PUBLIC_CLI_REVIEWER_FIRST_APP_OK retaining policy and cwd. Evidence: evidence/reviewer-cli-real.json.
+    - M3.red: Before implementation the same public CLI start flag exited 1 with Unknown argument --approvals-reviewer, no native start. Evidence: evidence/reviewer-native-red.txt.
+    - M3.green: Real thread 01a1e965-4dbf-71e1-8f8a-ca8a96e4a314, first App turn 01a1e969-3641-7733-bddc-8cdef8b83b3d completed with auto_review/on-request/workspace-write; zero turns before first App input. Evidence: evidence/reviewer-cli-real.json.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: Actual public CLI lifecycle/error cases and zero-turn native/cold/first-App behavior prove D2/D6. This is not shared-endpoint or whole-issue acceptance.
+      - Scope check: Product changes confined to src/core/codex-host.js, scripts/test_codex_host.js, docs/cli-team.md plus own change records. No default timeout, global reviewer, production role, Goal or daemon lifecycle changes. Memory locations checked and absent.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541#issuecomment-6947859791 — full npm regression exposed English/Chinese doc parity outside this task Touch; a separate follow-up slice will fix it before delivery. The first 5-second native creation remains unknown and retained without retry, evidence/reviewer-native-timeout.json; independent 30-second fixture passed. Shared-instance safe handoff and formal release remain outstanding.
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.2 Draft remaining shared-App acceptance, identity recovery and formal delivery
-  - Draft: author a complete capsule from measured native integration facts before selection. Do not execute this placeholder.
+- [x] 2.15 Synchronize reviewer documentation and restore full regression
+  - Covers:
+    - D7
+  - Touch:
+    - docs/cli-team.zh-CN.md
+  - Verify:
+    - Strategy: regression-first
+    - M1: Run node scripts/run_python.js scripts/validate_plugin.py --group docs --jobs 4, and review the translated flag, native reviewer semantics, zero-turn persistence, inherited policy and unknown-result handling against English. Fails with: `docs-zh-match-english`
+    - M2 (regression): Run npm test -- --jobs 4 with all existing scenarios and baseline; the dependent release-evidence-classes scenario and other validation stay green.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9b4e30bf7e8ec2ff46ab58bb3e6e7d3d1ff1b87b952270320377d009561b34af (keel 5.229.3)
+    - M1: Documentation group passed all 24 scenarios after reviewer option/semantics translation, including docs-zh-match-english. Manual semantic comparison confirms enum values, zero-model persistence, inherited reviewer, retained approval/sandbox and unknown-result handling match English.
+    - M1.red: Before translation, --group docs failed with docs-zh-match-english: cli-team.md has 8 code fences and cli-team.zh-CN.md has 6. Evidence: evidence/docs-parity-red.txt.
+    - M1.green: Same --group docs --jobs 4 passed 24 scenarios with docs-zh-match-english passing. Evidence: evidence/docs-parity-green.txt.
+    - M2: npm test -- --jobs 4 passed baseline plus all 426 scenarios, with 278 deterministic and 148 stand-in checks; no skips. release-evidence-classes and docs-zh-match-english passed. Evidence: evidence/full-regression-green.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Public docs validation and full regression restored; translated commands and operational semantics manually reviewed against English.
+      - Scope check: Only docs/cli-team.zh-CN.md changed as product content, alongside own records/evidence. Existing CLI source changes were the prior task baseline and not expanded here.
+      - Findings: Resolved here: M1 and M2 restore bilingual documentation and dependent validation.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.2 Diagnose current native safe-handoff admission and observation scope
+  - Mode: diagnose-only
+  - Covers:
+    - D8
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: installed native capability and execution-domain diagnosis must precede another global App experiment; no product behavior is changed.
+    - M1: Recheck expired helper state and actual App activity; inspect native request schemas and installed normal-Quit lifecycle source; compare owned App fixture status/terminal reads from the foreign daemon and selected runtime storage overrides. Record source versions, precise observations, limitations, failure exit and remaining original acceptance. Do not Quit/relaunch, arm a helper, change Goals, mutate production roles, interrupt tools or restart a daemon. A concrete missing-capability result completes diagnosis only, never shared-host acceptance.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f9e9d026a93e168f4c42db3a90365fc8a321d57f12830e48979e098221229ef8 (keel 5.229.3)
+    - M1: Rechecked inactive/dead helper, MainPID 0 and original negative terminal state; App snapshot has 7 active local chats. Corrected schema enum scan confirms 176/180 methods and no named maintenance operation. Installed normal-Quit source, bounded flush and actual selected storage overrides reviewed. Foreign private-fixture terminal query returns thread not found despite history visibility; no App drain inferred. Full facts, precise missing safe transaction, current Goal uncertainty and failure exit: evidence/safe-handoff-diagnosis.md, evidence/native-final-scope.json and evidence/current-app-activity.json.
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 provides installed-version source/protocol measurements and actual activity, clearly scopes foreign observations, and records a concrete capability gap without claiming integration or upstream impossibility.
+      - Scope check: Touch none respected; only own records/evidence changed. Product changes were the previous task baseline and remained untouched; no App action, new helper, Goal change, terminal interruption or production mutation.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — actual execution-domain safe admission/tool-drain transaction remains unproved; current activity prevents Quit. Original shared-instance, persistence, identity and formal release acceptance remain open; see evidence/safe-handoff-diagnosis.md.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.25 Commit implemented reviewer and portable handover evidence
+  - Mode: repo-action
+  - Covers:
+    - D9
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: explicitly authorized repository checkpoint; behavioral verification is recorded by completed tasks 2.1 and 2.15.
+    - M1: Validate strict OpenSpec, JSON evidence and diff; stage only src/core/codex-host.js, scripts/test_codex_host.js, docs/cli-team.md, docs/cli-team.zh-CN.md and this change's portable records. Commit and inspect the exact tree against the prior checkpoint. Include current task state, source test evidence and Mac instructions; retain unresolved shared-App acceptance and no release claim. Push separately after completing this repository action, using the owner's explicit instruction without force or hook bypass.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c767e85f0ce1edb5d692dfc3a674c5f3260eb1dbc81d3597943b9394772f6077 (keel 5.229.3)
+    - M1: Strict OpenSpec validation passed; all 31 JSON evidence files parse. Exact committed/staged scope against checkpoint 517416d5 is the four declared product paths plus this change, 26 files total. Existing task 2.1 proves 14 host tests and real CLI/cold/first-App persistence; 2.15 proves docs 24 and full baseline plus 426 scenarios with no skips. Initial cached diff check found whitespace-only lines in raw red logs; publication copies were trimmed and diff check rerun successfully, original outputs untouched. CONTINUE.md now names implemented source, source CLI entry, completed negative window, native gap, next authoring boundary and unreleased status.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual commit includes source, bilingual docs, concrete red/green and native evidence, current task anchors and portable Mac instructions. No shared-host acceptance or formal release is asserted.
+      - Scope check: Exact tree comparison against 517416d5 contains only src/core/codex-host.js, scripts/test_codex_host.js, docs/cli-team.md, docs/cli-team.zh-CN.md and own change records; no unrelated product, production registry, global config, #527 or #544 changes.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — current safe-handoff admission/tool-drain evidence and original shared-App/persistence/identity/release acceptance remain open. Mac may continue repository work now; this commit is a tested partial implementation checkpoint.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.3 Draft shared-App integration, original identity recovery and formal delivery
+  - Draft: author a complete capsule from measured safe-handoff/integration facts before selection. No global experiment is authorized by this placeholder.
   - Durable owner: https://github.com/TanglmChris/keel/issues/541

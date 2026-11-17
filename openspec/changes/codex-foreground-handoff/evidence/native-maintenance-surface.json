@@ -1,0 +1,71 @@
+{
+  "appPackage": {
+    "codexAppBrand": "chatgpt",
+    "codexBuildFlavor": "prod",
+    "version": "26.1023.51421"
+  },
+  "mainBundleSha256": "ad73b094efd3d5037bceb90b285cb20d6319c4043d3b7f52ee7fade6e3015c7a",
+  "normalQuitObservation": {
+    "source": "installed main-UOTY8NmV.js before-quit/will-quit handlers",
+    "checksCurrentConversationAutomationPendingWorktree": true,
+    "confirmationButtons": [
+      "Quit",
+      "Cancel"
+    ],
+    "waitThenDrainOptionInObservedHandler": false,
+    "markAppQuittingIncludesPresentationWindowStateAndDisposal": true,
+    "willQuitFlushes": [
+      "globalState",
+      "settings",
+      "micro",
+      "tracing",
+      "context disposal"
+    ],
+    "atomicGoalAdmissionFenceOrToolDrainReceiptProved": false
+  },
+  "clientSchemas": [
+    {
+      "label": "App stdio 0.165.0-alpha.1.2",
+      "count": 176,
+      "matchingMaintenanceNames": [],
+      "availableRelated": [
+        "thread/unsubscribe",
+        "thread/goal/set",
+        "thread/goal/get",
+        "thread/goal/clear",
+        "thread/queue/add",
+        "thread/queue/list",
+        "thread/queue/update",
+        "thread/queue/delete",
+        "thread/queue/reorder",
+        "thread/queue/start",
+        "thread/backgroundTerminals/clean",
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
+        "turn/interrupt"
+      ]
+    },
+    {
+      "label": "daemon 0.167.2",
+      "count": 180,
+      "matchingMaintenanceNames": [],
+      "availableRelated": [
+        "thread/unsubscribe",
+        "thread/goal/set",
+        "thread/goal/get",
+        "thread/goal/clear",
+        "thread/queue/add",
+        "thread/queue/list",
+        "thread/queue/update",
+        "thread/queue/delete",
+        "thread/queue/reorder",
+        "thread/queue/start",
+        "thread/backgroundTerminals/clean",
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
+        "turn/interrupt"
+      ]
+    }
+  ],
+  "limitation": "No supported maintenance transaction is declared by these generated request surfaces; static Quit observations are not a claim that all internal guards are absent. No active App Quit experiment was performed."
+}

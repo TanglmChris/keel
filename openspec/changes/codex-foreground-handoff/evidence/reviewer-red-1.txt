@@ -1,0 +1,30 @@
+✖ explicit thread reviewer persists before managed success without a model turn (54.642915ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 113.364567
+
+✖ failing tests:
+
+test at scripts/test_codex_host.js:155:1
+✖ explicit thread reviewer persists before managed success without a model turn (54.642915ms)
+  AssertionError [ERR_ASSERTION]: keel codex: Unknown argument --approvals-reviewer
+
+
+  1 !== 0
+
+      at TestContext.<anonymous> (/home/tlm/my-github/keel/scripts/test_codex_host.js:157:46)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

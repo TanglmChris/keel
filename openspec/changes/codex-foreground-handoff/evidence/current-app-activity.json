@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-11-17T12:48:19.393Z",
+  "source": "Codex App list_threads",
+  "localCount": 27,
+  "statusCounts": {
+    "idle": 9,
+    "active": 7,
+    "notLoaded": 11
+  },
+  "relevant": [
+    {
+      "id": "01a1e7aa-6663-7fa2-80e5-335cc92232fe",
+      "status": "active"
+    },
+    {
+      "id": "01a1e7aa-66ef-7c13-a990-f847c5759d42",
+      "status": "active"
+    },
+    {
+      "id": "01a1e7aa-5b7b-7541-bc35-7ec3f028009c",
+      "status": "active"
+    },
+    {
+      "id": "01a1e398-6e28-7003-9765-f6c714b2a5d4",
+      "status": "active"
+    }
+  ],
+  "limitation": "Activity snapshot only; not an admission fence or terminal-drain receipt; no user/Goal/tool mutation."
+}

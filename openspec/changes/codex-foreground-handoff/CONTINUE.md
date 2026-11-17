@@ -1,6 +1,6 @@
 # #541 portable checkpoint and Mac continuation
 
-This is an unfinished diagnostic checkpoint, not a release. #527 stays deferred.
+This is an implemented, tested partial-issue checkpoint, not a release. #527 stays deferred.
 #535 is closed; its separate implementation owner is #544.
 
 ## Repository state
@@ -8,24 +8,33 @@ This is an unfinished diagnostic checkpoint, not a release. #527 stays deferred.
 - Branch: `codex/fix-541-foreground-handoff`.
 - Product base: published Keel 5.229.3, base commit
   `20902321ea20896febca3fca320fd20a18288964`.
-- No Keel product source or production registration changed in this checkpoint.
+- Product changes: src/core/codex-host.js, scripts/test_codex_host.js and both
+  docs/cli-team language versions. No production registration changed.
 - Tasks 1.1 and 1.2 passed. Task 1.3 finished its bounded diagnostic attempt
   with a negative result: the window expired, App untouched. This is NOT a
   successful shared-host acceptance. Tasks 1.25/1.4 publish the checkpoints.
-  Next executable implementation slice is 2.1, explicit persisted reviewer.
+  Tasks 2.1 and 2.15 are implemented and passed: explicit persisted reviewer,
+  bilingual docs, 14 host tests, real public CLI/cold/first-App acceptance and
+  full baseline plus 426 scenarios (no skips). Task 2.2 completed the current
+  safe-handoff diagnosis; its negative capability result is not integration.
+  Task 2.25 publishes this source/evidence checkpoint. Task 2.3 is intentionally
+  a draft and must be authored before task-start; full #541 remains open.
 
 On Mac, first preserve any existing work, then fetch the branch normally:
 
 ```sh
 git fetch origin
 git switch codex/fix-541-foreground-handoff
-keel context --json
+node bin/keel.js context --json
 ```
 
 Do not force a checkout or reset an existing local branch. Check actual CLI and
 protocol versions rather than assuming the Mac matches this Linux host.
 Read tasks.md, design.md, evidence/diagnosis.md and the latest issue #541
-comments before selecting a next slice. The new agent can continue authoring,
+comments before selecting a next slice. Use this branch's `node bin/keel.js`
+for the new reviewer option; globally installed 5.229.3 does not contain it.
+No package version bump, release, global CLI or plugin install occurred here.
+The new agent can continue authoring,
 implementation and review from Git; Linux runtime acceptance is still a
 distinct dependency and must not be silently checked complete on Mac.
 
@@ -36,6 +45,12 @@ distinct dependency and must not be silently checked complete on Mac.
   queue/add does not deduplicate the same client UUID. Claims/history need care.
 - Native thread/settings/update persists explicit auto_review on a blank thread
   without a model warm-up. Cold resume and its first real App turn retained it.
+- The public managed CLI now exposes `start --approvals-reviewer user|auto_review`.
+  It preserves on-request/workspace-write, records declared reviewer before any
+  native creation, retains pending identity on unknown/failure, and carries the
+  explicit reviewer through cold delivery and handover. Default calls keep
+  existing behavior. Native fixture used an explicit 30000ms budget; one prior
+  5-second creation remains unknown and was neither deleted nor retried.
 - Same-id resume with cwd/runtimeWorkspaceRoots restored actual pwd execution
   on an owned fixture. Production attachment/three-role recovery is not proved.
 - Linux App 26.1023.51421 has a build-specific native websocket URL route;
@@ -74,8 +89,19 @@ installers. Their absolute Linux paths and native menu identity are intentional.
 
 ## Remaining #541 delivery
 
-1. Continue task 2.1 through `keel gate task-start --change codex-foreground-handoff --task 2.1 --record` and test-first. Its source/test/docs Touch and behavior checks are ready; no global App restart is needed.
-2. Draft task 2.2 from actual integration facts. The original window is over; coordinate a genuinely idle route without forcing Goals or weakening acceptance.
+1. Review completed 2.1/2.15 source/test evidence and 2.2 diagnosis. See
+   evidence/reviewer-cli-real.json, reviewer-host-green.txt,
+   full-regression-green.txt and safe-handoff-diagnosis.md.
+2. Author task 2.3 from current native execution-domain facts. The original
+   window is over. Current App work was active at the last check. A foreign
+   daemon's notLoaded/goal:null and thread-not-found terminal response do not
+   prove App tool drain. No externally verifiable admission/drain transaction
+   was established from the installed 176/180-method request schemas or normal
+   Quit source. This is a concrete evidence gap, not an upstream impossibility.
+   Historical 5ms Goal re-entry is not a permanent current-state assumption.
+   Do not force Goals or business work to stop. A genuinely quiet route or a
+   verified native protection point is needed before any newly identified,
+   bounded single-executor attempt under the existing human permission.
 3. Prove one execution instance through real App/background use, both busy
    directions, native persistence after App exit, original ids/history/claims,
    reviewer and actual worktree. Listing/start acceptance is insufficient.
@@ -98,4 +124,11 @@ Unrelated local chat identities and account notifications were removed from
 published evidence copies. Timings, activity counts and relevant fixture/core
 identities remain; original runtime evidence on Linux was not modified.
 
-The independently corroborated terminal window result is recorded at issuecomment-6946769610. Task 2.2 is a draft, not permission to run another global experiment.
+The independently corroborated terminal window result is recorded at issuecomment-6946769610.
+Current safe-handoff coordination evidence is published under kaiwu-ip #555,
+commit cf6759ce9c5627a956a1af7bdbac8f9bb499bf0a. No new executor is waiting.
+Task 2.3 is a draft, not permission to run another global experiment. Mac
+takeover can proceed on the repository work now; remeasure Mac native versions
+and capabilities rather than copying Linux PIDs, sockets or menu identities.
+
+Published red-test text copies trim trailing whitespace only; original test outputs in /tmp were not modified.

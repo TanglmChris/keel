@@ -1,0 +1,59 @@
+{
+  "cliStart": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "managed",
+    "role": "reviewer-cli-long-budget",
+    "thread": "01a1e965-4dbf-71e1-8f8a-ca8a96e4a314",
+    "worktree": "/tmp/keel541-reviewer-cli-long-AEI0JM",
+    "approvalsReviewer": "auto_review"
+  },
+  "coldResume": {
+    "id": "01a1e965-4dbf-71e1-8f8a-ca8a96e4a314",
+    "cwd": "/tmp/keel541-reviewer-cli-long-AEI0JM",
+    "reviewer": "auto_review",
+    "approval": "on-request",
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": false,
+      "excludeSlashTmp": false
+    },
+    "turns": 0
+  },
+  "turnsBeforeFirstApp": 0,
+  "turns": [
+    {
+      "id": "01a1e969-3641-7733-bddc-8cdef8b83b3d",
+      "status": "completed",
+      "startedAt": 1794917348,
+      "completedAt": 1794917357,
+      "finals": [
+        "PUBLIC_CLI_REVIEWER_FIRST_APP_OK"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "turn": "01a1e969-3641-7733-bddc-8cdef8b83b3d",
+      "cwd": "/tmp/keel541-reviewer-cli-long-AEI0JM",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/home/tlm/.codex/visualizations/2026/11/17/01a1e965-4dbf-71e1-8f8a-ca8a96e4a314"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  ]
+}

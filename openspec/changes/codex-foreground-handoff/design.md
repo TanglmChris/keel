@@ -102,3 +102,31 @@ migration or production repair. Invalid values and unrelated-action use of the
 start flag fail before stateful RPCs. Basis: issue 541's explicit thread-level
 reviewer requirement, D2 and measured zero-turn persistence F7. This slice does not
 need a global App restart and does not resolve the remaining shared-host goals.
+
+D7 — Keep docs/cli-team.zh-CN.md aligned with the accepted explicit reviewer
+interface and error/recovery semantics in docs/cli-team.md. Full regression
+reported docs-zh-match-english (8 vs 6 code fences), also failing the dependent
+release-evidence-classes scenario. This is a necessary bilingual documentation
+repair within the owner's complete issue-541 delivery instruction, not a new
+product or permission choice. Preserve all runtime/authorization semantics.
+
+
+D8 — Continue the existing native handoff diagnosis against the actual App
+execution domain before another global experiment. Inspect installed request
+surfaces, normal-Quit source, original window terminal evidence and current
+App activity; distinguish foreign-daemon read results from actual App tool
+terminal state. Record a precise measured capability gap and failure exit if
+safe admission/drain cannot be proved. This diagnostic slice does not authorize
+Quit/relaunch, Goal changes, production repair, a new executor or a reset window.
+Historical Goal re-entry is historical; current Goal state must be reverified.
+Basis: original D1/D4 acceptance, owner instruction to continue #541, and the
+specific coordination evidence published by kaiwu-ip #555.
+
+D9 — The owner's current request explicitly includes committing/pushing local
+work, evidence and task state for Mac takeover. Publish the completed D6/D7
+source/tests/bilingual docs plus this change's evidence and continuation state
+on the existing codex branch, under a repo-action task. Verify exact staged
+scope and remote commit, preserve the default branch, avoid force push, and
+claim neither formal release nor complete #541 acceptance. This authorization
+extends the prior evidence-only checkpoint D5 to the implemented source slice;
+#527 remains deferred and #544 implementation stays separate.

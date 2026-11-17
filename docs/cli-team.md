@@ -105,6 +105,29 @@ With no `--socket`, start selects `$CODEX_HOME/app-server-control/app-server-con
 
 Successful `start` and hand-over successors receive the native thread name matching their role before Keel reports the new identity as managed. This native metadata write persists a blank thread without an implicit model turn, so its first delivery may arrive after the creating connection closes and the host unloads it. The created id is retained in pending initialization evidence if naming or identity validation fails. A pre-existing lost blank id with no rollout cannot be resumed; Keel preserves its registry and reports the error rather than silently replacing it.
 
+Choose a thread-level reviewer explicitly at creation when needed:
+
+```bash
+keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --approvals-reviewer auto_review --timeout 30000 --json
+```
+
+`--approvals-reviewer user|auto_review` belongs to `start`. `user` routes approval
+requests to the human; `auto_review` uses the native automatic reviewer. Both
+retain `on-request` and `workspace-write`. The explicit choice is stored with the
+owned role and carried into cold delivery and hand-over successors. Native
+`thread/settings/update` persists it before a new identity is reported managed,
+including a blank thread with zero model turns. Calls without the flag retain
+their existing behavior. This option requires a host supporting the native
+reviewer and settings APIs; it uses experimental API negotiation for roles with
+an explicit choice.
+
+A mismatched native reviewer, approval policy or sandbox fails before work
+starts. Persistence failures retain the pending original/successor id for
+inspection, and a timed-out creation remains unknown instead of being retried.
+An explicit timeout controls each RPC budget; the example allows 30 seconds for
+cold native setup. Inspect the retained record and host after a failure before
+deciding the next action.
+
 `deliver --role worker --record <stable-id> --text <text>` also accepts explicit work. The record id is an idempotency key: a repeated delivered id starts no second turn; uncertain results remain pending for inspection. Busy roles return waiting and require a later drain/tick. Read status to inspect approval waits; use the native Codex interface for approval decisions. An unavailable host is reported without replacement. For a new record, an identity-verified owned notLoaded thread is resumed as the same thread and rechecked before work starts; active work still waits. Already-delivered claims return without loading it, and unknown claims refuse without replay. Cold resume has a 15-second default budget; an explicit `--timeout` remains authoritative, and the stock drain gives its child 40 seconds for the bounded RPC sequence. Existing desktop chats and hand-over do not gain automatic recovery. After an uncertain creation or hand-over, inspect the host and retained registry instead of deleting the record and trying again.
 
 Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. This adapter does not adopt existing desktop chats, alter hook trust, or report unproven guard/compaction enforcement. See `docs/codex-validation.md` for dated real-host evidence and limitations.

@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-11-17T12:48:49.712Z",
+  "scope": "Read-only foreign daemon observation of an owned private fixture; not App execution-domain verification",
+  "host": {
+    "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel541-final-scope; 1)",
+    "codexHome": "/home/tlm/.codex",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  },
+  "fixtureId": "01a1e965-4dbf-71e1-8f8a-ca8a96e4a314",
+  "status": {
+    "type": "notLoaded"
+  },
+  "goal": {
+    "goal": null
+  },
+  "terminalsError": "thread not found: 01a1e965-4dbf-71e1-8f8a-ca8a96e4a314",
+  "schemas": [
+    {
+      "label": "app",
+      "count": 176,
+      "maintenanceNames": [],
+      "sha256": "74752dc1fbc9046c3dde0707bfaa915e7bd1213266b3be49270caae3791b9e4b"
+    },
+    {
+      "label": "daemon",
+      "count": 180,
+      "maintenanceNames": [],
+      "sha256": "2d629aaaceea335d7e58ab19ce5908c8dd75ca3f3a6161a5f015bf59aadd3295"
+    }
+  ],
+  "mainBundleSha256": "ad73b094efd3d5037bceb90b285cb20d6319c4043d3b7f52ee7fade6e3015c7a",
+  "schemaProbeCorrection": "Initial parser looked for const only and returned 0 methods. Corrected to native singleton enum method declarations before using the result."
+}
