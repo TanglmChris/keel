@@ -1,0 +1,186 @@
+# Tasks
+
+- [x] 1.1 Commit the authorized rollout plan
+  - Mode: repo-action
+  - Covers:
+    - D1
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: `git show --stat HEAD` records the rollout proposal, design, delta spec and task contract without product source changes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a27789ebb1866ca638e8317b6f54fb64d0152b7010c68ec89576dcdf5d4f90e1 (keel 5.228.0)
+    - M1: pass: commit 83663159 contains the five rollout planning artifacts; no product source changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: Explicit owner rollout authorization is recorded with observable checks and delayed notification.
+      - Scope check: Git repository state and own task record only; Touch none.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.15 Make the release stash fixture portable across Git versions
+  - Covers:
+    - D2
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - scripts/validation/sync.py
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/run_python.js scripts/validate_plugin.py --scenario shift-check-stash-and-notes` uses a valid Git-generated stash with a custom message; `git stash show` accepts it, current-branch stash remains blocking and custom/other-branch stashes remain notes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:be322bf5dd5c03987334538225c8bdffba681a3c665174bd7d83ff3b7688bbce (keel 5.228.0)
+    - M1: pass: shift-check-stash-and-notes scenario passes on local Git 2.34.1; git stash show accepts the custom Git-generated stash and branch blocking/note assertions remain green.
+    - M1.red: fail: git stash show --stat rejected the previous ordinary commit with exit 128; CI Git stash store also rejected it with exit 128.
+    - M1.green: pass: the exact scenario exits 0 after creating a genuine stash object.
+    - Review:
+      - Status: pass
+      - Acceptance check: The fixture now uses git stash create rather than an ordinary parentless commit; observed shift semantics are unchanged.
+      - Scope check: Only scripts/validation/sync.py and own task records changed.
+      - Findings: Resolved here: M1 — modern Git rejects the previous non-stash object; the public stash precondition now verifies portability.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.16 Commit the portable release fixture
+  - Mode: repo-action
+  - Covers:
+    - D2
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: commits the targeted tested fixture correction without introducing further behavior.
+    - M1: `git show --stat HEAD` names the portable stash fixture repair and includes only scripts/validation/sync.py plus rollout records; the tested fixture bytes match HEAD.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:056f9db23870cc27859a84636027895edb06f899e12986b443ab8cb1df71a1f8 (keel 5.228.0)
+    - M1: pass: b5b766b2 records the valid custom stash fixture and rollout records; git diff HEAD for scripts/validation/sync.py is empty.
+    - Review:
+      - Status: pass
+      - Acceptance check: The tested fixture correction is committed for exact-head CI.
+      - Scope check: Git index/commit state and own record only; product source unchanged.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.1 Repair and verify the default daemon environment
+  - Mode: implementation
+  - Covers:
+    - D3
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - docs/codex-validation.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: Recheck no unrelated loaded active turns, restart the daemon without the stale proxy, inspect its inherited proxy settings without exposing credentials, and observe an actual completed reply marker through the default Unix endpoint. Update dated host evidence, not historical measurements.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:97082268126057e81c34f17c51e323b38be46009745104f57cd217cb1501495b (keel 5.228.0)
+    - M1: pass: default daemon had no loaded threads; restarted as PID 1933800 with all six proxy variables absent. Actual default-endpoint turn 01a1e73f-0613-7803-a123-abf0f494f40e completed with KEEL_DEFAULT_HOST_OK; owned probe archived. Sanitized evidence/default-host.json and dated docs record it.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual model completion through the intended default endpoint proves the stale proxy is repaired, independently from earlier isolated-service acceptance.
+      - Scope check: External idle-service lifecycle was explicitly authorized; product writes confined to two Touch docs and own evidence. Existing desktop chats untouched.
+      - Findings: Resolved here: M1 — inherited stale proxy cleared and real default model reply verified. Discard reason: native hook trust and compaction are intentionally not promoted by a network repair.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Publish the verified candidate through repository automation
+  - Mode: implementation
+  - Covers:
+    - D2
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: The exact-head Full gate passes, repository automation lands the PR, GitHub v5.229.0 exists and npm serves @christang/keel@5.229.0. Do not merge with the agent.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:30071f3c3ce163a27e9c1e636974a7c37808e2a727b05e45095679522e9ae657 (keel 5.228.0)
+    - M1: pass: exact-head Full gate runs 43998414339 and 43998420818 succeeded; repository automation merged PR #529 as 2c0e2897. Publish run 43999435929 succeeded, GitHub v5.229.0 exists, npm view exact version returns 5.229.0.
+    - Review:
+      - Status: pass
+      - Acceptance check: Release and registry availability are independently verified; no agent merge was performed.
+      - Scope check: Only authorized Git push and repository workflow effects plus own records; no product code changed in this step.
+      - Findings: Resolved here: M1 — initial CI stash fixture failure was corrected under tasks 1.15/1.16 and the final exact head passed both gates.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.1 Update local CLI and installed native plugins
+  - Mode: implementation
+  - Covers:
+    - D1
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: `keel --version` is 5.229.0; installed Claude and Codex plugin manifests are 5.229.0 or a missing component is explicitly reported; preserve native trust and record restart/review requirements.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:62891027375c7fc7a82e83759fb9ffa6e2c4e0234f1a6329f0a3563501322533 (keel 5.228.0)
+    - M1: pass: keel --version is 5.229.0; enabled installed Claude and Codex Keel plugin manifests both report 5.229.0. Codex matcher includes native apply_patch and Bash. Global installed CLI completed default-host turn 01a1e742-d77e-7fb2-b12c-28138229465f with KEEL_DEFAULT_HOST_OK; evidence/installed-components.json and installed-cli-default-host.json record it.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual installed manifests and a completed global-CLI model turn verify version agreement and working deployment, independently of updater exit status.
+      - Scope check: External installations explicitly authorized; product writes only in docs/codex-validation.md and own evidence. Native trust records were not forged and unrelated sessions were not adopted.
+      - Findings: Discard reason: native review of changed hooks and host snapshot reload remain the normal trust/activation boundary, not an automatic grant made by package installation.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.1 Notify kaiwu-ip after the completed rollout
+  - Mode: implementation
+  - Covers:
+    - D4
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: All preceding task evidence passes; identify the existing kaiwu-ip owner and send one versioned update notice with release link, CLI/plugin update command and actual host verification. Record destination and delivered notice identity.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:fd6b31428a7f1bd377f648dcec30234397bc34a0965c0947411a59de8e90eaad (keel 5.229.0)
+    - M1: pass: all release, installed-version and default-host checks passed first. send_message_to_thread succeeded for existing kaiwu-ip thread 01a1e397-a4e0-7122-8e24-382210d406af on local host, carrying v5.229.0 release URL, component versions, default-host proof and safe project-refresh instructions.
+    - Review:
+      - Status: pass
+      - Acceptance check: A single acknowledged notification was sent to the existing downstream owner only after successful runtime rollout; recipient completion is not claimed.
+      - Scope check: Only the explicitly authorized cross-chat notification and own task record; no kaiwu-ip files changed by this task.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.2 Commit the verified rollout evidence
+  - Mode: repo-action
+  - Covers:
+    - D1
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: record already verified release/installation/host/notification outcomes in Git without product behavior changes.
+    - M1: `git show --stat HEAD` includes dated host documentation and completed rollout evidence; tested product source remains identical to published v5.229.0.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c64a6fb5ff89940ecd08511bddfe5cef3c3376ce4c69bb182c2032c8f89c7d5f (keel 5.229.0)
+    - M1: pass: commit 7ad8efad records dated host documentation, installed component evidence and completed rollout/notification records; git diff v5.229.0 for host/tick/guard/sync fixture source is empty.
+    - Review:
+      - Status: pass
+      - Acceptance check: The deployed product equals the published candidate and all operational outcomes are durably committed.
+      - Scope check: Repo-action changes only Git state and own records; no product implementation changed.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "system daemon inherited an old localhost proxy" — docs/host-contract.md and docs/codex-validation.md describe the prior measurement; append the corrected current-host evidence. Updated by: 3.1
+
+## Expectation Coverage
+
+- E1: Published and installed release agreement (D1, D2). Covered by: 1.1, 1.2, 2.1
+- E2: Healthy default host with native trust preserved (D3). Covered by: 3.1
+- E3: Downstream notification happens last (D4). Covered by: 4.1
