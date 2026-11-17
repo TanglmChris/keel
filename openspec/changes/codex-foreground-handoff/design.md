@@ -130,3 +130,16 @@ scope and remote commit, preserve the default branch, avoid force push, and
 claim neither formal release nor complete #541 acceptance. This authorization
 extends the prior evidence-only checkpoint D5 to the implemented source slice;
 #527 remains deferred and #544 implementation stays separate.
+
+
+D10 — Turn the safe-handoff findings into a reviewable operational route under
+existing D4 authority before any new executor. Separate a naturally quiet actual
+App (no authority change) from approving normal Quit with explicitly handed-off
+coordination turns still active (requires owner decision and named scope), and
+from the conditional case requiring a new native execution-domain admission/drain
+facility. Evaluate normal Quit/Cancel source semantics and current actual App
+turn/tool provenance without equating foreign backend state to App state. A plan
+may identify an authorization delta but never grants it, halts IECC work, changes
+Goals/configuration, interrupts tools or starts an experiment. The original owner
+request to continue #541 authorizes this planning; chief's message is coordination,
+not new human authorization. Existing D9 commit/push covers its portable record.

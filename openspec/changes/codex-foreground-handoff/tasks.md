@@ -208,6 +208,49 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.3 Draft shared-App integration, original identity recovery and formal delivery
-  - Draft: author a complete capsule from measured safe-handoff/integration facts before selection. No global experiment is authorized by this placeholder.
+- [x] 2.3 Prepare an executable route or precise owner decision for safe shared-host switching
+  - Mode: plan-first
+  - Covers:
+    - D10
+  - Touch:
+    - openspec/changes/codex-foreground-handoff/evidence/shared-switch-route.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: operational plan and permission-boundary review using actual installed lifecycle/turn evidence, not product implementation or a live Quit experiment.
+    - M1: Inspect installed normal Quit/Cancel code, explicit bypass sources and current original core App rollout turn/tool provenance. Produce an ordered route with actual execution-domain evidence prerequisites, preservation, sole executor and bounded attempt, conditional authorization delta, native capability owner and failure/rollback exits. Distinguish natural quiet from proposed scope relaxation and from genuinely missing native capability. Validate OpenSpec and review source-backed claims; do not execute Quit, launch a helper, change Goals, interrupt work or mutate global/production state.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c2fb6107e98a96c041909428ca7053e355dbfeadf4a6cdc475b4eb30cd3fd2c6 (keel 5.229.3)
+    - M1: Source-backed normal Quit/Cancel and bypass semantics reviewed on App 26.1023.51421 / stdio 0.165.0-alpha.1.2; current confirmation-disable env override absent. Actual original core rollout provenance/terminal and dated get_goal output recorded in evidence/current-core-turns.json. evidence/shared-switch-route.md specifies natural all-idle Route A under existing authority, narrowly named maintenance/chief coordination-turn Route B requiring explicit new owner approval, conditional native-capability Route C with product owner, sole executor/preflight/claims/persistence/rollback and no blind window restart. Strict OpenSpec and diff check passed.
+    - Review:
+      - Status: pass
+      - Acceptance check: The operational plan separates natural quiet from changed interruption authority and from native capability gaps, names actual conditions/versions and failure exits, and does not infer App idle from a foreign daemon or declare historical Goal behavior permanent.
+      - Scope check: Only the declared operational route and own change evidence/state changed. No App/Goal/tool/daemon/global/production operation or helper activation occurred.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — Route A lacks current whole-App readiness receipts; Route B is unapproved and cannot terminate IECC or other work; Route C is conditional, not an existing API. Actual integration and release remain open.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.35 Publish operational route and current task state
+  - Mode: repo-action
+  - Covers:
+    - D9
+    - D10
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: owner-authorized portable evidence/task-state commit.
+    - M1: Validate current OpenSpec/JSON and diff, commit only this change's operational route and state against 7553704a, inspect the exact committed tree and retain explicit pending integration/release ownership. Push separately after gate completion under the existing owner instruction.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:2b9910c7128df3bf0eab01224f3804a2a8d5f5c64128e4213b131672a1a82740 (keel 5.229.3)
+    - M1: Strict OpenSpec validation, all 32 JSON parses and staged diff check passed. Committed tree against 7553704a contains exactly five paths within this change: design/tasks/CONTINUE, shared-switch-route.md and current-core-turns.json. Product source and production/system state unchanged; actual native integration/release remains explicitly pending in 2.4 and issue 541.
+    - Review:
+      - Status: pass
+      - Acceptance check: The actual commit preserves all three conditional routes, exact unapproved interruption scope, provenance, task anchors and Mac entry; no new window or formal acceptance is claimed.
+      - Scope check: git show confirms all five changed paths belong to this change; no product, registry, App/global configuration or #527 changes.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — Route A readiness remains to be obtained naturally; Route B needs an explicit owner decision if needed; Route C is conditional native work. Shared-host acceptance and release remain open.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.4 Perform actual shared-host integration and formal delivery
+  - Draft: select only after a current operational route meets its safety prerequisites or an exact owner decision authorizes its documented delta; author concrete Touch/Verify and a bounded unique attempt first.
   - Durable owner: https://github.com/TanglmChris/keel/issues/541

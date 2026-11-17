@@ -17,8 +17,10 @@ This is an implemented, tested partial-issue checkpoint, not a release. #527 sta
   bilingual docs, 14 host tests, real public CLI/cold/first-App acceptance and
   full baseline plus 426 scenarios (no skips). Task 2.2 completed the current
   safe-handoff diagnosis; its negative capability result is not integration.
-  Task 2.25 publishes this source/evidence checkpoint. Task 2.3 is intentionally
-  a draft and must be authored before task-start; full #541 remains open.
+  Task 2.25 publishes this source/evidence checkpoint. Task 2.3 completed a source-backed operational route: natural quiet under
+  existing permission, narrowly named conditional owner decision, or conditional
+  native capability work. Task 2.35 publishes it. Task 2.4 is a draft and must
+  be authored before task-start; full #541 remains open.
 
 On Mac, first preserve any existing work, then fetch the branch normally:
 
@@ -92,7 +94,8 @@ installers. Their absolute Linux paths and native menu identity are intentional.
 1. Review completed 2.1/2.15 source/test evidence and 2.2 diagnosis. See
    evidence/reviewer-cli-real.json, reviewer-host-green.txt,
    full-regression-green.txt and safe-handoff-diagnosis.md.
-2. Author task 2.3 from current native execution-domain facts. The original
+2. Read evidence/shared-switch-route.md and current-core-turns.json, then author
+   task 2.4 from current native execution-domain facts. The original
    window is over. Current App work was active at the last check. A foreign
    daemon's notLoaded/goal:null and thread-not-found terminal response do not
    prove App tool drain. No externally verifiable admission/drain transaction
@@ -127,8 +130,18 @@ identities remain; original runtime evidence on Linux was not modified.
 The independently corroborated terminal window result is recorded at issuecomment-6946769610.
 Current safe-handoff coordination evidence is published under kaiwu-ip #555,
 commit cf6759ce9c5627a956a1af7bdbac8f9bb499bf0a. No new executor is waiting.
-Task 2.3 is a draft, not permission to run another global experiment. Mac
+Task 2.4 is a draft, not permission to run another global experiment. Mac
 takeover can proceed on the repository work now; remeasure Mac native versions
 and capabilities rather than copying Linux PIDs, sockets or menu identities.
 
 Published red-test text copies trim trailing whitespace only; original test outputs in /tmp were not modified.
+
+The actionable operational route is evidence/shared-switch-route.md. Route A
+needs no new permission if actual all-local-App idle/tool preservation prerequisites
+naturally hold. Route B would allow only the named maintenance/chief model-only
+coordination turns to end via normal Quit and is explicitly NOT yet approved;
+it excludes active tools, Goals, IECC/business and all other chats. Chief may
+present that exact delta to the owner if it becomes necessary; maintenance does
+not execute it by inference. Route C names the conditional native admission/drain
+facility and its product owner, without inventing an API or declaring Route A
+impossible. No helper was armed for any of these routes.
