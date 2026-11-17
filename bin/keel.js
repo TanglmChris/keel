@@ -107,7 +107,7 @@ Usage:
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
   keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
-  keel codex status|start|deliver|handover|drain [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
+  keel codex status|start|deliver|handover|drain|recover [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
   keel tick [--repo <path>] [--json]                   (one model-free step for a host scheduler; keel tick task prints the job)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update]
