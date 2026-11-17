@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.229.3 - Keep installed OpenSpec on the tested release
+
+- Fix #534: pin the already-tested OpenSpec 1.14.0 explicitly in the package manifest and root lock metadata. npm 11 local-tarball installs no longer float to 1.17.0 while registry installs use 1.14.0; all resolved dependency entries, including patched Zod, remain unchanged.
+- Full-gate CI now packs and installs the candidate into clean and upgrade prefixes, exercising the actual installed CLI version and strict validation. Real npm 11.19.0 acceptance passes all 37 published specs through both paths.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.229.3; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.229.2 - Persist blank Codex roles before first delivery
 
 - Fix #537: native role naming materializes newly created managed threads before start or successor hand-over succeeds, preserving the same id across connection closure and delayed first use. Initialization failures retain the created identity and pending outcome; missing old rollouts are never silently replaced.

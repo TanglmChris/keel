@@ -1,0 +1,6 @@
+installed-openspec: node v24.20.0; npm 11.19.0; expected 1.14.0
+{"case":"clean-tarball","version":"1.17.0","expected":"1.14.0","strictExit":1,"totals":["Totals: 10 passed, 27 failed (37 items)"]}
+installed-openspec: installed OpenSpec 1.17.0 differs from locked 1.14.0
+
+'1.17.0' !== '1.14.0'
+

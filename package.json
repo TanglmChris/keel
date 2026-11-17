@@ -2,7 +2,7 @@
   "name": "@christang/keel",
   "displayName": "Keel",
   "description": "Keel OpenSpec execution discipline CLI for Claude Code, Codex, and OpenCode.",
-  "version": "5.229.2",
+  "version": "5.229.3",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,7 +28,7 @@
     "test": "node scripts/run_python.js scripts/validate_plugin.py --all"
   },
   "dependencies": {
-    "@fission-ai/openspec": "^1.4.1"
+    "@fission-ai/openspec": "1.14.0"
   },
   "engines": {
     "node": ">=20.19.0"

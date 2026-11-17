@@ -1,0 +1,231 @@
+{
+  "node": "v24.20.0",
+  "npm": "11.19.0",
+  "commands": [
+    {
+      "args": [
+        "npm",
+        "pack",
+        "@christang/keel@5.229.1",
+        "--pack-destination",
+        "<temporary-prefix-root>",
+        "--json"
+      ],
+      "exit": 0,
+      "out": "e/chat/rename.js\",\n        \"size\": 8440,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/slack.js\",\n        \"size\": 4078,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/store.js\",\n        \"size\": 45490,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/view.js\",\n        \"size\": 6356,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/wake.js\",\n        \"size\": 14690,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/codex-host.js\",\n        \"size\": 17432,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/config.js\",\n        \"size\": 58057,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/context.js\",\n        \"size\": 43275,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/drift.js\",\n        \"size\": 7302,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/feedback.js\",\n        \"size\": 12674,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/gates.js\",\n        \"size\": 108825,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/guard.js\",\n        \"size\": 17250,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/launchd.js\",\n        \"size\": 3701,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/lock.js\",\n        \"size\": 36563,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/mail.js\",\n        \"size\": 8577,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/patrol.js\",\n        \"size\": 37321,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/projection.js\",\n        \"size\": 4590,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/shift.js\",\n        \"size\": 102619,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/sync.js\",\n        \"size\": 16777,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/task-contract.js\",\n        \"size\": 60711,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/tick.js\",\n        \"size\": 22482,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/worktrees.js\",\n        \"size\": 8442,\n        \"mode\": 420\n      }\n    ],\n    \"entryCount\": 105,\n    \"bundled\": []\n  }\n]\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "npm",
+        "pack",
+        "@christang/keel@5.229.2",
+        "--pack-destination",
+        "<temporary-prefix-root>",
+        "--json"
+      ],
+      "exit": 0,
+      "out": "e/chat/rename.js\",\n        \"size\": 8440,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/slack.js\",\n        \"size\": 4078,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/store.js\",\n        \"size\": 45490,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/view.js\",\n        \"size\": 6356,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/chat/wake.js\",\n        \"size\": 14690,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/codex-host.js\",\n        \"size\": 18336,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/config.js\",\n        \"size\": 58057,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/context.js\",\n        \"size\": 43275,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/drift.js\",\n        \"size\": 7302,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/feedback.js\",\n        \"size\": 12674,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/gates.js\",\n        \"size\": 108825,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/guard.js\",\n        \"size\": 17250,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/launchd.js\",\n        \"size\": 3701,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/lock.js\",\n        \"size\": 36563,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/mail.js\",\n        \"size\": 8577,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/patrol.js\",\n        \"size\": 37321,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/projection.js\",\n        \"size\": 4590,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/shift.js\",\n        \"size\": 102619,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/sync.js\",\n        \"size\": 16777,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/task-contract.js\",\n        \"size\": 60711,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/tick.js\",\n        \"size\": 22482,\n        \"mode\": 420\n      },\n      {\n        \"path\": \"src/core/worktrees.js\",\n        \"size\": 8442,\n        \"mode\": 420\n      }\n    ],\n    \"entryCount\": 105,\n    \"bundled\": []\n  }\n]\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "npm",
+        "install",
+        "-g",
+        "@christang/keel@5.229.2"
+      ],
+      "exit": 0,
+      "out": "\nadded 71 packages in 701ms\n\n23 packages are looking for funding\n  run `npm fund` for details\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/clean-registry/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "--version"
+      ],
+      "exit": 0,
+      "out": "1.14.0\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/clean-registry/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "validate",
+        "--specs",
+        "--strict"
+      ],
+      "exit": 0,
+      "out": "\u2713 spec/keel-authoring-continuity\n\u2713 spec/keel-chat-slack-bridge\n\u2713 spec/keel-cli-output-contract\n\u2713 spec/keel-codex-host-team\n\u2713 spec/keel-codex-receiving\n\u2713 spec/keel-coordinator-patrol\n\u2713 spec/keel-core-gates\n\u2713 spec/keel-cross-host-mailbox\n\u2713 spec/keel-decision-precedent\n\u2713 spec/keel-domain-lenses\n\u2713 spec/keel-expectation-alignment\n\u2713 spec/keel-expectation-slice-evidence-gates\n\u2713 spec/keel-external-agents\n\u2713 spec/keel-feedback\n\u2713 spec/keel-full-lite-routing\n\u2713 spec/keel-guidance-tiering\n\u2713 spec/keel-merge-declaration\n\u2713 spec/keel-merged-branches\n\u2713 spec/keel-native-plugin-package\n\u2713 spec/keel-native-runtime-projection\n\u2713 spec/keel-openspec-surface-overlay\n\u2713 spec/keel-owner-language\n\u2713 spec/keel-release-artifact\n\u2713 spec/keel-resource-lock\n\u2713 spec/keel-shift-change\n\u2713 spec/keel-skill-sourcing-and-portability\n\u2713 spec/keel-standing-authorization\n\u2713 spec/keel-stateless-continuity\n\u2713 spec/keel-surface-evolution-policy\n\u2713 spec/keel-sync-status\n\u2713 spec/keel-target-surface-diagnostics\n\u2713 spec/keel-task-capsule\n\u2713 spec/keel-touch-write-guard\n\u2713 spec/keel-unattended-triage\n\u2713 spec/keel-validation-runner\n\u2713 spec/keel-verification-layering\n\u2713 spec/keel-worktree-overview\nTotals: 37 passed, 0 failed (37 items)\n",
+      "err": "requirements that each state one behavior.\n  \u2139 [INFO] requirements[13]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u2139 [INFO] requirements[20]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u2139 [INFO] requirements[2]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u2139 [INFO] requirements[4]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u2139 [INFO] requirements[0]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n"
+    },
+    {
+      "args": [
+        "npm",
+        "ls",
+        "-g",
+        "--json"
+      ],
+      "exit": 0,
+      "out": "{\n  \"name\": \"lib\",\n  \"dependencies\": {\n    \"@christang/keel\": {\n      \"version\": \"5.229.2\",\n      \"overridden\": false\n    }\n  }\n}\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "npm",
+        "install",
+        "-g",
+        "<temporary-prefix-root>/christang-keel-5.229.2.tgz"
+      ],
+      "exit": 0,
+      "out": "\nadded 58 packages in 9s\n\n22 packages are looking for funding\n  run `npm fund` for details\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/clean-tarball/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "--version"
+      ],
+      "exit": 0,
+      "out": "1.17.0\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/clean-tarball/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "validate",
+        "--specs",
+        "--strict"
+      ],
+      "exit": 1,
+      "out": "\u2713 spec/keel-authoring-continuity\n\u2713 spec/keel-codex-receiving\n\u2713 spec/keel-domain-lenses\n\u2713 spec/keel-expectation-alignment\n\u2713 spec/keel-feedback\n\u2713 spec/keel-guidance-tiering\n\u2713 spec/keel-merge-declaration\n\u2713 spec/keel-skill-sourcing-and-portability\n\u2713 spec/keel-surface-evolution-policy\n\u2713 spec/keel-sync-status\nTotals: 10 passed, 27 failed (37 items)\nDetails: openspec validate keel-chat-slack-bridge --type spec\n",
+      "err": "irement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u26a0 [WARNING] requirements[20]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n\u2717 spec/keel-verification-layering\n  \u26a0 [WARNING] requirements[2]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u26a0 [WARNING] requirements[4]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n\u2717 spec/keel-worktree-overview\n  \u26a0 [WARNING] requirements[0]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n"
+    },
+    {
+      "args": [
+        "npm",
+        "ls",
+        "-g",
+        "--json"
+      ],
+      "exit": 0,
+      "out": "{\n  \"name\": \"lib\",\n  \"dependencies\": {\n    \"@christang/keel\": {\n      \"version\": \"5.229.2\",\n      \"overridden\": false\n    }\n  }\n}\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "npm",
+        "install",
+        "-g",
+        "<temporary-prefix-root>/christang-keel-5.229.1.tgz"
+      ],
+      "exit": 0,
+      "out": "\nadded 58 packages in 1s\n\n22 packages are looking for funding\n  run `npm fund` for details\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<repository>/bin/keel.js",
+        "--update",
+        "--source",
+        "<temporary-prefix-root>/christang-keel-5.229.2.tgz"
+      ],
+      "exit": 0,
+      "out": "\nchanged 58 packages in 1s\n\n22 packages are looking for funding\n  run `npm fund` for details\nkeel update: cli: updated 5.229.1 -> 5.229.2 - applies to the next command that runs keel\nkeel update: claude plugin: absent - Claude Code is not installed here or has no Keel plugin\nkeel update: codex plugin: absent - Codex is not installed here or has no Keel plugin\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/updater/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "--version"
+      ],
+      "exit": 0,
+      "out": "1.17.0\n",
+      "err": ""
+    },
+    {
+      "args": [
+        "node",
+        "<temporary-prefix-root>/updater/lib/node_modules/@christang/keel/bin/keel.js",
+        "openspec",
+        "validate",
+        "--specs",
+        "--strict"
+      ],
+      "exit": 1,
+      "out": "\u2713 spec/keel-authoring-continuity\n\u2713 spec/keel-codex-receiving\n\u2713 spec/keel-domain-lenses\n\u2713 spec/keel-expectation-alignment\n\u2713 spec/keel-feedback\n\u2713 spec/keel-guidance-tiering\n\u2713 spec/keel-merge-declaration\n\u2713 spec/keel-skill-sourcing-and-portability\n\u2713 spec/keel-surface-evolution-policy\n\u2713 spec/keel-sync-status\nTotals: 10 passed, 27 failed (37 items)\nDetails: openspec validate keel-chat-slack-bridge --type spec\n",
+      "err": "irement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u26a0 [WARNING] requirements[20]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n\u2717 spec/keel-verification-layering\n  \u26a0 [WARNING] requirements[2]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n  \u26a0 [WARNING] requirements[4]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n\u2717 spec/keel-worktree-overview\n  \u26a0 [WARNING] requirements[0]: Requirement text is very long (>500 characters). Move examples and edge cases into scenarios, or split it into separate requirements that each state one behavior.\n"
+    },
+    {
+      "args": [
+        "npm",
+        "ls",
+        "-g",
+        "--json"
+      ],
+      "exit": 0,
+      "out": "{\n  \"name\": \"lib\",\n  \"dependencies\": {\n    \"@christang/keel\": {\n      \"version\": \"5.229.2\",\n      \"overridden\": false\n    }\n  }\n}\n",
+      "err": ""
+    }
+  ],
+  "cases": [
+    {
+      "label": "clean-registry",
+      "keel": "5.229.2",
+      "installedOpenSpec": "1.14.0",
+      "lockedOpenSpec": "1.14.0",
+      "publicVersion": "1.14.0",
+      "strictExit": 0,
+      "strictTotals": [
+        "Totals: 37 passed, 0 failed (37 items)"
+      ]
+    },
+    {
+      "label": "clean-tarball",
+      "keel": "5.229.2",
+      "installedOpenSpec": "1.17.0",
+      "lockedOpenSpec": "1.14.0",
+      "publicVersion": "1.17.0",
+      "strictExit": 1,
+      "strictTotals": [
+        "Totals: 10 passed, 27 failed (37 items)"
+      ]
+    },
+    {
+      "label": "updater",
+      "keel": "5.229.2",
+      "installedOpenSpec": "1.17.0",
+      "lockedOpenSpec": "1.14.0",
+      "publicVersion": "1.17.0",
+      "strictExit": 1,
+      "strictTotals": [
+        "Totals: 10 passed, 27 failed (37 items)"
+      ]
+    }
+  ],
+  "tarballs": {
+    "5.229.1": {
+      "declared": "^1.4.1",
+      "locked": "1.14.0",
+      "zod": "4.6.7",
+      "size": 931630
+    },
+    "5.229.2": {
+      "declared": "^1.4.1",
+      "locked": "1.14.0",
+      "zod": "4.6.7",
+      "size": 932226
+    }
+  }
+}
