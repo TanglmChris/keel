@@ -154,7 +154,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 4.2 Commit the verified rollout evidence
+- [x] 4.2 Commit the verified rollout evidence
   - Mode: repo-action
   - Covers:
     - D1
@@ -166,12 +166,12 @@
     - M1: `git show --stat HEAD` includes dated host documentation and completed rollout evidence; tested product source remains identical to published v5.229.0.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:c64a6fb5ff89940ecd08511bddfe5cef3c3376ce4c69bb182c2032c8f89c7d5f (keel 5.229.0)
-    - M1: pending
+    - M1: pass: commit 7ad8efad records dated host documentation, installed component evidence and completed rollout/notification records; git diff v5.229.0 for host/tick/guard/sync fixture source is empty.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: The deployed product equals the published candidate and all operational outcomes are durably committed.
+      - Scope check: Repo-action changes only Git state and own records; no product implementation changed.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
