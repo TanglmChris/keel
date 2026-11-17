@@ -82,3 +82,9 @@ On Linux a host subreaper may adopt an orphan process. A keep-awake whose origin
 | Native hooks | Source matches patch and Bash tools; no automatic trust or enforcement promotion | deterministic source policy tests; native interface denial measured on CLI 0.164.0, shipped activation remains unverified |
 
 A socket that accepts RPCs does not establish model connectivity. The installed system daemon inherited an old localhost proxy and its model requests retried with `Connection failed: error sending request`; the real acceptance used the identical managed binary on an explicit isolated endpoint with the working current environment. Restarting the system daemon was excluded to preserve unrelated work. Approvals still require the owner's native host interface. Compaction remains manual.
+
+## Default daemon repair — 2026-11-17
+
+The owner subsequently authorized the local rollout and old-proxy repair. Immediately before restart the default managed daemon reported no loaded threads. It was restarted with the current working environment; all uppercase/lowercase HTTP_PROXY, HTTPS_PROXY and ALL_PROXY variables were absent in the replacement process. The installed managed binary remained Codex 0.167.2.
+
+A real turn through the default `~/.codex/app-server-control/app-server-control.sock` completed with `KEEL_DEFAULT_HOST_OK` (thread `01a1e73f-05a4-74c0-8157-d2a092fd4482`, turn `01a1e73f-0613-7803-a123-abf0f494f40e`). The probe used the verified 5.229.0 source adapter and was archived after completion. This supersedes the earlier stale-proxy limitation for this machine; the earlier isolated-host measurements remain historical evidence. Other desktop chats were not adopted or interrupted, and hook trust/compaction capabilities were not promoted by the network repair.

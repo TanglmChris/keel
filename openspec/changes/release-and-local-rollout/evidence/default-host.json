@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-17",
+  "socket": "~/.codex/app-server-control/app-server-control.sock",
+  "thread": "01a1e73f-05a4-74c0-8157-d2a092fd4482",
+  "turn": "01a1e73f-0613-7803-a123-abf0f494f40e",
+  "status": "completed",
+  "answers": [
+    "KEEL_DEFAULT_HOST_OK"
+  ],
+  "host": {
+    "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  },
+  "proxyEnvironment": {
+    "HTTP_PROXY": false,
+    "HTTPS_PROXY": false,
+    "ALL_PROXY": false,
+    "http_proxy": false,
+    "https_proxy": false,
+    "all_proxy": false
+  },
+  "probeArchived": true
+}

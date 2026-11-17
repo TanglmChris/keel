@@ -18,3 +18,5 @@ Publish 5.229.0, align installed CLI/plugins, repair default daemon connectivity
 ## Risks / rollback
 
 Registry read-side propagation can lag. Retain previous package and hook trust state; do not forge trust hashes. Service restart is refused while unrelated work is active. Any failure retains evidence and prevents the final notification. No material product choice remains open.
+
+The default-host repair is independent of npm read-side propagation and may run while publication waits. Its real-host probe uses the already verified 5.229.0 source adapter; installed CLI agreement is still checked separately in 2.1 before downstream notification.

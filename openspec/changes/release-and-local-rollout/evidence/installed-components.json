@@ -1,0 +1,15 @@
+{
+  "codex": {
+    "pluginId": "keel@keel-marketplace",
+    "version": "5.229.0",
+    "installed": true,
+    "enabled": true,
+    "manifestVersion": "5.229.0",
+    "matcher": "apply_patch|Edit|Write|NotebookEdit|Bash"
+  },
+  "claude": {
+    "version": "5.229.0",
+    "enabled": true,
+    "manifestVersion": "5.229.0"
+  }
+}

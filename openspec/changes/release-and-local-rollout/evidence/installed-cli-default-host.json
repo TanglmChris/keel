@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-17",
+  "socket": "~/.codex/app-server-control/app-server-control.sock",
+  "thread": "01a1e742-d71b-7e53-8c1d-d35a89ebd183",
+  "turn": "01a1e742-d77e-7fb2-b12c-28138229465f",
+  "status": "completed",
+  "answers": [
+    "KEEL_DEFAULT_HOST_OK"
+  ],
+  "host": {
+    "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  },
+  "cliVersion": "5.229.0",
+  "probeArchived": true
+}
