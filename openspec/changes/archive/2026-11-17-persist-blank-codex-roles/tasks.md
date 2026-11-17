@@ -129,7 +129,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.1 Commit priority candidate for cloud verification
+- [x] 2.1 Commit priority candidate for cloud verification
   - Mode: repo-action
   - Covers:
     - D4
@@ -141,16 +141,16 @@
     - M1: `git show --stat HEAD` records tested public/real-host initialization repair, documentation,5.229.2 metadata and this evidence. Final local full suite remains pending under2.2; only exact-head cloud gates permit repository landing.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:2d1a630392225fa0ee582db2a1be61292795ebc9a3b07f16c9ee6db16d471219 (keel 5.229.1)
-    - M1: pending
+    - M1: pass: commit a0f0a7cf contains the public/real-host verified initialization repair, documentation and5.229.2 markers. Full local suite remains pending under2.2; repository exact-head cloud Full gates must pass before automatic landing.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: reviewable priority candidate records same-id190-second first work and native initialization/refusal tests; publication is not claimed here.
+      - Scope check: commit records the selected implementation, documentation, metadata and own artifacts without changing their bytes.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.2 Verify final combined patch regression
+- [x] 2.2 Verify final combined patch regression
   - Mode: diagnose-only
   - Covers:
     - D4
@@ -161,13 +161,13 @@
     - Reason: Records concrete behavior or release evidence without a meaningful implementation red-green loop.
     - M1: `npm test` passes the candidate baseline and all scenarios, npm audit has zero vulnerabilities, and repository-locked OpenSpec strictly validates the published specs. Product bytes stay identical to2.1.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:74b98ff9f314d71e6271910c4f9c0235b9fd886f6a9a40ec0e017650d2a9158f (keel 5.229.1)
+    - M1: pass: npm test completed exit0 for the5.229.2 candidate; baseline plus426 scenarios pass (278 deterministic,148 stand-in host), log /tmp/keel-537-final-full.log. npm audit has0 vulnerabilities. Repository-locked OpenSpec1.14.0 strict published specs pass37/37 and strict change validation passes. Product/source/lock bytes remain identical to a0f0a7cf; actual host delayed-first-work evidence is separate.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: complete prior regression and current initialization tests pass on the final release candidate, alongside actual native first-turn and dependency evidence.
+      - Scope check: diagnosis only changed own evidence; product bytes match the committed candidate.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/534 — the prior globally installed OpenSpec version divergence remains independent and unmodified.
     - Blocker: none
     - Reauthorizations: none
 
