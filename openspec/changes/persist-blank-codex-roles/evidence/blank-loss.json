@@ -1,0 +1,15 @@
+{
+  "repo": "<isolated temporary repository>",
+  "role": "blank-probe",
+  "thread": "01a1e78b-2bb3-7e32-81a6-254492eed925",
+  "socket": "<default managed host socket>",
+  "startedAt": "2026-11-17T03:27:01.869Z",
+  "host": {
+    "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  },
+  "observedAt": "2026-11-17T03:30:11.886Z",
+  "readError": "thread not loaded: 01a1e78b-2bb3-7e32-81a6-254492eed925",
+  "resumeError": "no rollout found for thread id 01a1e78b-2bb3-7e32-81a6-254492eed925"
+}

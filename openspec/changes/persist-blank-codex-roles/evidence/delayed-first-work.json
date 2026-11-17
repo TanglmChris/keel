@@ -1,0 +1,32 @@
+{
+  "thread": "01a1e794-ffe7-7c90-9ac3-c78395a02fea",
+  "startedAt": "2026-11-17T03:37:46.093Z",
+  "observedAt": "2026-11-17T03:40:56.185Z",
+  "completed": {
+    "id": "01a1e797-f6ba-7451-8d27-27044dbc6509",
+    "status": "completed",
+    "turnCount": 1,
+    "answers": [
+      "FIRST_READY"
+    ]
+  },
+  "finalTurnCount": 1,
+  "archived": true,
+  "host": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+  "before": {
+    "id": "01a1e794-ffe7-7c90-9ac3-c78395a02fea",
+    "status": {
+      "type": "notLoaded"
+    },
+    "turnCount": 0,
+    "name": "blank-fixed"
+  },
+  "delivery": {
+    "state": "delivered",
+    "turn": "01a1e797-f6ba-7451-8d27-27044dbc6509"
+  },
+  "duplicate": {
+    "state": "already-delivered",
+    "turn": "01a1e797-f6ba-7451-8d27-27044dbc6509"
+  }
+}

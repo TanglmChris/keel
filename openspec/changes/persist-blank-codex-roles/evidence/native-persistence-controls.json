@@ -1,0 +1,43 @@
+{
+  "hostVersion": "0.167.2",
+  "startedAt": "2026-11-17T03:30:14.925Z",
+  "observedAt": "2026-11-17T03:33:25.114Z",
+  "controls": [
+    {
+      "method": "thread/name/set",
+      "thread": "01a1e78e-2510-7193-bd36-466bf858799b",
+      "startStatus": {
+        "type": "idle"
+      },
+      "initialReadStatus": {
+        "type": "idle"
+      },
+      "delayedReadStatus": {
+        "type": "notLoaded"
+      },
+      "delayedResumeIdentity": "01a1e78e-2510-7193-bd36-466bf858799b",
+      "delayedResumeStatus": {
+        "type": "idle"
+      },
+      "turnCount": 0
+    },
+    {
+      "method": "thread/archive",
+      "thread": "01a1e78e-2531-7c62-bc0b-f691ccba45f0",
+      "startStatus": {
+        "type": "idle"
+      },
+      "initialReadStatus": {
+        "type": "notLoaded"
+      },
+      "delayedReadStatus": {
+        "type": "notLoaded"
+      },
+      "delayedResumeIdentity": "01a1e78e-2531-7c62-bc0b-f691ccba45f0",
+      "delayedResumeStatus": {
+        "type": "idle"
+      },
+      "turnCount": 0
+    }
+  ]
+}

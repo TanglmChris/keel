@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.229.2 - Persist blank Codex roles before first delivery
+
+- Fix #537: native role naming materializes newly created managed threads before start or successor hand-over succeeds, preserving the same id across connection closure and delayed first use. Initialization failures retain the created identity and pending outcome; missing old rollouts are never silently replaced.
+- Real Codex 0.167.2 acceptance waited190 seconds disconnected, observed notLoaded with zero turns, and completed exactly one first turn on the original identity; duplicate delivery added no work. No model warm-up or permission override is used.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.229.2; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.229.1 - Resume owned Codex roles after unload
 
 - Fix #531: recover an identity-verified owned notLoaded thread on the same connection for new work, and revalidate before delivery. Delivered claims return without loading; unknown claims refuse; active work waits. No replacement thread or permission override is introduced.
