@@ -1,0 +1,122 @@
+# Tasks
+
+- [ ] 1.1 Commit the authorized rollout plan
+  - Mode: repo-action
+  - Covers:
+    - D1
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: `git show --stat HEAD` records the rollout proposal, design, delta spec and task contract without product source changes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a27789ebb1866ca638e8317b6f54fb64d0152b7010c68ec89576dcdf5d4f90e1 (keel 5.228.0)
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 1.2 Publish the verified candidate through repository automation
+  - Mode: implementation
+  - Covers:
+    - D2
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: The exact-head Full gate passes, repository automation lands the PR, GitHub v5.229.0 exists and npm serves @christang/keel@5.229.0. Do not merge with the agent.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.1 Update local CLI and installed native plugins
+  - Mode: implementation
+  - Covers:
+    - D1
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: `keel --version` is 5.229.0; installed Claude and Codex plugin manifests are 5.229.0 or a missing component is explicitly reported; preserve native trust and record restart/review requirements.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 3.1 Repair and verify the default daemon environment
+  - Mode: implementation
+  - Covers:
+    - D3
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - docs/codex-validation.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: Recheck no unrelated loaded active turns, restart the daemon without the stale proxy, inspect its inherited proxy settings without exposing credentials, and observe an actual completed reply marker through the default Unix endpoint. Update dated host evidence, not historical measurements.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 4.1 Notify kaiwu-ip after the completed rollout
+  - Mode: implementation
+  - Covers:
+    - D4
+    - keel-codex-host-team / Release rollout verifies the installed host before notification
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized release and host operations are verified through observable external state, not product implementation red-green tests.
+    - M1: All preceding task evidence passes; identify the existing kaiwu-ip owner and send one versioned update notice with release link, CLI/plugin update command and actual host verification. Record destination and delivered notice identity.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "system daemon inherited an old localhost proxy" — docs/host-contract.md and docs/codex-validation.md describe the prior measurement; append the corrected current-host evidence. Updated by: 3.1
+
+## Expectation Coverage
+
+- E1: Published and installed release agreement (D1, D2). Covered by: 1.1, 1.2, 2.1
+- E2: Healthy default host with native trust preserved (D3). Covered by: 3.1
+- E3: Downstream notification happens last (D4). Covered by: 4.1
