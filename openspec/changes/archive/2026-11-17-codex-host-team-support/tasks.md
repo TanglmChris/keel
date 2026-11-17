@@ -248,7 +248,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 4.2 Commit the verified managed-team candidate
+- [x] 4.2 Commit the verified managed-team candidate
   - Mode: repo-action
   - Covers:
     - D4
@@ -261,13 +261,13 @@
     - M2: `git diff --exit-code HEAD -- src/core/codex-host.js src/core/tick.js plugins/keel/scripts/pretooluse-guard.js scripts/test_codex_host.js` proves the tested product snapshot is committed.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:79fe1578e10d74f5da13ad0ab57f73d1281094dbd4d4227f5ab1c0638229493f (keel 5.228.0)
-    - M1: pending
-    - M2: pending
+    - M1: pass: commit 862c1417 subject feat(codex): add managed teams with verified host delivery; git show --stat records 26 files including host implementation, hooks, tests, bilingual docs and OpenSpec evidence.
+    - M2: pass: git diff --exit-code HEAD for codex-host.js, tick.js, pretooluse-guard.js and test_codex_host.js exits 0; tested product bytes match the committed candidate.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: verified managed-team candidate is durably committed; no deployment or current desktop hook activation is inferred.
+      - Scope check: repo-action with Touch none; only Git index/commit state and this task's record were changed. No product bytes changed during commit.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
@@ -278,5 +278,5 @@
 ## Expectation Coverage
 
 - E1: Shared-host inspection is bounded and never resumes unrelated desktop work (D3, D4). Covered by: 1.1
-- E2: Managed role identity, addressed delivery and bounded hand-over (D1, D2, D4). Covered by: 2.1, 2.2
+- E2: Managed role identity, addressed delivery and bounded hand-over (D1, D2, D4). Covered by: 2.1, 2.2, 3.2, 4.1
 - E3: Native capability claims and real two-role proof (D3). Covered by: 3.1, 3.2, 3.3, 3.4
