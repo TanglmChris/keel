@@ -1,0 +1,8 @@
+{
+  "threadId": "01a1e87e-0822-7b00-8926-f5c5f6e2d305",
+  "source": "real Codex App send_message_to_thread immediately after backend turn/start",
+  "isError": true,
+  "message": "thread 01a1e87e-0822-7b00-8926-f5c5f6e2d305 already has an active writer",
+  "subsequentHistory": "history-policy-probe.json",
+  "acceptedAppTurn": false
+}

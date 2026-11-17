@@ -1,0 +1,8 @@
+{
+  "thread": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "turn": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+  "toolCompletedNormally": true,
+  "durationMs": 14965,
+  "userMessages": 2,
+  "final": "INFLIGHT_NATIVE_SERIAL_DONE"
+}

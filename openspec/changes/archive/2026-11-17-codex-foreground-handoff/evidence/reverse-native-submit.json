@@ -1,0 +1,28 @@
+{
+  "startedAt": "2026-11-17T13:40:07.750Z",
+  "note": "Earlier Enter added a newline; no frontend message was submitted during the first backend busy turn. This fresh bounded backend turn tests real busy submission via visible Send.",
+  "delivery": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "delivered",
+    "turn": "01a1e9bc-822d-73d3-9e42-31b7eb797259"
+  },
+  "before": {
+    "status": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "turns": 5
+  },
+  "button": {
+    "x": 1154.5,
+    "y": 778,
+    "label": "引导"
+  },
+  "actualBusySubmitAt": "2026-11-17T13:40:08.358Z"
+}

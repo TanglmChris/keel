@@ -1,0 +1,90 @@
+{
+  "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+  "clientUserMessageId": "b788d1e2-bb17-4772-9605-478710fca380",
+  "observedAt": "2026-11-17T07:40:14.296Z",
+  "before": {
+    "thread": {
+      "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+      "environments": null,
+      "extra": null,
+      "sessionId": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "This is the owner-authorized isolated Keel #541 foreground/background acceptance fixture. Only reply exactly APP_FIRST_READY. Do not use tools, edit files, run commands, delegate, or do repository work.",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6-astra",
+      "reasoningEffort": null,
+      "createdAt": 1794900909,
+      "updatedAt": 1794901202,
+      "recencyAt": 1794901202,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": "/home/tlm/.codex/sessions/2026/11/17/rollout-2026-11-17T15-35-09-01a1e86e-5d64-75b3-9e4e-68a8670a7c0e.jsonl",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": {
+        "sha": "bbb45fda882622cfd625cbcc94096375252acce8",
+        "branch": null,
+        "originUrl": null
+      },
+      "name": "keel541-owned-zero",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "readState": {
+      "firstUnread": {
+        "type": "turn",
+        "turnId": "01a1e871-7d9e-7b33-8b14-fbef9a611447"
+      },
+      "revision": "183e332b-cceb-4f12-b20d-dd3bfc92fc8c"
+    }
+  },
+  "add": {
+    "queuedSubmission": {
+      "id": "01a1e873-0467-7f43-a05a-2a922deb0099",
+      "input": [
+        {
+          "type": "text",
+          "text": "Owner-authorized isolated background queue result. Reply exactly BACKGROUND_QUEUE_DONE. No tools, edits, git, delegation or other work.",
+          "text_elements": []
+        }
+      ],
+      "clientUserMessageId": "b788d1e2-bb17-4772-9605-478710fca380"
+    }
+  },
+  "startError": "resume the thread before starting a queued message",
+  "list": {
+    "data": [
+      {
+        "id": "01a1e873-0467-7f43-a05a-2a922deb0099",
+        "input": [
+          {
+            "type": "text",
+            "text": "Owner-authorized isolated background queue result. Reply exactly BACKGROUND_QUEUE_DONE. No tools, edits, git, delegation or other work.",
+            "text_elements": []
+          }
+        ],
+        "clientUserMessageId": "b788d1e2-bb17-4772-9605-478710fca380"
+      }
+    ],
+    "nextCursor": null
+  },
+  "resumeObservedAt": "2026-11-17T07:41:30.579Z",
+  "resumeError": "thread 01a1e86e-5d64-75b3-9e4e-68a8670a7c0e already has an active writer",
+  "queueAfter": {
+    "data": [],
+    "nextCursor": null
+  }
+}

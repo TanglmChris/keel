@@ -1,0 +1,177 @@
+{
+  "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+  "clientUserMessageId": "de0c02c2-68f2-4cb4-9b63-0677c09dc7b3",
+  "startedAt": "2026-11-17T09:26:34.366Z",
+  "before": [
+    {
+      "id": "01a1e871-7d9e-7b33-8b14-fbef9a611447",
+      "status": "completed"
+    },
+    {
+      "id": "01a1e872-d704-7dc0-8cc4-18c2bf68f239",
+      "status": "completed"
+    },
+    {
+      "id": "01a1e873-9595-7f31-a35c-3044c6c7f602",
+      "status": "completed"
+    },
+    {
+      "id": "01a1e879-b860-7a43-8eeb-42940da234ce",
+      "status": "completed"
+    },
+    {
+      "id": "01a1e8d3-eab0-7c52-a4ec-40d51016dbef",
+      "status": "completed"
+    }
+  ],
+  "add": {
+    "queuedSubmission": {
+      "id": "01a1e8d4-5e90-7f80-a65f-8f63569f0c77",
+      "input": [
+        {
+          "type": "text",
+          "text": "Owner-authorized private Keel #541 idle-background queue fixture. Only reply exactly IDLE_BACKGROUND_QUEUE_DONE. No tools, edits, delegation or other work.",
+          "text_elements": []
+        }
+      ],
+      "clientUserMessageId": "de0c02c2-68f2-4cb4-9b63-0677c09dc7b3"
+    }
+  },
+  "queue": {
+    "data": [],
+    "nextCursor": null
+  },
+  "turns": [
+    {
+      "id": "01a1e871-7d9e-7b33-8b14-fbef9a611447",
+      "status": "completed",
+      "items": [
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc048d3e7087d0a2c97ab1961e9bd9",
+          "text": "APP_FIRST_READY",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794901133353,
+          "completedAtMs": 1794901133434
+        }
+      ]
+    },
+    {
+      "id": "01a1e872-d704-7dc0-8cc4-18c2bf68f239",
+      "status": "completed",
+      "items": [
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc04e9ed4887d0981c3e6389c33a12",
+          "text": "I’ll run the requested 20-second wait.\n",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794901226061,
+          "completedAtMs": 1794901226392
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc0503136887d0b9c483533864f1c2",
+          "text": "APP_BUSY_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794901251344,
+          "completedAtMs": 1794901251445
+        }
+      ]
+    },
+    {
+      "id": "01a1e873-9595-7f31-a35c-3044c6c7f602",
+      "status": "completed",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e873-9610-7b91-8cc5-49bf4e468584",
+          "clientId": "b788d1e2-bb17-4772-9605-478710fca380",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized isolated background queue result. Reply exactly BACKGROUND_QUEUE_DONE. No tools, edits, git, delegation or other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794901251600,
+          "completedAtMs": 1794901251600
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc05061c0887d090a25c18a2c1a48e",
+          "text": "BACKGROUND_QUEUE_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794901254219,
+          "completedAtMs": 1794901254293
+        }
+      ]
+    },
+    {
+      "id": "01a1e879-b860-7a43-8eeb-42940da234ce",
+      "status": "completed",
+      "items": [
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc069b482487d090460dcf5a7eadb3",
+          "text": "APP_AFTER_BACKGROUND",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794901659486,
+          "completedAtMs": 1794901659586
+        }
+      ]
+    },
+    {
+      "id": "01a1e8d3-eab0-7c52-a4ec-40d51016dbef",
+      "status": "completed",
+      "items": [
+        {
+          "type": "agentMessage",
+          "id": "msg_09bde5375230c26e016afc1daf9d9c87d083e4150b9b971ede",
+          "text": "APP_IDLE_QUEUE_READY",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794907567650,
+          "completedAtMs": 1794907567726
+        }
+      ]
+    },
+    {
+      "id": "01a1e8d4-7398-7432-9cc1-8bb67c63c8cc",
+      "status": "interrupted",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e8d4-740f-7930-8a4c-170c7ce24fa3",
+          "clientId": "de0c02c2-68f2-4cb4-9b63-0677c09dc7b3",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private Keel #541 idle-background queue fixture. Only reply exactly IDLE_BACKGROUND_QUEUE_DONE. No tools, edits, delegation or other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794907599887,
+          "completedAtMs": 1794907599887
+        }
+      ]
+    }
+  ],
+  "consumedAt": "2026-11-17T09:26:40.443Z"
+}

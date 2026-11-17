@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"timedOut\":false,\"wake\":{\"reason\":\"turnCompleted\",\"turnId\":\"01a1e8d4-7398-7432-9cc1-8bb67c63c8cc\",\"threadId\":\"01a1e86e-5d64-75b3-9e4e-68a8670a7c0e\",\"hostId\":\"local\"},\"polls\":[{\"schemaVersion\":1,\"cursor\":\"b73b3f0c-2ee5-478f-be0c-cb3137d372b1:4\",\"revision\":4,\"changed\":true,\"thread\":{\"id\":\"01a1e86e-5d64-75b3-9e4e-68a8670a7c0e\",\"hostId\":\"local\",\"status\":{\"type\":\"idle\"}},\"latestTurn\":{\"id\":\"01a1e8d4-7398-7432-9cc1-8bb67c63c8cc\",\"status\":\"completed\",\"error\":null,\"startedAt\":1794907599,\"completedAt\":1794907603,\"durationMs\":3756},\"latestAssistantMessageId\":\"msg_09bde5375230c26e016afc1dd3567887d09cc098a2e4466c5c\",\"latestAssistantMessage\":{\"id\":\"msg_09bde5375230c26e016afc1dd3567887d09cc098a2e4466c5c\",\"turnId\":\"01a1e8d4-7398-7432-9cc1-8bb67c63c8cc\",\"phase\":\"final_answer\",\"text\":\"IDLE_BACKGROUND_QUEUE_DONE\"},\"latestToolMarkerId\":null,\"latestToolMarker\":null}]}"
+    }
+  ],
+  "isError": false
+}

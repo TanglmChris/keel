@@ -1,0 +1,22 @@
+{
+  "id": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+  "startReviewer": "auto_review",
+  "settings": {},
+  "unsubscribe": {
+    "status": "unsubscribed"
+  },
+  "cold": {
+    "reviewer": "auto_review",
+    "approval": "on-request",
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": false,
+      "excludeSlashTmp": false
+    },
+    "id": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+    "cwd": "/tmp/keel541-owned-TWsQQi/role",
+    "turns": 0
+  }
+}

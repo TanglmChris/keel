@@ -103,3 +103,39 @@ Real Codex 0.167.2 acceptance on 2026-11-17 completed PM's first turn, observed 
 A fresh Codex 0.167.2 thread can disappear after its creation connection closes before its first turn: read reports `thread not loaded` and same-id resume reports `no rollout found`. Native `thread/name/set` materializes the blank thread. Keel uses that operation with the role name and rechecks identity before successful start or successor hand-over, retaining the created id on uncertain initialization. No model warm-up, permission override or substitute thread is used; already-lost registrations require explicit owner disposition.
 
 Real public-CLI acceptance created `01a1e794-ffe7-7c90-9ac3-c78395a02fea`, closed the creation connection for at least190 seconds, observed notLoaded, then completed its first actual turn `01a1e797-f6ba-7451-8d27-27044dbc6509` with `FIRST_READY` on the identical thread. It had exactly one turn, and duplicate delivery created none. The probe was archived; isolated name/archive controls and the failed unnamed baseline are retained in the change evidence. This is actual host evidence, separate from the stand-in CLI regression.
+
+
+## Shared App, reviewer and owned cwd — 2026-11-17
+
+Keel 5.230.0 adds explicit thread reviewer creation/persistence and same-id
+`codex recover`. Public CLI/native-boundary tests cover original claims and
+unknown/policy/writer failures. Real native 0.167.2 creation used zero model turns,
+retained auto_review/on-request/workspace-write through cold recovery and first
+App input. Real recover restored the original worktree and subsequent actual pwd
+execution, without rewriting the role record or replacing the thread.
+
+Linux App 26.1023.51421 was launched with two explicitly approved disposable
+profile/home runs connected to the existing native 0.167.2 backend; the original
+App and all production registrations stayed untouched. Real foreground work made
+backend CLI delivery wait, then backend work completed on the same id. In reverse,
+the rendered native Guide action submitted input to the same busy turn. An actual
+item/started sleep notification preceded that input; one command completed
+normally (14965ms), then INFLIGHT_NATIVE_SERIAL_DONE was returned. Native Guide
+updates a current turn; this does not prove a separate queued task.
+
+Private thread 01a1e9ad-eaaf-71f1-9052-6d7e331d10ba completed
+NATIVE_BACKEND_WITH_APP_CLOSED while its App was normally closed and backend
+identity stayed unchanged. The second actual App UI showed that reply and the
+in-flight result. All original history ids, cwd, auto_review/on-request/
+workspaceWrite and delivery claim were retained; duplicate delivery started none.
+Both App runs ended normally and their loopback diagnostic ports were closed.
+
+Opening the test project added one native backend trust section despite private
+frontend home. Testing paused; the owner separately approved that sole temporary
+entry and its exact deletion, restoring the pre-test config hash. Three production
+registries and original App/backend identities matched throughout. This is not a
+claim of global-config isolation, an atomic original-App Quit barrier, macOS
+acceptance or Kaiwu production deployment. The earlier expired global idle window
+remains a negative historical result. Full native evidence and failed preliminary
+probes are owned by [#541](https://github.com/TanglmChris/keel/issues/541); deployment
+is [Kaiwu #546](https://github.com/TanglmChris/kaiwu-ip/issues/546).

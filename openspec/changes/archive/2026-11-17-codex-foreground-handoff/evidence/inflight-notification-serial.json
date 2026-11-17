@@ -1,0 +1,451 @@
+{
+  "startedAt": "2026-11-17T13:43:19.278Z",
+  "thread": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "notifications": [
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "01a1e9bf-6fe2-7253-9a7e-21ae4ac7b314",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private native in-flight serial test. Run exactly one nonwriting command: sleep 15. Then reply exactly BACKEND_INFLIGHT_DONE. Do not edit files or do other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922999781,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794922999781
+      },
+      "emittedAtMs": 1794922999781
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "01a1e9bf-6fe2-7253-9a7e-21ae4ac7b314",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private native in-flight serial test. Run exactly one nonwriting command: sleep 15. Then reply exactly BACKEND_INFLIGHT_DONE. Do not edit files or do other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922999781,
+          "completedAtMs": 1794922999781
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794922999781
+      },
+      "emittedAtMs": 1794922999784
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc59fab31487d09ebcfb4affae01d6",
+          "text": "",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794923002795,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923002795
+      },
+      "emittedAtMs": 1794923002795
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc59fab31487d09ebcfb4affae01d6",
+          "text": "I’ll run `sleep 15` once.\n",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794923002795,
+          "completedAtMs": 1794923003085
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923003085
+      },
+      "emittedAtMs": 1794923003086
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-635fa34f-3fc8-46be-9fe6-bd18f62681c1",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/usr/bin/zsh -lc 'sleep 15'",
+          "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+          "processId": "93581",
+          "source": "unifiedExecStartup",
+          "status": "inProgress",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 15"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": null,
+          "durationMs": null,
+          "startedAtMs": 1794923003763,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923003763
+      },
+      "emittedAtMs": 1794923003763
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "01a1e9bf-8496-7523-a96d-b9a9827a45ce",
+          "clientId": "17f06653-0e5d-4643-8ffe-7d829f3afa23",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private frontend guidance during the running sleep. Do not cancel, replace or repeat the running command. After it completes normally, reply exactly INFLIGHT_NATIVE_SERIAL_DONE. Do not run any new tool or other work.\n",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794923005079,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923005079
+      },
+      "emittedAtMs": 1794923005080
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "01a1e9bf-8496-7523-a96d-b9a9827a45ce",
+          "clientId": "17f06653-0e5d-4643-8ffe-7d829f3afa23",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private frontend guidance during the running sleep. Do not cancel, replace or repeat the running command. After it completes normally, reply exactly INFLIGHT_NATIVE_SERIAL_DONE. Do not run any new tool or other work.\n",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794923005079,
+          "completedAtMs": 1794923005079
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923005079
+      },
+      "emittedAtMs": 1794923005083
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "rs_0d43c0b1055bb900016afc59ff286087d0b7c311f7b70db264",
+          "summary": [],
+          "content": [],
+          "startedAtMs": 1794923007223,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923007223
+      },
+      "emittedAtMs": 1794923007224
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "commandExecution",
+          "id": "exec-635fa34f-3fc8-46be-9fe6-bd18f62681c1",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/usr/bin/zsh -lc 'sleep 15'",
+          "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+          "processId": "93581",
+          "source": "unifiedExecStartup",
+          "status": "completed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 15"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": 0,
+          "durationMs": 14964,
+          "startedAtMs": 1794923003763,
+          "completedAtMs": 1794923018728
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923018728
+      },
+      "emittedAtMs": 1794923018733
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "rs_0d43c0b1055bb900016afc59ff286087d0b7c311f7b70db264",
+          "summary": [
+            "**Waiting for completion**"
+          ],
+          "content": [],
+          "startedAtMs": 1794923007223,
+          "completedAtMs": 1794923033731
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923033731
+      },
+      "emittedAtMs": 1794923033733
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "rs_0d43c0b1055bb900016afc5a17b9f887d0aa2ec342bd99a49b",
+          "summary": [],
+          "content": [],
+          "startedAtMs": 1794923033734,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923033734
+      },
+      "emittedAtMs": 1794923033734
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "reasoning",
+          "id": "rs_0d43c0b1055bb900016afc5a17b9f887d0aa2ec342bd99a49b",
+          "summary": [],
+          "content": [],
+          "startedAtMs": 1794923033734,
+          "completedAtMs": 1794923033741
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923033741
+      },
+      "emittedAtMs": 1794923033742
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc5a19a69887d0b4fc864108890a4a",
+          "text": "",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794923033743,
+          "completedAtMs": null
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "startedAtMs": 1794923033743
+      },
+      "emittedAtMs": 1794923033743
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc5a19a69887d0b4fc864108890a4a",
+          "text": "INFLIGHT_NATIVE_SERIAL_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794923033743,
+          "completedAtMs": 1794923033875
+        },
+        "threadId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+        "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+        "completedAtMs": 1794923033875
+      },
+      "emittedAtMs": 1794923033877
+    }
+  ],
+  "delivery": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "delivered",
+    "turn": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0"
+  },
+  "before": {
+    "at": "2026-11-17T13:43:23.764Z",
+    "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+    "command": {
+      "type": "commandExecution",
+      "id": "exec-635fa34f-3fc8-46be-9fe6-bd18f62681c1",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/usr/bin/zsh -lc 'sleep 15'",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "processId": "93581",
+      "source": "unifiedExecStartup",
+      "status": "inProgress",
+      "commandActions": [
+        {
+          "type": "unknown",
+          "command": "sleep 15"
+        }
+      ],
+      "aggregatedOutput": null,
+      "exitCode": null,
+      "durationMs": null,
+      "startedAtMs": 1794923003763,
+      "completedAtMs": null
+    }
+  },
+  "uiSubmitAt": "2026-11-17T13:43:24.208Z",
+  "turn": {
+    "id": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+    "rootTurnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+    "items": [
+      {
+        "type": "userMessage",
+        "id": "01a1e9bf-6fe2-7253-9a7e-21ae4ac7b314",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "Owner-authorized private native in-flight serial test. Run exactly one nonwriting command: sleep 15. Then reply exactly BACKEND_INFLIGHT_DONE. Do not edit files or do other work.",
+            "text_elements": []
+          }
+        ],
+        "startedAtMs": 1794922999781,
+        "completedAtMs": 1794922999781
+      },
+      {
+        "type": "agentMessage",
+        "id": "msg_0d43c0b1055bb900016afc59fab31487d09ebcfb4affae01d6",
+        "text": "I’ll run `sleep 15` once.\n",
+        "phase": "commentary",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 1794923002795,
+        "completedAtMs": 1794923003085
+      },
+      {
+        "type": "userMessage",
+        "id": "01a1e9bf-8496-7523-a96d-b9a9827a45ce",
+        "clientId": "17f06653-0e5d-4643-8ffe-7d829f3afa23",
+        "content": [
+          {
+            "type": "text",
+            "text": "Owner-authorized private frontend guidance during the running sleep. Do not cancel, replace or repeat the running command. After it completes normally, reply exactly INFLIGHT_NATIVE_SERIAL_DONE. Do not run any new tool or other work.\n",
+            "text_elements": []
+          }
+        ],
+        "startedAtMs": 1794923005079,
+        "completedAtMs": 1794923005079
+      },
+      {
+        "type": "commandExecution",
+        "id": "exec-635fa34f-3fc8-46be-9fe6-bd18f62681c1",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "/usr/bin/zsh -lc 'sleep 15'",
+        "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+        "processId": "93581",
+        "source": "unifiedExecStartup",
+        "status": "completed",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "sleep 15"
+          }
+        ],
+        "aggregatedOutput": null,
+        "exitCode": 0,
+        "durationMs": 14964,
+        "startedAtMs": 1794923003763,
+        "completedAtMs": 1794923018728
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_0d43c0b1055bb900016afc59ff286087d0b7c311f7b70db264",
+        "summary": [
+          "**Waiting for completion**"
+        ],
+        "content": [],
+        "startedAtMs": 1794923007223,
+        "completedAtMs": 1794923033731
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_0d43c0b1055bb900016afc5a17b9f887d0aa2ec342bd99a49b",
+        "summary": [],
+        "content": [],
+        "startedAtMs": 1794923033734,
+        "completedAtMs": 1794923033741
+      },
+      {
+        "type": "agentMessage",
+        "id": "msg_0d43c0b1055bb900016afc5a19a69887d0b4fc864108890a4a",
+        "text": "INFLIGHT_NATIVE_SERIAL_DONE",
+        "phase": "final_answer",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 1794923033743,
+        "completedAtMs": 1794923033875
+      }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1794922999,
+    "completedAt": 1794923033,
+    "durationMs": 34404
+  },
+  "completedAt": "2026-11-17T13:43:54.247Z"
+}

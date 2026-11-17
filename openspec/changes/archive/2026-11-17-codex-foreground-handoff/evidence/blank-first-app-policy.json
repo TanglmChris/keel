@@ -1,0 +1,20 @@
+{
+  "threadId": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+  "contexts": [
+    {
+      "turn": "01a1e8da-c637-7162-9670-0dcf502d7eda",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/home/tlm/.codex/visualizations/2026/11/17/01a1e8d7-4278-7142-a188-4521987ebd3d"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  ]
+}

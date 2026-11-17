@@ -1,0 +1,356 @@
+{
+  "id": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "environments": [
+    {
+      "environmentId": "local",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "runtimeWorkspaceRoots": [
+        "/tmp/keel541-isolated-BdMg4i/fixture",
+        "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+      ]
+    }
+  ],
+  "extra": null,
+  "sessionId": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "forkedFromId": null,
+  "parentThreadId": null,
+  "preview": "Owner-authorized private Keel #541 real frontend busy acceptance. Run exactly one nonwriting terminal command: sleep 15. Then reply exactly ISOLATED_FRONTEND_DONE. Do not edit files, delegate or do other work.",
+  "ephemeral": false,
+  "section": null,
+  "sectionEnteredAt": null,
+  "projectId": null,
+  "historyMode": "paginated",
+  "modelProvider": "openai",
+  "model": "gpt-6-astra",
+  "reasoningEffort": "high",
+  "createdAt": 1794921851,
+  "updatedAt": 1794922814,
+  "recencyAt": 1794922807,
+  "status": {
+    "type": "idle"
+  },
+  "path": "/home/tlm/.codex/sessions/2026/11/17/rollout-2026-11-17T21-24-11-01a1e9ad-eaaf-71f1-9052-6d7e331d10ba.jsonl",
+  "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+  "cliVersion": "0.167.2",
+  "originator": "Codex Desktop",
+  "source": "vscode",
+  "canAcceptDirectInput": true,
+  "threadSource": null,
+  "agentNickname": null,
+  "agentRole": null,
+  "gitInfo": {
+    "sha": null,
+    "branch": "master",
+    "originUrl": null
+  },
+  "name": "isolated-shared-fixture",
+  "daybreakEnabled": null,
+  "turns": [
+    {
+      "id": "01a1e9b9-dc14-7f92-ba0e-b0249ff9ce08",
+      "rootTurnId": "01a1e9b9-dc14-7f92-ba0e-b0249ff9ce08",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e9b9-df86-7943-b883-e9fb075500a9",
+          "clientId": "84559ee1-ee48-4a70-b862-1a6d94e66263",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private Keel #541 real frontend busy acceptance. Run exactly one nonwriting terminal command: sleep 15. Then reply exactly ISOLATED_FRONTEND_DONE. Do not edit files, delegate or do other work.\n\n",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922635143,
+          "completedAtMs": 1794922635143
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc588ed9c087d0859205884d64aa1d",
+          "text": "I’ll run `sleep 15` once.\n",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922638983,
+          "completedAtMs": 1794922639241
+        },
+        {
+          "type": "commandExecution",
+          "id": "exec-617ad2a9-e69f-420b-b90a-0868de489d56",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/usr/bin/zsh -lc 'sleep 15'",
+          "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+          "processId": "29313",
+          "source": "unifiedExecStartup",
+          "status": "completed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 15"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": 0,
+          "durationMs": 14908,
+          "startedAtMs": 1794922639941,
+          "completedAtMs": 1794922654849
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc58a0d3bc87d0b0b3c41d88823279",
+          "text": "ISOLATED_FRONTEND_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922656884,
+          "completedAtMs": 1794922657016
+        }
+      ],
+      "itemsView": "full",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1794922634,
+      "completedAt": 1794922657,
+      "durationMs": 22773
+    },
+    {
+      "id": "01a1e9ba-3693-7f00-86c0-bfa5b3ed43d1",
+      "rootTurnId": "01a1e9ba-3693-7f00-86c0-bfa5b3ed43d1",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e9ba-3735-7540-96e0-e0b902d6dd95",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private acceptance. Reply exactly BACKEND_AFTER_FRONTEND_DONE. No tools or other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922657590,
+          "completedAtMs": 1794922657590
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc58a3919487d08a572a5f7d0e5101",
+          "text": "BACKEND_AFTER_FRONTEND_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922659656,
+          "completedAtMs": 1794922659748
+        }
+      ],
+      "itemsView": "full",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1794922657,
+      "completedAt": 1794922659,
+      "durationMs": 2337
+    },
+    {
+      "id": "01a1e9ba-40dc-7bb0-a7dc-b54f6b4b4e1d",
+      "rootTurnId": "01a1e9ba-40dc-7bb0-a7dc-b54f6b4b4e1d",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e9ba-4182-7423-b4ad-746319586e33",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private Keel #541 reverse busy acceptance. Run exactly one nonwriting terminal command: sleep 15. Then reply exactly ISOLATED_BACKEND_BUSY_DONE. Do not edit files, delegate or do other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922660227,
+          "completedAtMs": 1794922660227
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc58a6a2b087d081afa5d2b42f065d",
+          "text": "I’ll run `sleep 15` once.\n",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922662700,
+          "completedAtMs": 1794922663007
+        },
+        {
+          "type": "commandExecution",
+          "id": "exec-b35afd2a-d7a8-45ed-a5c3-bef01ab4afd9",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/usr/bin/zsh -lc 'sleep 15'",
+          "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+          "processId": "7320",
+          "source": "unifiedExecStartup",
+          "status": "completed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 15"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": 0,
+          "durationMs": 14913,
+          "startedAtMs": 1794922663635,
+          "completedAtMs": 1794922678549
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc58b8ec3087d0bb87a590b8978a16",
+          "text": "ISOLATED_BACKEND_BUSY_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922681028,
+          "completedAtMs": 1794922681179
+        }
+      ],
+      "itemsView": "full",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1794922660,
+      "completedAt": 1794922681,
+      "durationMs": 21132
+    },
+    {
+      "id": "01a1e9bb-6553-7120-a2f6-941abea54e77",
+      "rootTurnId": "01a1e9bb-6553-7120-a2f6-941abea54e77",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e9bb-65f3-7b50-9adf-773ea4139664",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private reverse busy test. Run exactly one nonwriting command: sleep 30. Then reply exactly REVERSE_VISIBLE_SEND_BACKEND_DONE. Do not edit files or do other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922735092,
+          "completedAtMs": 1794922735092
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc58f17d2c87d0abcc7ea28d957c66",
+          "text": "I’ll run `sleep 30` once.\n",
+          "phase": "commentary",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922737724,
+          "completedAtMs": 1794922737872
+        },
+        {
+          "type": "commandExecution",
+          "id": "exec-2c2b5a29-3ffb-4bf8-ab59-1be4d59971d4",
+          "pluginId": null,
+          "scriptPath": null,
+          "command": "/usr/bin/zsh -lc 'sleep 30'",
+          "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+          "processId": "24436",
+          "source": "unifiedExecStartup",
+          "status": "completed",
+          "commandActions": [
+            {
+              "type": "unknown",
+              "command": "sleep 30"
+            }
+          ],
+          "aggregatedOutput": null,
+          "exitCode": 0,
+          "durationMs": 29910,
+          "startedAtMs": 1794922738492,
+          "completedAtMs": 1794922768403
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc5913560087d0b24981a44b770026",
+          "text": "REVERSE_VISIBLE_SEND_BACKEND_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922771400,
+          "completedAtMs": 1794922771506
+        }
+      ],
+      "itemsView": "full",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1794922734,
+      "completedAt": 1794922771,
+      "durationMs": 36591
+    },
+    {
+      "id": "01a1e9bc-822d-73d3-9e42-31b7eb797259",
+      "rootTurnId": "01a1e9bc-822d-73d3-9e42-31b7eb797259",
+      "items": [
+        {
+          "type": "userMessage",
+          "id": "01a1e9bc-8306-7191-918c-28d983efb94d",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private reverse busy test. Run exactly one nonwriting command: sleep 30. Then reply exactly REVERSE_NATIVE_STEER_BACKEND_DONE. Do not edit files or do other work.",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922808071,
+          "completedAtMs": 1794922808071
+        },
+        {
+          "type": "userMessage",
+          "id": "01a1e9bc-8efa-7d61-9924-3cb2c4827557",
+          "clientId": "4330d6f1-8e92-4b69-9704-6e3e978d2c9c",
+          "content": [
+            {
+              "type": "text",
+              "text": "Owner-authorized private frontend input while the same backend is busy. After existing work finishes, only reply exactly FRONTEND_AFTER_BACKEND_DONE. No tools or other work.\n\n",
+              "text_elements": []
+            }
+          ],
+          "startedAtMs": 1794922811131,
+          "completedAtMs": 1794922811131
+        },
+        {
+          "type": "reasoning",
+          "id": "rs_0d43c0b1055bb900016afc593d292487d0a89545f93cb08e7e",
+          "summary": [],
+          "content": [],
+          "startedAtMs": 1794922813253,
+          "completedAtMs": 1794922814145
+        },
+        {
+          "type": "agentMessage",
+          "id": "msg_0d43c0b1055bb900016afc593df56487d0b6d12f425cc62f17",
+          "text": "FRONTEND_AFTER_BACKEND_DONE",
+          "phase": "final_answer",
+          "memoryCitation": null,
+          "delivery": null,
+          "questions": null,
+          "startedAtMs": 1794922814148,
+          "completedAtMs": 1794922814286
+        }
+      ],
+      "itemsView": "full",
+      "status": "completed",
+      "error": null,
+      "startedAt": 1794922807,
+      "completedAt": 1794922814,
+      "durationMs": 6462
+    }
+  ]
+}

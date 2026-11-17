@@ -1,0 +1,99 @@
+{
+  "observedAt": "2026-11-17T12:57:27.797699+00:00",
+  "scope": "read-only original chief/PM/flow App rollout records; no foreign-daemon idle inference",
+  "roles": [
+    {
+      "role": "chief",
+      "threadId": "01a1e7aa-5b7b-7541-bc35-7ec3f028009c",
+      "rolloutFile": "rollout-2026-11-17T12-01-06-01a1e7aa-5b7b-7541-bc35-7ec3f028009c.jsonl",
+      "latestStart": {
+        "at": "2026-11-17T12:29:23.988Z",
+        "turnId": "01a1e97b-c08c-7da1-b279-e99fdf6ad28c",
+        "attribution": {
+          "turn_id": "01a1e97b-c08c-7da1-b279-e99fdf6ad28c",
+          "turn_trigger": "composer",
+          "parent_turn_id": null,
+          "initiating_agent_path": null,
+          "root_turn_id": "01a1e97b-c08c-7da1-b279-e99fdf6ad28c"
+        },
+        "line": 3054,
+        "sha256": "e355bd8399ee6c173982a160ef0b01072e5614d0ad0d8d41d26e14f4dcec3821"
+      },
+      "latestTerminal": {
+        "at": "2026-11-17T12:25:25.428Z",
+        "type": "task_complete",
+        "turnId": "01a1e974-c70e-7be2-b50a-b6328e0f5177",
+        "line": 3052
+      },
+      "unreturnedToolCallsInCurrentTurn": [],
+      "latestActualGoalRead": {
+        "at": "2026-11-17T12:29:35.134Z",
+        "line": 3066,
+        "sha256": "a77eaf69cf8d08d56e8effce3fca105d88840a3c24f1455c52ec0bcd71e3f8cf",
+        "containsGoalNullLiteral": true,
+        "limitation": "literal in actual get_goal tool output; not an all-chat or atomic admission proof"
+      },
+      "limitation": "Tool-call return does not imply spawned subprocess sessions/background jobs terminated; per-tool owner receipts still required."
+    },
+    {
+      "role": "pm",
+      "threadId": "01a1e7aa-6663-7fa2-80e5-335cc92232fe",
+      "rolloutFile": "rollout-2026-11-17T12-01-06-01a1e7aa-6663-7fa2-80e5-335cc92232fe.jsonl",
+      "latestStart": {
+        "at": "2026-11-17T12:42:54.438Z",
+        "turnId": "01a1e988-1e59-7d50-babd-fa00f0508c7a",
+        "attribution": {
+          "turn_id": "01a1e988-1e59-7d50-babd-fa00f0508c7a",
+          "turn_trigger": "send_user_message_async_question",
+          "parent_turn_id": null,
+          "initiating_agent_path": null,
+          "root_turn_id": "01a1e988-1e59-7d50-babd-fa00f0508c7a"
+        },
+        "line": 1866,
+        "sha256": "1cac0c9641a44dfec931fe588a1c1879f2343f3f0ddad7800905b8d627eb8b1e"
+      },
+      "latestTerminal": {
+        "at": "2026-11-17T12:52:56.754Z",
+        "type": "task_complete",
+        "turnId": "01a1e988-1e59-7d50-babd-fa00f0508c7a",
+        "line": 2002
+      },
+      "unreturnedToolCallsInCurrentTurn": [],
+      "latestActualGoalRead": null,
+      "limitation": "Tool-call return does not imply spawned subprocess sessions/background jobs terminated; per-tool owner receipts still required."
+    },
+    {
+      "role": "flow",
+      "threadId": "01a1e7aa-66ef-7c13-a990-f847c5759d42",
+      "rolloutFile": "rollout-2026-11-17T12-01-06-01a1e7aa-66ef-7c13-a990-f847c5759d42.jsonl",
+      "latestStart": {
+        "at": "2026-11-17T12:57:11.896Z",
+        "turnId": "01a1e995-33cd-72e0-bdb4-7350f2200ea8",
+        "attribution": {
+          "turn_id": "01a1e995-33cd-72e0-bdb4-7350f2200ea8",
+          "turn_trigger": "composer",
+          "parent_turn_id": null,
+          "initiating_agent_path": null,
+          "root_turn_id": "01a1e995-33cd-72e0-bdb4-7350f2200ea8"
+        },
+        "line": 2115,
+        "sha256": "cc41d284b0037d939f20c13696bf56b02b64e754aa6bee5bf384f408fcbdc04b"
+      },
+      "latestTerminal": {
+        "at": "2026-11-17T12:53:45.865Z",
+        "type": "task_complete",
+        "turnId": "01a1e97b-de19-7222-b88e-ba7401507bad",
+        "line": 2113
+      },
+      "unreturnedToolCallsInCurrentTurn": [],
+      "latestActualGoalRead": {
+        "at": "2026-11-17T12:52:40.306Z",
+        "line": 2091,
+        "sha256": "ea60bef735020f2c83f1ffabe82024c0ac3083d8f75856b898146ca27125c5c7",
+        "containsGoalNullLiteral": true,
+        "limitation": "literal in actual get_goal tool output; not an all-chat or atomic admission proof"
+      },
+      "limitation": "Tool-call return does not imply spawned subprocess sessions/background jobs terminated; per-tool owner receipts still required."
+    }
+  ]
+}

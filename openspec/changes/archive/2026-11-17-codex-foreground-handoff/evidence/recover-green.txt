@@ -1,0 +1,10 @@
+✔ recover restores original owned cwd without rewriting role claims or starting work (244.093093ms)
+✔ recover refuses unsafe native and role boundaries without changing records (669.600828ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 986.878422

@@ -1,0 +1,30 @@
+[
+  {
+    "pid": 1933800,
+    "comm": "codex",
+    "executable": "/home/tlm/.codex/packages/app-server-daemon/releases/0.167.2-x86_64-unknown-linux-musl/bin/codex",
+    "appServer": true,
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 2299351,
+    "comm": "codex",
+    "executable": "/home/tlm/.codex/packages/app-server-daemon/releases/0.167.2-x86_64-unknown-linux-musl/bin/codex",
+    "appServer": true,
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 235166,
+    "comm": "codex",
+    "executable": "/home/tlm/.codex/packages/app-server-daemon/releases/0.167.2-x86_64-unknown-linux-musl/bin/codex",
+    "appServer": true,
+    "selectedEnvironment": {}
+  },
+  {
+    "pid": 915503,
+    "comm": "codex",
+    "executable": "/usr/lib/chatgpt/resources/codex",
+    "appServer": true,
+    "selectedEnvironment": {}
+  }
+]

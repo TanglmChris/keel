@@ -1,0 +1,133 @@
+{
+  "root": "/tmp/keel541-recover-native-tnDjLR",
+  "role": "recover-native-fixture",
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "startedAt": "2026-11-17T13:17:18.353Z",
+  "start": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "managed",
+    "role": "recover-native-fixture",
+    "thread": "01a1e9a7-9cdd-7d82-81f3-2ffdb3b6cc3d",
+    "worktree": "/tmp/keel541-recover-native-tnDjLR",
+    "approvalsReviewer": "auto_review"
+  },
+  "before": 0,
+  "drift": {
+    "id": "01a1e9a7-9cdd-7d82-81f3-2ffdb3b6cc3d",
+    "cwd": "/tmp/keel541-recover-native-tnDjLR/drift"
+  },
+  "recover": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "recovered",
+    "thread": "01a1e9a7-9cdd-7d82-81f3-2ffdb3b6cc3d",
+    "worktree": "/tmp/keel541-recover-native-tnDjLR"
+  },
+  "registryUnchanged": true,
+  "delivery": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "delivered",
+    "turn": "01a1e9a7-9e8c-7f11-9352-b0ece5b4c06e"
+  },
+  "turn": {
+    "id": "01a1e9a7-9e8c-7f11-9352-b0ece5b4c06e",
+    "rootTurnId": "01a1e9a7-9e8c-7f11-9352-b0ece5b4c06e",
+    "items": [
+      {
+        "type": "userMessage",
+        "id": "01a1e9a7-a4a5-7c12-a987-b68aada29d4a",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "Owner-authorized private Keel #541 same-id recovery acceptance. Run exactly one nonwriting terminal command: pwd. Reply with its exact output. Do not edit files, delegate or do other work.",
+            "text_elements": []
+          }
+        ],
+        "startedAtMs": 1794921440422,
+        "completedAtMs": 1794921440422
+      },
+      {
+        "type": "agentMessage",
+        "id": "msg_01db7f1b14483eb3016afc53e4acf887d087fee417309a661e",
+        "text": "I’ll run `pwd` once.\n",
+        "phase": "commentary",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 1794921444715,
+        "completedAtMs": 1794921445050
+      },
+      {
+        "type": "commandExecution",
+        "id": "exec-d48eb3b1-cf19-4b3f-ada2-15413d74e69e",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "/usr/bin/zsh -lc pwd",
+        "cwd": "/tmp/keel541-recover-native-tnDjLR",
+        "processId": "7299",
+        "source": "unifiedExecStartup",
+        "status": "completed",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "pwd"
+          }
+        ],
+        "aggregatedOutput": "/tmp/keel541-recover-native-tnDjLR\n",
+        "exitCode": 0,
+        "durationMs": 0,
+        "startedAtMs": 1794921445604,
+        "completedAtMs": 1794921445604
+      },
+      {
+        "type": "agentMessage",
+        "id": "msg_01db7f1b14483eb3016afc54365e8087d0869787030ba27534",
+        "text": "/tmp/keel541-recover-native-tnDjLR",
+        "phase": "final_answer",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 1794921526416,
+        "completedAtMs": 1794921526503
+      }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1794921438,
+    "completedAt": 1794921526,
+    "durationMs": 87662
+  },
+  "policy": {
+    "id": "01a1e9a7-9cdd-7d82-81f3-2ffdb3b6cc3d",
+    "cwd": "/tmp/keel541-recover-native-tnDjLR",
+    "reviewer": "auto_review",
+    "approval": "on-request",
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": false,
+      "excludeSlashTmp": false
+    }
+  },
+  "completedAt": "2026-11-17T13:18:47.702Z"
+}

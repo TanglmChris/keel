@@ -1,0 +1,20 @@
+[
+  {
+    "pid": 914946,
+    "executable": "/usr/lib/chatgpt/ChatGPT",
+    "selectedEnvironment": {},
+    "selectedConfig": []
+  },
+  {
+    "pid": 915503,
+    "executable": "/usr/lib/chatgpt/resources/codex",
+    "selectedEnvironment": {},
+    "selectedConfig": []
+  },
+  {
+    "pid": 1933800,
+    "executable": "/home/tlm/.codex/packages/app-server-daemon/releases/0.167.2-x86_64-unknown-linux-musl/bin/codex",
+    "selectedEnvironment": {},
+    "selectedConfig": []
+  }
+]

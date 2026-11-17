@@ -1,0 +1,15 @@
+{
+  "outcome": "unknown",
+  "rpc": "thread/start",
+  "budgetMs": 5000,
+  "role": "reviewer-cli-fixture",
+  "registry": {
+    "state": "creation-pending",
+    "role": "reviewer-cli-fixture",
+    "worktree": "/tmp/keel541-owned-TWsQQi/role",
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock"
+  },
+  "preservedWithoutRetry": true,
+  "independentLongBudgetFixture": "reviewer-cli-long-budget",
+  "coldCheckArtifact": "reviewer-cli-real.json"
+}

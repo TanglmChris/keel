@@ -1,0 +1,48 @@
+{
+  "capturedAt": "2026-11-17T11:06:41.485Z",
+  "threads": [
+    {
+      "id": "01a1e7aa-5b7b-7541-bc35-7ec3f028009c",
+      "status": "active",
+      "cwd": "/home/tlm/my-github/kaiwu-ip"
+    },
+    {
+      "id": "01a1e7aa-6663-7fa2-80e5-335cc92232fe",
+      "status": "idle",
+      "cwd": "/home/tlm/my-github/kaiwu-ip"
+    },
+    {
+      "id": "01a1e398-6e28-7003-9765-f6c714b2a5d4",
+      "status": "active",
+      "cwd": "/home/tlm/my-github/keel"
+    },
+    {
+      "id": "01a1e7aa-66ef-7c13-a990-f847c5759d42",
+      "status": "idle",
+      "cwd": "/home/tlm/my-github/kaiwu-ip"
+    },
+    {
+      "id": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+      "status": "idle",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role"
+    },
+    {
+      "id": "01a1e87e-0822-7b00-8926-f5c5f6e2d305",
+      "status": "idle",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role"
+    },
+    {
+      "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+      "status": "idle",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role"
+    },
+    {
+      "id": "01a1e86e-5771-7150-852f-3e20f24b3352",
+      "status": "notLoaded",
+      "cwd": "/tmp/keel541-owned-TWsQQi/role"
+    }
+  ],
+  "unavailableHosts": [],
+  "otherLocalThreadCount": 11,
+  "redactions": "Unrelated local thread identities omitted; their aggregate count retained."
+}

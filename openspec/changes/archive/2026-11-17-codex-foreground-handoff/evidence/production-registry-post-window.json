@@ -1,0 +1,17 @@
+[
+  {
+    "file": "/home/tlm/my-github/kaiwu-ip/.git/keel-chat/codex-roles/kaiwu-chief.json",
+    "sha256": "0e20ac3cca734ed9f0bce574dbaf69be9a65faea38d14fa5abc210a49ea55198",
+    "matchesBefore": true
+  },
+  {
+    "file": "/home/tlm/my-github/kaiwu-ip/.git/keel-chat/codex-roles/kaiwu-flow.json",
+    "sha256": "52803a7a3aa68b972a8a2a523f3aa6b0ae289c05250dffe3b4533913b3e200b7",
+    "matchesBefore": true
+  },
+  {
+    "file": "/home/tlm/my-github/kaiwu-ip/.git/keel-chat/codex-roles/kaiwu-pm-iecc.json",
+    "sha256": "44a709329a510d558a1af3920f2104135ebe453d4c9bf9a0c96ee5fa1f936fe3",
+    "matchesBefore": true
+  }
+]

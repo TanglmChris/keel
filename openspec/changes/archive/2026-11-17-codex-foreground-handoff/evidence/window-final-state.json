@@ -1,0 +1,203 @@
+{
+  "schema": "keel541-window/v1",
+  "createdAt": "2026-11-17T11:08:14.238Z",
+  "appPid": 914946,
+  "daemonPid": 1933800,
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "fixture": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+  "thread": "01a1e398-6e28-7003-9765-f6c714b2a5d4",
+  "url": "ws+unix://localhost/home/tlm/.codex/app-server-control/app-server-control.sock:/rpc",
+  "phase": "stopped-without-forced-action",
+  "events": [
+    {
+      "at": "2026-11-17T11:08:14.243Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "maxSeconds": 1200
+    },
+    {
+      "at": "2026-11-17T11:08:14.248Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-chief",
+        "[other local chat]",
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:10:34.787Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-chief",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:12:02.377Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "接手 DeepSeek 未完成的工作",
+        "kaiwu-chief",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:12:14.451Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-chief",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:13:49.590Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "接手 DeepSeek 未完成的工作",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:13:58.662Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:14:21.323Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-chief",
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:17:46.806Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "[other local chat]",
+        "kaiwu-chief",
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:19:32.217Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "maxSeconds": 1200
+    },
+    {
+      "at": "2026-11-17T11:19:32.220Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "guardRevision": 2,
+      "originalDeadline": "2026-11-17T11:28:14.238Z",
+      "checks": "native menu change events plus 300ms bounded fallback; immediate second check before native Quit"
+    },
+    {
+      "at": "2026-11-17T11:19:32.224Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "[other local chat]",
+        "kaiwu-chief",
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:20:44.170Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "[other local chat]",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:22:04.452Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "接手 DeepSeek 未完成的工作",
+        "[other local chat]",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:24:19.683Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "接手 DeepSeek 未完成的工作",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:25:06.586Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "[other local chat]",
+        "接手 DeepSeek 未完成的工作",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:26:47.357Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-pm-iecc",
+        "[other local chat]",
+        "接手 DeepSeek 未完成的工作",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:26:54.590Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-flow",
+        "kaiwu-pm-iecc",
+        "[other local chat]",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:27:24.758Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-flow",
+        "kaiwu-pm-iecc",
+        "接手 DeepSeek 未完成的工作",
+        "[other local chat]"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:27:39.600Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-flow",
+        "接手 DeepSeek 未完成的工作",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:27:56.874Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-flow",
+        "接手 DeepSeek 未完成的工作"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:27:56.921Z",
+      "phase": "waiting-for-all-native-tray-jobs-idle",
+      "jobs": [
+        "kaiwu-flow",
+        "接手 DeepSeek 未完成的工作",
+        "kaiwu-chief"
+      ]
+    },
+    {
+      "at": "2026-11-17T11:28:14.519Z",
+      "phase": "stopped-without-forced-action",
+      "error": "Idle window expired; App untouched"
+    }
+  ],
+  "appStart": "337621233",
+  "daemonStart": "346043758",
+  "redactions": "Unrelated local chat titles replaced; event times and activity counts preserved."
+}

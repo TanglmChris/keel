@@ -100,3 +100,24 @@ Real Codex 0.167.2 acceptance on 2026-11-17 completed PM's first turn, observed 
 A fresh Codex 0.167.2 thread can disappear after its creation connection closes before its first turn: read reports `thread not loaded` and same-id resume reports `no rollout found`. Native `thread/name/set` materializes the blank thread. Keel uses that operation with the role name and rechecks identity before successful start or successor hand-over, retaining the created id on uncertain initialization. No model warm-up, permission override or substitute thread is used; already-lost registrations require explicit owner disposition.
 
 Real public-CLI acceptance created `01a1e794-ffe7-7c90-9ac3-c78395a02fea`, closed the creation connection for at least190 seconds, observed notLoaded, then completed its first actual turn `01a1e797-f6ba-7451-8d27-27044dbc6509` with `FIRST_READY` on the identical thread. It had exactly one turn, and duplicate delivery created none. The probe was archived; isolated name/archive controls and the failed unnamed baseline are retained in the change evidence. This is actual host evidence, separate from the stand-in CLI regression.
+
+
+## Measured native shared frontend — Keel 5.230.0
+
+On 2026-11-17, Linux App 26.1023.51421 connected through its build-specific native
+WebSocket URL to the same persistent Codex 0.167.2 backend used by managed roles.
+Actual rendered input, managed busy waiting, native Guide during an item/started
+sleep, normal tool completion, App-closed backend execution and real reopened UI
+were verified on one original owned fixture. Reviewer/cwd/history/claim retention
+and duplicate refusal were checked; 16 public host tests passed separately from
+the real measurements. No production role was migrated, no Goal stopped, and the
+original App/backend were not restarted. This does not promote hook/compaction
+trust, prove macOS, or provide an atomic global Quit fence.
+
+The public start reviewer option is explicit and per-thread; native persistence
+uses no hidden model warm-up. The recover command only restores the recorded
+owned id/cwd on its existing endpoint and preserves registry claims; foreign
+writer refusal remains authoritative. A private frontend profile still uses the
+backend's project-trust store: one temporary test entry required separate owner
+approval and exact cleanup. See the current [connection/rollback runbook](cli-team.md#native-shared-desktop-connection)
+and [actual-host evidence](codex-validation.md#shared-app-reviewer-and-owned-cwd--2026-11-17).

@@ -105,6 +105,93 @@ With no `--socket`, start selects `$CODEX_HOME/app-server-control/app-server-con
 
 Successful `start` and hand-over successors receive the native thread name matching their role before Keel reports the new identity as managed. This native metadata write persists a blank thread without an implicit model turn, so its first delivery may arrive after the creating connection closes and the host unloads it. The created id is retained in pending initialization evidence if naming or identity validation fails. A pre-existing lost blank id with no rollout cannot be resumed; Keel preserves its registry and reports the error rather than silently replacing it.
 
+Choose a thread-level reviewer explicitly at creation when needed:
+
+```bash
+keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --approvals-reviewer auto_review --timeout 30000 --json
+```
+
+`--approvals-reviewer user|auto_review` belongs to `start`. `user` routes approval
+requests to the human; `auto_review` uses the native automatic reviewer. Both
+retain `on-request` and `workspace-write`. The explicit choice is stored with the
+owned role and carried into cold delivery and hand-over successors. Native
+`thread/settings/update` persists it before a new identity is reported managed,
+including a blank thread with zero model turns. Calls without the flag retain
+their existing behavior. This option requires a host supporting the native
+reviewer and settings APIs; it uses experimental API negotiation for roles with
+an explicit choice.
+
+A mismatched native reviewer, approval policy or sandbox fails before work
+starts. Persistence failures retain the pending original/successor id for
+inspection, and a timed-out creation remains unknown instead of being retried.
+An explicit timeout controls each RPC budget; the example allows 30 seconds for
+cold native setup. Inspect the retained record and host after a failure before
+deciding the next action.
+
 `deliver --role worker --record <stable-id> --text <text>` also accepts explicit work. The record id is an idempotency key: a repeated delivered id starts no second turn; uncertain results remain pending for inspection. Busy roles return waiting and require a later drain/tick. Read status to inspect approval waits; use the native Codex interface for approval decisions. An unavailable host is reported without replacement. For a new record, an identity-verified owned notLoaded thread is resumed as the same thread and rechecked before work starts; active work still waits. Already-delivered claims return without loading it, and unknown claims refuse without replay. Cold resume has a 15-second default budget; an explicit `--timeout` remains authoritative, and the stock drain gives its child 40 seconds for the bounded RPC sequence. Existing desktop chats and hand-over do not gain automatic recovery. After an uncertain creation or hand-over, inspect the host and retained registry instead of deleting the record and trying again.
 
+For an explicitly owned role whose native cwd drifted, run `keel codex recover --repo /path/to/role-worktree --role worker --json`. This restores the original thread's cwd/runtime workspace roots through native resume on its recorded endpoint; it does not migrate endpoints or adopt desktop threads. Active work returns waiting without resume. Native writer refusal, unknown state, policy or identity mismatch and timeout require inspection; a failed/unknown recovery may have changed native cwd, but the original role/history/delivery claims remain unchanged and no model turn or replacement is started. Success verifies the same id/cwd, on-request, workspace-write and any explicit reviewer; verify actual execution with the next authorized delivery. It does not recover App project/sidebar attachment or bypass a live foreign writer.
+
 Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. This adapter does not adopt existing desktop chats, alter hook trust, or report unproven guard/compaction enforcement. See `docs/codex-validation.md` for dated real-host evidence and limitations.
+
+
+## Native shared desktop connection
+
+Keel 5.230.0 was measured with Linux App 26.1023.51421 and native backend 0.167.2.
+The default desktop App's stdio runtime and an independent daemon are separate
+writers even when both list the same history. Connect the foreground App to the
+same native backend as its managed roles; pinning a chat or reading its id does
+not establish this. This is an explicit native host setup, not an automatic Keel
+switch. Other App builds and macOS need their own capability/acceptance check.
+
+For the measured build, a dedicated profile can use the process-local native
+WebSocket route, without restarting an existing App. Choose private directories,
+the installed App executable, and the already running authenticated team's
+absolute socket path. The native daemon owns execution, credentials and config;
+Keel neither starts a second dispatcher nor changes the original App connection.
+
+```sh
+CODEX_ELECTRON_USER_DATA_PATH="/path/to/private-team-profile" \
+CODEX_HOME="/path/to/private-team-home" \
+CODEX_APP_SERVER_WS_URL="ws+unix://localhost/absolute/path/team.sock:/rpc" \
+/path/to/installed/ChatGPT --user-data-dir="/path/to/private-team-profile"
+```
+
+The directories must belong to this dedicated window; an already running instance
+with the same profile may receive the launch instead. A force-CLI override defeats
+the native URL route. Verify the actual connection and role identity before work.
+Never copy authentication files to make a private profile work. The optional
+ChatGPT Local Work executor was unauthenticated in the disposable test profile;
+that does not establish support for that unrelated feature.
+
+Private frontend state does **not** isolate backend project trust. Opening a new
+project may register its trust in the backend's config. Review that native trust
+decision with the owner; do not promise zero global changes. Our isolated test
+paused on that delta, obtained explicit permission for its sole temporary project
+entry, and restored the exact original config afterward. Production trust entries
+must not be silently removed or rewritten as cleanup.
+
+Use only existing owned role ids after their actual source turns/tools have
+finished and the old writer has released them. Keep the registered endpoint and
+claim/history records. `recover` restores cwd on that same endpoint; it is not an
+endpoint migration command. A foreign daemon's notLoaded or goal:null does not
+prove source App idle. Writer refusal, unknown operation outcome or identity drift
+stops recovery; do not force, delete the registry or create a replacement id.
+
+Foreground busy work makes managed delivery return waiting until a later tick.
+In this App, input during backend busy work uses native **Guide** and updates the
+current turn; it can change the requested answer. It is not a guaranteed separate
+queued task. For independent work, use a stable addressed record and normal
+managed delivery after idle. Native queue/add accepts duplicate client UUIDs, so
+it is not an idempotency substitute for the managed claim ledger.
+
+Before production, prove real foreground input/backend follow-up, both busy
+directions, unchanged id/cwd/policy/claims, and backend execution while this App
+is normally closed. Then reopen and inspect the actual reply. Close only the
+dedicated App after its accepted turns/tools finish; the native backend keeps
+running. Rollback is a normal safe exit of that window and the original launcher
+without these process variables. If a safe exit is unavailable, preserve work and
+report it; do not kill the App, restart the backend or reset global settings.
+The original all-idle restart route remains a separate explicitly authorized
+operation. See [real-host evidence](codex-validation.md) and
+[issue #541](https://github.com/TanglmChris/keel/issues/541).

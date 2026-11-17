@@ -1,0 +1,25 @@
+decisions-are-selectable scenario passed.
+chat-role-apps-are-documented scenario passed.
+guidance-names-openspec-skills scenario passed.
+verification-layering-docs scenario passed.
+continuation-docs scenario passed.
+spec-template-validates scenario passed.
+tasks-template-red-green-example scenario passed.
+plan-funnel-guidance scenario passed.
+review-checklist-conditional-checks scenario passed: the base checklist is 79 lines.
+handoff-format-in-help scenario passed.
+published-specs-validate-strictly scenario passed: 37 published specs validate strictly against openspec 1.14.0.
+the-spec-names-the-managed-set scenario passed.
+external-agents-are-documented scenario passed.
+guidance-is-referenced-and-carries-no-criterion scenario passed.
+tdd-strategy-guide scenario passed.
+native-capabilities-unrestricted scenario passed.
+native-projections-removed scenario passed.
+surfaces-agree-with-code scenario passed.
+readme-states-the-cli scenario passed.
+readme-zh-matches-english scenario passed.
+config-documents-in-declaration-order scenario passed.
+docs-zh-match-english: cli-team.md has 8 code fences and cli-team.zh-CN.md has 6.
+a-tier-declares-what-is-skipped scenario passed.
+a-count-is-derived-from-what-it-counts scenario passed.
+validation --group docs failed for: docs-zh-match-english

@@ -1,0 +1,40 @@
+{
+  "restoredAt": "2026-11-17T13:54:08.924Z",
+  "ownerAuthorization": "D13 explicit human structured reply",
+  "removedSection": "[projects.\"/tmp/keel541-isolated-BdMg4i/fixture\"]",
+  "beforeCleanupHash": "7fafa8b0a4647101aa96153dc777f3a0aa44d9b9d7d7443c371607bdee6ac64d",
+  "restoredHash": "21c3179b626798cf33fd2b73c1a517198eb72ea45de1404468625bc56009366d",
+  "originalHash": "21c3179b626798cf33fd2b73c1a517198eb72ea45de1404468625bc56009366d",
+  "exactOriginalRestored": true,
+  "isolatedAppAbsent": true,
+  "originalAppUnchanged": true,
+  "backendUnchanged": true,
+  "launches": 2,
+  "registries": [
+    {
+      "role": "kaiwu-chief",
+      "sha256": "0e20ac3cca734ed9f0bce574dbaf69be9a65faea38d14fa5abc210a49ea55198",
+      "afterHash": "0e20ac3cca734ed9f0bce574dbaf69be9a65faea38d14fa5abc210a49ea55198"
+    },
+    {
+      "role": "kaiwu-flow",
+      "sha256": "52803a7a3aa68b972a8a2a523f3aa6b0ae289c05250dffe3b4533913b3e200b7",
+      "afterHash": "52803a7a3aa68b972a8a2a523f3aa6b0ae289c05250dffe3b4533913b3e200b7"
+    },
+    {
+      "role": "kaiwu-pm-iecc",
+      "sha256": "44a709329a510d558a1af3920f2104135ebe453d4c9bf9a0c96ee5fa1f936fe3",
+      "afterHash": "44a709329a510d558a1af3920f2104135ebe453d4c9bf9a0c96ee5fa1f936fe3"
+    }
+  ],
+  "diagnosticPortsClosed": [
+    {
+      "port": 41169,
+      "closed": true
+    },
+    {
+      "port": 34053,
+      "closed": true
+    }
+  ]
+}

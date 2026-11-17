@@ -1,0 +1,57 @@
+{
+  "id": "01a1e86e-5d64-75b3-9e4e-68a8670a7c0e",
+  "clientUserMessageId": "3bab5aed-b4e7-4ec9-9ced-0a88a69cf1c7",
+  "add": {
+    "queuedSubmission": {
+      "id": "01a1e86f-487f-7451-ae49-4c5384c725f5",
+      "input": [
+        {
+          "type": "text",
+          "text": "Owner-authorized isolated queue acceptance: reply exactly QUEUE_READY. No tools, files, git, or other work.",
+          "text_elements": []
+        }
+      ],
+      "clientUserMessageId": "3bab5aed-b4e7-4ec9-9ced-0a88a69cf1c7"
+    }
+  },
+  "duplicate": {
+    "queuedSubmission": {
+      "id": "01a1e86f-4880-7292-8ca6-fe19a645414a",
+      "input": [
+        {
+          "type": "text",
+          "text": "Owner-authorized isolated queue acceptance: reply exactly QUEUE_READY. No tools, files, git, or other work.",
+          "text_elements": []
+        }
+      ],
+      "clientUserMessageId": "3bab5aed-b4e7-4ec9-9ced-0a88a69cf1c7"
+    }
+  },
+  "list": {
+    "data": [
+      {
+        "id": "01a1e86f-487f-7451-ae49-4c5384c725f5",
+        "input": [
+          {
+            "type": "text",
+            "text": "Owner-authorized isolated queue acceptance: reply exactly QUEUE_READY. No tools, files, git, or other work.",
+            "text_elements": []
+          }
+        ],
+        "clientUserMessageId": "3bab5aed-b4e7-4ec9-9ced-0a88a69cf1c7"
+      },
+      {
+        "id": "01a1e86f-4880-7292-8ca6-fe19a645414a",
+        "input": [
+          {
+            "type": "text",
+            "text": "Owner-authorized isolated queue acceptance: reply exactly QUEUE_READY. No tools, files, git, or other work.",
+            "text_elements": []
+          }
+        ],
+        "clientUserMessageId": "3bab5aed-b4e7-4ec9-9ced-0a88a69cf1c7"
+      }
+    ],
+    "nextCursor": null
+  }
+}

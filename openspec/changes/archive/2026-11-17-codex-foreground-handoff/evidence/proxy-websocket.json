@@ -1,0 +1,73 @@
+{
+  "binary": "/usr/lib/chatgpt/resources/codex",
+  "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+  "protocol": "HTTP Upgrade plus masked WebSocket frames over native proxy stdio",
+  "responses": [
+    {
+      "id": 1,
+      "result": {
+        "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel541-proxy-ws-read; 1)",
+        "codexHome": "/home/tlm/.codex",
+        "platformFamily": "unix",
+        "platformOs": "linux"
+      }
+    },
+    {
+      "id": 2,
+      "result": {
+        "thread": {
+          "id": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+          "environments": null,
+          "extra": null,
+          "sessionId": "01a1e8d7-4278-7142-a188-4521987ebd3d",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "Owner-authorized private Keel #541 blank-thread policy acceptance. The native thread has zero prior model turns and explicit thread settings. Only reply exactly BLANK_THREAD_FIRST_APP_DONE. Do not use tools, edit files, delegate, or do other work.",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "openai",
+          "model": "gpt-6-astra",
+          "reasoningEffort": "high",
+          "createdAt": 1794907783,
+          "updatedAt": 1794908022,
+          "recencyAt": 1794908014,
+          "status": {
+            "type": "notLoaded"
+          },
+          "path": "/home/tlm/.codex/sessions/2026/11/17/rollout-2026-11-17T17-29-43-01a1e8d7-4278-7142-a188-4521987ebd3d.jsonl",
+          "cwd": "/tmp/keel541-owned-TWsQQi/role",
+          "cliVersion": "0.167.2",
+          "originator": "Codex Desktop",
+          "source": "vscode",
+          "canAcceptDirectInput": null,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": {
+            "sha": "bbb45fda882622cfd625cbcc94096375252acce8",
+            "branch": null,
+            "originUrl": null
+          },
+          "name": "keel541-private-blank-policy",
+          "daybreakEnabled": null,
+          "turns": []
+        },
+        "readState": {
+          "firstUnread": {
+            "type": "turn",
+            "turnId": "01a1e8da-c637-7162-9670-0dcf502d7eda"
+          },
+          "revision": "9bb39ac1-b77c-4b86-bc52-86e54fdf7e1e"
+        }
+      }
+    }
+  ],
+  "upgrade": "HTTP/1.1 101 Switching Protocols\r\nconnection: Upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: sq/WmR6ForgpBvPGsZbS1QDjL+Y=\r\nx-codex-websocket-max-unfragmented-message-bytes: 16777216",
+  "code": 0,
+  "signal": null,
+  "stderr": "",
+  "redactions": "Unrelated account/remote-control notifications omitted; RPC responses retained."
+}
