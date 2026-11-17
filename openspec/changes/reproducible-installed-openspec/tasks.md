@@ -1,0 +1,168 @@
+# Tasks
+
+- [x] 1.1 Diagnose actual installed dependency resolution
+  - Mode: diagnose-only
+  - Covers:
+    - D1
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: reproduce installation behavior before choosing implementation; all installation writes are confined to disposable external fixtures.
+    - M1: Pack official5.229.1 and5.229.2 tarballs, inspect their shipped lock, compare clean and upgrade installs in isolated prefixes with npm11.19.0, and run actual installed keel openspec version/strict validation. Record npm config and dependency tree; isolate native plugins when exercising updater.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d21ee9e787c2efdd7d25eee0eb163d25b09a5a6ea24f77a90abe0c9b0ce80339 (keel 5.229.2)
+    - M1: pass: evidence/native-before.json records Node24.20.0/npm11.19.0, identical published lock1.14.0/Zod4.6.7 in both tarballs; fresh registry install uses1.14.0 and strict37/37 pass, fresh local tarball and actual updater5.229.1-to5.229.2 both use1.17.0 and strict10pass/27fail. Plugin commands were isolated with absent host paths and live global prefix untouched.
+    - Review:
+      - Status: pass
+      - Acceptance check: the same public command distinguishes registry from tarball/update installations, establishing source-path-dependent npm resolution rather than a missing lock or Keel binary lookup error.
+      - Scope check: only temporary prefixes and this change evidence were written; repository product and live global installations unchanged.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/534 — explicit tested OpenSpec pin and installed-path regression are needed.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.2 Pin the tested dependency and verify real installed behavior
+  - Covers:
+    - D2
+    - D3
+    - keel-release-artifact / Installed validation dependency is reproducible
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - scripts/verify_installed_openspec.js
+    - scripts/validation/baseline.py
+    - scripts/validation/hosts.py
+    - scripts/bump_version.js
+    - .github/workflows/test.yml
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node scripts/verify_installed_openspec.js` packs this candidate and proves fresh local tarball and actual updater-from5.229.2 installations use the locked version and strictly validate all published specs, using real npm without native plugin effects. Alignment validators follow the exact locked dependency, release text derives its pin, and resolved lock entries remain byte-equivalent. Fails with: `installed-openspec:`
+  - Coupling: required
+  - Candidate Boundary:
+    - One complete candidate is exact manifest pin, regenerated root lock, alignment validators, release text generator and real installed acceptance wired into CI. Provisional mismatch/red failures may occur while developing it; completion requires unchanged resolved lock entries and passing native clean/update strict behavior plus alignment checks.
+  - Stop Rules:
+    - Stop immediately if a resolved dependency entry changes, OpenSpec differs from1.14.0, or the candidate requires host/global production writes. Do not stop merely for an expected provisional mismatch inside this candidate; stop completion until all final assertions pass.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:f8678b4b29e5552e25b8ea69af038ac3c1d1de66ff16adaa3e785c624c6cb898 (keel 5.229.2)
+    - M1: pass: node scripts/verify_installed_openspec.js proves actual clean-tarball and updater installs use1.14.0 and strict37/37 pass, saved in evidence/native-green.log. Version-alignment scenario and baseline validation pass. All resolved lock entries are identical to84d7190f; only root declaration metadata changed. CI now runs native acceptance before the full suite.
+    - M1.red: installed-openspec: installed OpenSpec1.17.0 differs from locked1.14.0; same native check records strictExit1 and10passed/27failed before implementation, evidence/native-red.log.
+    - M1.green: both native paths resolve1.14.0 and strictExit0 with37passed/0failed; all final coupled assertions align. Existing offline suite remains separate from the networked CI acceptance.
+    - Review:
+      - Status: pass
+      - Acceptance check: real npm and public installed commands prove the previously source-path-dependent behavior is fixed; CI catches future installed-tool regressions. No warning or strictness suppression.
+      - Scope check: only the seven declared product/verification paths changed, plus own evidence. The coupled lock regenerated without any resolved-entry changes; live installations untouched.
+      - Findings: Resolved here: M1 — manifest and locked tool now agree on both real installation paths. Ordinary sandbox could not probe Python for npm run validate; the authorized test environment runs baseline successfully.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.3 Explain the supported installed dependency and regression
+  - Covers:
+    - D2
+    - D3
+  - Touch:
+    - README.md
+    - README.zh-CN.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: records documentation, release metadata or final measured validation without an implementation red-green loop.
+    - M1: Bilingual installation documentation names exact tested OpenSpec version behavior, distinguishes manifest pin from npm lock handling, and docs-zh-match-english passes.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:96a8850e364855b78f4ffc068c46b5a5d6c22efee7a9c734c0636183adcd895a (keel 5.229.2)
+    - M1: pass: English and Chinese install text explicitly state manifest pin matching the tested lock release across registry and local tarball/update sources. python3 scripts/validate_plugin.py --scenario docs-zh-match-english passes.
+    - Review:
+      - Status: pass
+      - Acceptance check: docs explain the effective manifest guarantee instead of relying solely on nested lock handling, without claiming dependency upgrades.
+      - Scope check: only README.md and README.zh-CN.md changed.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.0 Align5.229.3 release metadata
+  - Covers:
+    - D4
+  - Touch:
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - npm-shrinkwrap.json
+    - package.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: records documentation, release metadata or final measured validation without an implementation red-green loop.
+    - M1: `node scripts/bump_version.js 5.229.3` aligns release/plugin/protocol metadata; changelog describes #534 and derives current dependency pin; nested worktrees unchanged.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:c6abbe99b8d259cb1e3331c637ff8dc756c113a55a92c0f97f3a5194b10f6294 (keel 5.229.2)
+    - M1: pass: bump_version.js aligns5.229.3 package/plugin/protocol markers in the19 declared version paths, and generated release text correctly reads current exact OpenSpec pin1.14.0 from package.json. Changelog records source-path diagnosis and native acceptance; nested keel-maint-cli worktree remains clean.
+    - Review:
+      - Status: pass
+      - Acceptance check: package and both native plugin releases agree on5.229.3, and new release text no longer repeats the obsolete broad dependency range.
+      - Scope check: only the19 declared marker/release paths changed in this task; prior pin/test implementation remains unchanged.
+      - Findings: none
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.1 Commit the native-tested candidate for cloud gates
+  - Mode: repo-action
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: records documentation, release metadata or final measured validation without an implementation red-green loop.
+    - M1: `git show --stat HEAD` contains the exact pin, native install acceptance, CI wiring, docs and5.229.3 metadata with measured evidence; final local full suite remains pending under2.2.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a0732389fbb248464b8bab4d80fe201338b9ecd06a9b22fb60f1f953fd4e4224 (keel 5.229.2)
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.2 Verify final regression and exact installed candidate
+  - Mode: diagnose-only
+  - Covers:
+    - D4
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: records documentation, release metadata or final measured validation without an implementation red-green loop.
+    - M1: `npm test` passes all baseline/scenario checks, native installed acceptance on the committed candidate passes, locked strict published specs validate, npm audit has zero vulnerabilities and product bytes remain identical to2.1.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+- I1: "dependency pin stays `^1.4.1`" — scripts/bump_version.js generated release text and current alignment validator expectations. Updated by:1.2
+- I2: "installs the pinned OpenSpec from its lockfile" — README.md and its Chinese equivalent omit source-path-dependent npm behavior. Updated by:1.3
+
+## Expectation Coverage
+- E1: Native install/update causal diagnosis (D1). Covered by:1.1
+- E2: Existing tested version explicitly fixed in the manifest (D2). Covered by:1.2
+- E3: Real clean/update public version and strict behavior in CI (D3). Covered by:1.2
+- E4: Formal release/install and registry acceptance (D4). Durable owner: https://github.com/TanglmChris/keel/issues/534

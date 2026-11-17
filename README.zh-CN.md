@@ -40,7 +40,8 @@ Node.js `>=20.19.0`（内置的 OpenSpec CLI 需要）。
 ## 安装
 
 **Claude Code** —— 装插件就够了。插件就是发布版本的 npm 包 `@christang/keel`，和 `keel` CLI 来自同一个包，
-所以技能和 hook 之外还带着 CLI；安装插件时 Claude 会按锁文件装好锁定版本的 OpenSpec（#337）。
+所以技能和 hook 之外还带着 CLI。包清单也显式固定锁文件中已经测试的 OpenSpec 版本，
+让 registry 安装和本地 tarball 更新使用同一版本（#534）；Claude 会在安装插件时一并安装它（#337）。
 agent 运行的 `keel` 命令用的就是插件带来的这一份：
 
 ```bash

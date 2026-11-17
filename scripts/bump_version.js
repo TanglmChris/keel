@@ -152,12 +152,13 @@ function prependChangelogEntry(newVersion) {
   if (!content.startsWith(CHANGELOG_HEADER)) {
     fail("keel/CHANGELOG.md does not start with the expected header");
   }
+  const openspecPin = JSON.parse(fs.readFileSync(PKG_PATH, "utf8")).dependencies["@fission-ai/openspec"];
   const entry =
     `## ${newVersion} - TODO: summarize this release\n\n` +
     "- TODO: describe the change.\n" +
     "- Version alignment: the npm package, both native plugin manifests, " +
     `protocol docs, and this changelog share Keel ${newVersion}; the OpenSpec ` +
-    "dependency pin stays `^1.4.1`.\n\n";
+    `dependency pin stays \`${openspecPin}\`.\n\n`;
   content = CHANGELOG_HEADER + entry + content.slice(CHANGELOG_HEADER.length);
   fs.writeFileSync(CHANGELOG_PATH, content);
   process.stdout.write("  updated keel/CHANGELOG.md (fill in the TODO lines)\n");

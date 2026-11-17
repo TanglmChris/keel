@@ -204,9 +204,9 @@ def validate_version_alignment_scenario() -> int:
     dependencies = package.get("dependencies")
     if (
         not isinstance(dependencies, dict)
-        or dependencies.get("@fission-ai/openspec") != "^1.4.1"
+        or dependencies.get("@fission-ai/openspec") != shrinkwrap_openspec_version()
     ):
-        report("version-alignment scenario dependency versions changed.")
+        report("version-alignment scenario OpenSpec declaration differs from its exact lock.")
         return 1
 
     version_result = run_keel(ROOT, "--version")

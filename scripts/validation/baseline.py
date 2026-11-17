@@ -158,11 +158,12 @@ def validate_npm_package(errors: list[str]) -> None:
                 )
 
     dependencies = package.get("dependencies")
+    locked_openspec = json.loads((ROOT / "npm-shrinkwrap.json").read_text(encoding="utf-8"))["packages"]["node_modules/@fission-ai/openspec"]["version"]
     if (
         not isinstance(dependencies, dict)
-        or dependencies.get("@fission-ai/openspec") != "^1.4.1"
+        or dependencies.get("@fission-ai/openspec") != locked_openspec
     ):
-        errors.append("package.json must depend on @fission-ai/openspec ^1.4.1")
+        errors.append("package.json must pin @fission-ai/openspec to the exact shrinkwrap version")
 
     files = package.get("files")
     if not isinstance(files, list):

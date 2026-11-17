@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify installed OpenSpec dependency
+        run: node scripts/verify_installed_openspec.js
+
       - name: Run the full gate
         run: npm test
 

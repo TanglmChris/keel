@@ -50,8 +50,9 @@ Node.js `>=20.19.0` (the bundled OpenSpec CLI needs it).
 
 **Claude Code** — the plugin is the whole install. It is the npm package `@christang/keel` at the
 release version, the same package the `keel` CLI comes from, so it carries the CLI along with the
-skills and hooks, and Claude installs the pinned OpenSpec from its lockfile when it installs the
-plugin (#337). The agent's `keel` commands run the copy the plugin brought:
+skills and hooks. Its manifest explicitly pins the tested OpenSpec release named in its lockfile,
+so registry installs and local-tarball updates select the same release (#534). Claude installs
+that dependency with the plugin (#337). The agent's `keel` commands run the copy the plugin brought:
 
 ```bash
 claude plugin marketplace add TanglmChris/keel
