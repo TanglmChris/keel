@@ -1,0 +1,182 @@
+# Tasks
+
+- [x] 1.1 Recover only owned unloaded roles and preserve delivery claims
+  - Covers:
+    - D1
+    - D2
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` invokes the public CLI for notLoaded to resume to idle delivery, duplicate delivery without resume, active-after-resume waiting, failed/mismatched recovery, unknown claims, endpoint/worktree/non-owned refusal and concurrent deduplication; no substitute thread/start or permission override occurs.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b77d51f9bd6e9d48529ed9a2853325ed830dad2f57f136350a12e1117178967f (keel 5.229.0)
+    - M1: pass: node --test scripts/test_codex_host.js, all five tests pass including unloaded duplicate without resume, owned resume and delivery, active-after-resume waiting, explicit resume failure/mismatched identity, unknown claims and non-owned/endpoint/read identity refusal; thread/start count remains unchanged.
+    - M1.red: fail before implementation: unloaded duplicate exits 1 with managed role state is not verified idle or active; expected already-delivered success.
+    - M1.green: pass after implementation: 5 tests, 0 failures; resume parameters contain only the recorded threadId and serviceName keel.
+    - Review:
+      - Status: pass
+      - Acceptance check: actual CLI commands prove idempotency and same-thread recovery/refusal cases against the host boundary, including exact resume arguments and absence of substitute creation.
+      - Scope check: only codex-host.js and test_codex_host.js changed; prior #528 shrinkwrap bytes remain untouched.
+      - Findings: Resolved here: M1 — load-state checks no longer block verified old claims, and only new owned deliveries can resume.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 1.15 Bound cold recovery with a usable default deadline
+  - Covers:
+    - D1
+    - D2
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: `node --test scripts/test_codex_host.js` delays an owned resume response beyond the former five-second default and verifies default delivery completes; explicit --timeout remains honored. Parent drain gives the bounded child sufficient recovery budget. Prior recovery/refusal checks stay green.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:596efefd2efcf129ab01868c985f04083eeb3e229f239a76f8cd35331d2171b7 (keel 5.229.0)
+    - M1: pass: all five public CLI tests pass, including a 5.5-second owned resume with defaults and explicit 100ms resume timeout. Resume default is 15s, other RPC defaults remain 5s, and drain child budget is 40s to cover their bounded sum plus process overhead.
+    - M1.red: fail before correction: the 5.5-second resume response is rejected with Codex thread/resume timeout at the original 5s deadline.
+    - M1.green: pass: five tests, zero failures, delayed default recovery succeeds and explicit short deadline still fails by name.
+    - Review:
+      - Status: pass
+      - Acceptance check: public delayed-response behavior proves a usable cold-load default without overriding explicit deadlines; existing ownership, claim and refusal tests remain green.
+      - Scope check: only codex-host.js and test_codex_host.js changed; record-only design adds the measured cold-load basis.
+      - Findings: Resolved here: M1 — the first recovery implementation was incomplete for real cold-load latency; this corrective slice retains the same ownership contract and completes its runtime budget.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 1.2 Verify the real second-round result workflow
+  - Mode: diagnose-only
+  - Covers:
+    - D3
+    - keel-codex-host-team / Delivery and hand-over do not duplicate active work
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: real host lifecycle measurement follows deterministic implementation checks and proves actual model work.
+    - M1: Run two isolated managed roles, complete PM's first round, verify its notLoaded state, deliver the execution role's real result, and observe a completed second PM turn on the same thread through the product adapter. Repeat the original record with no extra turn; retain identities and outcomes as evidence.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:a9323f223800caa19fded45614485dc53b229f579d08d1ee692454e225833c9b (keel 5.229.0)
+    - M1: pass: evidence/real-second-round.json records PM 01a1e76a-0424-7912-aa02-3431a7412571, a completed first turn and observed notLoaded state, actual execution fixture output GATE_OK, and second completed turn 01a1e76b-f2a3-78a2-bcfe-6d0f52df46a3 returning PM_RESULT_ACK_0001 on the identical thread. PM has exactly 2 turns, execution role 1; duplicates do not resume or repeat work.
+    - Review:
+      - Status: pass
+      - Acceptance check: actual persisted thread identity, native unload observation, real file/test result and completed second model response prove recovery beyond first RPC acceptance. Product commands performed recovery with defaults; no manual resume followed observed notLoaded.
+      - Scope check: only isolated temporary repositories, owned test sessions and this change evidence were affected; no kaiwu or production role files changed.
+      - Findings: Resolved here: M1 — second-round delivery completed. Discard reason: the first 55-second observer deadline was shorter than the 61.827-second model turn; final read-only verification observed completion without starting another turn. This is an observer limit, not a duplicate-work retry.
+    - Blocker: none
+    - Reauthorizations: none
+- [x] 1.3 Update the bounded recovery documentation
+  - Covers:
+    - D1
+    - D2
+  - Touch:
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/host-contract.md
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation states measured recovery and unchanged trust boundaries; behavior checks already exist.
+    - M1: The documents describe same-thread owned recovery, idempotent unloaded claims and refusal boundaries; bilingual documentation checks pass and real evidence is distinguished from stand-ins.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:b3747cc25f30c02c91b8bb70751001085035ace5e979291dfc53156a3f691e72 (keel 5.229.0)
+    - M1: pass: docs-zh-match-english passes; CLI-team, host contract and native acceptance docs now describe same-thread recovery, original-claim deduplication, bounded cold deadlines and the actual completed second round.
+    - Review:
+      - Status: pass
+      - Acceptance check: prior manual-notLoaded wording is replaced by verified owned recovery and refusal boundaries; real and stand-in evidence remain distinct.
+      - Scope check: only the four declared documentation paths changed.
+      - Findings: Resolved here: docs/cli-team.md — obsolete manual-resume instruction updated without implying desktop adoption.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.15 Commit the priority candidate for required cloud verification
+  - Mode: repo-action
+  - Covers:
+    - D1
+    - D3
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: records the implemented candidate for review and CI; local final regression and release readiness remain pending under task 2.1.
+    - M1: `git show --stat HEAD` contains 5.229.1 metadata, the unit/real-host-verified owned resume repair, compatible Zod lock and their evidence. No merge or publication is performed by this commit; exact-head Full gate is required before repository automation lands it.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:65b05aeeb3fc878369e6f5e242a9165bcf9227259f741453df3749e23e9a496c (keel 5.229.0)
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+- [ ] 2.1 Prepare the compatible patch release and final regression
+  - Covers:
+    - D1
+    - D3
+  - Touch:
+    - .claude-plugin/marketplace.json
+    - .claude-plugin/plugin.json
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - keel/CHANGELOG.md
+    - npm-shrinkwrap.json
+    - package.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: release metadata aligns the already behaviorally verified fixes; final regression and audit are concrete release evidence.
+    - M1: `node scripts/bump_version.js 5.229.1` aligns all release/protocol/plugin markers; `npm test` passes the final combined #531/#528 candidate, `npm audit --json` has no vulnerabilities and published specs validate strictly. Nested Git worktrees remain untouched.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:faf8823326c8377cef42f3464b0e7cf3fd1a6c905e62b4a1a5b74f9a89dac3f0 (keel 5.229.0)
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+- [ ] 2.2 Commit the verified priority patch
+  - Mode: repo-action
+  - Covers:
+    - D1
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: commits the verified source, dependency repair, metadata and evidence without further product changes.
+    - M1: `git show --stat HEAD` records the priority owned-resume fix and patched lock; product files match the tested bytes in HEAD.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - Review:
+      - Status: pending
+      - Acceptance check: pending
+      - Scope check: pending
+      - Findings: pending
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+
+- I1: "An unavailable or notLoaded managed thread is reported and never replaced or treated as idle" — docs/cli-team.md and its Chinese counterpart; owned notLoaded delivery now resumes the same verified thread. Updated by: 1.3
+
+## Expectation Coverage
+
+- E1: Same-thread recovery inside ownership/lock and refusal boundaries (D1, D2). Covered by: 1.1
+- E2: Actual second-round work after unload (D3). Covered by: 1.2
+- E3: Accurate recovery and trust documentation (D1, D2). Covered by: 1.3

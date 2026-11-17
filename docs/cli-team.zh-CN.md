@@ -102,6 +102,6 @@ keel codex handover --repo /path/to/role-worktree --role worker --note "已完�
 
 未指定 `--socket` 时，start 使用 `$CODEX_HOME/app-server-control/app-server-control.sock`，通常位于 `~/.codex/`；后续调用使用记录中的端点。`keel tick` 按现有信箱的定向、停用和 no_wake 规则投递未读记录，调度仍由宿主负责。同一角色切换到托管模式前，应停止旧的 `keel chat wake` 监视器，保证只有一个投递者。
 
-显式投递用 `keel codex deliver --role worker --record <稳定编号> --text <内容>`，同时指定工作目录。相同编号只启动一个工作回合；结果不确定时保留 pending，不自动重试。忙碌时返回 waiting，等待下一次 drain/tick。需要批准的操作仍在原生 Codex 界面处理。不可达或 notLoaded 的角色会明确报错，不会被当作空闲或被替换；先在所选宿主中检查并恢复确实属于该角色的会话，再继续。创建或交接结果不确定时先核实宿主和保留的记录，不要删记录重试。
+显式投递用 `keel codex deliver --role worker --record <稳定编号> --text <内容>`，同时指定工作目录。相同编号只启动一个工作回合；结果不确定时保留 pending，不自动重试。忙碌时返回 waiting，等待下一次 drain/tick。需要批准的操作仍在原生 Codex 界面处理。宿主不可达时明确报错，不创建替代会话。新记录遇到身份已核实且确实归 Keel 所有的 notLoaded 线程时，会恢复同一线程并重新核验，忙碌则等待。已投记录直接返回原声明，不为去重而恢复；未知声明继续拒绝重放。冷恢复默认预算为 15 秒，显式 `--timeout` 仍优先；内置信箱 drain 给子进程 40 秒，覆盖有界的 RPC 序列。现有桌面聊天和换班不因此获得自动恢复。创建或交接结果不确定时先核实宿主和保留的记录，不要删记录重试。
 
 交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。不自动接管现有桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。

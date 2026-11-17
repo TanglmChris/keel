@@ -99,11 +99,11 @@ function connect(socketPath, timeout = 5000) {
       socket.on('close', () => fail(Error('Codex host disconnected')));
       opened = true;
       resolve({
-        call(method, params) {
+        call(method, params, callTimeout = timeout) {
           return new Promise((resolveCall, rejectCall) => {
             if (closed) return rejectCall(Error('Codex host disconnected'));
             const id = ++sequence;
-            const timer = setTimeout(() => fail(Error(`Codex ${method} timeout`)), timeout);
+            const timer = setTimeout(() => fail(Error(`Codex ${method} timeout`)), callTimeout);
             pending.set(id, {resolve: resolveCall, reject: rejectCall, timer});
             try {send(1, Buffer.from(JSON.stringify({id, method, params})));}
             catch (error) {fail(error);}
@@ -127,6 +127,7 @@ async function run(args) {
     if (!["status", "start", "deliver", "handover", "drain"].includes(action)) throw Error("Usage: keel codex status|start|deliver|handover|drain [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]");
     const options = {socket: path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "app-server-control/app-server-control.sock"), timeout: 5000, repo: process.cwd()};
     let explicitSocket = false;
+    let explicitTimeout = false;
     while (args.length) {
       const flag = args.shift();
       if (flag === "--json") options.json = true;
@@ -135,6 +136,7 @@ async function run(args) {
         if (!value || value.startsWith("--")) throw Error(`${flag} needs a value`);
         options[flag.slice(2)] = value;
         if (flag === "--socket") explicitSocket = true;
+        if (flag === "--timeout") explicitTimeout = true;
       } else throw Error(`Unknown argument ${flag}`);
     }
     const ms = Number(options.timeout);
@@ -196,31 +198,51 @@ async function run(args) {
       store.setRole(where, options.role);
       Object.assign(result, entry);
     } else if (["deliver", "handover"].includes(action)) {
-      const thread = (await client.call("thread/read", {threadId: recorded.thread, includeTurns: false})).thread;
-      if (!thread || thread.id !== recorded.thread || thread.cwd !== recorded.worktree) throw Error("managed role identity mismatch");
-      if (!thread.status || !["idle", "active"].includes(thread.status.type)) throw Error("managed role state is not verified idle or active; no work started");
+      let thread = (await client.call("thread/read", {threadId: recorded.thread, includeTurns: false})).thread;
+      const owned = value => value && value.id === recorded.thread && value.cwd === recorded.worktree;
+      if (!owned(thread)) throw Error("managed role identity mismatch");
       const claims = recorded.deliveries || {};
       const key = options.record ? crypto.createHash("sha256").update(options.record).digest("hex") : null;
       if (action === "deliver" && claims[key]) {
-        if (claims[key].state !== "delivered") throw Error("delivery outcome unknown; claim retained, no retry started");
+        // Deduplication is a recorded outcome, not a reason to load a thread.
+        if (claims[key].state !== "delivered" || typeof claims[key].turn !== "string" || !claims[key].turn) {
+          throw Error("delivery outcome unknown; claim retained, no retry started");
+        }
         Object.assign(result, {state: "already-delivered", turn: claims[key].turn});
-      } else if (thread.status.type === "active") {
-        Object.assign(result, {state: "waiting", thread: recorded.thread});
-      } else if (action === "deliver") {
-        claims[key] = {record: options.record, state: "pending"};
-        recorded.deliveries = claims; store.writeJsonAtomic(where, file, recorded);
-        const turn = (await client.call("turn/start", {threadId: recorded.thread, input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
-        if (!turn || !turn.id) throw Error("Codex returned no turn identity; claim retained");
-        claims[key] = {record: options.record, state: "delivered", turn: turn.id};
-        store.writeJsonAtomic(where, file, recorded); Object.assign(result, {state: "delivered", turn: turn.id});
       } else {
-        if (recorded.handover) throw Error("handover outcome unknown; no successor started");
-        recorded.handover = {state: "pending", note: options.note}; store.writeJsonAtomic(where, file, recorded);
-        const next = (await client.call("thread/start", {cwd: recorded.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"})).thread;
-        if (!next || !next.id || next.cwd !== recorded.worktree) throw Error("successor identity mismatch; handover retained");
-        const history = [...(recorded.history || []), {thread: recorded.thread, note: options.note}];
-        delete recorded.handover; Object.assign(recorded, {thread: next.id, history, note: options.note});
-        store.writeJsonAtomic(where, file, recorded); Object.assign(result, {state: "handed-over", thread: next.id, note: options.note});
+        if (action === "deliver" && thread.status && thread.status.type === "notLoaded") {
+          // Only this recorded owned identity may be loaded. Keep this same
+          // connection alive through the subsequent turn/start and preserve
+          // the thread's saved permissions rather than overriding them.
+          thread = (await client.call("thread/resume", {threadId: recorded.thread, serviceName: "keel"}, explicitTimeout ? ms : Math.max(ms, 15000))).thread;
+          if (!owned(thread)) throw Error("resumed managed role identity mismatch");
+        }
+        if (!thread.status || !["idle", "active"].includes(thread.status.type)) {
+          throw Error("managed role state is not verified idle or active; no work started");
+        }
+        if (thread.status.type === "active") {
+          Object.assign(result, {state: "waiting", thread: recorded.thread});
+        } else if (action === "deliver") {
+          claims[key] = {record: options.record, state: "pending"};
+          recorded.deliveries = claims;
+          store.writeJsonAtomic(where, file, recorded);
+          const turn = (await client.call("turn/start", {threadId: recorded.thread, input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
+          if (!turn || !turn.id) throw Error("Codex returned no turn identity; claim retained");
+          claims[key] = {record: options.record, state: "delivered", turn: turn.id};
+          store.writeJsonAtomic(where, file, recorded);
+          Object.assign(result, {state: "delivered", turn: turn.id});
+        } else {
+          if (recorded.handover) throw Error("handover outcome unknown; no successor started");
+          recorded.handover = {state: "pending", note: options.note};
+          store.writeJsonAtomic(where, file, recorded);
+          const next = (await client.call("thread/start", {cwd: recorded.worktree, sandbox: "workspace-write", approvalPolicy: "on-request", serviceName: "keel"})).thread;
+          if (!next || !next.id || next.cwd !== recorded.worktree) throw Error("successor identity mismatch; handover retained");
+          const history = [...(recorded.history || []), {thread: recorded.thread, note: options.note}];
+          delete recorded.handover;
+          Object.assign(recorded, {thread: next.id, history, note: options.note});
+          store.writeJsonAtomic(where, file, recorded);
+          Object.assign(result, {state: "handed-over", thread: next.id, note: options.note});
+        }
       }
     } else if (options.thread) {
       result.thread = (await client.call("thread/read", {threadId: options.thread, includeTurns: false})).thread;
@@ -263,7 +285,7 @@ function wakeManaged(where, onlyRole = null) {
       const child = require('node:child_process').spawnSync(process.execPath, [
         path.resolve(__dirname, '../../bin/keel.js'), 'codex', 'deliver',
         '--repo', entry.worktree, '--role', role, '--record', record.id, '--text', prompt, '--json',
-      ], {encoding: 'utf8', timeout: 20000});
+      ], {encoding: 'utf8', timeout: 40000});
       let result;
       try {result = JSON.parse(child.stdout);} catch {result = {};}
       if (child.error || child.status !== 0) result.error = child.error ? child.error.message : child.stderr.trim();
