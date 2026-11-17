@@ -115,7 +115,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.1 Commit the native-tested candidate for cloud gates
+- [x] 2.1 Commit the native-tested candidate for cloud gates
   - Mode: repo-action
   - Covers:
     - D4
@@ -127,16 +127,16 @@
     - M1: `git show --stat HEAD` contains the exact pin, native install acceptance, CI wiring, docs and5.229.3 metadata with measured evidence; final local full suite remains pending under2.2.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:a0732389fbb248464b8bab4d80fe201338b9ecd06a9b22fb60f1f953fd4e4224 (keel 5.229.2)
-    - M1: pending
+    - M1: pass: commit8cd14c07 records exact tested dependency pin, unchanged resolved lock entries, native regression, Full-gate wiring, docs and5.229.3 metadata; final local full/native candidate checks remain pending under2.2.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: candidate is reviewable and ready for exact-head CI; no final-regression or publication success is claimed here.
+      - Scope check: Git commit only records authorized implementation, docs, release and own evidence bytes.
+      - Findings: none
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.2 Verify final regression and exact installed candidate
+- [x] 2.2 Verify final regression and exact installed candidate
   - Mode: diagnose-only
   - Covers:
     - D4
@@ -147,13 +147,13 @@
     - Reason: records documentation, release metadata or final measured validation without an implementation red-green loop.
     - M1: `npm test` passes all baseline/scenario checks, native installed acceptance on the committed candidate passes, locked strict published specs validate, npm audit has zero vulnerabilities and product bytes remain identical to2.1.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:f237d957c1345bd282596e8212a640e6bd7b1073ddbb553cceb7dc74f8d466c1 (keel 5.229.2)
+    - M1: pass: npm test baseline plus426 scenarios passes (278 deterministic,148 stand-in), log /tmp/keel534-final-full.log. Final committed candidate native clean/update acceptance passes1.14.0 and strict37/37, evidence/final-native.log. An actual drifted1.17.0 prefix upgrades to1.14.0 and strict37/37, evidence/drifted-prefix-upgrade.json. Locked strict specs/change validation pass, npm audit has0 vulnerabilities, product bytes match8cd14c07.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: full prior regression and real installed behavior cover clean, normal upgrade and already-drifted prefixes without suppressing strict diagnostics. Coupled manifest/lock final assertions remain aligned.
+      - Scope check: only own task/evidence records changed after candidate commit; no product or live global changes in this diagnosis task.
+      - Findings: Resolved here: M1 — source-path installation drift is corrected and final candidate regression passes. Formal publication/local installation remains owned by https://github.com/TanglmChris/keel/issues/534 until verified.
     - Blocker: none
     - Reauthorizations: none
 

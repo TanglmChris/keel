@@ -37,3 +37,10 @@ The shipped shrinkwrap MUST resolve a Zod version outside GHSA-mrhx-c7xc-m3w5's 
 - **WHEN** a clean installation uses the repaired shrinkwrap
 - **THEN** the installed Zod is at least 4.6.6 and npm audit does not report GHSA-mrhx-c7xc-m3w5
 - **AND THEN** the existing OpenSpec public validation checks still pass
+
+### Requirement: Installed validation dependency is reproducible
+The published Keel package MUST provide the same supported validation dependency after clean installation and upgrade. Public OpenSpec commands MUST exercise that dependency, with behavior equivalent to the release-tested dependency. Installation divergence MUST NOT be concealed by suppressing validation findings.
+
+#### Scenario: Clean and upgraded installations validate the same project
+- **WHEN** the published package is installed into an empty prefix or upgrades an existing Keel installation
+- **THEN** its actual OpenSpec version and strict validation behavior agree with the release-tested version

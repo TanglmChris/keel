@@ -1,0 +1,9 @@
+{
+  "before": "1.17.0",
+  "update": "\nadded 17 packages, removed 4 packages, and changed 54 packages in 10s\n\n23 packages are looking for funding\n  run `npm fund` for details\nkeel update: cli: updated 5.229.2 -> 5.229.3 - applies to the next command that runs keel\nkeel update: claude plugin: absent - Claude Code is not installed here or has no Keel plugin\nkeel update: codex plugin: absent - Codex is not installed here or has no Keel plugin\n",
+  "after": "1.14.0",
+  "strictExit": 0,
+  "totals": [
+    "Totals: 37 passed, 0 failed (37 items)"
+  ]
+}
