@@ -124,7 +124,7 @@ async function run(args) {
   let roleLock;
   try {
     const action = args.shift();
-    if (!["status", "start", "deliver", "handover", "drain"].includes(action)) throw Error("Usage: keel codex status|start|deliver|handover|drain [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]");
+    if (!["status", "start", "deliver", "handover", "drain", "recover"].includes(action)) throw Error("Usage: keel codex status|start|deliver|handover|drain|recover [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]");
     const options = {socket: path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "app-server-control/app-server-control.sock"), timeout: 5000, repo: process.cwd()};
     let explicitSocket = false;
     let explicitTimeout = false;
@@ -170,7 +170,7 @@ async function run(args) {
       }
     }
     if (action === "start" && !options.role) throw Error("start needs --role");
-    if (["deliver", "handover"].includes(action)) {
+    if (["deliver", "handover", "recover"].includes(action)) {
       if (!recorded) throw Error("operation needs a managed --role");
       const candidateLock = `${file}.lock`;
       const fd = fs.openSync(candidateLock, "wx"); fs.closeSync(fd);
@@ -220,6 +220,23 @@ async function run(args) {
       store.writeJsonAtomic(where, file, entry);
       store.setRole(where, options.role);
       Object.assign(result, entry);
+    } else if (action === "recover") {
+      const original = (await client.call("thread/read", {threadId: recorded.thread, includeTurns: false})).thread;
+      if (!original || original.id !== recorded.thread) throw Error("managed role identity mismatch; no recovery attempted");
+      if (!original.status || !["idle", "active", "notLoaded"].includes(original.status.type)) throw Error("managed role state is not verified; no recovery attempted");
+      if (original.status.type === "active") {
+        Object.assign(result, {state: "waiting", thread: recorded.thread});
+      } else {
+        // Native writer ownership decides whether the original id can resume.
+        // Restore only the recorded execution cwd; never rewrite role claims.
+        const resumed = await client.call("thread/resume", {threadId: recorded.thread, cwd: recorded.worktree, runtimeWorkspaceRoots: [recorded.worktree], serviceName: "keel", ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
+        if (!resumed.thread || resumed.thread.id !== recorded.thread || resumed.thread.cwd !== recorded.worktree) throw Error("recovered managed role identity mismatch; original registry retained");
+        if (resumed.approvalPolicy !== "on-request") throw Error("recovered thread approval policy mismatch; original registry retained");
+        if (resumed.sandbox?.type !== "workspaceWrite") throw Error("recovered thread sandbox mismatch; original registry retained");
+        if (recorded.approvalsReviewer && resumed.approvalsReviewer !== recorded.approvalsReviewer) throw Error("recovered thread reviewer mismatch; original registry retained");
+        if (resumed.thread.status?.type !== "idle") throw Error("recovered thread is not verified idle; original registry retained");
+        Object.assign(result, {state: "recovered", thread: recorded.thread, worktree: recorded.worktree});
+      }
     } else if (["deliver", "handover"].includes(action)) {
       let thread = (await client.call("thread/read", {threadId: recorded.thread, includeTurns: false})).thread;
       const owned = value => value && value.id === recorded.thread && value.cwd === recorded.worktree;

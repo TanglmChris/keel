@@ -1,0 +1,13 @@
+{
+  "observedAt": "2026-11-17T13:49:21.612060+00:00",
+  "onlyPrivateProjectSection": "[projects.\"/tmp/keel541-isolated-BdMg4i/fixture\"]",
+  "keyNames": [
+    "trust_level"
+  ],
+  "beforeHash": "21c3179b626798cf33fd2b73c1a517198eb72ea45de1404468625bc56009366d",
+  "currentHash": "7fafa8b0a4647101aa96153dc777f3a0aa44d9b9d7d7443c371607bdee6ac64d",
+  "candidateHash": "21c3179b626798cf33fd2b73c1a517198eb72ea45de1404468625bc56009366d",
+  "restoresExactOriginal": true,
+  "written": false,
+  "ownerApproval": "D13 explicit human reply approved exact test-section retention/cleanup and final reopen limit; final restoration is proved by isolated-final-state.json"
+}

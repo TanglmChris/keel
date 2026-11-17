@@ -136,13 +136,13 @@ async function reviewerHost() {
   let buf=Buffer.alloc(0);s.on('end',()=>{for(const t of threads.values()){t.loaded=false;t.reviewer=t.savedReviewer;}});
   s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4),data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x);if(!x.id)continue;
    let result={},error;const p=x.params||{};let t=threads.get(p.threadId);
-   const reply=()=>({thread:{id:t.id,cwd:dir,status:{type:t.loaded?'idle':'notLoaded'}},approvalsReviewer:mismatch?'user':t.reviewer,approvalPolicy:'on-request',sandbox:{type:'workspaceWrite',networkAccess:false,writableRoots:[]}});
+   const reply=()=>({thread:{id:t.id,cwd:t.cwd||dir,status:{type:t.status||(t.loaded?'idle':'notLoaded')}},approvalsReviewer:mismatch?'user':t.reviewer,approvalPolicy:'on-request',sandbox:{type:'workspaceWrite',networkAccess:false,writableRoots:[]}});
    if(x.method==='initialize')result={userAgent:'native-reviewer-fixture'};
    else if(x.method==='thread/start'){t={id:'reviewer-'+ ++serial,reviewer:p.approvalsReviewer||'user',savedReviewer:'user',loaded:true};threads.set(t.id,t);result=reply();}
    else if(x.method==='thread/name/set'){}
    else if(x.method==='thread/settings/update'){if(rejectPersistence)error={message:'native reviewer persistence rejected'};else t.savedReviewer=t.reviewer=p.approvalsReviewer;}
    else if(x.method==='thread/read')result=reply();
-   else if(x.method==='thread/resume'){t.loaded=true;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();}
+   else if(x.method==='thread/resume'){if(t.resumeError)error={message:t.resumeError};else {t.loaded=true;t.cwd=p.cwd||t.cwd;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();if(t.wrongResumeCwd)result.thread.cwd='/wrong-resumed-cwd';}}
    else if(x.method==='turn/start'){t.reviewer=p.approvalsReviewer||t.reviewer;turnReviewers.push(t.reviewer);t.savedReviewer=t.reviewer;result={turn:{id:'reviewer-turn-'+turnReviewers.length}};}
    else error={message:'unsupported fixture RPC '+x.method};
    if(dropStartReply&&x.method==='thread/start')continue;
@@ -252,5 +252,41 @@ test('explicit thread reviewer remains declared when creation response is unknow
   const role=JSON.parse(fs.readFileSync(path.join(h.dir,'.git/keel-chat/codex-roles/reviewer-worker.json')));
   assert.equal(role.state,'creation-pending');assert.equal(role.approvalsReviewer,'auto_review');assert.equal(role.thread,undefined);
   assert.notEqual((await run(h.args(),'start')).code,0);assert.equal(h.threads.size,1);
+ }finally{await h.close();}
+});
+
+
+test('recover restores original owned cwd without rewriting role claims or starting work',async()=>{
+ const h=await reviewerHost();try{
+  const started=await run(h.args(),'start');assert.equal(started.code,0,started.err);const id=JSON.parse(started.out).thread;
+  const delivered=await run(['--repo',h.dir,'--role','reviewer-worker','--record','prior-claim','--text','prior work','--json'],'deliver');assert.equal(delivered.code,0,delivered.err);
+  const file=path.join(h.dir,'.git/keel-chat/codex-roles/reviewer-worker.json'),before=fs.readFileSync(file);
+  h.threads.get(id).cwd='/drifted-cwd';h.threads.get(id).loaded=false;
+  const turnCount=h.requests.filter(x=>x.method==='turn/start').length;
+  const result=await run(['--repo',h.dir,'--role','reviewer-worker','--json'],'recover');assert.equal(result.code,0,result.err);
+  assert.equal(JSON.parse(result.out).state,'recovered');assert.equal(JSON.parse(result.out).thread,id);
+  const resume=h.requests.filter(x=>x.method==='thread/resume').at(-1);
+  assert.equal(resume.params.cwd,h.dir);assert.deepEqual(resume.params.runtimeWorkspaceRoots,[h.dir]);assert.equal(resume.params.threadId,id);
+  assert.equal(resume.params.approvalsReviewer,'auto_review');assert.deepEqual(fs.readFileSync(file),before);
+  assert.equal(h.requests.filter(x=>x.method==='turn/start').length,turnCount);assert.equal(h.requests.filter(x=>x.method==='thread/start').length,1);
+ }finally{await h.close();}
+});
+
+test('recover refuses unsafe native and role boundaries without changing records',async()=>{
+ const h=await reviewerHost();try{
+  const started=await run(h.args(),'start');assert.equal(started.code,0,started.err);const id=JSON.parse(started.out).thread,t=h.threads.get(id);
+  const file=path.join(h.dir,'.git/keel-chat/codex-roles/reviewer-worker.json'),before=fs.readFileSync(file);
+  const args=['--repo',h.dir,'--role','reviewer-worker','--json'];
+  t.cwd='/drifted-cwd';t.status='active';let count=h.requests.filter(x=>x.method==='thread/resume').length;
+  const busy=await run(args,'recover');assert.equal(busy.code,0,busy.err);assert.equal(JSON.parse(busy.out).state,'waiting');assert.equal(h.requests.filter(x=>x.method==='thread/resume').length,count);
+  t.status='idle';t.id='foreign-thread';const wrongId=await run(args,'recover');assert.notEqual(wrongId.code,0);assert.match(wrongId.err,/identity/);assert.equal(h.requests.filter(x=>x.method==='thread/resume').length,count);t.id=id;
+  t.status='unknown';const unknown=await run(args,'recover');assert.notEqual(unknown.code,0);assert.match(unknown.err,/state/);assert.equal(h.requests.filter(x=>x.method==='thread/resume').length,count);
+  t.status='idle';t.resumeError='already has an active writer';const writer=await run(args,'recover');assert.notEqual(writer.code,0);assert.match(writer.err,/active writer/);delete t.resumeError;
+  t.wrongResumeCwd=true;const mismatch=await run(args,'recover');assert.notEqual(mismatch.code,0);assert.match(mismatch.err,/identity/);delete t.wrongResumeCwd;
+  h.mismatch();const policy=await run(args,'recover');assert.notEqual(policy.code,0);assert.match(policy.err,/reviewer mismatch/);
+  count=h.requests.length;const endpoint=await run([...args,'--socket',path.join(h.dir,'wrong.sock')],'recover');assert.notEqual(endpoint.code,0);assert.match(endpoint.err,/endpoint mismatch/);assert.equal(h.requests.length,count);
+  const unowned=await run(['--repo',h.dir,'--role','unowned','--json'],'recover');assert.notEqual(unowned.code,0);assert.equal(h.requests.length,count);
+  const noRole=await run(['--repo',h.dir,'--json'],'recover');assert.notEqual(noRole.code,0);assert.equal(h.requests.length,count);
+  assert.deepEqual(fs.readFileSync(file),before);assert.equal(h.requests.filter(x=>x.method==='thread/start').length,1);assert.equal(h.requests.filter(x=>x.method==='turn/start').length,0);
  }finally{await h.close();}
 });

@@ -1,5 +1,13 @@
 # Keel Changelog
 
+## 5.230.0 - Native shared Codex foreground and owned recovery
+
+- `keel codex start --approvals-reviewer user|auto_review` explicitly persists native thread review policy without model warm-up, retaining on-request/workspace-write through cold delivery and handover. Failed/unknown creation retains its original pending identity and declared reviewer.
+- `keel codex recover` restores an owned thread's recorded worktree on its existing endpoint, checks original id and native policy, leaves claims/history untouched, and refuses active/unknown/foreign-writer recovery without replacement.
+- Document a measured, opt-in Linux native shared App connection: actual foreground/backend busy behavior, native Guide with an in-flight tool, backend execution while the App is closed, and original-id/history/policy/claim reopen. Defaults, existing App connections, Goals and production roles are not automatically changed.
+- Bilingual setup/recovery/rollback notes explain build limits, native Guide semantics and backend-owned project trust. The isolated test's sole trust entry was explicitly approved and exactly removed; hook/compaction capabilities stay manual.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.230.0; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.229.3 - Keep installed OpenSpec on the tested release
 
 - Fix #534: pin the already-tested OpenSpec 1.14.0 explicitly in the package manifest and root lock metadata. npm 11 local-tarball installs no longer float to 1.17.0 while registry installs use 1.14.0; all resolved dependency entries, including patched Zod, remain unchanged.

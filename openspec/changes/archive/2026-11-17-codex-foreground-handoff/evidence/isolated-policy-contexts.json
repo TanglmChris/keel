@@ -1,0 +1,125 @@
+{
+  "thread": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "rolloutFile": "rollout-2026-11-17T21-24-11-01a1e9ad-eaaf-71f1-9052-6d7e331d10ba.jsonl",
+  "contexts": [
+    {
+      "line": 11,
+      "sha256": "361524b77473bd920f2bdc2aa3213edcf43e184fbf87d12e55c8a1e33fd024e8",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9b9-dc14-7f92-ba0e-b0249ff9ce08",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 32,
+      "sha256": "55534b9c73aaa6af7bd3a56f2678d7c6577323ee176261f7ad65687b97705102",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9ba-3693-7f00-86c0-bfa5b3ed43d1",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 42,
+      "sha256": "80a3de9b94e33235ce181530de463cf3a2489555885e1dff291eac10f2605747",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9ba-40dc-7bb0-a7dc-b54f6b4b4e1d",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 59,
+      "sha256": "f13ddea31f91d45aee9c133342ff290bd802dc321e9e48f37cc36747c54e45d5",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9bb-6553-7120-a2f6-941abea54e77",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 76,
+      "sha256": "102ac363ebadf33b783fe563cb62f50697014139eb21d5a355f0528102839e96",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9bc-822d-73d3-9e42-31b7eb797259",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 94,
+      "sha256": "68bbe2ecacf44c60f27fdcfbf9e50afbf624a639b9ad03a2778604aa9f861d28",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9bd-c3bb-7901-975c-016532add106",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    },
+    {
+      "line": 111,
+      "sha256": "2137734b3eb69dff0d77acc87e4aea1f7dc988e3d54ce0489b45dfa46a217aca",
+      "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+      "turnId": "01a1e9bf-6ec6-7863-855d-2d3ed05bc1f0",
+      "reviewer": "auto_review",
+      "approval": "on-request",
+      "sandbox": {
+        "type": "workspace-write",
+        "writable_roots": [
+          "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+        ],
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  ]
+}

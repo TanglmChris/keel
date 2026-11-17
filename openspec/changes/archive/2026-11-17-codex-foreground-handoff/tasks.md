@@ -23,11 +23,13 @@
     - Reauthorizations: none
 
 ## Invalidates
-- None.
+- I1: "keel codex status|start|deliver|handover|drain" — bin/keel.js help gains explicit recover; record added during release review, after the implementation already updated its declared Touch. Updated by: 2.4, 3.1
+
 
 ## Expectation Coverage
 - E1: Native writer and identity capability diagnosis (D1,D2). Covered by:1.1
-- E2: Public implementation, real App/background acceptance, formal release and recovery/runbook. Durable owner: https://github.com/TanglmChris/keel/issues/541
+- E2: Public implementation, real App/background acceptance and recovery/runbook (D2,D6,D11,D12,D13,D14). Covered by:2.1,2.4,2.5,3.1
+- E3: Exact-head CI, actual publication verification, authorized local update and chief/flow notification. Durable owner: https://github.com/TanglmChris/keel/issues/541
 
 - [x] 1.2 Verify native shared endpoint entry points
   - Mode: diagnose-only
@@ -251,6 +253,120 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.4 Perform actual shared-host integration and formal delivery
-  - Draft: select only after a current operational route meets its safety prerequisites or an exact owner decision authorizes its documented delta; author concrete Touch/Verify and a bounded unique attempt first.
-  - Durable owner: https://github.com/TanglmChris/keel/issues/541
+- [x] 2.4 Expose explicit same-id owned worktree recovery
+  - Covers:
+    - D11
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+    - bin/keel.js
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: Through the public CLI/native RPC fixture, prove recover restores only the recorded original id/cwd on the recorded endpoint, checks preserved approval/sandbox/reviewer, uses no model turn and leaves role/history/claim bytes unchanged. One behavior red then green. Prove active state returns waiting without resume; wrong id/unknown state/unowned role/endpoint mismatch/native writer or policy/identity failures refuse and preserve records without replacement or delivery.
+    - M2 (regression): Run node --test scripts/test_codex_host.js and node scripts/run_python.js scripts/validate_plugin.py --group docs --jobs 4; existing role lifecycle, reviewer, claims/locking and bilingual command documentation remain green.
+    - M3: On a new private owned native fixture only, reproduce CLI recover being unavailable, then create drift on the same original id with native resume, run public CLI recover, verify unchanged role/claim/history, and deliver one explicit pwd request proving actual execution returns to the recorded worktree with original reviewer/on-request/workspace-write. No App/daemon restart, production registration change, hidden model turn or endpoint migration.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d63c174ddf41738152ccde18b6e1f156d9dabb4dc68252ac75bcb2a299791708 (keel 5.229.3)
+    - M1: Public CLI/native boundary recover tests passed, including original cwd/id restoration, byte-identical prior claims, zero extra turns/threads, wrong id/unknown/busy state, native writer failure, returned cwd/policy mismatch, unowned role and wrong endpoint. Evidence: evidence/recover-host-full.txt.
+    - M1.red: New public recover test and unsafe-boundary test failed before implementation because recover was absent (Usage: keel codex status|start|deliver|handover|drain). Evidence: evidence/recover-red-1.txt and recover-red-2.txt.
+    - M1.green: Same public recovery cases passed after implementation; final host run has 16 tests pass, 0 failed. Evidence: evidence/recover-host-full.txt.
+    - M2: All 16 host tests and all 24 bilingual docs scenarios passed; no skips. Evidence: evidence/recover-host-full.txt and recover-docs.txt.
+    - M3: Public CLI created private native 0.167.2 thread 01a1e9a7-9cdd-7d82-81f3-2ffdb3b6cc3d; native resume drifted cwd, public recover restored original id/cwd and byte-identical role record with zero prior turns, then explicit pwd delivery completed in /tmp/keel541-recover-native-tnDjLR retaining auto_review/on-request/workspaceWrite. Evidence: evidence/recover-native-real.json.
+    - M3.red: Before implementation public recover against an owned private fixture exited with Usage, before RPC. Evidence: evidence/recover-native-red.txt.
+    - M3.green: Real public recover succeeded; subsequent commandExecution pwd exited 0 and its actual cwd/output equals the original worktree. Evidence: evidence/recover-native-real.json.
+    - Review:
+      - Status: pass
+      - Acceptance check: Public CLI and actual native pwd behavior prove original identity/worktree recovery and preserved boundaries; explicit errors/busy checks prevent replacement or delivery and preserve role claims.
+      - Scope check: Product edits only the five Touch files plus own records. No endpoint migration, production repair, App lifecycle, deliberate global policy write, Goal change or daemon restart; native project trust is a host behavior documented by 2.5/D13 and is not a claim of global-config isolation. Original sandbox-only test/Python execution restrictions were resolved by approved test escalation, not dependency installation.
+      - Findings: Resolved here: M1/M3 provide explicit same-id cwd recovery. Durable owner: https://github.com/TanglmChris/keel/issues/541 — actual App shared-instance/persistence acceptance and formal release still required; recovery does not fix App project/sidebar association or bypass foreign writers.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.5 Execute owner-approved isolated shared-App experiment
+  - Mode: diagnose-only
+  - Covers:
+    - D12
+    - D13
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: bounded real native App integration experiment, not product code or a synthetic protocol test.
+    - M1: Under evidence/isolated-window-proposal.md and the owner's explicit approval, snapshot original App/backend/config/registration identities, create a new temporary private profile/home, and launch at most one isolated installed App connected to the existing native socket. Verify process/transport and actual UI before fixture use; optional diagnostic UI port must bind only loopback. Within one 30-minute experiment and at most two launches (only the final reopen/normal close may extend to the D13 deadline), test actual private frontend/background serial work and policy/cwd/history/claims, normal isolated App exit with unchanged backend executing, and same-fixture reopen if supported. Preserve success or exact failure evidence and stop on login, original-instance redirection, unexpected backend or required global/production changes. Never interrupt original chats/Goals/tools, copy credentials, force kill, start/restart daemons or change production registrations; failed capability diagnosis cannot count as shared-host acceptance. D13 explicitly permits the sole private-project trust entry temporarily and its precise cleanup restoring the pre-experiment config hash; unrelated concurrent edits must be preserved.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:89e6fbec4a91241fb702afac409cad1c35857479eb436e8e16d78d35646171ea (keel 5.229.3)
+    - M1: Owner-approved isolated App 26.1023.51421 shared native 0.167.2 fixture passed real frontend-active/backend-wait, later same-id delivery, native Guide input during a real item/started sleep (14965ms, normal completion, no duplicate tool), normal App exit with backend completing a new reply, actual second-window history/reply visibility, cold policy/id/cwd preservation and claim dedup. Two launches, both normally closed; original App/backend identities and three production hashes unchanged. Native private-project trust delta was paused, explicitly reauthorized D13 and exactly restored to pre-experiment hash. All facts, failed probes, native Guide semantics and limits in evidence/isolated-acceptance.md and its JSON artifacts.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual rendered input plus same-executor native item/turn evidence and closed/reopened App behavior prove the shared-window route and persistent original identity; no listing-only, history-only or preliminary keystroke success is substituted. Global idle-Quit barrier is not claimed.
+      - Scope check: Only own change evidence and temporary private fixture/profile state changed. D13 precisely authorized the sole native trust delta and exact cleanup. No production, daemon lifecycle, original App/Goal/tool interruption, credential copying or permanent service; original config hash and production registry hashes restored/unchanged.
+      - Findings: Resolved here: M1 and evidence/isolated-acceptance.md prove an opt-in native shared-window route without global App restart, including actual in-flight behavior and persistence. Durable owner: https://github.com/TanglmChris/keel/issues/541 — document build-specific setup/trust and native Guide semantics, finish regression/release. Kaiwu production deployment remains https://github.com/TanglmChris/kaiwu-ip/issues/546 .
+    - Blocker: none
+    - Reauthorizations: Human structured reply explicitly approved D13 after the sole private-project trust delta was identified. Prior fingerprint 06e08d8babfb1fb89aeccd20123043171c1f4ceca32d748c00885dc311e6a056 is superseded; prior experiment evidence is retained, not used as the new execution anchor.
+
+- [x] 3.1 Prepare aligned release and native integration runbook
+  - Covers:
+    - D14
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/plugin.json
+    - .claude-plugin/marketplace.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - keel/CHANGELOG.md
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/codex-validation.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: release version alignment and evidence/runbook publication; no additional runtime behavior is implemented in this slice.
+    - M1: Bump all managed package/plugin/protocol markers to 5.230.0 with the repository script and review exact file scope; preserve OpenSpec 1.14.0. Write bilingual opt-in native shared-window setup/recovery/rollback and actual Linux measurements, native Guide semantics, backend trust and cross-version limits. Run baseline version validation, docs group, strict OpenSpec and diff checks; reference completed full baseline plus 426 regression and real host evidence. Required full-gate CI must pass on the exact eventual PR head before repository auto-merge/publication.
+    - M2: Run node scripts/verify_installed_openspec.js against the actual candidate tarball for clean-prefix and updater acceptance; prove installed locked OpenSpec and all published specs validate, retaining real output.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:7d39f17598715d42c3e2bc57a392614b969f772103d7f82be9483ac49e6c36bc (keel 5.229.3)
+    - M1: Candidate package/plugin/protocol/managed overlays aligned to 5.230.0, OpenSpec pin unchanged at 1.14.0. Bilingual native shared-window runbook, recovery/rollback, backend trust, Guide behavior and actual Linux limits recorded. New recovery code passed full baseline plus 426 scenarios (278 deterministic/148 stand-in, no skips); after version/docs alignment baseline and docs 24 passed, strict OpenSpec and diff check passed. Evidence: evidence/recover-full-regression.txt, release-baseline.txt, release-docs.txt. Exact-head CI remains repository-owned publication prerequisite and is not claimed complete by this preparation task.
+    - M2: Actual candidate tarball clean global-prefix install and 5.229.2-to-candidate updater acceptance both installed exact OpenSpec 1.14.0 and validated all 37 published specs, 0 failures, on node v24.20.0/npm11.19.0. Evidence: evidence/release-installed-openspec.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Candidate alignment and native setup documentation match measured behavior; public runtime/full regression and actual clean/updater installs prove the releasable package. Full-gate must still pass on exact PR head before repository auto-merge/publish.
+      - Scope check: Release writes confined to declared manifests, managed markers, common version constants, changelog and four documentation files, plus own evidence. Prior recovery source baseline unchanged. No new dependency, native runtime action, production migration, global rewrite or #527 work. Native memory directories checked previously and absent; no new host workaround was stored there.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — push reviewed candidate, require exact-head full-gate and actual npm/release verification, install/update under existing owner authority, then notify chief/flow. Kaiwu production acceptance remains https://github.com/TanglmChris/kaiwu-ip/issues/546 .
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.2 Commit reviewed release candidate and evidence
+  - Mode: repo-action
+  - Covers:
+    - D14
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: owner-authorized commit checkpoint; implementation, native behavior and package acceptance are recorded by completed slices.
+    - M1: Review the exact staged candidate against debbc59b, permit only previously declared product/version/docs paths plus this change, validate JSON/OpenSpec/diff and helper syntax, and commit the reviewed source/evidence/task state. Verify its tree and preserve exact-head CI, actual publication and notification as issue-541-owned external prerequisites. Authorized sync/archive and push/PR are separate workflow actions after this task, never performed by repo-action itself.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5bb33402a2a293a620608c9ed62cbd72723dd2d73f1132a860aa08cbd174a548 (keel 5.229.3)
+    - M1: Pre-archive committed candidate tree checked against debbc59b: 61 paths, all 26 declared product/version/docs paths and 35 own change records. All 43 JSON artifacts parse, evidence helpers pass node --check, strict OpenSpec and staged diff checks pass. The initial whitelist parser omission was caught before commit and corrected; no undeclared file was staged. Source behavior/full regression, actual native acceptance and clean/updater tarball results are in completed slices. Actual CI/publication/install/notification remain external issue-541 prerequisites, not asserted by this commit.
+    - Review:
+      - Status: pass
+      - Acceptance check: Exact committed tree includes tested runtime/recovery, aligned release package, bilingual opt-in runbook, actual native and package evidence and portable task state; future publication has a concrete owner and no premature success claim.
+      - Scope check: Commit paths are confined to the authorized product union and this change. No production registry, App/config runtime, #527 or #544 files changed in this repository action.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — exact-head full-gate, actual npm/release verification, authorized local update and chief/flow notification still required. Production integration belongs to https://github.com/TanglmChris/kaiwu-ip/issues/546 .
+    - Blocker: none
+    - Reauthorizations: none

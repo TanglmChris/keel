@@ -1,0 +1,1 @@
+keel codex: Usage: keel codex status|start|deliver|handover|drain [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]

@@ -124,4 +124,51 @@ keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/t
 
 显式投递用 `keel codex deliver --role worker --record <稳定编号> --text <内容>`，同时指定工作目录。相同编号只启动一个工作回合；结果不确定时保留 pending，不自动重试。忙碌时返回 waiting，等待下一次 drain/tick。需要批准的操作仍在原生 Codex 界面处理。宿主不可达时明确报错，不创建替代会话。新记录遇到身份已核实且确实归 Keel 所有的 notLoaded 线程时，会恢复同一线程并重新核验，忙碌则等待。已投记录直接返回原声明，不为去重而恢复；未知声明继续拒绝重放。冷恢复默认预算为 15 秒，显式 `--timeout` 仍优先；内置信箱 drain 给子进程 40 秒，覆盖有界的 RPC 序列。现有桌面聊天和换班不因此获得自动恢复。创建或交接结果不确定时先核实宿主和保留的记录，不要删记录重试。
 
+确属 Keel 的角色发生原生 cwd 漂移时，可显式运行 `keel codex recover --repo /path/to/role-worktree --role worker --json`。它只在登记端点通过原生 resume 恢复原线程的 cwd/runtime workspace roots，不迁端点、不接管桌面聊天。活跃线程返回 waiting，不执行 resume。原生 writer 拒绝、状态未知、策略或身份不符及超时都需核查；失败或未知的恢复可能已改变原生 cwd，但角色记录、历史和投递声明保持原样，不启动模型回合或替代线程。成功会核对原 ID/cwd、on-request、workspace-write 及显式 reviewer；后续授权投递应验证真实执行目录。该命令不修复 App 项目或侧边栏归属，也不绕过其它仍存活的 writer。
+
 交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。不自动接管现有桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。
+
+
+## 原生共享桌面接入
+
+Keel 5.230.0 已在 Linux App 26.1023.51421 与原生后台 0.167.2 上实测。
+默认桌面 App 的 stdio 执行端与独立 daemon 是不同 writer，即使都能列出同一历史。
+前台 App 必须连接托管角色使用的同一原生后台；置顶或读到 ID 不代表共享执行。
+这是显式原生宿主配置，Keel 不自动切换。其它 App 版本及 macOS 需各自验证。
+
+已实测版本可通过独立资料目录和进程级 WebSocket 地址接入，不必重启现有 App。
+先选择私有目录、已安装的 App 程序，以及已运行且可访问模型的团队后台绝对 socket
+路径。执行、凭据与配置归原生 daemon；Keel 不另起投递器或改变原 App 的连接。
+
+```sh
+CODEX_ELECTRON_USER_DATA_PATH="/path/to/private-team-profile" \
+CODEX_HOME="/path/to/private-team-home" \
+CODEX_APP_SERVER_WS_URL="ws+unix://localhost/absolute/path/team.sock:/rpc" \
+/path/to/installed/ChatGPT --user-data-dir="/path/to/private-team-profile"
+```
+
+目录必须专用于该窗口；相同资料目录已有实例时，启动可能转给旧实例。
+强制 CLI 的配置会使原生 URL 路径失效。实际核对连接和角色身份后才执行任务。
+不要复制认证文件来补私有资料目录的登录。测试私有目录中的可选 ChatGPT Local Work
+执行器未认证，本次 Codex 接入验收不代表那项独立功能可用。
+
+私有前台目录**不隔离后台项目信任**。打开新项目可能在后台配置中登记信任；应由
+所有者审查，不能承诺全局零变化。本次测试发现该差异后暂停，获得仅临时测试项的
+明确授权，最后恢复了原配置精确哈希。生产项目的信任条目不得作为清理被静默删改。
+
+仅在原执行端的真实回合和工具完成、旧 writer 释放后使用现有 owned 角色 ID，保留
+登记端点、历史与声明。`recover` 仅在同端点恢复 cwd，不迁端点。其它 daemon 的
+notLoaded 或 goal:null 不证明原 App 空闲。writer 拒绝、操作结果未知或身份不符时
+停止恢复，不强行接管、不删除注册、不创建替代 ID。
+
+前台忙时，托管投递返回 waiting，后续 tick 再试。此 App 在后台忙时使用原生
+**引导（Guide）**更新当前回合，可能改变预期回答，不保证排成一个独立任务。
+独立工作应使用稳定定向记录，在空闲后正常托管投递。原生 queue/add 对同一客户端
+UUID 会重复入队，不能代替托管声明账本的幂等性。
+
+上线前必须实测前台输入/后台接续、双向忙碌、原 ID/cwd/策略/声明保留，以及该 App
+正常关闭时后台继续执行，再重开核对真实回复。仅在专用窗口的已接收回合和工具结束
+后正常关闭它，原生后台保持运行。回退为安全正常退出该窗口，再用不带上述进程变量
+的原启动器；无法安全退出时保全并报告，不强杀、不重启后台、不重置全局配置。
+原先全 App 空闲后重启的路径仍需其独立明确授权。参见
+[真实宿主证据](codex-validation.md)与 [#541](https://github.com/TanglmChris/keel/issues/541)。

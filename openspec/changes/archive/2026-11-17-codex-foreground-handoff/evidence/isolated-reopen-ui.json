@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-11-17T13:52:47.475Z",
+  "port": 34053,
+  "thread": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "fixtureVisible": true,
+  "closedReplyVisible": true,
+  "inflightReplyVisible": true,
+  "frontReplyVisible": false,
+  "approvalUi": [
+    "请求批准",
+    "帮我批准"
+  ],
+  "visibleFixtureEditor": true,
+  "duplicate": {
+    "socket": "/home/tlm/.codex/app-server-control/app-server-control.sock",
+    "host": {
+      "userAgent": "Codex Desktop/0.167.2 (Ubuntu 22.4.0; x86_64) dumb (keel; 1)",
+      "codexHome": "/home/tlm/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    },
+    "state": "already-delivered",
+    "turn": "01a1e9c6-55ab-7d40-91d3-edd4d78a2744"
+  }
+}

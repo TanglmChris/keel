@@ -1,0 +1,17 @@
+{
+  "thread": "01a1e9ad-eaaf-71f1-9052-6d7e331d10ba",
+  "cwd": "/tmp/keel541-isolated-BdMg4i/fixture",
+  "reviewer": "auto_review",
+  "approval": "on-request",
+  "sandbox": {
+    "type": "workspaceWrite",
+    "writableRoots": [
+      "/tmp/keel541-isolated-BdMg4i/codex-home/visualizations/2026/11/17/01a1e9ad-eaaf-71f1-9052-6d7e331d10ba"
+    ],
+    "networkAccess": false,
+    "excludeTmpdirEnvVar": false,
+    "excludeSlashTmp": false
+  },
+  "historyPreserved": true,
+  "turns": 8
+}

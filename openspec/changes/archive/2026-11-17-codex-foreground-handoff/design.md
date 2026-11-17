@@ -143,3 +143,62 @@ may identify an authorization delta but never grants it, halts IECC work, change
 Goals/configuration, interrupts tools or starts an experiment. The original owner
 request to continue #541 authorizes this planning; chief's message is coordination,
 not new human authorization. Existing D9 commit/push covers its portable record.
+
+
+D11 — Complete the original owned-worktree recovery requirement independently
+of global App switching. Add explicit `keel codex recover --role <owned-role>`
+on the role's already recorded endpoint only. Verify the recorded role under
+its existing operation lock and native thread id; refuse unknown native state,
+return waiting for active state without resume, and use native thread/resume
+with recorded cwd/runtimeWorkspaceRoots for an idle or notLoaded original id.
+Native writer protection remains authoritative; no force, replacement, endpoint
+migration, production rewrite or model warm-up. Check returned original id/cwd,
+on-request/workspaceWrite and any explicitly recorded reviewer. Preserve the
+role record, history, claims and unknown outcomes byte-for-byte; errors report
+unverified recovery and require inspection, never replay a delivery. A subsequent
+explicit delivery proves actual execution cwd. This is the public mechanism for
+issue 541's existing explicit same-id cwd recovery goal, not authority to repair
+production registrations or migrate live writers.
+
+D12 — An isolated concurrent native App window is a new proposed alternative to
+the original all-idle restart. Installed bootstrap supports a process-local
+userData path selected before the instance lock; actual isolation/acceptance is
+unverified. evidence/isolated-window-proposal.md defines the exact temporary
+profile/home, native shared socket, fixture-only use, optional loopback-only UI
+diagnostic port, bounded launches and normal-shutdown failure exits. Owner
+approved this exact proposal through the structured reply in the current chat
+(2026-11-17). This grants the bounded isolated experiment, not production migration,
+original App restart, global changes or permanent multi-instance deployment.
+
+
+D13 — During D12 the native flow added only the private fixture project trust
+section to the backend's global config. The isolated App was normally closed
+before further stateful testing; removing exactly this section in memory restores
+the pre-experiment SHA256. The human explicitly approved temporarily retaining
+that sole test entry, completing the final second launch/normal close and deleting
+only that section with exact-original-hash verification. If necessary, only the
+remaining reopen/close may finish within ten minutes after that reply, with no
+additional launch. Use the conservative deadline 2026-11-17T13:59:21Z (ten minutes
+from a pre-reply evidence timestamp, so no later than the approved limit). No
+other global edit, credential copy, force kill, production/Goal/tool interruption
+or new daemon is authorized. Preserve current config if it has unrelated changes;
+never overwrite concurrent owner edits. This explicitly reauthorizes task 2.5's
+bounded extension and exact cleanup; it does not reset any historical window.
+
+
+D14 — Prepare Keel 5.230.0 under the owner's explicit instruction to continue
+issue 541 through publication and notify Kaiwu afterward. This is a minor release
+for the new explicit reviewer/recover CLI plus documented opt-in native shared
+App connection; defaults and the original App remain unchanged. Actual D12/D13
+fixtures validate Linux App 26.1023.51421/native 0.167.2, native busy Guide semantics,
+in-flight tool completion, closed-App execution, original-id/history/policy/claim
+reopen, and exact authorized test-trust cleanup. Publish those facts and limits,
+not a universal global-Quit fence, macOS claim or production-deployment success.
+Document backend-owned trust, native writer refusal, unknown outcomes and rollback.
+Use the repository's version alignment script, current exact OpenSpec dependency,
+full regression evidence, installed-package clean/updater proof and full-gate CI;
+commit/push the candidate and open a PR for repository-owned auto-merge/publish.
+The agent must not merge or hand-tag. No production role migration or permanent
+App/service deployment rides along. Chief/flow own Kaiwu #546 production acceptance;
+formal release notification includes published version/commit, evidence and the
+upgrade/rollback entry. No additional package is introduced and #527 is untouched.
