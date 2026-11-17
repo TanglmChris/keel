@@ -81,3 +81,24 @@ closure or release can ride along with this checkpoint; issue 527 remains deferr
 The commit/push request is explicit; repository standing authorization also names
 commit and push. Linux-only runtime evidence must be distinguished from portable
 repository state, and unrelated chat/account metadata is omitted from publication.
+
+F9 — The bounded Linux window ended at 2026-11-17T11:28:14.519Z with
+`Idle window expired; App untouched`. No Quit/relaunch or background test turn
+ran. The helper is inactive; all three production registry hashes match their
+pre-window values. Basis: evidence/window-final-state.json and
+https://github.com/TanglmChris/keel/issues/541#issuecomment-6946769610 .
+The diagnostic attempt is complete with a negative outcome; shared-App behavior
+acceptance and the whole issue remain open. Do not restart the expired window.
+
+D6 — Implement the independently verified reviewer part of issue 541 first:
+`keel codex start --approvals-reviewer user|auto_review` explicitly sets only that
+managed thread's native reviewer. Existing calls with no flag keep their current
+behavior. Preserve on-request and workspace-write, persist explicit reviewer via
+native thread/settings/update before managed start/successor success, and retain
+it in owned role state and later resume/delivery/handover. Native explicit policy
+mismatch or unsupported persistence must fail closed with the created id retained;
+no hidden model warm-up, global reviewer edit, replacement thread, implicit socket
+migration or production repair. Invalid values and unrelated-action use of the
+start flag fail before stateful RPCs. Basis: issue 541's explicit thread-level
+reviewer requirement, D2 and measured zero-turn persistence F7. This slice does not
+need a global App restart and does not resolve the remaining shared-host goals.

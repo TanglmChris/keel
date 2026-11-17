@@ -10,3 +10,8 @@ Keel MUST support verified serial foreground and background work on the same own
 #### Scenario: Foreground changes the owned worktree
 - **WHEN** current thread cwd differs from its recorded owned worktree
 - **THEN** normal delivery refuses until an explicit verified recovery preserves thread id, history and claims
+
+#### Scenario: Explicit managed thread reviewer is persistent without warm-up
+- **WHEN** a caller starts a managed role with an explicit user or auto_review reviewer
+- **THEN** Keel persists that reviewer on the owned native thread before success, retains on-request and workspace-write, and preserves it through cold delivery and handover without a hidden model turn or global policy edit
+- **AND** invalid policy requests fail before stateful RPCs while persistence failures retain the original pending thread identity without automatic replacement

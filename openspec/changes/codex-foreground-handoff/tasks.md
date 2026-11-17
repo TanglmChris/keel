@@ -71,7 +71,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.3 Execute owner-approved native shared-endpoint window
+- [x] 1.3 Execute owner-approved native shared-endpoint window
   - Mode: diagnose-only
   - Covers:
     - D4
@@ -83,11 +83,66 @@
     - M1: Snapshot all local chat activity, owned fixture identity/policy/history and daemon identity, preserve current work and arm only a bounded independent one-time relaunch after normal App exit. Do not interrupt active work or restart a daemon. Record exact recovery/rollback entry points. Verify actual App reconnects to the shared instance with private fixtures, or retain concrete blocked/failed evidence without changing acceptance.
   - Evidence:
     - Contract: keel-task-capsule/v1 sha256:990f3a6be611705800486247f32e159516c35070c1a6d6f7213e0f0a05f58262 (keel 5.229.3)
-    - M1: Preparation complete. Human window authorization recorded in D4; real native Quit item confirmed via App-owned standard DBusMenu, no force signals. Independent bounded unit keel541-app-window.service armed; current phase waiting-for-all-native-tray-jobs-idle. Script and pinned native client preserved under evidence/window-runner.cjs and evidence/window-native-client.cjs; live state /tmp/keel541-app-window/state.json. App PID 914946 and daemon PID 1933800/start times pinned. All three production registry hashes captured in evidence/production-registry-pre-window.json. Same helper unit reloaded within original window after read-only check confirmed App/daemon unchanged and current model turn still Running. Guard revision 2 uses native menu events, 300ms fallback and immediate second idle check; original deadline 2026-11-17T11:28:14.238Z preserved. Original runner retained as evidence/window-runner-v1.cjs. Actual App switch and behavior acceptance remain pending, not complete.
+    - M1: Bounded experiment terminated at 2026-11-17T11:28:14.519Z with stopped-without-forced-action / Idle window expired; App untouched. Service inactive, MainPID 0. No native Quit, App relaunch, background acceptance turn or continuation queue occurred. Evidence: evidence/window-final-state.json; all three production registry hashes still match evidence/production-registry-post-window.json. Original waiting history and both runner versions retained. No further action is owed within this expired bounded diagnostic attempt, which closes with a negative result; actual shared-App acceptance and issue 541 remain unresolved and are owned by the Review finding. Public corroboration: https://github.com/TanglmChris/keel/issues/541#issuecomment-6946769610 .
+    - Review:
+      - Status: pass
+      - Acceptance check: M1 explicitly allows retaining concrete blocked/failed experiment evidence without changing acceptance. The bounded attempt has a verified negative terminal result; no product or live shared-endpoint success is claimed.
+      - Scope check: Only own change records and private temporary helper state changed. No App exit/restart, daemon restart, global configuration, Goal state or production registry mutation occurred; registry hashes match before/after.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — no all-idle window was observed; active goals/queries and in-flight local chats prevented the approved global restart. Actual App shared-instance/bidirectional/persistence acceptance and product release remain outstanding.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 1.4 Publish terminal window result and executable Mac checkpoint
+  - Mode: repo-action
+  - Covers:
+    - D5
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized repository handover checkpoint with a completed negative diagnostic result, not product implementation.
+    - M1: Validate final JSON, strict OpenSpec structure and staged diff; commit only this change's terminal experiment evidence, pending product scope and Mac continuation contract, then verify the committed tree. No issue closure, product release or window retry.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:5d1c00ee716fe8f37531371e09b231a4e9935c7f52fcfa9e6301601bb7f5f43a (keel 5.229.3)
+    - M1: Committed tree contains only this change. Strict OpenSpec validation, 24 JSON parses and staged diff check passed. Next implementation capsule 2.1 passed task-start --no-guard without implementation or an execution anchor. Final state proves window expiry with App untouched; all three production registry hashes match. CONTINUE.md records negative diagnostic completion and the still-open real acceptance/release scope.
+    - Review:
+      - Status: pass
+      - Acceptance check: Repository snapshot now carries the real terminal result and an independently executable reviewer slice for Mac; no live waiting, successful switch, product implementation or release is falsely claimed.
+      - Scope check: git show changed paths are confined to this change; product code, global settings and production registrations remain untouched.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/541 — actual shared App/backend acceptance and formal delivery remain open; task 2.1 is next, task 2.2 requires authoring from integration evidence.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [ ] 2.1 Add explicit persisted thread reviewer to public managed CLI
+  - Covers:
+    - D2
+    - D6
+  - Touch:
+    - src/core/codex-host.js
+    - scripts/test_codex_host.js
+    - docs/cli-team.md
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: Through the public CLI and native RPC boundary fixture, prove explicit user/auto_review starts persist native policy before reporting managed success, cold delivery and handover retain it, invalid values/action use fail without stateful RPCs, and policy mismatch/persistence failure retains the original pending id without hidden turns or retry replacements. Run node --test scripts/test_codex_host.js with focused cases first, one red-green behavior at a time.
+    - M2 (regression): Run node --test scripts/test_codex_host.js; existing default role lifecycle, direct delivery, claims/unknown outcomes, locking, native persistence, scope enforcement and recovery remain green.
+    - M3: On a private owned local native fixture, invoke the public CLI start with explicit auto_review, disconnect and cold-read/resume without an override, then verify the first actual App input retains auto_review/on-request/workspace-write and original cwd/id. Native start must use zero model turns; record actual versions and the real turn/policy evidence. Do not restart any App/daemon or touch production registrations for this check.
+  - Evidence:
+    - Contract: pending
+    - M1: pending
+    - M1.red: pending
+    - M1.green: pending
+    - M2: pending
+    - M3: pending
+    - M3.red: pending
+    - M3.green: pending
     - Review:
       - Status: pending
       - Acceptance check: pending
       - Scope check: pending
       - Findings: pending
-    - Blocker: Native tray still reports active chief and another local chat; helper waits for all jobs including this current turn to become idle, expires after 1200 seconds without forced action. Chief reports an active Goal can re-enter; no Goal state is changed.
+    - Blocker: none
     - Reauthorizations: none
+
+- [ ] 2.2 Draft remaining shared-App acceptance, identity recovery and formal delivery
+  - Draft: author a complete capsule from measured native integration facts before selection. Do not execute this placeholder.
+  - Durable owner: https://github.com/TanglmChris/keel/issues/541

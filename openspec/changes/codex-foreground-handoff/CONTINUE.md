@@ -9,8 +9,10 @@ This is an unfinished diagnostic checkpoint, not a release. #527 stays deferred.
 - Product base: published Keel 5.229.3, base commit
   `20902321ea20896febca3fca320fd20a18288964`.
 - No Keel product source or production registration changed in this checkpoint.
-- Tasks 1.1 and 1.2 passed. Task 1.25 publishes the checkpoint. Task 1.3 is
-  still pending; its execution fingerprint is preserved in tasks.md.
+- Tasks 1.1 and 1.2 passed. Task 1.3 finished its bounded diagnostic attempt
+  with a negative result: the window expired, App untouched. This is NOT a
+  successful shared-host acceptance. Tasks 1.25/1.4 publish the checkpoints.
+  Next executable implementation slice is 2.1, explicit persisted reviewer.
 
 On Mac, first preserve any existing work, then fetch the branch normally:
 
@@ -50,36 +52,39 @@ part of the original acceptance.
 Linux one-shot unit: `keel541-app-window.service`. Runtime state:
 `/tmp/keel541-app-window/state.json`. Original deadline:
 2026-11-17 11:28:14.238 UTC (19:28:14.238 Asia/Taipei).
-The portable `evidence/window-state-checkpoint.json` is a historical snapshot,
-not live service status. Read the actual Linux state and latest issue before
-deciding whether the window ran, expired or failed. Do not restart an expired
-window or create another executor from this checkpoint.
+Final result: `evidence/window-final-state.json` records termination at
+11:28:14.519 UTC with `Idle window expired; App untouched`. The helper became
+inactive; it performed no Quit/relaunch/background-test/continuation-queue step.
+All three production registry hashes still match the pre-window snapshot.
+Earlier `window-state-checkpoint.json` is historical, not a live waiting state.
+Do not restart this expired window or create another executor from the checkpoint.
 
 Revision 2 of the same unit uses native tray-menu change events plus a 300ms
 fallback and an immediate second idle check before normal Quit. It preserved
 the original deadline and previous events. Last measured PID was 2673080;
 do not use a historical PID without revalidation. It never stops Goals or
-force-kills the App. The latest snapshot still contained active jobs.
+force-kills the App. The final run did not observe an all-idle window before its original deadline.
 
-If the window runs, the helper performs explicit owned-fixture background
-acceptance while the App is closed, then launches the App with a process-local
-URL and queues one continuation to this maintenance chat's original ID:
+The expired runner would have performed explicit owned-fixture background
+acceptance while the App is closed, then launched the App with a process-local
+URL and queued one continuation to this maintenance chat's original ID:
 `01a1e398-6e28-7003-9765-f6c714b2a5d4`.
 The runner and pinned native client are retained as evidence, not portable
 installers. Their absolute Linux paths and native menu identity are intentional.
 
 ## Remaining #541 delivery
 
-1. Record the actual window outcome; preserve failed/expired evidence honestly.
-2. Prove one execution instance through real App/background use, both busy
+1. Continue task 2.1 through `keel gate task-start --change codex-foreground-handoff --task 2.1 --record` and test-first. Its source/test/docs Touch and behavior checks are ready; no global App restart is needed.
+2. Draft task 2.2 from actual integration facts. The original window is over; coordinate a genuinely idle route without forcing Goals or weakening acceptance.
+3. Prove one execution instance through real App/background use, both busy
    directions, native persistence after App exit, original ids/history/claims,
    reviewer and actual worktree. Listing/start acceptance is insufficient.
-3. Author the measured minimal adapter/CLI/recovery changes with concrete Touch
+4. Author the measured minimal adapter/CLI/recovery changes with concrete Touch
    and behavioral checks, then implement through task gates and test-first.
-4. Complete regression, formal release/install and integration/rollback runbook.
-5. Leave production Kaiwu recovery to chief/flow under kaiwu-ip #546; never
+5. Complete regression, formal release/install and integration/rollback runbook.
+6. Leave production Kaiwu recovery to chief/flow under kaiwu-ip #546; never
    rewrite their registration to hide drift or create replacement identities.
-6. After formal delivery, proactively message existing chief thread
+7. After formal delivery, proactively message existing chief thread
    `01a1e7aa-5b7b-7541-bc35-7ec3f028009c` with version/published commit,
    real acceptance and recovery/rollback evidence, and verify message acceptance.
    This responsibility is explicitly authorized and recorded on issue #541.
@@ -92,3 +97,5 @@ issuecomment-6944761563. Armed window: issuecomment-6946344305. Guard revision
 Unrelated local chat identities and account notifications were removed from
 published evidence copies. Timings, activity counts and relevant fixture/core
 identities remain; original runtime evidence on Linux was not modified.
+
+The independently corroborated terminal window result is recorded at issuecomment-6946769610. Task 2.2 is a draft, not permission to run another global experiment.
