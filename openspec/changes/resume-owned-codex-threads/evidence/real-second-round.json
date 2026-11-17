@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-17",
+  "hostVersion": "0.167.2",
+  "roles": {
+    "probe-pm": {
+      "thread": "01a1e76a-0424-7912-aa02-3431a7412571"
+    },
+    "probe-exec": {
+      "thread": "01a1e76a-0abb-7183-83ae-54c351e70f63"
+    }
+  },
+  "beforeResult": {
+    "thread": "01a1e76a-0424-7912-aa02-3431a7412571",
+    "status": {
+      "type": "notLoaded"
+    },
+    "provenance": "asserted by continuation driver immediately before result delivery; no manual resume followed that observation"
+  },
+  "resultRecord": "20261117T025253693Z-probe-exec-1463a2",
+  "first": {
+    "turn": "01a1e76a-0b25-74d0-9553-17358d47448e",
+    "status": "completed",
+    "answers": [
+      "PM_READY"
+    ]
+  },
+  "execution": {
+    "turn": "01a1e76a-1b36-75d2-9e90-7269ed54e237",
+    "status": "completed",
+    "answers": [
+      "EXEC_RESULT_0001"
+    ],
+    "truthTable": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "validationOutputs": [
+      "GATE_OK\n"
+    ]
+  },
+  "second": {
+    "turn": "01a1e76b-f2a3-78a2-bcfe-6d0f52df46a3",
+    "status": "completed",
+    "durationMs": 61827,
+    "answers": [
+      "PM_RESULT_ACK_0001"
+    ],
+    "thread": "01a1e76a-0424-7912-aa02-3431a7412571",
+    "turnCount": 2
+  },
+  "duplicateAfter": {
+    "state": "already-delivered",
+    "turn": "01a1e76b-f2a3-78a2-bcfe-6d0f52df46a3"
+  },
+  "observerNote": "The 55-second completion observer expired while this second turn was still inProgress; later read-only verification observed completion. No second execution or replacement turn was started.",
+  "probesArchived": true
+}

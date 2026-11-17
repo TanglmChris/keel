@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.229.1 - Resume owned Codex roles after unload
+
+- Fix #531: recover an identity-verified owned notLoaded thread on the same connection for new work, and revalidate before delivery. Delivered claims return without loading; unknown claims refuse; active work waits. No replacement thread or permission override is introduced.
+- Cold resume has a bounded 15-second default, explicit deadlines remain authoritative, and drain allows 40 seconds for its RPC sequence. Real two-role acceptance completed PM result receipt on the original thread after unload with no repeated execution.
+- Fix #528: update only transitive Zod 4.4.3 to compatible 4.6.7 within OpenSpec 1.14.0; clean installation audits with zero vulnerabilities.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.229.1; the OpenSpec dependency pin stays `^1.4.1`.
+
 ## 5.229.0 - Work and hand-over across devices
 
 - Managed Codex teams: explicit WebSocket endpoint inspection, role/thread/worktree ownership, addressed mailbox delivery through drain/tick, durable deduplication and idle hand-over with retained context. Existing desktop chats are not adopted.
