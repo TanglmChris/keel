@@ -1,0 +1,107 @@
+{
+  "root": "/tmp/keel-noauth-onboarding-lTO2FH",
+  "isolatedHome": true,
+  "credentialsCopied": false,
+  "modelTurns": 0,
+  "thread": "01a1ecc2-c864-7150-9d31-ea9e6bd677f1",
+  "registration": {
+    "state": "registered",
+    "role": "review",
+    "thread": "01a1ecc2-c864-7150-9d31-ea9e6bd677f1",
+    "socket": "/tmp/keel-noauth-onboarding-lTO2FH/source.sock",
+    "plan": "76dc29a6bb2e7060be5eba5eecef7376869e10dda1c22cef19f0a833f8188caa"
+  },
+  "policy": {
+    "approvalPolicy": "never",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-noauth-onboarding-lTO2FH/repo"
+    ],
+    "activePermissionProfile": null
+  },
+  "writerRefusal": "keel codex: thread 01a1ecc2-c864-7150-9d31-ea9e6bd677f1 already has an active writer; migration outcome unknown, journal retained; no native rollback claimed\n",
+  "targetBeforeReconcile": {
+    "thread": {
+      "id": "01a1ecc2-c864-7150-9d31-ea9e6bd677f1",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-noauth-onboarding-lTO2FH/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-noauth-onboarding-lTO2FH/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecc2-c864-7150-9d31-ea9e6bd677f1",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794973550,
+      "updatedAt": 1794973551,
+      "recencyAt": 1794973550,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-noauth-onboarding-lTO2FH/home/sessions/2026/11/18/rollout-2026-11-18T11-45-50-01a1ecc2-c864-7150-9d31-ea9e6bd677f1.jsonl",
+      "cwd": "/tmp/keel-noauth-onboarding-lTO2FH/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "Private unauthenticated native registration",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "model": "gpt-6.1-sol",
+    "modelProvider": "openai",
+    "serviceTier": null,
+    "disabledPluginIds": [],
+    "cwd": "/tmp/keel-noauth-onboarding-lTO2FH/repo",
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-noauth-onboarding-lTO2FH/repo"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": {
+      "id": ":read-only",
+      "extends": null
+    },
+    "reasoningEffort": null,
+    "collaborationMode": {
+      "mode": "default",
+      "settings": {
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": null,
+        "developer_instructions": null
+      }
+    },
+    "multiAgentMode": "explicitRequestOnly",
+    "initialTurnsPage": null,
+    "turnsBackwardsCursor": null,
+    "itemsBackwardsCursor": null
+  },
+  "failure": "Error: keel codex: native effective policy mismatch; no policy override attempted; migration outcome unknown, journal retained; no native rollback claimed\n\n    at cliRun (/tmp/keel-onboarding-public-noauth.cjs:6:182)\n    at /tmp/keel-onboarding-public-noauth.cjs:11:155\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+  "processesExited": true
+}

@@ -1,0 +1,44 @@
+## Context
+
+- F1 — Keel 5.230.0 rejects endpoint mismatch and start always creates a native thread. Basis: src/core/codex-host.js, reviewed 2026-11-18; issues #546/#547.
+- F2 — Installed native 0.167.2 thread/read returns thread/readState but not effective sandbox/reviewer; thread/resume exposes effective policy and may load a writer. Basis: installed generated schemas under temporary diagnostic cache; official https://learn.chatgpt.com/docs/app-server .
+
+## Goals / Non-Goals
+
+Preserve original identities, history, claims and approved permissions during explicit owned-role onboarding. No production migration, service/window/Goal interruption, global configuration changes, arbitrary discovery/adoption, replacement threads, hidden turns, or #527 work.
+
+## Decisions
+
+- D1 — First measure installed native policy inspection, same-id persistence, writer release and cross-endpoint behavior using only newly-created private fixtures. No implementation until concrete safe operations and authority are recorded. Basis: owner's continuation of the concrete #546/#547 implementation and release request; native uncertainty F2.
+- D2 — Implementation and deployment have separate authority: Keel ships explicit APIs and fixture evidence; Kaiwu owns exact production tuples, release-safe points and frontend wiring. Basis: owner-approved scope and both issue proposals.
+
+## Hidden Knowledge / Assumptions
+
+None. Native capability questions are diagnostic work under D1, not implementation assumptions.
+
+## Risks / Trade-offs
+
+A foreign daemon's notLoaded status does not prove the actual source writer is idle. Native ownership and source release must be measured before accepting migration. Unknown outcomes remain inspectable and must not cause replacement or blind replay.
+
+## Open Questions
+
+No product choice is pending for diagnostic task 1.1. Implementation artifacts will be completed from measured native facts before execution.
+
+## Executable onboarding design
+
+- F3 — Native 0.164.0 and 0.167.2 private two-process tests prove id-only resume retains readOnly/on-request/user, foreign writer refusal, empty native queue/goal/terminal inspection, unsubscribe and target reacquisition. Basis: completed task 1.1 and evidence/diagnosis.md; no model or frontend acceptance claimed by that measurement.
+- D3 — Provide inspect-registration/register and inspect-migration/migrate, plus migration-status. Inspect emits a versioned JSON plan containing exact tuple, authority reference, native effective policy, persistent history digest/count and registry digest; apply consumes that exact plan. The reference is the caller's explicit authorization assertion, not an ACL or inferred grant; no issue/DM/name lookup admits a role. Basis: approved issue proposals require explicit inspectable approved tuples; plan naming is reversible implementation detail.
+- D4 — Reuse the team store and canonical bindings; require the worktree already bound to the exact unique role, reject reserved/renamed/conflicting/pending identities and reuse of any current/historical/pending native thread. Serialize registration/start in one team registration lock and migration/delivery in existing role locks. Atomic no-overwrite registration writes no binding. Basis: #547 uniqueness and no arbitrary adoption.
+- D5 — Inspect native policy by id-only resume, without cwd/model/permission/reviewer overrides. Native read alone is insufficient. This may subscribe/load only the caller-authorized original id; it never edits settings or executes model work. Same-runtime registration may rejoin an active original thread without an idle requirement. Preserve observed approval/sandbox/reviewer/runtime-root/profile snapshot in the registration and validate it on later idle delivery/recovery without overriding it. Registered frontend handover refuses replacement; a separately authorized successor workflow is outside this change. Basis: F2/F3 and #547 original frontend/unique-review boundary.
+- D6 — Migration inspects and rechecks the actual source via native id-only resume, complete paginated full turn history and effective policy. Require idle source, no in-progress turns, empty queue/terminal lists (including pagination) and goal null; never cancel tools/Goals or consume input. A foreign writer refusal remains a refusal. Persist intent, unsubscribe the caller's source subscription, then verify target same persistent id/cwd/history and resume only that id with no overrides. Native writer refusal is final evidence that another subscriber/writer still owns it. Compare target policy and history and atomically update only socket and endpointMigrations audit after registry/binding CAS. Preserve all prior claims, including unknown ones, and history. Original App/frontend must be separately connected to the selected target by the deployment owner. Basis: #546 and actual native ownership F3.
+- D7 — Any failure after intent leaves an inspectable unknown journal and original registry (unless its atomic commit actually succeeded); never claim native rollback. A repeated migrate refuses until the caller explicitly chooses --reconcile. Reconciliation is verification-only for an already loaded target: read source/target, require source notLoaded and target idle/active, original completed-history prefix and policy, then CAS registration; never retry unsubscribe/resume on an unloaded target. A committed journal returns its recorded outcome only when the registry still names its endpoint/identity/audit. migration-status is read-only and distinguishes journal/registry/native visibility. Basis: #546 unknown-outcome boundary. No new thread/turn, state import, credentials copy or daemon lifecycle operation is available.
+- D8 — Deliver/recover preserve registered native policies and inspect actual effective policy before new idle work; busy returns waiting and dedup precedes load. Legacy managed roles keep existing defaults/reviewer behavior. Registration and migration acceptance include CLI boundary faults, real original-id history/policy and actual private model delivery, read-only write refusal and dedup. Release aligns version/docs, full suite and candidate installed-package check before repository-controlled merge/publish, local update and versioned Kaiwu callback. Basis: owner-approved completion scope and existing release specification.
+
+No new product choice is unresolved. The plan is an auditable execution boundary and does not authenticate its caller. Production safe-point coordination and frontend/service layout remain owned by https://github.com/TanglmChris/kaiwu-ip/issues/546 . #527 remains untouched.
+
+- F4 — Real 0.167.2 blank-thread cross-process inspection exposes two differences: an explicit never approval without a persisted turn cold-resumes as on-request (must refuse); a null profile provenance cold-resumes as built-in :read-only with identical legacy readOnly/network policy (metadata representation differs). Basis: evidence/native-blank-policy-refusal.json; no authenticated model request was executed. Temporary processes exited. This is not proof that never persisted.
+- D9 — Normalize only absent/null profile provenance and a matching native built-in :read-only or :workspace-write profile with no extends into the same implicit provenance representation. All effective sandbox fields, approval policy, reviewer and runtime roots still require equality; named/custom profile identity remains exact. Never repair native approval changes or warm up a thread. Basis: F4 shows a representation difference already inside the accepted policy-preservation goal; supporting the equivalent built-in representation adds no permission or deployment action. Actual policy changes remain refusals.
+
+- D10 — A migrated legacy managed role uses the native policy snapshot already recorded in its latest endpointMigrations audit for subsequent delivery/recovery, without adding another top-level registry field. Registered roles retain their existing nativePolicy. A changed policy refuses new work; original non-migrated role behavior is unchanged. Basis: #546 policy preservation and D8; code review found that an old role with no explicit reviewer otherwise skipped effective-policy checks after migration.
+
+- D11 — Document public plan/apply/status interfaces and their operational limits before publication, including caller-held exact-source admission during migration, no global idle demand, native blank-policy persistence refusal, explicit loaded-target reconciliation and no automatic mailbox-read claim. Add onboarding tests to the existing codexhost full-gate entry. Checkpoint source/evidence to the authorized branch while real-model approval is pending; a checkpoint is not a release or production completion. Basis: owner requested implementation, verification, release and durable pushed evidence; standing repository commit/push authority.

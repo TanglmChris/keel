@@ -124,9 +124,9 @@ keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/t
 
 显式投递用 `keel codex deliver --role worker --record <稳定编号> --text <内容>`，同时指定工作目录。相同编号只启动一个工作回合；结果不确定时保留 pending，不自动重试。忙碌时返回 waiting，等待下一次 drain/tick。需要批准的操作仍在原生 Codex 界面处理。宿主不可达时明确报错，不创建替代会话。新记录遇到身份已核实且确实归 Keel 所有的 notLoaded 线程时，会恢复同一线程并重新核验，忙碌则等待。已投记录直接返回原声明，不为去重而恢复；未知声明继续拒绝重放。冷恢复默认预算为 15 秒，显式 `--timeout` 仍优先；内置信箱 drain 给子进程 40 秒，覆盖有界的 RPC 序列。现有桌面聊天和换班不因此获得自动恢复。创建或交接结果不确定时先核实宿主和保留的记录，不要删记录重试。
 
-确属 Keel 的角色发生原生 cwd 漂移时，可显式运行 `keel codex recover --repo /path/to/role-worktree --role worker --json`。它只在登记端点通过原生 resume 恢复原线程的 cwd/runtime workspace roots，不迁端点、不接管桌面聊天。活跃线程返回 waiting，不执行 resume。原生 writer 拒绝、状态未知、策略或身份不符及超时都需核查；失败或未知的恢复可能已改变原生 cwd，但角色记录、历史和投递声明保持原样，不启动模型回合或替代线程。成功会核对原 ID/cwd、on-request、workspace-write 及显式 reviewer；后续授权投递应验证真实执行目录。该命令不修复 App 项目或侧边栏归属，也不绕过其它仍存活的 writer。
+确属 Keel 的角色发生原生 cwd 漂移时，可显式运行 `keel codex recover --repo /path/to/role-worktree --role worker --json`。它只在登记端点通过原生 resume 恢复原线程的 cwd/runtime workspace roots，不迁端点、不接管桌面聊天。活跃线程返回 waiting，不执行 resume。原生 writer 拒绝、状态未知、策略或身份不符及超时都需核查；失败或未知的恢复可能已改变原生 cwd，但角色记录、历史和投递声明保持原样，不启动模型回合或替代线程。成功会核对原 ID/cwd，以及已登记/迁移角色的原生策略快照；旧式角色仍核对 on-request、workspace-write 及显式 reviewer；后续授权投递应验证真实执行目录。该命令不修复 App 项目或侧边栏归属，也不绕过其它仍存活的 writer。
 
-交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。不自动接管现有桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。
+交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。专用前台原线程需经过下方显式登记计划，不自动发现或接管桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。
 
 
 ## 原生共享桌面接入
@@ -172,3 +172,57 @@ UUID 会重复入队，不能代替托管声明账本的幂等性。
 的原启动器；无法安全退出时保全并报告，不强杀、不重启后台、不重置全局配置。
 原先全 App 空闲后重启的路径仍需其独立明确授权。参见
 [真实宿主证据](codex-validation.md)与 [#541](https://github.com/TanglmChris/keel/issues/541)。
+
+## 显式登记已授权的前台原线程（#547）
+
+先在原独立工作树用 `keel chat role --set review` 绑定唯一角色。部署所有者须已授权
+明确的原线程、工作树、角色和端点；`--authority` 记录该授权来源，属于调用者声明，
+不验证 ACL，也不从名称或普通 DM 推断授权。不要用 `start --thread`，start 会创建新线程。
+
+```sh
+keel codex inspect-registration --repo /path/to/owned-worktree --role review --thread ORIGINAL_THREAD_ID --socket /path/to/selected.sock --authority https://example.com/approved-role-list > /tmp/owned-registration.json
+cat /tmp/owned-registration.json
+keel codex register --plan /tmp/owned-registration.json --json
+```
+
+检查只通过原 ID 重新接入原生上下文，不覆盖设置、不发模型请求、不创建替代线程；
+原生 resume 可能加载或订阅该线程。同一执行端的活跃线程可登记，无需人为等待全局空闲。
+执行时重核唯一规范角色绑定、原生审批/reviewer/沙箱/roots、原身份和当前/历史/待定线程
+冲突，再以无覆盖的原子方式登记，不重写现有记录或绑定。计划含端点和身份摘要，请私存。
+
+后续空闲/冷投递及恢复使用原生策略快照。只读 review 保持只读，策略漂移则拒绝，
+不扩大权限。已登记前台的 `handover` 拒绝创建替代线程；后继流程需单独授权。
+DM 已写入、原生已接纳回合、模型收件、`keel chat read` 已读和业务任务完成是不同阶段，
+不能凭投递成功或模型答复宣称邮箱游标已推进。普通协调消息不授予业务代码修改权限。
+
+## 迁移单个自有角色端点（#546）
+
+部署所有者须在交接期间管住该源角色的新输入准入：让实际回合、工具和输入正常完成，
+保留待定投递声明，并将前台实际接到批准的目标执行端。这不是全 App 空闲要求。
+CLI 无法阻止独立前台新输入，也不改变 App 接线；外国宿主的 notLoaded 不证明源已释放。
+
+```sh
+keel codex inspect-migration --repo /path/to/owned-worktree --role worker --to-socket /path/to/approved-target.sock --authority https://example.com/approved-migration > /tmp/owned-migration.json
+cat /tmp/owned-migration.json
+keel codex migrate --plan /tmp/owned-migration.json --json
+keel codex migration-status --plan /tmp/owned-migration.json --json
+```
+
+计划固定旧登记摘要、身份、完整分页持久历史及有效策略。迁移要求源实际空闲、输入队列和
+后台终端为空且无 Goal；不停止 Goal、工具、daemon 或 App。先持久记录意图，再仅取消
+自己的源订阅；其它订阅仍持有 writer 时由原生拒绝。目标须具有相同持久 ID/历史和原策略。
+登记只改端点并追加迁移审计，原历史、自定义字段和全部投递声明保留，未知声明仍禁止重放。
+旧式默认角色迁移后的投递和恢复同样核对审计中的策略快照。
+
+意图记录后的失败表示**结果未知**，不代表原生状态已回退。先检查 `migration-status`；
+重复 migrate 不会自动重做交接。核对结果后，才显式使用
+`migrate --plan /tmp/owned-migration.json --reconcile`。它核已加载的目标原线程、源释放、
+原已完成历史前缀和有效策略，再比较登记并提交，不打断目标的新工作。目标未加载时拒绝，
+不重新获取 writer；部署所有者须先按自己的原生恢复授权核验并接入该原 ID，再核查。
+登记有并发变化时检查冲突，不手改或替换记录。登记已提交但最终日志中断时，可在精确匹配
+后仅补完状态，不重写登记。
+
+原生冷加载可能把空的内建 profile 来源补成 `:read-only` 或 `:workspace-write`；
+仅归一化相匹配的隐式表示，审批、reviewer、沙箱字段、roots 和自定义 profile 仍须一致。
+空线程在首个真实回合前可能未持久化显式审批；策略变化就拒绝迁移，不热身或自动修策略。
+前台接线、项目 trust、服务布局与生产操作仍需各自明确的部署授权。

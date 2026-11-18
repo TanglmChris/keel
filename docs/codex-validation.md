@@ -139,3 +139,25 @@ acceptance or Kaiwu production deployment. The earlier expired global idle windo
 remains a negative historical result. Full native evidence and failed preliminary
 probes are owned by [#541](https://github.com/TanglmChris/keel/issues/541); deployment
 is [Kaiwu #546](https://github.com/TanglmChris/kaiwu-ip/issues/546).
+
+## Owned onboarding candidate (#546/#547, 2026-11-18)
+
+The source candidate adds explicit original-frontend registration and owned
+endpoint migration. Public CLI boundary tests cover original identity, complete
+paginated history, exact claim preservation, effective native policy, busy/input
+refusal, competing registrations, writer rejection, uncertain acquisition/final
+commit and explicit reconciliation. They are stand-ins, not model acceptance.
+
+Real isolated **0.167.2** processes with a shared **empty unauthenticated Codex
+home**, zero model turns and no copied credentials proved public original-id
+read-only registration, writer refusal while the original subscriber remained,
+explicit source unsubscribe/target owner rejoin, reconciliation and a subsequent
+direct migration. Both test processes exited. Native approval drift on a blank
+thread was also measured and correctly refused. Effective-policy-preserving
+built-in profile representation is normalized; changed approval is not.
+
+Actual authenticated nonempty-history/model receipt and read-only filesystem
+refusal remain a release prerequisite tracked in Keel #546/#547. Automatic
+approval review rejected existing-auth real-model testing; the exact incremental
+human confirmation is pending. No production migration, new App experiment,
+native hook trust promotion or macOS acceptance is claimed by these checks.

@@ -1,0 +1,327 @@
+{
+  "version": "codex-cli 0.167.2",
+  "root": "/tmp/keel-onboarding-TA7Kyt",
+  "events": [],
+  "initial": {
+    "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+    "approval": "on-request",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "reviewer": "user"
+  },
+  "read": {
+    "thread": {
+      "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-onboarding-TA7Kyt/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794972432,
+      "updatedAt": 1794972432,
+      "recencyAt": 1794972432,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-onboarding-TA7Kyt/home/sessions/2026/11/18/rollout-2026-11-18T11-27-12-01a1ecb1-b77f-7721-9103-d19de03afdde.jsonl",
+      "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "private-onboarding-review",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "readState": {
+      "firstUnread": null,
+      "revision": "initial:01a1ecb1-b77f-7721-9103-d19de03afdde"
+    }
+  },
+  "rejoin": {
+    "thread": {
+      "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-onboarding-TA7Kyt/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794972432,
+      "updatedAt": 1794972432,
+      "recencyAt": 1794972432,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-onboarding-TA7Kyt/home/sessions/2026/11/18/rollout-2026-11-18T11-27-12-01a1ecb1-b77f-7721-9103-d19de03afdde.jsonl",
+      "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "private-onboarding-review",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "model": "gpt-6.1-sol",
+    "modelProvider": "openai",
+    "serviceTier": null,
+    "disabledPluginIds": [],
+    "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-onboarding-TA7Kyt/repo"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": null,
+    "reasoningEffort": null,
+    "collaborationMode": {
+      "mode": "default",
+      "settings": {
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": null,
+        "developer_instructions": null
+      }
+    },
+    "multiAgentMode": "explicitRequestOnly",
+    "initialTurnsPage": null,
+    "turnsBackwardsCursor": null,
+    "itemsBackwardsCursor": null
+  },
+  "targetRead": {
+    "thread": {
+      "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "environments": null,
+      "extra": null,
+      "sessionId": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": null,
+      "reasoningEffort": null,
+      "createdAt": 1794972432,
+      "updatedAt": 1794972432,
+      "recencyAt": 1794972432,
+      "status": {
+        "type": "notLoaded"
+      },
+      "path": "/tmp/keel-onboarding-TA7Kyt/home/sessions/2026/11/18/rollout-2026-11-18T11-27-12-01a1ecb1-b77f-7721-9103-d19de03afdde.jsonl",
+      "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": null,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "private-onboarding-review",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "readState": {
+      "firstUnread": null,
+      "revision": "initial:01a1ecb1-b77f-7721-9103-d19de03afdde"
+    }
+  },
+  "beforeReleaseError": "thread 01a1ecb1-b77f-7721-9103-d19de03afdde already has an active writer",
+  "sourceQueue": {
+    "data": [],
+    "nextCursor": null
+  },
+  "sourceGoal": {
+    "goal": null
+  },
+  "sourceTerminals": {
+    "data": [],
+    "nextCursor": null
+  },
+  "unsubscribe": {
+    "status": "unsubscribed"
+  },
+  "afterRelease": {
+    "thread": {
+      "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-onboarding-TA7Kyt/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794972432,
+      "updatedAt": 1794972432,
+      "recencyAt": 1794972432,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-onboarding-TA7Kyt/home/sessions/2026/11/18/rollout-2026-11-18T11-27-12-01a1ecb1-b77f-7721-9103-d19de03afdde.jsonl",
+      "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "private-onboarding-review",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "model": "gpt-6.1-sol",
+    "modelProvider": "openai",
+    "serviceTier": null,
+    "disabledPluginIds": [],
+    "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-onboarding-TA7Kyt/repo"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": {
+      "id": ":read-only",
+      "extends": null
+    },
+    "reasoningEffort": null,
+    "collaborationMode": {
+      "mode": "default",
+      "settings": {
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": null,
+        "developer_instructions": null
+      }
+    },
+    "multiAgentMode": "explicitRequestOnly",
+    "initialTurnsPage": null,
+    "turnsBackwardsCursor": null,
+    "itemsBackwardsCursor": null
+  },
+  "finalRead": {
+    "thread": {
+      "id": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-onboarding-TA7Kyt/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecb1-b77f-7721-9103-d19de03afdde",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794972432,
+      "updatedAt": 1794972432,
+      "recencyAt": 1794972432,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-onboarding-TA7Kyt/home/sessions/2026/11/18/rollout-2026-11-18T11-27-12-01a1ecb1-b77f-7721-9103-d19de03afdde.jsonl",
+      "cwd": "/tmp/keel-onboarding-TA7Kyt/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "private-onboarding-review",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "readState": {
+      "firstUnread": null,
+      "revision": "initial:01a1ecb1-b77f-7721-9103-d19de03afdde"
+    }
+  },
+  "finalUnsubscribe": {
+    "status": "unsubscribed"
+  }
+}
