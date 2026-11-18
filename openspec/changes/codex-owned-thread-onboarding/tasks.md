@@ -65,7 +65,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 2.2 Migrate owned endpoints with durable native verification
+- [x] 2.2 Migrate owned endpoints with durable native verification
   - Covers:
     - D3
     - D4
@@ -188,6 +188,27 @@
       - Acceptance check: Actual committed tree contains implemented CLI, registered shared gate, bilingual runbook, real unauthenticated native and red-green/fault evidence plus executable continuation state; full suite now proves the shipped files are tracked. Final record-only amendment preserves reviewed product blobs.
       - Scope check: Exact committed path whitelist verified; no version/production/global config/App/Goal/service/#527 writes. Console evidence trailing whitespace normalized only for diff hygiene. Native memory directories were checked and absent.
       - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — authenticated real-model acceptance and publication/local update/notification remain. Durable owner: https://github.com/TanglmChris/keel/issues/547 — actual model read-only/task receipt acceptance is still task 3.1. Automatic review rejected the real existing-auth test before execution; precise owner confirmation pending in evidence/real-model-proposal.md.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.7 Commit final continuation-state correction
+  - Mode: repo-action
+  - Covers:
+    - D11
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: record-only repository checkpoint correction, no product behavior changes.
+    - M1: Verify only this tasks.md differs from pushed checkpoint 2c82ac2b, task 2.2 has its actual passing completion and checked state, 3.1 remains pending, and the three product/test blob hashes are unchanged. Validate OpenSpec/diff, commit the record-only correction, and verify its tree. Push follows separately under standing authorization.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9645f0495c63cb9943b6b6f9f69fc5cf3a0be39d09d31b26b91fc47e7e8443fd (keel 5.230.0)
+    - M1: Actual record-only commit verified to change only this tasks.md; source/test blobs remain afdb9348073dd413890f6106ae427d6258ec3649, 4e3e37e0f71c659526c7eecb3e4aac4ad95701fb and 78b4d466bcba1e55851c6441ddb3f3b7ae1098bf. Explicit task 2.2 completion passes, checked state corrected, strict OpenSpec/diff pass and task 3.1 remains unchecked. Full regression evidence from 2.6 remains applicable; no product file changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: Committed continuation state now advances to real acceptance 3.1 instead of repeating the already completed migration task.
+      - Scope check: Only this task record changed; final record-only amendment includes this completion evidence and preserves all product/test/docs blobs.
+      - Findings: Resolved here: M1 corrects the recorded migration checkbox. Durable owner: https://github.com/TanglmChris/keel/issues/546 — pending owner-approved authenticated acceptance and publication are preserved.
     - Blocker: none
     - Reauthorizations: none
 
