@@ -133,16 +133,16 @@ async function reviewerHost() {
  const server=http.createServer();
  server.on('upgrade',(req,s)=>{
   peers.push(s);s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');
-  let buf=Buffer.alloc(0);s.on('end',()=>{for(const t of threads.values()){t.loaded=false;t.reviewer=t.savedReviewer;}});
+  let buf=Buffer.alloc(0), experimentalApi=false;s.on('end',()=>{for(const t of threads.values()){t.loaded=false;t.reviewer=t.savedReviewer;}});
   s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4),data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x);if(!x.id)continue;
    let result={},error;const p=x.params||{};let t=threads.get(p.threadId);
    const reply=()=>({thread:{id:t.id,cwd:t.cwd||dir,status:{type:t.status||(t.loaded?'idle':'notLoaded')}},approvalsReviewer:mismatch?'user':t.reviewer,approvalPolicy:'on-request',sandbox:{type:'workspaceWrite',networkAccess:false,writableRoots:[]}});
-   if(x.method==='initialize')result={userAgent:'native-reviewer-fixture'};
+   if(x.method==='initialize'){experimentalApi=p.capabilities?.experimentalApi===true;result={userAgent:'native-reviewer-fixture'};}
    else if(x.method==='thread/start'){t={id:'reviewer-'+ ++serial,reviewer:p.approvalsReviewer||'user',savedReviewer:'user',loaded:true};threads.set(t.id,t);result=reply();}
    else if(x.method==='thread/name/set'){}
    else if(x.method==='thread/settings/update'){if(rejectPersistence)error={message:'native reviewer persistence rejected'};else t.savedReviewer=t.reviewer=p.approvalsReviewer;}
    else if(x.method==='thread/read')result=reply();
-   else if(x.method==='thread/resume'){if(t.resumeError)error={message:t.resumeError};else {t.loaded=true;t.cwd=p.cwd||t.cwd;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();if(t.wrongResumeCwd)result.thread.cwd='/wrong-resumed-cwd';}}
+   else if(x.method==='thread/resume'){if(p.runtimeWorkspaceRoots!==undefined&&!experimentalApi)error={message:'thread/resume.runtimeWorkspaceRoots requires experimentalApi capability'};else if(t.resumeError)error={message:t.resumeError};else {t.loaded=true;t.cwd=p.cwd||t.cwd;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();if(t.wrongResumeCwd)result.thread.cwd='/wrong-resumed-cwd';}}
    else if(x.method==='turn/start'){t.reviewer=p.approvalsReviewer||t.reviewer;turnReviewers.push(t.reviewer);t.savedReviewer=t.reviewer;result={turn:{id:'reviewer-turn-'+turnReviewers.length}};}
    else error={message:'unsupported fixture RPC '+x.method};
    if(dropStartReply&&x.method==='thread/start')continue;
@@ -270,6 +270,37 @@ test('recover restores original owned cwd without rewriting role claims or start
   assert.equal(resume.params.approvalsReviewer,'auto_review');assert.deepEqual(fs.readFileSync(file),before);
   assert.equal(h.requests.filter(x=>x.method==='turn/start').length,turnCount);assert.equal(h.requests.filter(x=>x.method==='thread/start').length,1);
  }finally{await h.close();}
+});
+
+test('legacy recover negotiates workspace roots support without adding a reviewer or changing claims',async()=>{
+ const h=await reviewerHost();
+ try {
+  const args=['--repo',h.dir,'--role','reviewer-worker','--json'];
+  const started=await run([...args,'--socket',h.sock],'start');
+  assert.equal(started.code,0,started.err);
+  const id=JSON.parse(started.out).thread;
+  const delivered=await run([...args,'--record','prior-claim','--text','prior work'],'deliver');
+  assert.equal(delivered.code,0,delivered.err);
+  const file=path.join(h.dir,'.git/keel-chat/codex-roles/reviewer-worker.json');
+  const before=fs.readFileSync(file);
+  const record=JSON.parse(before);
+  assert.equal(Object.hasOwn(record,'approvalsReviewer'),false);
+  assert.equal(Object.hasOwn(record,'nativePolicy'),false);
+  h.threads.get(id).cwd='/drifted-cwd';
+  h.threads.get(id).loaded=false;
+  const previous=h.requests.length;
+
+  const result=await run(args,'recover');
+  assert.equal(result.code,0,result.err);
+  assert.equal(JSON.parse(result.out).thread,id);
+  const recoveryRequests=h.requests.slice(previous);
+  const resume=recoveryRequests.find(request=>request.method==='thread/resume');
+  assert.equal(resume.params.cwd,h.dir);
+  assert.deepEqual(resume.params.runtimeWorkspaceRoots,[h.dir]);
+  assert.equal(Object.hasOwn(resume.params,'approvalsReviewer'),false);
+  assert.deepEqual(fs.readFileSync(file),before);
+  assert.equal(recoveryRequests.some(request=>['thread/start','turn/start'].includes(request.method)),false);
+ } finally {await h.close();}
 });
 
 test('recover refuses unsafe native and role boundaries without changing records',async()=>{

@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.1 - Restore native recovery for legacy Codex roles
+
+- Codex recover now negotiates the native capability needed to restore runtime workspace roots for legacy managed roles, including roles without an explicit reviewer or saved policy (#550). Original identity and delivery claims stay intact.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.1; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.0 - Explicit owned Codex thread registration and endpoint migration
 
 - Register an explicitly authorized existing Codex frontend without creating a replacement. Migrate an owned role to another native endpoint while preserving thread identity, history, delivery claims, and permissions (#546, #547). Inspect uncertain outcomes before reconciling.

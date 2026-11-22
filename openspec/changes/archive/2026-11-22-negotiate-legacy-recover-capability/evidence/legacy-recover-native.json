@@ -1,0 +1,35 @@
+{
+  "native": "0.167.2",
+  "privateFixture": true,
+  "modelTurns": 0,
+  "red": {
+    "observedError": "keel codex: thread/resume.runtimeWorkspaceRoots requires experimentalApi capability",
+    "processesExited": true
+  },
+  "green": {
+    "recover": "recovered",
+    "registryUnchanged": true,
+    "sourceCold": {
+      "cwd": "role",
+      "state": "notLoaded",
+      "turns": 0
+    },
+    "targetCold": {
+      "cwd": "role",
+      "state": "notLoaded",
+      "turns": 0
+    },
+    "restart": {
+      "cwd": "role",
+      "roots": [
+        "role"
+      ],
+      "sandbox": "workspaceWrite",
+      "approval": "on-request",
+      "reviewer": "user"
+    },
+    "migratedOriginal": true,
+    "unknownRefused": true,
+    "processesExited": true
+  }
+}
