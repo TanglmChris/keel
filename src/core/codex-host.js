@@ -193,8 +193,10 @@ async function run(args) {
     }
     if (action === "handover" && recorded?.registration) throw Error("registered frontend handover requires separate successor authorization; no replacement started");
     const savedPolicy = onboarding.policyFor(recorded);
+    // Recovery can restore runtimeWorkspaceRoots even for legacy role records.
+    const needsExperimentalApi = action === "recover" || requestedReviewer || recorded?.approvalsReviewer || savedPolicy;
     client = await connect(options.socket, ms);
-    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}, ...(requestedReviewer || recorded?.approvalsReviewer || savedPolicy ? {capabilities: {experimentalApi: true}} : {})});
+    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}, ...(needsExperimentalApi ? {capabilities: {experimentalApi: true}} : {})});
     if (!host || typeof host.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
     client.notify("initialized");
     const result = {socket: options.socket, host};

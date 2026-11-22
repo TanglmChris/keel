@@ -1,0 +1,6 @@
+validation --all passed: baseline plus 426 scenarios.
+evidence: 278 deterministic, 148 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)
+installed-openspec: node v24.20.0; npm 11.19.0; expected 1.14.0
+{"case":"clean-tarball","version":"1.14.0","expected":"1.14.0","strictExit":0,"totals":["Totals: 37 passed, 0 failed (37 items)"]}
+{"case":"updater","version":"1.14.0","expected":"1.14.0","strictExit":0,"totals":["Totals: 37 passed, 0 failed (37 items)"]}
+installed-openspec: clean tarball and updater acceptance passed
