@@ -1,4 +1,7 @@
-# Pending explicit real-model acceptance
+# Original explicit real-model acceptance request
+
+The original request below was subsequently approved and used. See
+[the first attempt and the outstanding continuation limit](real-model-attempt-1.md).
 
 Automatic approval review rejected the attempted live native acceptance before
 execution. The rejected command did not start its native processes or send a

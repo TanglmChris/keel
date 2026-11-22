@@ -156,8 +156,13 @@ direct migration. Both test processes exited. Native approval drift on a blank
 thread was also measured and correctly refused. Effective-policy-preserving
 built-in profile representation is normalized; changed approval is not.
 
-Actual authenticated nonempty-history/model receipt and read-only filesystem
-refusal remain a release prerequisite tracked in Keel #546/#547. Automatic
-approval review rejected existing-auth real-model testing; the exact incremental
-human confirmation is pending. No production migration, new App experiment,
-native hook trust promotion or macOS acceptance is claimed by these checks.
+Authenticated 0.167.2 acceptance then used the same private original thread
+across the source and target. Both addressed model receipts are in that
+thread's durable history. The source writer refusal preserved the old
+registry, and explicit reconciliation retained the policy and all delivery
+claims. Repeating a delivered record returned its original turn and an
+unknown claim refused replay. The actual native tool returned exit 1 with a
+read-only filesystem error, and the test file remained unchanged. Both
+temporary processes exited and the global config hash matched. Kaiwu
+production automatic delivery and mailbox-read acceptance remain separate.
+See the owned-thread onboarding change's real-model-resume evidence.

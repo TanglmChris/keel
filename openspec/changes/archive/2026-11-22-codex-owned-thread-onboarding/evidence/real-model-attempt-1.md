@@ -1,0 +1,13 @@
+# Real model acceptance checkpoint
+
+The owner replied to the bounded acceptance request on 2026-11-18. Automatic review allowed the bounded invocation. Two temporary 0.167.2 native processes used a new synthetic fixture and one model turn. The probe treated a transient interrupted history read as final and exited early. Subsequent inspection of that exact fixture’s persisted rollout confirmed the expected assistant token and the corresponding task_complete event. Both temporary processes subsequently exited. The global configuration hash matched.
+
+No registration, migration, addressed delivery or read-only write check was reached. The remaining acceptance uses the same original fixture and at most two further model turns. The revised probe waits for a completed or failed result instead of treating a transient interrupted read as final. Another pair of temporary test processes requires the owner’s explicit extension of the original process count. No publication conclusion follows from the seed turn.
+
+## 2026-11-22 incident cross-check
+
+The private seed turn confirms that the native model ran and persisted its completion on the original fixture. That fact does not establish a Keel-addressed delivery. The corrected continuation probe passed a syntax check. It waits through a transient interrupted read, matches the expected turn and marker, checks history and dedup, requires a native command-denial receipt plus an unchanged sentinel, and verifies test-process exit and global configuration hash.
+
+In the current implementation `deliver` records a native turn ID immediately after `turn/start`. Its `delivered` and `already-delivered` states are transport acceptance and dedup evidence. A distinct terminal result tied to that original thread and turn, a durable response, and any mailbox read acknowledgement must be verified separately. A pending claim with unknown native outcome remains blocked from replay.
+
+[Kaiwu #563](https://github.com/TanglmChris/kaiwu-ip/issues/563) confirms the structured completion reply was stored and the original todo closed. Its newly verified manual foreground continuation does not establish automatic delivery. [Kaiwu #561](https://github.com/TanglmChris/kaiwu-ip/issues/561) reports an uncomputed managed lookup and a mismatched identity for ordinary messages. These observations leave endpoint/binding and unique scheduler validation with [Kaiwu #546](https://github.com/TanglmChris/kaiwu-ip/issues/546). They are not evidence that a Keel delivery was accepted and then lost. Upstream release remains contingent on the private acceptance in task 3.1.

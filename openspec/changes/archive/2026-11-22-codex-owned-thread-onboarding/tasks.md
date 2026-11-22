@@ -212,7 +212,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 3.1 Verify real native onboarding and read-only execution
+- [x] 3.1 Verify real native onboarding and read-only execution
   - Mode: diagnose-only
   - Covers:
     - D5
@@ -226,12 +226,75 @@
     - Reason: live installed native and model acceptance of implemented public CLI, not another implementation slice.
     - M1: Use only private fixtures and temporary test native endpoints to exercise public registration, source writer refusal/release, same-id endpoint migration, nonempty original history/claims and effective policy retention. Complete actual addressed model work and duplicate delivery; prove read-only filesystem-write refusal, distinguish delivery/read/task evidence, keep unknown claims blocked and confirm test processes exit. Do not copy credentials, modify global config, production/App/Goal/service state or execute Kaiwu migration; preserve exact negative evidence if unsupported.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:842bec98c3df49926ceb37c58d8b90afc1e49ca618ba40905a18ce2f0873fe63 (keel 5.230.0)
+    - M1: Real 0.167.2 registration, original history, both original-thread durable model receipts, writer refusal and explicit reconciliation, claim preservation and duplicate original turn, unknown claim refusal, actual shell exit 1 read-only filesystem and unchanged sentinel. Both hosts exited and config hash matched. evidence/real-model-resume.md.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
-    - Blocker: Actual authenticated native/model test rejected by automatic approval review; a precise human confirmation is pending. Unauthenticated native verification found F4, repaired by preceding task 2.3 before this task resumes.
+      - Status: pass
+      - Acceptance check: Exact fixture rollout confirms original-thread start and durable completion for all three turns including the original seed. Public CLI verifies migration, claims and dedup; paired actual tool result verifies OS denial independently of the probe’s result-format assertion.
+      - Scope check: One temporary host pair and two additional synthetic turns under delegated owner authority. Only original private fixture and own evidence; config hash unchanged and processes exited.
+      - Findings: Resolved here: M1 proves original-thread target execution and native OS read-only refusal. Durable owner: https://github.com/TanglmChris/kaiwu-ip/issues/546 — production unique scheduler and automatic continuation acceptance.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.1 Prepare the release candidate after native acceptance
+  - Covers:
+    - D8
+    - D11
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/plugin.json
+    - .claude-plugin/marketplace.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - keel/CHANGELOG.md
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: release metadata, package installation and measured validation documentation after feature acceptance.
+    - M1: Verify the latest published version and remote trunk, align release metadata with the supported bump script, document only measured native outcomes and preserve OpenSpec 1.14.0. Run the full local validation suite and strict OpenSpec check.
+    - M2: Run node scripts/verify_installed_openspec.js against the actual release candidate and retain clean tarball and old-version updater evidence including strict installed specs validation.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d5cb1cb22a4862dec3f2ac380ba8b285df50d6e94a576b5f2a58c63ddf8749e1 (keel 5.230.0)
+    - M1: Remote main matches candidate base and npm previous is 5.230.0. Aligned 5.231.0, full baseline plus 426 scenarios passed without skips, and strict OpenSpec passed 38 items (37 specs plus active change). evidence/release-5.231.0.txt.
+    - M2: Actual candidate clean tarball and old updater installed exactly 1.14.0 and validated all 37 published specs in both modes. evidence/release-5.231.0.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Full regression, strict OpenSpec, and isolated install/update establish candidate readiness. Release and local upgrade will be tracked on issues.
+      - Scope check: Version and native evidence docs restricted to declared Touch; test installation used disposable prefixes.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — verify the actual repository publication, local update and Kaiwu callback.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.2 Commit the verified release candidate
+  - Mode: repo-action
+  - Covers:
+    - D8
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized git commit after the native and package tests.
+    - M1: Check staged candidate paths against reviewed task scopes, verify evidence and diff, and commit the reviewed release tree. Push, PR, repository merge, publication, local update and Kaiwu notification follow after task gates and authorized sync/archive.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9a4864d2aa9600b04d1233e1a29a122aca5a55f9d453e55ec2eeb083f37a47b5 (keel 5.230.0)
+    - M1: Reviewed 26 staged paths: permitted release metadata and documentation, plus the change records and private sanitized evidence. diff check passed. Initial commit 4beae86f. Scope-preserving final commit adds completed task evidence and archive/spec sync.
+    - Review:
+      - Status: pass
+      - Acceptance check: The verified implementation and release tree are committed; the issue tracks actual repository publication and runtime installation.
+      - Scope check: Only staged reviewed files and change-local evidence; no direct repo publication part of the task.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — verify full-gate and npm/release, then update and notify Kaiwu. Durable owner: https://github.com/TanglmChris/keel/issues/547 — verify published explicit registration.
+    - Blocker: none
     - Reauthorizations: none

@@ -1,4 +1,9 @@
-# Implementation checkpoint — #546 / #547
+# Historical implementation checkpoint — #546 / #547
+
+The authenticated acceptance in task 3.1 subsequently passed. Read
+[evidence/real-model-resume.md](evidence/real-model-resume.md) and the release task
+records for current evidence. The pending authorization described below is
+historical.
 
 Owner directly admitted both implementations/releases by “继续” after the concrete
 scope question. No production migration is authorized here; #527 remains deferred.
