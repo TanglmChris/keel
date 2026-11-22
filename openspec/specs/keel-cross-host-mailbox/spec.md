@@ -37,7 +37,6 @@ Keel MUST address members by role names matching `^[a-z0-9][a-z0-9-]{0,31}$`. `k
 
 `keel chat group create <g> [--member <r>]...`, `group add <g> <r>`, `group remove <g> <r>`, `group archive <g>`, and `group list` MUST maintain groups through `join`, `leave`, and `archive` records. Only members and the role `owner` MAY post to a group; a mention of a role that is neither a member nor an alias MUST be refused by name. Text inside inline code or a fenced block MUST NOT be read for mentions, and an `@` token of 7 to 40 hex digits that names no member or alias MUST be left as text, since it is a commit id rather than a typo. `@all` MUST be stored as `all` and address every member at posting time. `keel chat dm <role> <text>` MUST post to the direct group `dm-<a>--<b>` of the two sorted roles, creating it on first use; a direct group's name MUST be accepted wherever a group is named, listed, or authorized, whatever its length, when it is `dm-` and two different valid role names in sorted order joined by `--`, and every other group name MUST match the role-name pattern. An archived group MUST refuse posts and MUST NOT appear in notices or default lists, and no command MAY delete a record.
 
-
 #### Scenario: Two long role names share a direct group
 - **WHEN** `kaiwu-design-iecc` runs `keel chat dm kaiwu-pm-iecc "lease freed"`, whose direct group name `dm-kaiwu-design-iecc--kaiwu-pm-iecc` is 35 characters
 - **THEN** it exits 0, `kaiwu-pm-iecc` has the message unread, `keel chat dm-kaiwu-design-iecc--kaiwu-pm-iecc --peek` prints it, and `keel chat group list --json` lists the group as direct
@@ -472,3 +471,15 @@ For a hook payload carrying a session id, the FileChanged hook MUST announce a w
 #### Scenario: Another session is told separately
 - **WHEN** session `s2` of the same role runs FileChanged for a record already announced to `s1`
 - **THEN** it exits 2
+
+### Requirement: Direct chat reads include canonical participants
+
+Keel MUST expose the canonical participants of a direct chat record in its public JSON `direct` field, regardless of whether the repository has any role renames. JSON reads MUST preserve existing records and read cursors. Ordinary group records MUST NOT acquire direct participants. Direct records marked `no_wake` MUST still expose participants while remaining ineligible to wake a role.
+
+#### Scenario: A public reader reads one DM through different surfaces
+- **WHEN** unread, group peek, or show reads an ordinary direct message with or without a role rename
+- **THEN** these surfaces report the same record ID and canonical direct participants without writing stored records or read cursors
+
+#### Scenario: A no-wake DM and an ordinary group message retain wake behavior
+- **WHEN** a no-wake DM and an unaddressed ordinary group message are read as JSON
+- **THEN** only the DM includes direct participants and neither record wakes its recipient
