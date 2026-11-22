@@ -228,15 +228,16 @@ function canonicalRole(root, name, renames = readRenames(root)) {
 // Every role field a record carries, read through the renames (D2); a direct
 // group's members come from its name, so they are given as `direct`.
 function mapRecord(record, renames) {
-  if (!record || !Object.keys(renames).length) return record;
+  if (!record) return record;
   const map = (name) => (validName(name) ? canonicalRole(null, name, renames) : name);
+  if (record.group && isDirect(record.group)) record.direct = [...new Set(directMembers(record.group).map(map))];
+  if (!Object.keys(renames).length) return record;
   record.from = map(record.from);
   if (record.assignee) record.assignee = map(record.assignee);
   if (Array.isArray(record.mentions)) record.mentions = [...new Set(record.mentions.map(map))];
   // A join or leave keeps the name it was written for; `member` is the role
   // it now means, applied once membership is computed (groupState).
   if ((record.kind === "join" || record.kind === "leave") && record.target) record.member = map(record.target);
-  if (record.group && isDirect(record.group)) record.direct = [...new Set(directMembers(record.group).map(map))];
   return record;
 }
 
