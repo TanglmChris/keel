@@ -139,3 +139,30 @@ acceptance or Kaiwu production deployment. The earlier expired global idle windo
 remains a negative historical result. Full native evidence and failed preliminary
 probes are owned by [#541](https://github.com/TanglmChris/keel/issues/541); deployment
 is [Kaiwu #546](https://github.com/TanglmChris/kaiwu-ip/issues/546).
+
+## Owned onboarding candidate (#546/#547, 2026-11-18)
+
+The source candidate adds explicit original-frontend registration and owned
+endpoint migration. Public CLI boundary tests cover original identity, complete
+paginated history, exact claim preservation, effective native policy, busy/input
+refusal, competing registrations, writer rejection, uncertain acquisition/final
+commit and explicit reconciliation. They are stand-ins, not model acceptance.
+
+Real isolated **0.167.2** processes with a shared **empty unauthenticated Codex
+home**, zero model turns and no copied credentials proved public original-id
+read-only registration, writer refusal while the original subscriber remained,
+explicit source unsubscribe/target owner rejoin, reconciliation and a subsequent
+direct migration. Both test processes exited. Native approval drift on a blank
+thread was also measured and correctly refused. Effective-policy-preserving
+built-in profile representation is normalized; changed approval is not.
+
+Authenticated 0.167.2 acceptance then used the same private original thread
+across the source and target. Both addressed model receipts are in that
+thread's durable history. The source writer refusal preserved the old
+registry, and explicit reconciliation retained the policy and all delivery
+claims. Repeating a delivered record returned its original turn and an
+unknown claim refused replay. The actual native tool returned exit 1 with a
+read-only filesystem error, and the test file remained unchanged. Both
+temporary processes exited and the global config hash matched. Kaiwu
+production automatic delivery and mailbox-read acceptance remain separate.
+See the owned-thread onboarding change's real-model-resume evidence.

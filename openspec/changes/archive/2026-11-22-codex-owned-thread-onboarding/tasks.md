@@ -1,0 +1,300 @@
+# Tasks
+
+- [x] 1.1 Measure native onboarding and policy boundaries
+  - Mode: diagnose-only
+  - Covers:
+    - D1
+    - D2
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: native API and lifecycle measurement on private disposable fixtures precedes implementation.
+    - M1: Inspect official native documentation, installed schemas and real newly-created private fixture policy/history/writer behavior; determine a supported original-id policy inspection, safe source release, target reacquisition and read-only delivery route. Use only private newly-created fixtures; no production sockets/threads, App/service/Goal/global config edits, credentials copies or hidden warm-up. Record actual capability or precise failure without promoting unmeasured behavior.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:ccb79a31789461f6b53b0b0a8f43695ca6fa771a43b834a30646a7a5cd3821fb (keel 5.230.0)
+    - M1: Native 0.164.0 and 0.167.2 private two-host experiments measured same-id read-only rejoin, target writer refusal before source unsubscribe and successful original-id policy-preserving target resume after release. See evidence/diagnosis.md and native-164.json/native-167.json. No production or global config access.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual native RPC behavior distinguishes same-id policy inspection, foreign notLoaded, writer refusal and confirmed source unsubscribe; no model completion or production rollout claimed.
+      - Scope check: Touch none; only own records and private temporary fixture files/native processes. Both processes exited; no production socket, App, service or global configuration mutation.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — migration implementation and real history/model acceptance remain. Durable owner: https://github.com/TanglmChris/keel/issues/547 — registration and read-only delivery remain.
+    - Blocker: none
+    - Reauthorizations: none
+
+## Invalidates
+- I1: "This adapter does not adopt existing desktop chats" — docs/cli-team.md and Chinese counterpart; explicit authorized original frontend registration is now available. Updated by: 2.5
+- I2: "Success verifies the same id/cwd, on-request, workspace-write" — docs/cli-team.md and Chinese counterpart; registered/migrated policy uses its exact approved native snapshot. Updated by: 2.5
+- I4: "Existing desktop chats are not adopted" — README.md; now explicit authorized dedicated original frontend registration is available. Updated by: 2.5
+- I3: "keel codex status|start|deliver|handover|drain|recover" — bin/keel.js help needs explicit onboarding command lines. Updated by: 2.5
+
+## Expectation Coverage
+- E1: Native safe onboarding capability measurement. Covered by: 1.1
+- E2: Endpoint migration implementation, real acceptance and publication. Durable owner: https://github.com/TanglmChris/keel/issues/546
+- E3: Authorized frontend registration, unique read-only review and actual delivery. Durable owner: https://github.com/TanglmChris/keel/issues/547
+
+- [x] 2.1 Register explicit original frontend identities
+  - Covers:
+    - D3
+    - D4
+    - D5
+    - D8
+  - Touch:
+    - src/core/codex-host.js
+    - src/core/codex-onboarding.js
+    - scripts/test_codex_onboarding.js
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: Through public CLI and native RPC boundary, inspect/register an explicit pre-bound original read-only frontend without thread/start, settings changes or warm-up; allow active metadata registration then waiting; exercise actual native-policy-preserving idle/cold delivery and duplicate/unknown claims. Add one red-green behavior at a time with node --test scripts/test_codex_onboarding.js.
+    - M2: Through the public CLI reject missing authority, conflicting/reserved/renamed role or worktree, same thread owned elsewhere including pending/history, stale/tampered plan, wrong endpoint/id/cwd/policy, corrupt records, concurrent registration/start and unsupported registered frontend successor, without partial success or new native work.
+    - M3 (regression): Run node --test scripts/test_codex_host.js scripts/test_codex_onboarding.js to preserve existing managed start/delivery/recovery/handover/locking behavior.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:6e80fc11f464c5afe313c18848b3ca2dea2c36efd74a88856e46c312ccd8ae71 (keel 5.230.0)
+    - M1: Public inspect-registration/register and cold readonly delivery/duplicate checks pass with original id/history/policy and zero thread/start, settings or warm-up requests. evidence/register-green-full.txt.
+    - M1.red: Public registration test failed with Usage before registration existed; evidence/register-red-1.txt.
+    - M1.green: Same public original-readonly registration/delivery test passes; evidence/register-green-1.txt and register-green-full.txt.
+    - M2: Active registration/waiting and original empty runtime roots recovery pass; conflicts, missing authority, tampered plan, duplicate current/historical/pending thread, malformed store, wrong native id/cwd/policy, concurrent registration/start, unknown claims and successor refusal pass. evidence/register-green-full.txt.
+    - M2.red: Recovery public case failed because observed [] runtime roots became the default worktree root; evidence/register-red-2.txt.
+    - M2.green: Recovery now sends original runtime roots and all registration negative-boundary checks pass; evidence/register-green-full.txt.
+    - M3: All 20 tests pass (16 existing host plus 4 onboarding), 0 failures/skips; evidence/register-green-full.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Public CLI behavior proves original registration and real policy-bearing RPC requests, busy preservation and no hidden thread/turn; native model acceptance is separately task 3.1.
+      - Scope check: Only three declared product/test Touch paths plus own change records changed; no binding, production or global configuration modified.
+      - Findings: Resolved here: M1/M2 prove original-readonly registration and runtime root preservation. Durable owner: https://github.com/TanglmChris/keel/issues/547 — actual native/model acceptance, runbook and publication remain task 3.1 and release slices.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.2 Migrate owned endpoints with durable native verification
+  - Covers:
+    - D3
+    - D4
+    - D6
+    - D7
+  - Touch:
+    - src/core/codex-onboarding.js
+    - scripts/test_codex_onboarding.js
+  - Verify:
+    - Strategy: vertical-tdd
+    - M1: Via public inspect-migration/migrate and two native boundary hosts, preserve original id/history/unknown and delivered claims/custom fields/policy while changing only endpoint/audit; prove complete paginated history and native source release before target reacquisition, no thread/start or turn/start. One red-green behavior at a time.
+    - M2: Via public CLI refuse busy source, queue/Goal/terminals, foreign writer, missing target history, mismatched target policy/id/cwd, registry/binding races and unknown acquisition/commit. Keep durable unknown intent; migration-status must distinguish outcome and explicit reconciliation must refuse unloaded target without retry, or commit a verified already-loaded original target while preserving dedup/unknown claims.
+    - M3 (regression): Run node --test scripts/test_codex_host.js scripts/test_codex_onboarding.js.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:3fce09bf7aa09c2acef31544e670c9f0036398e3c2754c5d681516943ba5d6ac (keel 5.230.0)
+    - M1: Original-id two-endpoint migration passes with full paginated history and unchanged prior claims/custom fields; only endpoint and audit differ. evidence/migrate-green-1.txt and onboarding-green-full.txt.
+    - M1.red: Public inspect-migration failed with Usage before implementation; evidence/migrate-red-1.txt.
+    - M1.green: Same original-endpoint/history/claim public test passes; evidence/migrate-green-1.txt.
+    - M2: Busy/queue/Goal/terminal, stale source/registry/binding, foreign writer, target history/id/cwd/policy and unknown acquisition checks pass. Unknown final-journal commit reconciles without registry rewrite or handoff; unloaded target refuses without retry; active new target work remains intact. evidence/onboarding-green-full.txt.
+    - M2.red: Crash-boundary final-journal reconciliation failed because the registry already changed to target; evidence/migrate-red-2.txt.
+    - M2.green: Same final-commit uncertainty check and full boundary matrix pass; evidence/migrate-green-2.txt and onboarding-green-full.txt.
+    - M3: All 26 public CLI tests pass, no failures/skips; evidence/onboarding-green-full.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Real CLI/store/locks and two native RPC stand-ins exercise original-id migration, full history, policy and exact field preservation, plus observable interrupted outcomes; actual native/model validation remains 3.1.
+      - Scope check: Only codex-onboarding.js and test_codex_onboarding.js changed after task 2.2 start, plus own records; no production/native runtime/global configuration touched.
+      - Findings: Resolved here: M1/M2 prove migration and explicit uncertain-outcome reconciliation. Durable owner: https://github.com/TanglmChris/keel/issues/546 — actual native/model acceptance and release remain.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.3 Normalize equivalent native built-in profile provenance
+  - Covers:
+    - D9
+  - Touch:
+    - src/core/codex-onboarding.js
+    - scripts/test_codex_onboarding.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: Through the public CLI reproduce native null versus built-in read-only profile mismatch, then migrate the same original id when effective permission fields are identical; retain refusal for changed approval, sandbox, roots or custom profile. Run node --test scripts/test_codex_onboarding.js and preserve the same red/green case.
+    - M2 (regression): Run node --test scripts/test_codex_host.js scripts/test_codex_onboarding.js.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:db1566098e4db9dbd18e840cc80344ef7af76371de92ba0936eb05bdfa8f7505 (keel 5.230.0)
+    - M1: Equivalent built-in profile migration passes; changed approval, roots and custom profiles still refuse. Native 0.167.2 empty-home/zero-model public registration, actual writer refusal, explicit loaded-target reconciliation and direct reverse migration pass; evidence/profile-green-full.txt and native-public-noauth.json.
+    - M1.red: Public migration rejected identical effective readOnly policy with null versus built-in provenance; evidence/profile-red.txt.
+    - M1.green: Same test passes after normalization; changed effective policies remain refusals. evidence/profile-green-full.txt.
+    - M2: 28 CLI boundary tests passed with no failures/skips; evidence/profile-green-full.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Reproduced real native representation difference is covered by a public red-green check; independent empty-home native execution validates the public operations without credentials or model requests. Approval drift is still refused.
+      - Scope check: Only the two Touch files plus own records changed; test native processes exited. The same Touch warning reflects a new fact found by real native testing after 2.2, with an honest new red, not a planned split.
+      - Findings: Resolved here: M1 fixes equivalent built-in metadata comparison. Durable owner: https://github.com/TanglmChris/keel/issues/546 — blank explicit never approval does not cold-persist without a turn; tool correctly refuses actual policy drift, without warming up or changing policy. Authenticated nonempty-history acceptance remains 3.1.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.4 Preserve audited policy on migrated legacy roles
+  - Covers:
+    - D10
+  - Touch:
+    - src/core/codex-host.js
+    - src/core/codex-onboarding.js
+    - scripts/test_codex_onboarding.js
+  - Verify:
+    - Strategy: regression-first
+    - M1: Through the public CLI migrate a legacy role with no explicit reviewer or top-level nativePolicy, then show delivery refuses a changed effective approval before any new turn; original audit-policy recovery and later migration use the same snapshot, leaving prior claims intact. Record red then green and run node --test scripts/test_codex_host.js scripts/test_codex_onboarding.js.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:69862de8e5bea4e03fb22eb7d52aa4ac055a50b19e9aa1c24e9a6ee3ccb7a097 (keel 5.230.0)
+    - M1: Migrated legacy no-reviewer role now uses its existing migration audit snapshot; changed native approval is rejected before a turn and recovery refuses drift, then succeeds under the original policy with byte-identical claims/registry. All 29 CLI tests pass; evidence/legacy-policy-green-full.txt.
+    - M1.red: Public delivery incorrectly succeeded after a migrated legacy role approval changed; evidence/legacy-policy-red.txt.
+    - M1.green: Same public legacy delivery/recovery case and all 29 regressions pass; evidence/legacy-policy-green-full.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Public new-work and recover calls demonstrate audit policy enforcement and no changed claims or duplicate native work; non-migrated defaults retain existing behavior.
+      - Scope check: Three declared Touch paths and own records only. Shared Touch warning concerns a new audit-derived legacy scenario absent from original registration, with an honest failing reproduction.
+      - Findings: Resolved here: M1 closes legacy migrated-policy drift without another registry field. Durable owner: https://github.com/TanglmChris/keel/issues/546 — authenticated native acceptance and publication remain.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.5 Document onboarding and include it in the shared gate
+  - Covers:
+    - D11
+  - Touch:
+    - README.md
+    - README.zh-CN.md
+    - bin/keel.js
+    - scripts/validation/codexhost.py
+    - docs/cli-team.md
+    - docs/cli-team.zh-CN.md
+    - docs/codex-validation.md
+    - docs/host-contract.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: documentation and existing test-runner wiring, without another runtime capability.
+    - M1: Read public CLI help and bilingual examples for exact inspect/apply/status commands, authority and binding requirements, permission/history retention, unknown outcomes, safe reconciliation and production separation. Run docs and codexhost validation groups; confirm onboarding tests run through the existing gate and evidence distinguishes zero-model native proof from pending real-model acceptance.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:12450530b38a406e7776aaac4a58158b5d51acfdf39660142fc6b09c68412c83 (keel 5.230.0)
+    - M1: Public help exposes all five onboarding/status entries; bilingual README/runbooks document exact tuple/authority/plan semantics, native policy, caller admission and no blind retry. Docs group 24 scenarios and codexhost shared gate including all 29 CLI tests pass; strict OpenSpec and diff checks pass. evidence/docs.txt, codexhost.txt and legacy-policy-green-full.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Real public help, readme-derived flags and shared execution entry validate usable documented commands. Native validation explicitly distinguishes empty-home zero-model acceptance from pending authenticated model proof.
+      - Scope check: Only eight declared help/runner/docs/README paths plus own records changed. README omission was reported and the task returned to authoring/reanchored before its edits. No runtime or production changes.
+      - Findings: Resolved here: M1 wires onboarding tests into the common gate and documents the public operations. Durable owner: https://github.com/TanglmChris/keel/issues/546 — actual model acceptance and release remain pending owner confirmation and subsequent tasks; source docs currently mark the unreleased candidate honestly.
+    - Blocker: none
+    - Reauthorizations: Returned to authoring under the owner-admitted full public-interface implementation/documentation scope after docs gate identified README missing new flags. Add only README.md and README.zh-CN.md to Touch; no acceptance or product scope change. Prior 9e51e25a60d7d580c3ed9e1e23b4d7c2800a618fb64fdb5f08c8a84ff735143d is superseded; docs failure retained as evidence.
+
+- [x] 2.6 Commit reviewable implementation checkpoint
+  - Mode: repo-action
+  - Covers:
+    - D11
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized repository checkpoint, not runtime completion or release.
+    - M1: Stage only the completed source/test/docs paths and this change's artifacts, verify staged diff and JSON/helpers, run full local regression with all shipped files tracked, and commit the reviewable checkpoint. Verify committed tree. Keep 3.1 pending and do not claim model acceptance/publication; push is a separate authorized action after task completion.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:435f96602f1af13c7150890df10ddb5c2f32888caf839bb41da99b85160ed072 (keel 5.230.0)
+    - M1: Committed checkpoint verified as exactly 42 paths: 11 completed product/test/docs Touch paths and 31 own change records. Tracked-file full regression passed baseline plus 426 scenarios, zero skips (278 deterministic, 148 stand-in); 29 public CLI tests and 24 docs checks passed. Strict OpenSpec, 4 evidence JSON parses, helper syntax and staged diff checks pass. evidence/checkpoint-full.txt records the final full result; prior untracked-file failure is preserved. Task 3.1 remains pending and no publication claim is made.
+    - Review:
+      - Status: pass
+      - Acceptance check: Actual committed tree contains implemented CLI, registered shared gate, bilingual runbook, real unauthenticated native and red-green/fault evidence plus executable continuation state; full suite now proves the shipped files are tracked. Final record-only amendment preserves reviewed product blobs.
+      - Scope check: Exact committed path whitelist verified; no version/production/global config/App/Goal/service/#527 writes. Console evidence trailing whitespace normalized only for diff hygiene. Native memory directories were checked and absent.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — authenticated real-model acceptance and publication/local update/notification remain. Durable owner: https://github.com/TanglmChris/keel/issues/547 — actual model read-only/task receipt acceptance is still task 3.1. Automatic review rejected the real existing-auth test before execution; precise owner confirmation pending in evidence/real-model-proposal.md.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 2.7 Commit final continuation-state correction
+  - Mode: repo-action
+  - Covers:
+    - D11
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: record-only repository checkpoint correction, no product behavior changes.
+    - M1: Verify only this tasks.md differs from pushed checkpoint 2c82ac2b, task 2.2 has its actual passing completion and checked state, 3.1 remains pending, and the three product/test blob hashes are unchanged. Validate OpenSpec/diff, commit the record-only correction, and verify its tree. Push follows separately under standing authorization.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9645f0495c63cb9943b6b6f9f69fc5cf3a0be39d09d31b26b91fc47e7e8443fd (keel 5.230.0)
+    - M1: Actual record-only commit verified to change only this tasks.md; source/test blobs remain afdb9348073dd413890f6106ae427d6258ec3649, 4e3e37e0f71c659526c7eecb3e4aac4ad95701fb and 78b4d466bcba1e55851c6441ddb3f3b7ae1098bf. Explicit task 2.2 completion passes, checked state corrected, strict OpenSpec/diff pass and task 3.1 remains unchecked. Full regression evidence from 2.6 remains applicable; no product file changed.
+    - Review:
+      - Status: pass
+      - Acceptance check: Committed continuation state now advances to real acceptance 3.1 instead of repeating the already completed migration task.
+      - Scope check: Only this task record changed; final record-only amendment includes this completion evidence and preserves all product/test/docs blobs.
+      - Findings: Resolved here: M1 corrects the recorded migration checkbox. Durable owner: https://github.com/TanglmChris/keel/issues/546 — pending owner-approved authenticated acceptance and publication are preserved.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 3.1 Verify real native onboarding and read-only execution
+  - Mode: diagnose-only
+  - Covers:
+    - D5
+    - D6
+    - D7
+    - D8
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: live installed native and model acceptance of implemented public CLI, not another implementation slice.
+    - M1: Use only private fixtures and temporary test native endpoints to exercise public registration, source writer refusal/release, same-id endpoint migration, nonempty original history/claims and effective policy retention. Complete actual addressed model work and duplicate delivery; prove read-only filesystem-write refusal, distinguish delivery/read/task evidence, keep unknown claims blocked and confirm test processes exit. Do not copy credentials, modify global config, production/App/Goal/service state or execute Kaiwu migration; preserve exact negative evidence if unsupported.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:842bec98c3df49926ceb37c58d8b90afc1e49ca618ba40905a18ce2f0873fe63 (keel 5.230.0)
+    - M1: Real 0.167.2 registration, original history, both original-thread durable model receipts, writer refusal and explicit reconciliation, claim preservation and duplicate original turn, unknown claim refusal, actual shell exit 1 read-only filesystem and unchanged sentinel. Both hosts exited and config hash matched. evidence/real-model-resume.md.
+    - Review:
+      - Status: pass
+      - Acceptance check: Exact fixture rollout confirms original-thread start and durable completion for all three turns including the original seed. Public CLI verifies migration, claims and dedup; paired actual tool result verifies OS denial independently of the probe’s result-format assertion.
+      - Scope check: One temporary host pair and two additional synthetic turns under delegated owner authority. Only original private fixture and own evidence; config hash unchanged and processes exited.
+      - Findings: Resolved here: M1 proves original-thread target execution and native OS read-only refusal. Durable owner: https://github.com/TanglmChris/kaiwu-ip/issues/546 — production unique scheduler and automatic continuation acceptance.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.1 Prepare the release candidate after native acceptance
+  - Covers:
+    - D8
+    - D11
+  - Touch:
+    - package.json
+    - npm-shrinkwrap.json
+    - .claude-plugin/plugin.json
+    - .claude-plugin/marketplace.json
+    - plugins/keel/.claude-plugin/plugin.json
+    - plugins/keel/.codex-plugin/plugin.json
+    - scripts/validation/common.py
+    - AGENTS.md
+    - CLAUDE.md
+    - assets/bootstrap/AGENTS.md
+    - .claude/skills/openspec-sync-specs/SKILL.md
+    - .claude/skills/openspec-archive-change/SKILL.md
+    - .claude/skills/openspec-apply-change/SKILL.md
+    - .claude/skills/openspec-propose/SKILL.md
+    - .codex/skills/openspec-sync-specs/SKILL.md
+    - .codex/skills/openspec-archive-change/SKILL.md
+    - .codex/skills/openspec-apply-change/SKILL.md
+    - .codex/skills/openspec-propose/SKILL.md
+    - keel/CHANGELOG.md
+    - docs/codex-validation.md
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: release metadata, package installation and measured validation documentation after feature acceptance.
+    - M1: Verify the latest published version and remote trunk, align release metadata with the supported bump script, document only measured native outcomes and preserve OpenSpec 1.14.0. Run the full local validation suite and strict OpenSpec check.
+    - M2: Run node scripts/verify_installed_openspec.js against the actual release candidate and retain clean tarball and old-version updater evidence including strict installed specs validation.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:d5cb1cb22a4862dec3f2ac380ba8b285df50d6e94a576b5f2a58c63ddf8749e1 (keel 5.230.0)
+    - M1: Remote main matches candidate base and npm previous is 5.230.0. Aligned 5.231.0, full baseline plus 426 scenarios passed without skips, and strict OpenSpec passed 38 items (37 specs plus active change). evidence/release-5.231.0.txt.
+    - M2: Actual candidate clean tarball and old updater installed exactly 1.14.0 and validated all 37 published specs in both modes. evidence/release-5.231.0.txt.
+    - Review:
+      - Status: pass
+      - Acceptance check: Full regression, strict OpenSpec, and isolated install/update establish candidate readiness. Release and local upgrade will be tracked on issues.
+      - Scope check: Version and native evidence docs restricted to declared Touch; test installation used disposable prefixes.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — verify the actual repository publication, local update and Kaiwu callback.
+    - Blocker: none
+    - Reauthorizations: none
+
+- [x] 4.2 Commit the verified release candidate
+  - Mode: repo-action
+  - Covers:
+    - D8
+  - Touch:
+    - none
+  - Verify:
+    - Strategy: evidence-first
+    - Reason: authorized git commit after the native and package tests.
+    - M1: Check staged candidate paths against reviewed task scopes, verify evidence and diff, and commit the reviewed release tree. Push, PR, repository merge, publication, local update and Kaiwu notification follow after task gates and authorized sync/archive.
+  - Evidence:
+    - Contract: keel-task-capsule/v1 sha256:9a4864d2aa9600b04d1233e1a29a122aca5a55f9d453e55ec2eeb083f37a47b5 (keel 5.230.0)
+    - M1: Reviewed 26 staged paths: permitted release metadata and documentation, plus the change records and private sanitized evidence. diff check passed. Initial commit 4beae86f. Scope-preserving final commit adds completed task evidence and archive/spec sync.
+    - Review:
+      - Status: pass
+      - Acceptance check: The verified implementation and release tree are committed; the issue tracks actual repository publication and runtime installation.
+      - Scope check: Only staged reviewed files and change-local evidence; no direct repo publication part of the task.
+      - Findings: Durable owner: https://github.com/TanglmChris/keel/issues/546 — verify full-gate and npm/release, then update and notify Kaiwu. Durable owner: https://github.com/TanglmChris/keel/issues/547 — verify published explicit registration.
+    - Blocker: none
+    - Reauthorizations: none

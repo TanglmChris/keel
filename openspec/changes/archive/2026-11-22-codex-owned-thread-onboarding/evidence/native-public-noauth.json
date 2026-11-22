@@ -1,0 +1,120 @@
+{
+  "root": "/tmp/keel-noauth-onboarding-5y1jgF",
+  "isolatedHome": true,
+  "credentialsCopied": false,
+  "modelTurns": 0,
+  "thread": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+  "registration": {
+    "state": "registered",
+    "role": "review",
+    "thread": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+    "socket": "/tmp/keel-noauth-onboarding-5y1jgF/source.sock",
+    "plan": "97706c5906d377b71a13fc2905b679bc3b6a0a7c9851d5bb27ef510e1ed6a879"
+  },
+  "policy": {
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-noauth-onboarding-5y1jgF/repo"
+    ]
+  },
+  "writerRefusal": "keel codex: thread 01a1ecc7-39cd-7961-8f2c-34e26cf08998 already has an active writer; migration outcome unknown, journal retained; no native rollback claimed\n",
+  "targetBeforeReconcile": {
+    "thread": {
+      "id": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/tmp/keel-noauth-onboarding-5y1jgF/repo",
+          "runtimeWorkspaceRoots": [
+            "/tmp/keel-noauth-onboarding-5y1jgF/repo"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "openai",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": null,
+      "createdAt": 1794973841,
+      "updatedAt": 1794973842,
+      "recencyAt": 1794973841,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/tmp/keel-noauth-onboarding-5y1jgF/home/sessions/2026/11/18/rollout-2026-11-18T11-50-41-01a1ecc7-39cd-7961-8f2c-34e26cf08998.jsonl",
+      "cwd": "/tmp/keel-noauth-onboarding-5y1jgF/repo",
+      "cliVersion": "0.167.2",
+      "originator": "Codex Desktop",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": null,
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": "Private unauthenticated native registration",
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "model": "gpt-6.1-sol",
+    "modelProvider": "openai",
+    "serviceTier": null,
+    "disabledPluginIds": [],
+    "cwd": "/tmp/keel-noauth-onboarding-5y1jgF/repo",
+    "runtimeWorkspaceRoots": [
+      "/tmp/keel-noauth-onboarding-5y1jgF/repo"
+    ],
+    "instructionSources": [],
+    "approvalPolicy": "on-request",
+    "approvalsReviewer": "user",
+    "sandbox": {
+      "type": "readOnly",
+      "networkAccess": false
+    },
+    "activePermissionProfile": {
+      "id": ":read-only",
+      "extends": null
+    },
+    "reasoningEffort": null,
+    "collaborationMode": {
+      "mode": "default",
+      "settings": {
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": null,
+        "developer_instructions": null
+      }
+    },
+    "multiAgentMode": "explicitRequestOnly",
+    "initialTurnsPage": null,
+    "turnsBackwardsCursor": null,
+    "itemsBackwardsCursor": null
+  },
+  "reconcile": {
+    "state": "migrated",
+    "role": "review",
+    "thread": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+    "socket": "/tmp/keel-noauth-onboarding-5y1jgF/target.sock",
+    "plan": "007d8ab95ce2c92aacbbe88b5f35e7f0140361e2dc18086c008c1ccf287696f0"
+  },
+  "directMigration": {
+    "state": "migrated",
+    "role": "review",
+    "thread": "01a1ecc7-39cd-7961-8f2c-34e26cf08998",
+    "socket": "/tmp/keel-noauth-onboarding-5y1jgF/source.sock",
+    "plan": "4307212c0694c67dede8cba9d92d02e303a8b7efd984d89bd1611cef87dcde4f"
+  },
+  "completedAt": "2026-11-18T03:50:43.503Z",
+  "processesExited": true
+}

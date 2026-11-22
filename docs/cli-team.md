@@ -130,9 +130,9 @@ deciding the next action.
 
 `deliver --role worker --record <stable-id> --text <text>` also accepts explicit work. The record id is an idempotency key: a repeated delivered id starts no second turn; uncertain results remain pending for inspection. Busy roles return waiting and require a later drain/tick. Read status to inspect approval waits; use the native Codex interface for approval decisions. An unavailable host is reported without replacement. For a new record, an identity-verified owned notLoaded thread is resumed as the same thread and rechecked before work starts; active work still waits. Already-delivered claims return without loading it, and unknown claims refuse without replay. Cold resume has a 15-second default budget; an explicit `--timeout` remains authoritative, and the stock drain gives its child 40 seconds for the bounded RPC sequence. Existing desktop chats and hand-over do not gain automatic recovery. After an uncertain creation or hand-over, inspect the host and retained registry instead of deleting the record and trying again.
 
-For an explicitly owned role whose native cwd drifted, run `keel codex recover --repo /path/to/role-worktree --role worker --json`. This restores the original thread's cwd/runtime workspace roots through native resume on its recorded endpoint; it does not migrate endpoints or adopt desktop threads. Active work returns waiting without resume. Native writer refusal, unknown state, policy or identity mismatch and timeout require inspection; a failed/unknown recovery may have changed native cwd, but the original role/history/delivery claims remain unchanged and no model turn or replacement is started. Success verifies the same id/cwd, on-request, workspace-write and any explicit reviewer; verify actual execution with the next authorized delivery. It does not recover App project/sidebar attachment or bypass a live foreign writer.
+For an explicitly owned role whose native cwd drifted, run `keel codex recover --repo /path/to/role-worktree --role worker --json`. This restores the original thread's cwd/runtime workspace roots through native resume on its recorded endpoint; it does not migrate endpoints or adopt desktop threads. Active work returns waiting without resume. Native writer refusal, unknown state, policy or identity mismatch and timeout require inspection; a failed/unknown recovery may have changed native cwd, but the original role/history/delivery claims remain unchanged and no model turn or replacement is started. Success verifies the same id/cwd and the recorded native policy for registered/migrated roles, or on-request/workspace-write and any explicit reviewer for legacy roles; verify actual execution with the next authorized delivery. It does not recover App project/sidebar attachment or bypass a live foreign writer.
 
-Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. This adapter does not adopt existing desktop chats, alter hook trust, or report unproven guard/compaction enforcement. See `docs/codex-validation.md` for dated real-host evidence and limitations.
+Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. Existing dedicated frontend threads require the explicit registration plan below; there is no automatic desktop discovery/adoption. Hook trust and unproven guard/compaction enforcement remain unchanged. See `docs/codex-validation.md` for dated real-host evidence and limitations.
 
 
 ## Native shared desktop connection
@@ -195,3 +195,78 @@ report it; do not kill the App, restart the backend or reset global settings.
 The original all-idle restart route remains a separate explicitly authorized
 operation. See [real-host evidence](codex-validation.md) and
 [issue #541](https://github.com/TanglmChris/keel/issues/541).
+
+## Register an authorized original Codex frontend (#547)
+
+Bind the unique existing worktree/role first with `keel chat role --set review` in
+that worktree. The deployment owner must already authorize the exact original
+thread, worktree, role and native endpoint. `--authority` records that reference;
+it is the caller's assertion, not an ACL or permission inferred from a DM/name.
+Do not run `start --thread`: start creates a new thread.
+
+```sh
+keel codex inspect-registration --repo /path/to/owned-worktree --role review --thread ORIGINAL_THREAD_ID --socket /path/to/selected.sock --authority https://example.com/approved-role-list > /tmp/owned-registration.json
+cat /tmp/owned-registration.json
+keel codex register --plan /tmp/owned-registration.json --json
+```
+
+Inspect rejoins only that original native id without setting overrides, model
+work or replacement creation; native resume may load/subscribe it. Active work
+on the same runtime may be registered without an artificial idle window. Apply
+rechecks canonical unique binding, effective approval/reviewer/sandbox/roots,
+thread identity and conflicting current/historical/pending managed ids, then
+atomically creates registration without replacing an existing record or binding.
+Keep plans private: they include runtime endpoints and identity summaries.
+
+The native policy snapshot controls later idle/cold delivery and recovery. Native
+read-only review stays read-only; drift refuses work rather than granting write
+access. Registered frontend `handover` refuses replacement; an authorized
+successor workflow is separate. A stored DM, native accepted turn, model receipt,
+`keel chat read` acknowledgement and business-task completion are distinct. Do
+not claim a mailbox cursor advanced merely because delivery or a model reply
+succeeded. Ordinary coordination does not authorize business code changes.
+
+## Migrate one owned endpoint (#546)
+
+The deployment owner must hold admission for this exact source role through its
+handoff: finish its actual turns/tools/input, preserve pending delivery claims,
+and connect its frontend to the approved target runtime. This is not a whole-App
+idle requirement. The CLI cannot prevent independent foreground input or change
+App routing. `notLoaded` on a foreign host does not prove source release.
+
+```sh
+keel codex inspect-migration --repo /path/to/owned-worktree --role worker --to-socket /path/to/approved-target.sock --authority https://example.com/approved-migration > /tmp/owned-migration.json
+cat /tmp/owned-migration.json
+keel codex migrate --plan /tmp/owned-migration.json --json
+keel codex migration-status --plan /tmp/owned-migration.json --json
+```
+
+The plan fixes the old registry digest, tuple, complete paginated persistent
+history and effective policy. Migration requires actual idle source, empty input
+queue/background terminals and no Goal. It never stops a Goal, tool, daemon or
+App. After durable intent it unsubscribes only its own source connection; another
+subscriber retaining the writer causes a native refusal. Target must contain the
+same persistent id/history and approved policy. Only endpoint and migration
+audit change; existing history, custom fields and all delivery claims survive,
+including uncertain claims that remain blocked from replay. New delivery/recover
+checks the recorded migration policy even for an older default managed role.
+
+A failure after intent is **unknown**, not a promise that native state rolled
+back. Inspect `migration-status`; repeating migrate does not retry handoff.
+Explicitly use `migrate --plan /tmp/owned-migration.json --reconcile` only after
+examining the outcome. Reconciliation checks an already loaded original target,
+source release, original completed-history prefix and effective policy before a
+registry comparison/commit. It preserves any newer target work. An unloaded
+target refuses without native acquisition: the deployment owner must first
+verify/rejoin that exact id under its native recovery authority, then reconcile.
+If registry data changed concurrently, inspect the conflict rather than edit or
+replace records. An interrupted final journal write can reconcile an exactly
+matching already-applied registry without rewriting it.
+
+Native built-in profile provenance may change between null and `:read-only` or
+`:workspace-write` during cold loading; only the matching implicit representation
+is normalized. Effective approval, reviewer, sandbox fields, roots and custom
+profiles remain exact. A blank native thread may not cold-persist an explicit
+approval before its first real turn: a changed policy refuses migration. There
+is no hidden warm-up or policy repair. Frontend routing, project trust, service
+layout and production rollout require their own exact deployment authority.

@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.0 - Explicit owned Codex thread registration and endpoint migration
+
+- Register an explicitly authorized existing Codex frontend without creating a replacement. Migrate an owned role to another native endpoint while preserving thread identity, history, delivery claims, and permissions (#546, #547). Inspect uncertain outcomes before reconciling.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.0; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.230.0 - Native shared Codex foreground and owned recovery
 
 - `keel codex start --approvals-reviewer user|auto_review` explicitly persists native thread review policy without model warm-up, retaining on-request/workspace-write through cold delivery and handover. Failed/unknown creation retains its original pending identity and declared reviewer.

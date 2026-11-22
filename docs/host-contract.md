@@ -121,3 +121,22 @@ writer refusal remains authoritative. A private frontend profile still uses the
 backend's project-trust store: one temporary test entry required separate owner
 approval and exact cleanup. See the current [connection/rollback runbook](cli-team.md#native-shared-desktop-connection)
 and [actual-host evidence](codex-validation.md#shared-app-reviewer-and-owned-cwd--2026-11-17).
+
+### Explicit owned Codex onboarding
+
+`inspect-registration`/`register` and `inspect-migration`/`migrate` consume explicit
+owner-approved original tuples and retain native policy; they neither discover
+arbitrary chats nor authenticate the caller's authority reference. Inspection
+may load/subscribe the same id without settings overrides or model work. Active
+same-runtime registration preserves the current turn. A migration requires the
+deployment owner to hold source input admission; native writer protection and
+verified source/target history govern handoff. Keel does not implement an App
+admission barrier or route its frontend.
+
+`migration-status` reads visibility and durable outcome without resuming.
+Unknown intent prevents automatic handoff retry; explicit `--reconcile` verifies
+an already loaded original target before registry CAS. This is not proof of
+mailbox read, business-task completion, frontend deployment or production
+acceptance. [The team runbook](cli-team.md) documents exact commands and refusal
+paths; [native validation](codex-validation.md) separates native and stand-in
+measurements.

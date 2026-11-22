@@ -1,0 +1,3 @@
+codex-managed-host scenario passed (stand-in WebSocket; native hook payload policy).
+validation --group codexhost passed: 1 scenario.
+evidence: 0 deterministic, 1 against a stand-in host, none on a real host (host measurements: docs/host-contract.md)

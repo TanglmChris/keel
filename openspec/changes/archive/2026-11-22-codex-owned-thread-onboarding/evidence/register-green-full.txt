@@ -1,0 +1,28 @@
+✔ managed CLI lifecycle, mailbox scheduling and frame boundaries (8283.197758ms)
+✔ silent endpoint fails before the deadline (159.102524ms)
+✔ native patch guard checks every source and move destination (127.073463ms)
+✔ public capability and help distinguish managed host from native enforcement (96.215215ms)
+✔ tick renders managed host failures without starting a replacement (69.031517ms)
+✔ explicit thread reviewer persists before managed success without a model turn (71.867605ms)
+✔ explicit thread reviewer controls cold delivery after native policy drift (129.057152ms)
+✔ explicit thread reviewer persists on handover successor (128.721825ms)
+✔ explicit thread reviewer rejects native policy mismatch without losing id (126.204603ms)
+✔ explicit user reviewer and invalid start flags leave native boundaries intact (213.61539ms)
+✔ explicit thread reviewer persistence failure retains pending creation identity (117.076292ms)
+✔ explicit thread reviewer successor persistence failure keeps old and pending ids (163.296055ms)
+✔ explicit thread reviewer mismatch on resume starts no delivery (111.981857ms)
+✔ explicit thread reviewer remains declared when creation response is unknown (445.403572ms)
+✔ recover restores original owned cwd without rewriting role claims or starting work (187.390186ms)
+✔ recover refuses unsafe native and role boundaries without changing records (566.157892ms)
+✔ register original readonly frontend and deliver with unchanged policy (269.002282ms)
+✔ registration preserves active work and registered recovery preserves original runtime roots (313.974459ms)
+✔ registration rejects unapproved, conflicting, stale and concurrent identities (907.633364ms)
+✔ registered policy drift and uncertain claim never start work (255.25844ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11057.809009

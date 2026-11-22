@@ -1,0 +1,9 @@
+# Authenticated native acceptance
+
+On November 22 the delegated request conveyed the owner's authorization to resume the bounded test. Automatic review allowed the invocation. Two temporary Codex 0.167.2 processes reused the private original thread and sent two synthetic model turns. All three original-thread turns (including the seed) have matching durable task_started/task_complete IDs and expected assistant receipts. The two new replies were KEEL_SOURCE_RECEIVED and KEEL_READONLY_RECEIVED.
+
+The public CLI registered the original read-only thread, delivered the first record, and refused migration while the original writer remained active. Its plan reported two prior turns. Failure retained the exact old registry bytes and an unknown journal. After source unsubscribe and same-ID native target load, explicit reconciliation succeeded. Original claims matched exactly. The duplicate source record returned the first delivered turn ID on the target, and the injected pending unknown claim was refused without retry. The target created only the expected new verification turn.
+
+The probe initially classified the OS check as missing because it expected a commandExecution item with an English error. Exact original-thread rollout verification found the target turn's native exec tool request for the one fixture sentinel and its paired tool result, exit 1 and zsh “只读文件系统: sentinel” (read-only filesystem). The original sentinel still contained its original nine bytes. The expected target assistant reply and matching task_complete followed. The completed source and target receipts are distinct from transport acceptance and do not assert a mailbox read cursor.
+
+Both temporary hosts exited and the global config SHA-256 matched before and after. Keel receipt results, the durable rollout, and the sandbox result are evidence from the private fixture, not Kaiwu production.

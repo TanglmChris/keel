@@ -1,0 +1,37 @@
+✔ managed CLI lifecycle, mailbox scheduling and frame boundaries (8233.496732ms)
+✔ silent endpoint fails before the deadline (155.153422ms)
+✔ native patch guard checks every source and move destination (112.004454ms)
+✔ public capability and help distinguish managed host from native enforcement (94.674369ms)
+✔ tick renders managed host failures without starting a replacement (65.845116ms)
+✔ explicit thread reviewer persists before managed success without a model turn (69.029646ms)
+✔ explicit thread reviewer controls cold delivery after native policy drift (137.333959ms)
+✔ explicit thread reviewer persists on handover successor (132.194485ms)
+✔ explicit thread reviewer rejects native policy mismatch without losing id (118.474728ms)
+✔ explicit user reviewer and invalid start flags leave native boundaries intact (204.368354ms)
+✔ explicit thread reviewer persistence failure retains pending creation identity (119.565644ms)
+✔ explicit thread reviewer successor persistence failure keeps old and pending ids (166.772824ms)
+✔ explicit thread reviewer mismatch on resume starts no delivery (105.824484ms)
+✔ explicit thread reviewer remains declared when creation response is unknown (420.445507ms)
+✔ recover restores original owned cwd without rewriting role claims or starting work (195.103054ms)
+✔ recover refuses unsafe native and role boundaries without changing records (595.913361ms)
+✔ register original readonly frontend and deliver with unchanged policy (275.635469ms)
+✔ registration preserves active work and registered recovery preserves original runtime roots (317.950479ms)
+✔ registration rejects unapproved, conflicting, stale and concurrent identities (920.697181ms)
+✔ registered policy drift and uncertain claim never start work (263.263332ms)
+✔ migrate original native endpoint preserving full history and all claims (354.475414ms)
+✔ uncertain final journal commit reconciles without rewriting registry or repeating handoff (270.729398ms)
+✔ migration refuses active work and input without consuming or creating intent (411.32341ms)
+✔ migration detects stale source and concurrent registry or role binding without overwrite (375.90356ms)
+✔ migration failure journals preserve writer, identity, history and policy boundaries (1570.192743ms)
+✔ unknown acquisition requires explicit loaded-target reconciliation and preserves new native work (370.927541ms)
+✔ equivalent built-in native profile representation migrates without relaxing effective policy (216.567741ms)
+✔ registered effective approval, roots and custom profiles remain exact (647.841174ms)
+✔ migrated legacy default role enforces its audited native policy on subsequent work (367.927452ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10985.656726
