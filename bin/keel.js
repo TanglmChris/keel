@@ -108,6 +108,11 @@ Usage:
   keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
   keel codex status|start|deliver|handover|drain|recover [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
+  keel codex inspect-registration --repo <path> --role <role> --thread <id> --socket <path> --authority <reference>
+  keel codex register --plan <json-file> [--json]
+  keel codex inspect-migration --repo <path> --role <role> --to-socket <path> --authority <reference>
+  keel codex migrate --plan <json-file> [--reconcile] [--json]
+  keel codex migration-status --plan <json-file> [--json]
   keel tick [--repo <path>] [--json]                   (one model-free step for a host scheduler; keel tick task prints the job)
   keel openspec [args...]
   keel --init [repo] [--target claude|codex|opencode|dsh] [--dry-run] [--force-template-update]

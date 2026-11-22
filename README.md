@@ -121,8 +121,16 @@ If receiving hooks are unavailable, use `keel mail list` and `keel mail read`
 explicitly. For a team owned by Keel, use `keel codex start --role <role> --repo <worktree>`
 with a reachable Codex app-server endpoint (`--socket <path>` selects one explicitly).
 `keel codex drain` and `keel tick` deliver addressed records to those managed roles;
-`keel codex handover` retains a note and creates a successor only after the role is idle.
-Existing desktop chats are not adopted. Native write-guard enforcement and compaction
+`keel codex handover` retains a note and creates a successor only after the role is idle;
+registered original frontends instead require separate successor authorization.
+An explicitly authorized dedicated original thread can use `keel codex inspect-registration`
+with `--thread`, `--socket` and `--authority`, then `keel codex register --plan <file>`.
+For owned endpoint changes, `keel codex inspect-migration --to-socket <path>` prepares
+an exact plan; `keel codex migrate --plan <file>` applies it. Inspect uncertain outcomes
+with `keel codex migration-status --plan <file>`; `--reconcile` verifies an already loaded
+original target, without retrying an unloaded acquisition. Original identity/history/claims
+and approved native policy remain; arbitrary desktop chats are not automatically adopted.
+See [the team runbook](docs/cli-team.md) for source input admission and failure handling. Native write-guard enforcement and compaction
 remain manual until the current installation is behaviorally verified.
 See the [Codex acceptance record](docs/codex-validation.md) for versions, runtime
 evidence, limitations and the clean-consumer Full-mode check.
