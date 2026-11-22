@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.2 - Include direct chat participants in JSON reads
+
+- JSON chat reads now expose canonical direct-message participants even when a repository has no role renames (#552). DM wake eligibility, ordinary group messages, stored records, and read cursors retain their existing behavior.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.2; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.1 - Restore native recovery for legacy Codex roles
 
 - Codex recover now negotiates the native capability needed to restore runtime workspace roots for legacy managed roles, including roles without an explicit reviewer or saved policy (#550). Original identity and delivery claims stay intact.

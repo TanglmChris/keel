@@ -1394,6 +1394,67 @@ def validate_chat_no_wake_dm_scenario() -> int:
     return 0
 
 
+def validate_chat_direct_participants_json_scenario() -> int:
+    """Expose direct participants without needing a role rename (#552)."""
+    with tempfile.TemporaryDirectory(prefix="keel-direct-json-") as raw:
+        sender, receiver, env = chat_scratch_group(Path(raw))
+        store = mailbox_common_dir(sender) / "keel-chat"
+        direct_group = "dm-rtl--verify"
+
+        def chat(worktree: Path, *args: str):
+            result = run_keel(worktree, "chat", *args, env=env)
+            assert result.returncode == 0, result.stderr
+            return result
+
+        def snapshot():
+            return {
+                file.relative_to(store): file.read_bytes()
+                for directory in (store / "groups", store / "cursors")
+                for file in directory.rglob("*") if file.is_file()
+            }
+
+        def send(*args: str) -> str:
+            return chat_json(chat(sender, *args, "--json"))["id"]
+
+        send("post", "soc", "initial cursor")
+        chat(receiver, "read", "soc")
+        silent = send("dm", "verify", "--no-wake", "silent direct record")
+        plain = send("post", "soc", "ordinary group record")
+        assert would_wake(receiver, env) == 1, "silent DM or plain group record woke receiver"
+        ordinary = send("dm", "verify", "ordinary direct record")
+        assert would_wake(receiver, env) == 0, "ordinary DM did not wake receiver"
+        assert not (store / "renames.json").exists(), "initial reads must have no rename map"
+
+        def assert_reads(role: str):
+            before = snapshot()
+            assert before, "expected stored history and a read cursor"
+            unread = {r["id"]: r for r in chat_json(chat(receiver, "unread", "--json"))["unread"]}
+            direct = {r["id"]: r for r in chat_json(chat(receiver, direct_group, "--peek", "--json"))["records"]}
+            group = {r["id"]: r for r in chat_json(chat(receiver, "soc", "--peek", "--json"))["records"]}
+            for record_id in (ordinary, silent, plain):
+                shown = chat_json(chat(receiver, "show", record_id, "--json"))
+                assert shown["readers"] == [], "peek/show must not mark a record as read"
+                peeked = group[record_id] if record_id == plain else direct[record_id]
+                for surface, record in (("unread", unread[record_id]), ("peek", peeked), ("show", shown["record"])):
+                    assert record["id"] == record_id
+                    assert not record.get("mentions"), f"{surface} must not rely on mentions"
+                    if record_id == plain:
+                        assert "direct" not in record, f"{surface} gave a plain group record direct participants"
+                    else:
+                        assert record.get("direct") == ["rtl", role], f"{surface} lost canonical DM participants: {record.get('direct')!r}"
+                    assert bool(record.get("no_wake")) == (record_id == silent), f"{surface} changed no-wake"
+            assert snapshot() == before, "JSON projections rewrote history or cursors"
+
+        assert_reads("verify")
+        original_records = {file: data for file, data in snapshot().items() if file.parts[0] == "groups" and "log" in file.parts}
+        chat(receiver, "role", "--rename", "verify", "check")
+        assert_reads("check")
+        assert all((store / file).read_bytes() == data for file, data in original_records.items()), "rename rewrote original records"
+
+    report("chat-direct-participants-json scenario passed.")
+    return 0
+
+
 def validate_chat_wakes_without_no_wake_scenario() -> int:
     """Issue #502: without the option a mention still wakes, as before."""
     label = "chat-wakes-without-no-wake:"

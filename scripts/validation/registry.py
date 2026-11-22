@@ -532,6 +532,7 @@ SCENARIOS: tuple = (
     ("chat-summary", chat.validate_chat_summary_scenario),
     ("chat-no-wake-post", chat.validate_chat_no_wake_post_scenario),
     ("chat-no-wake-dm", chat.validate_chat_no_wake_dm_scenario),
+    ("chat-direct-participants-json", chat.validate_chat_direct_participants_json_scenario),
     ("chat-wakes-without-no-wake", chat.validate_chat_wakes_without_no_wake_scenario),
     ("worktree-overview", shift.validate_worktree_overview_scenario),
     ("sync-status-lists-local-only", sync.validate_sync_status_lists_local_only_scenario),
