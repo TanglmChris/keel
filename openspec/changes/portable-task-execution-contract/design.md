@@ -16,6 +16,14 @@
 - Tick and recovery: prove one writer and one effective transition on real Claude and Codex. Include usage exhaustion during file writes and tool calls, unavailable candidate, disconnect during acknowledgement, late source completion and restart. Require proof of writer release before dispatching the next attempt.
 - Risk policy and workflow: validate that newly selected ordinary work can progress without OpenSpec artifacts, and sensitive cases still require their accepted authority, verification and recovery checks.
 
+## Native resource failure observations
+
+Both CLI binaries were run against disposable local providers returning controlled HTTP 429 responses with no real provider credentials or model execution.
+
+- Codex 0.171.0 App Server maps provider `usage_limit_reached` to `usageLimitExceeded` in the correlated `error` notification and failed `turn/completed`. A generic provider `rate_limit_error` instead ended as `responseTooManyFailedAttempts` with HTTP 429. Both synthetic cases had `willRetry: false`. A 429 status alone cannot establish account usage exhaustion.
+- Claude Code 2.1.325 streamed an assistant event with `error: rate_limit` and `api_error_status: 429` from its headless `--print --output-format stream-json` surface. The final result had `subtype: success` but also `is_error: true` and the CLI exited 1. The headless probe does not establish which receipts the managed background route persists or how it distinguishes an account limit from a transient provider limit.
+- These receipts identify the modeled failure. Neither establishes that earlier file writes or external tool effects have settled or that the old executor has relinquished the worktree.
+
 ## Unresolved native evidence
 
 Choose the portable input/output schema only after identifying actual reliable receipts for Claude execution ownership, stopped writers and pending tools, and the matching Codex signals. Codex's writer protection is limited to the relevant native thread and does not fence the same worktree against a different harness. A cross-harness implementation must bind the protection to the shared resource or hold until independently verified safe. No execution task is selected from this draft.
