@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {setTimeout: delay} = require('node:timers/promises');
 const store = require('./chat/store');
 const actions = ['inspect-registration', 'register', 'inspect-migration', 'migrate', 'migration-status'];
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -76,7 +77,7 @@ async function history(client, thread) {
 async function run(args, {connect}) {
   const clients = [], locks = [];
   try {
-    const action = args.shift(), options = {timeout: 15000};
+    const action = args.shift(), options = {};
     while (args.length) {
       const flag = args.shift();
       if (flag === '--json') continue;
@@ -87,7 +88,7 @@ async function run(args, {connect}) {
       if (options[flag.slice(2)] !== undefined && flag !== '--timeout') throw Error(`duplicate ${flag}`);
       options[flag.slice(2)] = value;
     }
-    const timeout = Number(options.timeout);
+    const timeout = Number(options.timeout ?? 15000);
     if (!Number.isInteger(timeout) || timeout < 50 || timeout > 60000) throw Error('timeout must be 50–60000 milliseconds');
     if (['inspect-migration', 'migrate', 'migration-status'].includes(action)) return await migration(action, options, {connect, timeout, clients, locks});
     if (options.reconcile || options['to-socket']) throw Error('migration-only option used for registration');
@@ -175,6 +176,26 @@ async function inspectSource(client, plan, recorded) {
   await quiescent(client, plan, native.thread, turns);
   return {nativePolicy, historyDigest: digest(turns), historyCount: turns.length};
 }
+function matchesHistory(turns, snapshot, allowLaterTurns = false) {
+  const {historyCount, historyDigest} = snapshot;
+  if (!allowLaterTurns) return turns.length === historyCount && digest(turns) === historyDigest;
+  return turns.length >= historyCount && digest(turns.slice(0, historyCount)) === historyDigest;
+}
+async function waitForSourceUnload(source, plan, rpcTimeout, waitTimeout) {
+  const deadline = performance.now() + waitTimeout;
+  let remaining = waitTimeout;
+  while (remaining > 0) {
+    const {thread} = await source.call('thread/read', {threadId: plan.thread, includeTurns: false}, Math.min(rpcTimeout, Math.ceil(remaining)));
+    verifyThread(thread, plan);
+    if (thread.status.type === 'active') throw Error('source became active while waiting for unload');
+    remaining = deadline - performance.now();
+    if (remaining <= 0) break;
+    if (thread.status.type === 'notLoaded') return;
+    await delay(Math.min(250, Math.ceil(remaining)));
+    remaining = deadline - performance.now();
+  }
+  throw Error('source unload timed out before target acquisition');
+}
 async function migration(action, options, context) {
   const {clients, locks} = context;
   const applying = action !== 'inspect-migration';
@@ -238,12 +259,22 @@ async function migration(action, options, context) {
   if (journal && !options.reconcile) throw Error('migration outcome unknown; inspect migration-status and explicitly reconcile, no automatic retry');
   if (options.reconcile && !journal) throw Error('no transition exists to reconcile');
   const source = await openHost(plan.fromSocket, context);
+  let target;
   if (!options.reconcile) {
     const snapshot = await inspectSource(source, plan, recorded);
+    if (applying && (!same(snapshot.nativePolicy, plan.nativePolicy) || snapshot.historyDigest !== plan.historyDigest || snapshot.historyCount !== plan.historyCount)) throw Error('native source policy or history changed since inspection');
+    target = await openHost(plan.toSocket, context);
+    const targetThread = (await target.call('thread/read', {threadId: plan.thread, includeTurns: false})).thread;
+    verifyThread(targetThread, plan);
+    if (!matchesHistory(await history(target, plan.thread), snapshot)) throw Error('target original persistent history mismatch before source release');
     if (!applying) {
       process.stdout.write(JSON.stringify(savePlan({...plan, ...snapshot})) + '\n'); return 0;
     }
-    if (!same(snapshot.nativePolicy, plan.nativePolicy) || snapshot.historyDigest !== plan.historyDigest || snapshot.historyCount !== plan.historyCount) throw Error('native source policy or history changed since inspection');
+    const current = (await source.call('thread/read', {threadId: plan.thread, includeTurns: false})).thread;
+    verifyThread(current, plan);
+    const latest = await history(source, plan.thread);
+    await quiescent(source, plan, current, latest);
+    if (!matchesHistory(latest, plan)) throw Error('native source history changed before release');
     unchanged();
     journal = {schema: 'keel-codex-migration/v1', state: 'pending', phase: 'intent', plan, originalRegistry: bytes.toString('utf8')};
     store.writeJsonAtomic(where, journalFile, journal);
@@ -252,14 +283,13 @@ async function migration(action, options, context) {
     if (!options.reconcile) {
       // Only release our own source subscription, never cancel a tool/turn or
       // remove another frontend's subscription. Native writer refusal rules.
-      const current = (await source.call('thread/read', {threadId: plan.thread, includeTurns: false})).thread;
-      verifyThread(current, plan);
-      await quiescent(source, plan, current, await history(source, plan.thread));
       journal.phase = 'releasing'; store.writeJsonAtomic(where, journalFile, journal);
       const released = await source.call('thread/unsubscribe', {threadId: plan.thread});
       if (released.status !== 'unsubscribed') throw Error('source subscription release not verified');
+      const unloadTimeout = options.timeout === undefined ? 75000 : context.timeout;
+      await waitForSourceUnload(source, plan, context.timeout, unloadTimeout);
     }
-    const target = await openHost(plan.toSocket, context);
+    target ??= await openHost(plan.toSocket, context);
     const targetThread = (await target.call('thread/read', {threadId: plan.thread, includeTurns: false})).thread;
     verifyThread(targetThread, plan);
     if (options.reconcile) {
@@ -269,13 +299,13 @@ async function migration(action, options, context) {
       if (!['idle', 'active'].includes(targetThread.status.type)) throw Error('target is not already loaded; reconciliation will not retry native acquisition');
     }
     const prior = await history(target, plan.thread);
-    if (prior.length < plan.historyCount || digest(prior.slice(0, plan.historyCount)) !== plan.historyDigest || (!options.reconcile && prior.length !== plan.historyCount)) throw Error('target original persistent history mismatch');
+    if (!matchesHistory(prior, plan, options.reconcile)) throw Error('target original persistent history mismatch');
     journal.phase = options.reconcile ? 'reconciling' : 'acquiring'; store.writeJsonAtomic(where, journalFile, journal);
     const native = await target.call('thread/resume', {threadId: plan.thread});
     verifyThread(native.thread, plan); verifyPolicy(native, plan.nativePolicy);
     if (!['idle', ...(options.reconcile ? ['active'] : [])].includes(native.thread.status.type)) throw Error('target native state changed; registration retained');
     const after = await history(target, plan.thread);
-    if (after.length < plan.historyCount || digest(after.slice(0, plan.historyCount)) !== plan.historyDigest || (!options.reconcile && after.length !== plan.historyCount)) throw Error('resumed target original persistent history mismatch');
+    if (!matchesHistory(after, plan, options.reconcile)) throw Error('resumed target original persistent history mismatch');
     journal.phase = 'verified'; store.writeJsonAtomic(where, journalFile, journal);
     unchanged();
     if (!registryAlreadyApplied) store.writeJsonAtomic(where, file, nextRegistry(recorded));
