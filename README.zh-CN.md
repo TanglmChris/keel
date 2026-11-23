@@ -924,6 +924,7 @@ keel shift request | check | ready [--wake] | start | resume | status
 keel lock acquire | release | list                 # 见 docs/resource-lock.md
 keel lock acquire | release --branch <b> [--break <reason>] [--push]   # 远端上的分支锁
 keel worktrees [--repo <path>] [--issues <file>] [--json]
+keel worktrees add [--repo <path>] --path <path> --branch <new-branch> [--base <ref>] [--json]
 keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   # 只在本机的工作
 
 # 无人值守 triage —— 这个 issue 能否不经询问就开工？
