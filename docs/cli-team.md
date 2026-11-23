@@ -89,6 +89,8 @@ The tick runs outside every session and needs no session permission. The session
 
 The patrol reports a branch or detached head with local-only commits older than 24 hours, and a stash older than 24 hours, as a standing risk. It uses local refs only, excludes uncommitted paths, and sends unchanged risks once under `--since-last --notify`. Scoped patrols report their covered roles; the repository patrol also covers branches without worktrees and stashes. `keel --doctor` shows the device id, held branch locks, expiry, last renewal, and whether the tick has run or the Claude prompt hook renews.
 
+Review each Keel hook by plugin source, event and command in `/hooks`. See [the hook review table](updating.md#review-keel-hooks-in-codex).
+
 ## Project-local Codex worktrees
 
 Choose a location beside the checkout and a fresh task branch. The starting
