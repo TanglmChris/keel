@@ -2371,6 +2371,70 @@ def validate_patrol_issue_label_set_unreadable_scenario() -> int:
     return 0
 
 
+def validate_project_local_worktree_scenario() -> int:
+    """Create and reuse project-local Git worktrees through the public CLI."""
+    with tempfile.TemporaryDirectory(prefix="keel-project-worktree-") as raw:
+        root = Path(raw).resolve()
+        env = os.environ.copy()
+        env.pop("KEEL_CHAT_ROLE", None)
+        env.pop("KEEL_MAIL_ROLE", None)
+
+        def git(cwd: Path, *args: str, check: bool = True):
+            return subprocess.run(["git", *args], cwd=cwd, env=env, check=check,
+                                  capture_output=True, text=True)
+
+        for project in ("project one", "project two"):
+            repo = root / project / "repo"
+            repo.mkdir(parents=True)
+            git(repo, "init", "-qb", "main")
+            git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "--allow-empty", "-qm", project)
+            first = git(repo, "rev-parse", "HEAD").stdout.strip()
+            git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "--allow-empty", "-qm", "second commit")
+            head = git(repo, "rev-parse", "HEAD").stdout.strip()
+            local = repo / "local-edit"
+            local.write_text(project, encoding="utf-8")
+            review = repo.parent / "worktrees" / "review"
+            other = review.parent / "another"
+
+            def add(*args):
+                return run_keel(root, "worktrees", "add", "--repo", str(repo), "--json", *args, env=env)
+
+            opened = add("--path", "../worktrees/review", "--branch", "codex/review")
+            assert opened.returncode == 0, opened.stderr
+            assert json.loads(opened.stdout) == {"path": str(review), "branch": "codex/review", "base": head}
+            assert not (review / local.name).exists()
+            bound = run_keel(review, "chat", "role", "--set", "review", env=env)
+            assert bound.returncode == 0, bound.stderr
+
+            opened = add("--path", str(other), "--branch", "codex/another", "--base", first)
+            assert opened.returncode == 0, opened.stderr
+            assert json.loads(opened.stdout)["base"] == first
+            assert git(other, "rev-parse", "HEAD").stdout.strip() == first
+            listed = run_keel(repo, "worktrees", "--json", env=env)
+            assert listed.returncode == 0, listed.stderr
+            rows = {row["path"]: row for row in json.loads(listed.stdout)["worktrees"]}
+            assert set(rows) == {str(repo), str(review), str(other)}, rows
+            assert rows[str(review)]["role"] == "review"
+
+            edit = review / "uncommitted"
+            edit.write_text("retain", encoding="utf-8")
+            conflict = add("--path", str(review), "--branch", "codex/occupied")
+            assert conflict.returncode != 0 and str(review) in conflict.stderr, conflict
+            assert not git(repo, "branch", "--list", "codex/occupied").stdout.strip()
+            conflict = add("--path", str(review.parent / "unused"), "--branch", "codex/review")
+            assert conflict.returncode != 0 and "codex/review" in conflict.stderr, conflict
+            assert not (review.parent / "unused").exists()
+            assert git(repo, "worktree", "remove", str(review), check=False).returncode != 0
+            assert edit.read_text(encoding="utf-8") == "retain"
+            assert local.read_text(encoding="utf-8") == project
+            git(repo, "worktree", "remove", str(other))
+            assert git(repo, "rev-parse", "codex/another").stdout.strip() == first
+    report("project-local-worktree scenario passed.")
+    return 0
+
+
 def validate_worktree_overview_scenario() -> int:
     """Read every worktree through the CLI without fetching or changing chat."""
     label = "worktree-overview:"

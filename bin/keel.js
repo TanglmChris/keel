@@ -105,6 +105,7 @@ Usage:
   keel lock acquire|release|list ...                    (shared resource leases; see keel lock --help)
   keel lock acquire|release --branch <b> [--break <reason>] [--push]   (a branch lock kept on the remote; device-sync)
   keel worktrees [--repo <path>] [--issues <file>] [--json] (read-only worktree overview)
+  keel worktrees add [--repo <path>] --path <path> --branch <new-branch> [--base <ref>] [--json]
   keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
   keel codex status|start|deliver|handover|drain|recover [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
