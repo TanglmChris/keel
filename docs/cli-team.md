@@ -89,6 +89,32 @@ The tick runs outside every session and needs no session permission. The session
 
 The patrol reports a branch or detached head with local-only commits older than 24 hours, and a stash older than 24 hours, as a standing risk. It uses local refs only, excludes uncommitted paths, and sends unchanged risks once under `--since-last --notify`. Scoped patrols report their covered roles; the repository patrol also covers branches without worktrees and stashes. `keel --doctor` shows the device id, held branch locks, expiry, last renewal, and whether the tick has run or the Claude prompt hook renews.
 
+## Project-local Codex worktrees
+
+Choose a location beside the checkout and a fresh task branch. The starting
+point defaults to the selected checkout's HEAD. Pass `--base <ref>` to choose
+another local commit. Relative paths are resolved from `--repo`.
+
+```sh
+keel worktrees add --repo /path/to/project --path ../project-worktrees/review --branch codex/review --json
+codex -C /path/to/project-worktrees/review
+```
+
+Use the `path` returned by the first command. To bind a Keel role, run
+`keel chat role --set review` from that worktree. Discover all linked checkouts
+and their bindings with `keel worktrees --repo /path/to/project`. Reopen an
+existing checkout with `codex -C <path>`.
+
+The command requires an unused path and branch. Review and preserve any local
+edits before cleanup. After the Codex session has ended, inspect the checkout with
+`git -C <path> status` and use `git -C /path/to/project worktree remove <path>`.
+Git's ordinary removal refuses an unclean checkout and keeps its branch.
+If stale Keel bindings remain after removal, `keel chat role --prune` drops
+bindings to removed worktrees in this repository.
+
+Codex Desktop's Worktree mode and Handoff manage their own checkouts under
+`$CODEX_HOME/worktrees`. The command above creates a Git checkout for the CLI workflow.
+
 ## Managed Codex roles
 
 Create a distinct Git worktree per role. Start a Codex app-server with the intended network environment, or use the existing managed daemon. Keel connects to it and never starts a replacement automatically:

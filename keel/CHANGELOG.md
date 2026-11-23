@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.4 - Create project-local Codex worktrees
+
+- Create a native linked worktree on an explicit fresh branch with `keel worktrees add`. The CLI reports the realized path to open in Codex, and the existing worktree overview and role binding recognize it (#548).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.4; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.3 - Verify Codex migration before switching writers
 
 - Check the target’s original thread and complete history before recording migration intent. After source unsubscribe, wait for the original thread to unload before requesting the target writer. Native refusals and uncertain outcomes remain inspectable without automatic replay (#550).

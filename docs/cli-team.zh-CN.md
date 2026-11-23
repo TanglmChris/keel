@@ -89,6 +89,28 @@ shift:
 
 巡检会将超过 24 小时仍只在本机的分支提交、游离 HEAD 和 stash 列为持续风险。它只读取本地引用，不把未提交文件算入此项；`--since-last --notify` 对不变的风险只通知一次。有范围的巡检覆盖对应角色，仓库巡检还覆盖没有 worktree 的分支和 stash。`keel --doctor` 显示设备标识、持有的分支锁、到期时间、上次续租时间，以及 tick 是否运行过或由 Claude 提示钩子续租。
 
+## 项目旁的 Codex worktree
+
+选择主 checkout 旁的目录和一个新任务分支。默认从所选 checkout 的 HEAD 创建，
+也可用 `--base <ref>` 指定其他本地提交。相对目录以 `--repo` 所选 checkout 为基准。
+
+```sh
+keel worktrees add --repo /path/to/project --path ../project-worktrees/review --branch codex/review --json
+codex -C /path/to/project-worktrees/review
+```
+
+将第一条命令返回的 `path` 传给 Codex。要绑定 Keel 角色，在该工作树中运行
+`keel chat role --set review`。用 `keel worktrees --repo /path/to/project`
+查看全部工作树及角色绑定。再次使用现有工作树时运行 `codex -C <path>`。
+
+创建需要未占用的目录和分支。结束 Codex 会话后，用 `git -C <path> status`
+检查并保留本地改动，再用 `git -C /path/to/project worktree remove <path>` 清理。
+普通移除会拒绝有未保存改动的工作树，并保留分支。若角色绑定仍残留，
+`keel chat role --prune` 会清理该仓库中指向已移除工作树的绑定。
+
+Codex Desktop 的 Worktree 模式和 Handoff 在 `$CODEX_HOME/worktrees` 管理其工作树。
+这里创建的 Git 工作树用于 CLI 流程。
+
 ## Keel 托管的 Codex 角色
 
 每个角色使用独立 Git worktree。用正确的网络环境启动 `codex app-server --listen unix:///path/to/team.sock`，或使用现有托管守护进程。Keel 只连接指定主机，失败时不会另起服务：

@@ -1,8 +1,7 @@
 "use strict";
 
-// Worktree-overview D1-D5: local Git and chat reads only. In particular,
-// status must not refresh the index, and role overrides belong to the caller,
-// not to every worktree it is inspecting.
+// The overview only reads Git and chat state. Status must not refresh the
+// index, and role overrides belong to the caller rather than every worktree.
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -10,6 +9,7 @@ const store = require("./chat/store");
 const notice = require("./chat/notice");
 
 const USAGE = "keel worktrees [--repo <path>] [--issues <file>] [--json]";
+const ADD_USAGE = "keel worktrees add [--repo <path>] --path <path> --branch <new-branch> [--base <ref>] [--json]";
 class WorktreesError extends Error {}
 
 function git(cwd, args, optional = false) {
@@ -146,25 +146,44 @@ function render(result) {
   return lines.join("\n");
 }
 
+function addWorktree(where, options) {
+  if (!options.path || !options.branch) throw new WorktreesError(ADD_USAGE);
+  const target = path.resolve(where.worktree, options.path);
+  if (fs.lstatSync(target, { throwIfNoEntry: false })) {
+    throw new WorktreesError(`Worktree destination already exists: ${target}`);
+  }
+  const base = git(where.worktree, ["rev-parse", "--verify", "--end-of-options", `${options.base || "HEAD"}^{commit}`]);
+  git(where.worktree, ["worktree", "add", "-b", options.branch, "--", target, base]);
+  const created = fs.realpathSync(target);
+  process.stdout.write(options.json
+    ? JSON.stringify({ path: created, branch: options.branch, base }) + "\n"
+    : `Created worktree ${created} on ${options.branch} at ${base}\n`);
+  return 0;
+}
+
 function runWorktrees(argv) {
+  const add = argv[0] === "add";
+  const optionNames = add ? ["--repo", "--path", "--branch", "--base"] : ["--repo", "--issues"];
   const options = { repo: process.cwd(), issues: null, json: false };
   try {
-    for (let index = 0; index < argv.length; index += 1) {
+    for (let index = add ? 1 : 0; index < argv.length; index += 1) {
       const arg = argv[index];
       if (arg === "--json") options.json = true;
       else if (arg === "--help" || arg === "-h") {
-        process.stdout.write(`${USAGE}\nIssue times come only from --issues (a JSON array with number and updatedAt).\n`);
+        process.stdout.write(add ? `${ADD_USAGE}\n`
+          : `${USAGE}\n${ADD_USAGE}\nIssue times come only from --issues (a JSON array with number and updatedAt).\n`);
         return 0;
-      } else if (arg === "--repo" || arg === "--issues") {
+      } else if (optionNames.includes(arg)) {
         const value = argv[++index];
         if (!value || value.startsWith("--")) throw new WorktreesError(`${arg} needs a value.`);
-        options[arg === "--repo" ? "repo" : "issues"] = value;
-      } else throw new WorktreesError(`Unknown argument ${arg}. ${USAGE}`);
+        options[arg.slice(2)] = value;
+      } else throw new WorktreesError(`Unknown argument ${arg}. ${add ? ADD_USAGE : USAGE}`);
     }
     // Refuse a bad file before collecting or printing any repository state.
     const times = readIssues(options.issues);
     const where = store.locate(options.repo);
     if (!where) throw new WorktreesError(`Not a git repository: ${options.repo}`);
+    if (add) return addWorktree(where, options);
     const base = defaultBranch(where.worktree);
     const roles = store.readJsonFile(path.join(where.root, "roles.json"));
     const result = {
