@@ -242,11 +242,16 @@ keel codex migration-status --plan /tmp/owned-migration.json --json
 ```
 
 The plan fixes the old registry digest, tuple, complete paginated persistent
-history and effective policy. Migration requires actual idle source, empty input
-queue/background terminals and no Goal. It never stops a Goal, tool, daemon or
-App. After durable intent it unsubscribes only its own source connection; another
-subscriber retaining the writer causes a native refusal. Target must contain the
-same persistent id/history and approved policy. Only endpoint and migration
+history and effective policy. Inspection and apply both read the target's
+identity and full paginated history before persisting intent or releasing the
+source. A missing history field can cause this check to fail across native versions.
+Migration requires an idle source, empty input queue/background terminals and no
+Goal. After durable intent it unsubscribes only its own source connection and
+waits for the source to report the same thread as `notLoaded`. The default wait
+limit is 75 seconds. An explicit `--timeout <ms>` sets the limit for the unload
+wait and for individual RPCs. A timeout preserves the original registration for
+inspection. Native writer protection still governs target acquisition. Target
+must retain the same persistent ID/history and approved policy. Only endpoint and migration
 audit change; existing history, custom fields and all delivery claims survive,
 including uncertain claims that remain blocked from replay. New delivery/recover
 checks the recorded migration policy even for an older default managed role.

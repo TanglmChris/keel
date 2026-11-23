@@ -19,7 +19,9 @@ async function fixture(){
  const requests=[],peers=[],servers=[],controls={};
  async function host(name){
   const sock=path.join(dir,name+'.sock'),server=http.createServer();servers.push(server);
-  server.on('upgrade',(req,s)=>{peers.push(s);s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');let buf=Buffer.alloc(0);
+  server.on('upgrade',(req,s)=>{peers.push(s);
+   s.on('error',error=>{if(error.code!=='ECONNRESET')throw error;});
+   s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');let buf=Buffer.alloc(0);
    s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let len=buf[1]&127,offset=2;if(len===126){if(buf.length<8)return;len=buf.readUInt16BE(2);offset=4;}else if(len===127){if(buf.length<14)return;len=Number(buf.readBigUInt64BE(2));offset=10;}if(buf.length<offset+4+len)return;const mask=buf.subarray(offset,offset+4),body=Buffer.from(buf.subarray(offset+4,offset+4+len));buf=buf.subarray(offset+4+len);for(let i=0;i<body.length;i++)body[i]^=mask[i%4];const x=JSON.parse(body);requests.push({host:name,...x});if(!x.id)continue;
     const p=x.params||{};let result={},error;
     const metadata=()=>({id:(controls.wrongId||(name==='target'&&controls.targetWrongId))?'wrong-id':native.id,cwd:(controls.wrongCwd||(name==='target'&&controls.targetWrongCwd))?'/wrong-cwd':native.cwd,status:{type:native.loaded===name?native.status:'notLoaded'},turns:p.includeTurns?native.turns:[]});
@@ -29,7 +31,15 @@ async function fixture(){
     else if(x.method==='thread/resume'){
      if(native.loaded&&native.loaded!==name)error='original has an active writer';
      else {native.loaded=name;result={thread:metadata(),...structuredClone(native.policy)};if(controls.badPolicy||(name==='target'&&controls.targetBadPolicy))result.sandbox={type:'workspaceWrite'};}
-    }else if(x.method==='thread/turns/list'){const start=Number(p.cursor||0);result={data:native.turns.slice(start,start+1),nextCursor:start+1<native.turns.length?String(start+1):null};if(name==='target'&&controls.missingHistory)result={data:[],nextCursor:null};}
+    }else if(x.method==='thread/turns/list'){
+     const start=Number(p.cursor||0);
+     result={data:native.turns.slice(start,start+1),nextCursor:start+1<native.turns.length?String(start+1):null};
+     if(name==='target'&&controls.missingHistory)result={data:[],nextCursor:null};
+     if(name==='target'&&controls.oldHistoryView&&start===1){
+      result.data=structuredClone(result.data);
+      delete result.data[0].environmentId;
+     }
+    }
     else if(x.method==='thread/queue/list')result={data:controls.queued?[{id:'queued-input'}]:[],nextCursor:null};
     else if(x.method==='thread/goal/get')result={goal:controls.goal?{objective:'original goal'}:null};
     else if(x.method==='thread/backgroundTerminals/list')result={data:controls.terminal?[{id:'running-tool'}]:[],nextCursor:null};
@@ -124,6 +134,81 @@ test('registered policy drift and uncertain claim never start work',async()=>{
 
 async function managed(h){const plan=h.savePlan(await run('inspect-registration',h.args));const r=await run('register',['--plan',plan]);assert.equal(r.code,0,r.err);const entry=JSON.parse(fs.readFileSync(h.record));entry.history=[{thread:'older-owned-thread',note:'original handover'}];entry.custom={preserved:true};entry.deliveries={[crypto.createHash('sha256').update('uncertain').digest('hex')]:{record:'uncertain',state:'pending'},[crypto.createHash('sha256').update('already').digest('hex')]:{record:'already',state:'delivered',turn:'previous-turn'}};fs.writeFileSync(h.record,JSON.stringify(entry));return entry;}
 function migrationArgs(h){return ['--repo',h.dir,'--role',h.role,'--to-socket',h.target,'--authority','https://example.com/owner/approved-migration'];}
+test('target cold preflight detects second-page metadata loss before planning or release',async()=>{
+ const h=await fixture();try{
+  await managed(h);
+  h.native.turns.push({id:'next-turn',status:'completed',environmentId:'native-env',items:[]});
+  const original=fs.readFileSync(h.record);
+  h.controls.oldHistoryView=true;
+  const failedInspect=await run('inspect-migration',migrationArgs(h));
+  assert.notEqual(failedInspect.code,0);
+  assert.match(failedInspect.err,/target original persistent history mismatch/);
+  assert.equal(failedInspect.out,'');
+  h.controls.oldHistoryView=false;
+  const plan=h.savePlan(await run('inspect-migration',migrationArgs(h)));
+  const journal=path.join(h.root,'codex-transitions',JSON.parse(fs.readFileSync(plan)).id+'.json');
+  for(const [flag,error] of [
+   ['oldHistoryView',/target original persistent history mismatch/],
+   ['targetWrongId',/identity/],
+   ['targetWrongCwd',/worktree/],
+  ]){
+   h.controls[flag]=true;
+   const failed=await run('migrate',['--plan',plan]);
+   assert.notEqual(failed.code,0,flag);
+   assert.match(failed.err,error);
+   assert.doesNotMatch(failed.err,/outcome unknown/);
+   assert.ok(!fs.existsSync(journal));
+   h.controls[flag]=false;
+  }
+  assert.ok(h.requests.some(x=>x.host==='target'&&x.method==='thread/turns/list'&&x.params.cursor==='1'&&x.params.itemsView==='full'));
+  assert.ok(!h.requests.some(x=>x.method==='thread/unsubscribe'||(x.host==='target'&&x.method==='thread/resume')));
+  assert.deepEqual(fs.readFileSync(h.record),original);
+ }finally{await h.close();}
+});
+test('source unload is observed before the single target acquisition',async()=>{
+ const h=await fixture();try{
+  await managed(h);
+  const plan=h.savePlan(await run('inspect-migration',migrationArgs(h)));
+  let releaseIssued=false, readsAfterRelease=0;
+  h.controls.retainWriter=true;
+  h.controls.beforeReply=(request,host)=>{
+   if(host!=='source')return;
+   if(request.method==='thread/unsubscribe')releaseIssued=true;
+   if(releaseIssued&&request.method==='thread/read'&&++readsAfterRelease===2)h.native.loaded=null;
+  };
+  const migrated=await run('migrate',['--plan',plan]);
+  assert.equal(migrated.code,0,migrated.err);
+  const afterRelease=h.requests.slice(h.requests.findIndex(x=>x.method==='thread/unsubscribe')+1);
+  const acquired=afterRelease.findIndex(x=>x.host==='target'&&x.method==='thread/resume');
+  assert.equal(afterRelease.filter(x=>x.host==='target'&&x.method==='thread/resume').length,1);
+  assert.equal(afterRelease.slice(0,acquired).filter(x=>x.host==='source'&&x.method==='thread/read').length,2);
+  assert.equal(h.native.loaded,'target');
+ }finally{await h.close();}
+});
+test('source unload timeout never tries target acquisition and writer races still refuse',async()=>{
+ for(const race of [false,true]){
+  const h=await fixture();try{
+   await managed(h);
+   const plan=h.savePlan(await run('inspect-migration',migrationArgs(h)));
+   const original=fs.readFileSync(h.record);
+   h.controls.retainWriter=!race;
+   if(race)h.controls.beforeReply=(request,host)=>{
+    if(host==='target'&&request.method==='thread/resume')h.native.loaded='source';
+   };
+   const failed=await run('migrate',['--plan',plan,'--timeout','600']);
+   assert.notEqual(failed.code,0);
+   assert.match(failed.err,race?/native writer|active writer/:/source unload timed out/);
+   assert.match(failed.err,/outcome unknown/);
+   const status=JSON.parse((await run('migration-status',['--plan',plan])).out);
+   assert.equal(status.state,'unknown');
+   assert.equal(status.phase,race?'acquiring':'releasing');
+   assert.deepEqual(fs.readFileSync(h.record),original);
+   assert.match((await run('migrate',['--plan',plan])).err,/explicitly reconcile/);
+   assert.equal(h.requests.filter(x=>x.method==='thread/unsubscribe').length,1);
+   assert.equal(h.requests.filter(x=>x.host==='target'&&x.method==='thread/resume').length,race?1:0);
+  }finally{await h.close();}
+ }
+});
 test('migrate original native endpoint preserving full history and all claims',async()=>{
  const h=await fixture();try{
   const entry=await managed(h);h.native.turns.push({id:'previous-two',status:'completed',items:[{id:'result-two',type:'agentMessage',text:'retain paginated second result'}]});
@@ -184,7 +269,8 @@ test('migration failure journals preserve writer, identity, history and policy b
  for(const flag of ['retainWriter','missingHistory','targetBadPolicy','targetWrongId','targetWrongCwd']){
   const h=await fixture();try{
    await managed(h);const plan=h.savePlan(await run('inspect-migration',migrationArgs(h))),p=JSON.parse(fs.readFileSync(plan)),original=fs.readFileSync(h.record);
-   h.controls[flag]=true;const failed=await run('migrate',['--plan',plan]);assert.notEqual(failed.code,0,flag);assert.match(failed.err,/outcome unknown/);
+   h.controls.beforeReply=x=>{if(x.method==='thread/unsubscribe')h.controls[flag]=true;};
+   const failed=await run('migrate',['--plan',plan,'--timeout','600']);assert.notEqual(failed.code,0,flag);assert.match(failed.err,/outcome unknown/);
    assert.deepEqual(fs.readFileSync(h.record),original);assert.equal(JSON.parse(fs.readFileSync(path.join(h.root,'codex-transitions',p.id+'.json'))).state,'unknown');
    const releaseCount=h.requests.filter(x=>x.method==='thread/unsubscribe').length,resumeCount=h.requests.filter(x=>x.method==='thread/resume').length;
    assert.match((await run('migrate',['--plan',plan])).err,/explicitly reconcile/);
