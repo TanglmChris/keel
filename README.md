@@ -1098,6 +1098,7 @@ keel shift request | check | ready [--wake] | start | resume | status
 keel lock acquire | release | list                 # see docs/resource-lock.md
 keel lock acquire | release --branch <b> [--break <reason>] [--push]   # a branch lock on the remote
 keel worktrees [--repo <path>] [--issues <file>] [--json]
+keel worktrees add [--repo <path>] --path <path> --branch <new-branch> [--base <ref>] [--json]
 keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   # what exists only on this machine
 
 # Unattended triage — may this issue start work without asking?
