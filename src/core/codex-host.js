@@ -131,6 +131,22 @@ function deliveryReceipt(role, record) {
   return { role: role.role, record, state, thread, turn };
 }
 
+function recordedDeliveryState(where, assignee, record) {
+  const fs = require("node:fs");
+  const store = require("./chat/store");
+  try {
+    store.checkName(assignee, "Assignee");
+    const file = path.join(where.root, "codex-roles", `${assignee}.json`);
+    const role = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (role?.role !== assignee || role.state !== "managed") return "unknown";
+    const receipt = deliveryReceipt(role, record);
+    if (receipt.state === "delivered") return "acknowledged";
+    return receipt.state === "unrecorded" ? "unobserved" : "unknown";
+  } catch (error) {
+    return error.code === "ENOENT" ? "unobserved" : "unknown";
+  }
+}
+
 async function run(args) {
   const onboarding = require("./codex-onboarding");
   if (onboarding.actions.includes(args[0])) return onboarding.run(args, {connect});
@@ -381,4 +397,4 @@ function wakeManaged(where, onlyRole = null) {
   }
   return results;
 }
-module.exports = {connect, run, wakeManaged};
+module.exports = {connect, run, wakeManaged, recordedDeliveryState};

@@ -20,7 +20,7 @@
     - Contract: keel-task-capsule/v1 sha256:d12e3656b4ca1712e58831090960624ec0727b7315cd2cc08abcbe31253d8156 (keel 5.231.5)
     - M1: Public CLI lifecycle proves the original thread and native turn survive handover. Unknown and absent receipts remain distinct, legacy thread stays null, and lookups leave RPC and registry unchanged.
     - M1.red: Regression assertion `delivery receipt must preserve its original thread` failed on the original CLI, which returned successor thread2 rather than the retained thread1 receipt.
-    - M1.green: `node --test scripts/test_codex_host.js` exited 0 with 33 passing tests. Lifecycle assertions inspect the original delivery after handover, an ambiguous delivery, an absent record, a legacy record and the unchanged RPC/registry.
+    - M1.green: The managed-host and onboarding Node suites exited 0 with 33 passing tests combined. Lifecycle assertions inspect the original delivery after handover, an ambiguous delivery, an absent record, a legacy record and the unchanged RPC/registry.
     - M2: `node --test scripts/test_codex_onboarding.js` exited 0 with 16 passing tests via isolated Unix sockets. Docs, English README CLI and Chinese README checks passed (3 scenarios).
     - Review:
       - Status: pass

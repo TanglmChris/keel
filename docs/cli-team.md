@@ -27,6 +27,10 @@ the `closureRecordId` of the closing chat record, or null. The query leaves
 read cursors untouched. Closure records a member's report of completion.
 Keep the task's verification evidence separately.
 
+The sibling `delivery.state` is `acknowledged` for a durable native receipt,
+`unknown` for an ambiguous receipt, or `unobserved` when no evidence is available.
+It is local delivery evidence only. The query contacts no runtime.
+
 ## Waking
 
 An idle background session is woken like any Claude session: only a mention, an assigned todo or a direct message wakes it, and everything else waits for its next prompt.
