@@ -118,6 +118,19 @@ function connect(socketPath, timeout = 5000) {
   });
 }
 
+function deliveryKey(record) {
+  return crypto.createHash("sha256").update(record).digest("hex");
+}
+
+function deliveryReceipt(role, record) {
+  const claim = role.deliveries?.[deliveryKey(record)];
+  if (claim && claim.record !== record) throw Error("managed delivery claim identity mismatch");
+  const turn = claim?.state === "delivered" && typeof claim.turn === "string" && claim.turn ? claim.turn : null;
+  const thread = typeof claim?.thread === "string" && claim.thread ? claim.thread : null;
+  const state = !claim ? "unrecorded" : turn ? "delivered" : "unknown";
+  return { role: role.role, record, state, thread, turn };
+}
+
 async function run(args) {
   const onboarding = require("./codex-onboarding");
   if (onboarding.actions.includes(args[0])) return onboarding.run(args, {connect});
@@ -171,6 +184,13 @@ async function run(args) {
         options.socket = recorded.socket;
         options.thread = recorded.thread;
       }
+    }
+    if (action === "status" && options.record) {
+      if (!recorded || recorded.role !== options.role) throw Error("delivery receipt needs an owned --role");
+      const receipt = deliveryReceipt(recorded, options.record);
+      process.stdout.write((options.json ? JSON.stringify(receipt)
+        : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}`) + "\n");
+      return 0;
     }
     if (action === "start" && !options.role) throw Error("start needs --role");
     if (["deliver", "handover", "recover"].includes(action)) {
@@ -256,7 +276,7 @@ async function run(args) {
       const owned = value => value && value.id === recorded.thread && value.cwd === recorded.worktree;
       if (!owned(thread)) throw Error("managed role identity mismatch");
       const claims = recorded.deliveries || {};
-      const key = options.record ? crypto.createHash("sha256").update(options.record).digest("hex") : null;
+      const key = options.record ? deliveryKey(options.record) : null;
       if (action === "deliver" && claims[key]) {
         // Deduplication is a recorded outcome, not a reason to load a thread.
         if (claims[key].state !== "delivered" || typeof claims[key].turn !== "string" || !claims[key].turn) {
@@ -283,12 +303,12 @@ async function run(args) {
         if (thread.status.type === "active") {
           Object.assign(result, {state: "waiting", thread: recorded.thread});
         } else if (action === "deliver") {
-          claims[key] = {record: options.record, state: "pending"};
+          claims[key] = {record: options.record, state: "pending", thread: recorded.thread};
           recorded.deliveries = claims;
           store.writeJsonAtomic(where, file, recorded);
           const turn = (await client.call("turn/start", {threadId: recorded.thread, ...(!savedPolicy && recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {}), input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
           if (!turn || !turn.id) throw Error("Codex returned no turn identity; claim retained");
-          claims[key] = {record: options.record, state: "delivered", turn: turn.id};
+          Object.assign(claims[key], {state: "delivered", turn: turn.id});
           store.writeJsonAtomic(where, file, recorded);
           Object.assign(result, {state: "delivered", turn: turn.id});
         } else {

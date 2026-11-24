@@ -169,6 +169,8 @@ For an explicitly owned role whose native cwd drifted, run `keel codex recover -
 Codex hand-over uses `keel codex handover`, preserving the old thread and note in the existing chat store's managed-role history. The successor receives that note on its next addressed delivery. Claude's `keel shift` lifecycle stays unchanged. Existing dedicated frontend threads require the explicit registration plan below; there is no automatic desktop discovery/adoption. Hook trust and unproven guard/compaction enforcement remain unchanged. See `docs/codex-validation.md` for dated real-host evidence and limitations.
 
 
+Use `keel codex status --repo <path> --role <role> --record <id> --json` to inspect a delivery receipt from the local registry while the host is offline. Acknowledged claims return the original thread and turn when recorded. Older claims can have a null thread. Unknown submissions keep their claims. Verification of the task still requires evidence of the actual outcome.
+
 ## Native shared desktop connection
 
 Keel 5.230.0 was measured with Linux App 26.1023.51421 and native backend 0.167.2.

@@ -158,6 +158,8 @@ keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/t
 交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。专用前台原线程需经过下方显式登记计划，不自动发现或接管桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。
 
 
+用 `keel codex status --repo <path> --role <role> --record <id> --json` 查询单条投递回执。宿主离线时仍可读取本地登记。已确认投递会返回记录中的原线程和回合。旧回执可能缺少原线程并返回 null。未知提交保留原登记，任务验收仍需实际结果的证据。
+
 ## 原生共享桌面接入
 
 Keel 5.230.0 已在 Linux App 26.1023.51421 与原生后台 0.167.2 上实测。

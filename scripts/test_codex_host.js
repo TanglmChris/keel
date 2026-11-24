@@ -28,6 +28,22 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const duplicate=await run(message,'deliver');assert.equal(duplicate.code,0,duplicate.err);assert.equal(requests.filter(x=>x==='turn/start').length,1);
  active=true;const waiting=await run(['--repo',dir,'--role','test-role','--note','finish fixture','--json'],'handover');assert.equal(waiting.code,0,waiting.err);assert.equal(JSON.parse(waiting.out).state,'waiting');assert.equal(serial,1);
  active=false;const handed=await run(['--repo',dir,'--role','test-role','--note','finish fixture','--json'],'handover');assert.equal(handed.code,0,handed.err);assert.equal(serial,2);assert.ok(requestDetails.some(x=>x.method==='thread/name/set'&&x.params.threadId==='fixture-thread-2'&&x.params.name==='test-role'),'successor must be persisted before handover succeeds');
+ const receiptFile=path.join(dir,'.git/keel-chat/codex-roles/test-role.json');
+ const receiptArgs=['--repo',dir,'--role','test-role','--json'];
+ const inspectReceipt=async record=>{
+   const before=fs.readFileSync(receiptFile);
+   const nativeRequests=requests.length;
+   const query=await run([...receiptArgs,'--record',record]);
+   assert.equal(query.code,0,query.err);
+   const parsed=JSON.parse(query.out);
+   return {parsed,before,nativeRequests};
+ };
+ const original=await inspectReceipt('fixture-record');
+ assert.deepEqual(original.parsed,{
+   role:'test-role',record:'fixture-record',state:'delivered',thread:'fixture-thread-1',turn:JSON.parse(sent.out).turn,
+ },'delivery receipt must preserve its original thread');
+ assert.equal(requests.length,original.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),original.before);
  const store=require('../src/core/chat/store');const where=store.requireLocation(dir);
  store.createGroup(where,'owner','team',['test-role']);
  store.writeRecord(where,{group:'team',kind:'message',from:'owner',mentions:['test-role'],text:'addressed fixture'});
@@ -41,6 +57,22 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  uncertain=true;const failedMessage=['--repo',dir,'--role','test-role','--record','uncertain-record','--text','read pending','--json'];const failed=await run(failedMessage,'deliver');assert.notEqual(failed.code,0);const retried=await run(failedMessage,'deliver');assert.notEqual(retried.code,0);assert.match(retried.err,/unknown/);assert.equal(requests.filter(x=>x==='turn/start').length,4);
  const lock=path.join(dir,'.git/keel-chat/codex-roles/test-role.json.lock');fs.writeFileSync(lock,'owned by another process');const locked=await run(message,'deliver');assert.notEqual(locked.code,0);assert.equal(fs.readFileSync(lock,'utf8'),'owned by another process');fs.unlinkSync(lock);
  const registry=JSON.parse(fs.readFileSync(path.join(dir,'.git/keel-chat/codex-roles/test-role.json')));assert.equal(registry.history.length,1);assert.equal(registry.history[0].note,'finish fixture');
+ const pending=await inspectReceipt('uncertain-record');
+ assert.deepEqual(pending.parsed,{role:'test-role',record:'uncertain-record',state:'unknown',thread:'fixture-thread-2',turn:null});
+ assert.equal(requests.length,pending.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),pending.before);
+ const absent=await inspectReceipt('unrecorded-fixture');
+ assert.deepEqual(absent.parsed,{role:'test-role',record:'unrecorded-fixture',state:'unrecorded',thread:null,turn:null});
+ assert.equal(requests.length,absent.nativeRequests);
+ const legacyRecord='legacy-receipt';
+ const legacyKey=require('node:crypto').createHash('sha256').update(legacyRecord).digest('hex');
+ registry.deliveries[legacyKey]={record:legacyRecord,state:'delivered',turn:'old-native-turn'};
+ fs.writeFileSync(receiptFile,JSON.stringify(registry));
+ const legacy=await inspectReceipt(legacyRecord);
+ assert.deepEqual(legacy.parsed,{role:'test-role',record:legacyRecord,state:'delivered',thread:null,turn:'old-native-turn'});
+ assert.equal(requests.length,legacy.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),legacy.before);
+
 
  uncertain=false;const large=await run(['--repo',dir,'--role','test-role','--record','large-record','--text','x'.repeat(70000),'--json'],'deliver');assert.equal(large.code,0,large.err);
  const raceBefore=requests.filter(x=>x==='turn/start').length;const raceArgs=['--repo',dir,'--role','test-role','--record','concurrent-record','--text','concurrent fixture','--json'];const raced=await Promise.all([run(raceArgs,'deliver'),run(raceArgs,'deliver')]);assert.ok(raced.some(x=>x.code===0));assert.equal(requests.filter(x=>x==='turn/start').length,raceBefore+1);
