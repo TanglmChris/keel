@@ -1,0 +1,5 @@
+Baseline: defective queue passes when stalled for two clocks.
+Unlimited finite stalls: cycle 4 first differs, expected 7; got no valid data.
+Explicit two-clock maximum: same three-clock stimulus is outside acceptance.
+Positive control: correct fixture passed all tested stall lengths 0–16.
+Replay elapsed: 0.109 ms.
