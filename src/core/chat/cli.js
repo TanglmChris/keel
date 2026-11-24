@@ -493,8 +493,14 @@ function dispatch(where, options) {
       if (!record) throw new ChatError(`No record ${id}.`);
       const readers = store.readersOf(where, record);
       const acks = record.ack === "requested" ? store.ackStatus(where, record) : null;
-      if (options.json) out(JSON.stringify({ record: publicRecord(record), readers, ...(acks ? { acks } : {}) }));
-      else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`, ...(acks ? ackLines(acks) : [])].join("\n"));
+      if (options.json) {
+        const result = { record: publicRecord(record), readers, ...(acks ? { acks } : {}) };
+        if (record.kind === "todo") {
+          const closure = store.todoClosure(where, record);
+          result.task = { id: record.id, state: closure ? "closed" : "open", closureRecordId: closure ? closure.id : null };
+        }
+        out(JSON.stringify(result));
+      } else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`, ...(acks ? ackLines(acks) : [])].join("\n"));
       return 0;
     }
     case "todo": {

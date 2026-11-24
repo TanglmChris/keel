@@ -1605,6 +1605,30 @@ def validate_chat_records_scenario() -> int:
         if not todo_id:
             report(f"{label} keel chat todo did not report an id: {todo.stdout.strip()} {todo.stderr.strip()}")
             return 1
+        chat(verify, "read", "soc")
+        store = mailbox_common_dir(rtl) / "keel-chat"
+
+        def snapshot():
+            return {
+                file.relative_to(store): file.read_bytes()
+                for directory in (store / "groups", store / "cursors")
+                for file in directory.rglob("*") if file.is_file()
+            }
+
+        def show(record_id):
+            result = chat(verify, "show", record_id, "--json")
+            assert result.returncode == 0, result.stderr
+            return chat_json(result)
+
+        before = snapshot()
+        active = show(todo_id)
+        assert active.get("task") == {
+            "id": todo_id,
+            "state": "open",
+            "closureRecordId": None,
+        }, "task view missing for open todo"
+        assert active["record"]["id"] == todo_id and "readers" in active
+        assert snapshot() == before, "open task query wrote to chat"
         mine = chat_json(chat(verify, "todos", "--mine", "--json")).get("todos", [])
         listed = [t for t in mine if t.get("id") == todo_id]
         if not listed:
@@ -1621,8 +1645,20 @@ def validate_chat_records_scenario() -> int:
         if todo_id in open_ids:
             report(f"{label} a todo answered with ✅ is still listed: {open_ids!r}")
             return 1
+        before = snapshot()
+        completed = show(todo_id)["task"]
+        assert completed == {
+            "id": todo_id,
+            "state": "closed",
+            "closureRecordId": completed["closureRecordId"],
+        }
+        receipt = show(completed["closureRecordId"])
+        assert receipt["record"]["kind"] == "done" and receipt["record"]["target"] == todo_id
+        assert "task" not in receipt
+        assert show(todo_id)["task"] == completed
+        assert snapshot() == before, "closed task query wrote to chat"
         second_id = chat_json(chat(rtl, "todo", "soc", "--assignee", "verify", "Update the spec", "--json")).get("id", "")
-        done = chat(verify, "done", second_id)
+        done = chat(verify, "done", second_id, "--json")
         if done.returncode != 0:
             report(f"{label} keel chat done failed: {done.stderr.strip()}")
             return 1
@@ -1630,9 +1666,12 @@ def validate_chat_records_scenario() -> int:
         if second_id in open_ids:
             report(f"{label} a todo closed with keel chat done is still listed: {open_ids!r}")
             return 1
+        explicit = {"id": second_id, "state": "closed", "closureRecordId": chat_json(done)["id"]}
+        assert show(second_id)["task"] == explicit
 
         message_id = chat_json(chat(rtl, "post", "soc", "Clock is 100MHz", "--json")).get("id", "")
         message_file = chat_log(rtl, "soc") / f"{message_id}.md"
+        assert "task" not in show(message_id)
         original = message_file.read_bytes()
         foreign = chat(verify, "edit", message_id, "Clock is 50MHz")
         if foreign.returncode == 0:
@@ -1683,6 +1722,12 @@ def validate_chat_records_scenario() -> int:
         if "06:00:00+00:00" in local.stdout:
             report(f"{label} the view prints the raw stored stamp.")
             return 1
+        archived = chat(rtl, "group", "archive", "soc")
+        assert archived.returncode == 0, archived.stderr
+        before = snapshot()
+        assert show(second_id)["task"] == explicit
+        assert show(todo_id)["task"] == completed
+        assert snapshot() == before, "archived task query wrote to chat"
 
     if "chat-records" not in {name for name, _ in registry.SCENARIOS}:
         report(f"{label} scenario is not registered.")
