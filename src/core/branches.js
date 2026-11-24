@@ -8,6 +8,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { listWorktrees } = require("./worktrees");
 
 const REMOTE = "origin";
 
@@ -80,9 +81,8 @@ function refs(cwd, prefix) {
 }
 
 function checkedOut(cwd) {
-  const listed = git(cwd, ["worktree", "list", "--porcelain"]);
-  return new Set(listed.out.split("\n").filter((line) => line.startsWith("branch refs/heads/"))
-    .map((line) => line.slice("branch refs/heads/".length)));
+  const checkedOutBranches = listWorktrees(cwd, { optional: true }).map((row) => row.branch).filter(Boolean);
+  return new Set(checkedOutBranches);
 }
 
 // Branches a worktree bound to the role has checked out, from its own HEAD

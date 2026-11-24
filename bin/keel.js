@@ -109,6 +109,7 @@ Usage:
   keel sync status [--repo <path>] [--verify] [--remote <name>] [--json]   (what exists only on this machine; fetches nothing, --verify asks the remote its sha)
   keel patrol [--issues <file>] [--idle <dur>] [--since-last [--notify]] [--nudge] [--json] [--repo <path>]   (the coordinator's patrol; keel patrol task prints its schedule)
   keel codex status|start|deliver|handover|drain|recover [--repo <path>] [--role <role>] [--socket <path>] [--json]   (managed Codex roles; explicit host identity)
+  keel codex status [--repo <path>] --role <role> --record <id> [--json]   (read the durable delivery receipt locally)
   keel codex inspect-registration --repo <path> --role <role> --thread <id> --socket <path> --authority <reference>
   keel codex register --plan <json-file> [--json]
   keel codex inspect-migration --repo <path> --role <role> --to-socket <path> --authority <reference>

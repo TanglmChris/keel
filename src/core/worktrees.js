@@ -28,11 +28,11 @@ function git(cwd, args, optional = false) {
 // before 2.36 has no `-z` there (#526: git 2.34 refused it and `keel worktrees`
 // failed outright), so it falls back to newline-separated fields, which read
 // every path that holds no newline.
-function listWorktrees(repo) {
+function listWorktrees(repo, { optional = false } = {}) {
   const rows = [];
   let row = null;
   const nul = git(repo, ["worktree", "list", "--porcelain", "-z"], true);
-  const fields = nul !== null ? nul.split("\0") : git(repo, ["worktree", "list", "--porcelain"]).split("\n");
+  const fields = nul !== null ? nul.split("\0") : (git(repo, ["worktree", "list", "--porcelain"], optional) || "").split("\n");
   for (const field of fields) {
     if (field.startsWith("worktree ")) {
       row = { path: field.slice(9), branch: null, head: null, locked: null, prunable: null };
