@@ -1,0 +1,6 @@
+codex-cli 0.171.0
+2.1.325 (Claude Code)
+native tool committed one fixture file; one correlated structured tool output; native turn failed usageLimitExceeded
+the worktree effect precedes the account-limit-shaped native receipt
+isolated workspace trusted through native dialog True
+same worktree: Codex source exited; Claude verified one original line and wrote one new continuation artifact
