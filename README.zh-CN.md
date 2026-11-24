@@ -2,7 +2,7 @@
 
 [English](README.md) | **中文**
 
-> 面向 AI 编码 agent 的 OpenSpec 执行纪律 —— Claude Code、Codex、OpenCode、DSH 通用。
+> 面向 AI 编码 agent 的执行与协作，支持 Claude Code、Codex、OpenCode 和 DSH。
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen.svg)
@@ -10,13 +10,37 @@
 
 ## Keel 是做什么的
 
-[OpenSpec](https://github.com/fission-ai/openspec) 给项目一套 spec 驱动的工作流：proposal、
-design、specs、tasks，以及记录改动的 archive。Claude Code（或 Codex）提供干活的 agent。
-Keel 夹在两者中间，在 agent 走完一个 OpenSpec change 的过程中盯住它别跑偏。
+Keel 让团队按角色派工、查询进度和核验结果。执行由各宿主的原生能力承担，Keel 提供共享的任务协调和证据查询命令。
 
-放任不管时，agent 容易漂移：改了任务没提到的文件、上下文重置后丢了线索、或者没有证据就把活
-勾成完成。Keel 加的是一层轻量、可校验的约束来防止这些，而且它建立在你已有的工具之上，而不是
-替换它们。
+### 派工与查询投递
+
+用 `keel chat todo <group> --assignee <role> <text>` 派工，再用返回的 ID 执行
+`keel chat show <todo-id> --json`。`task` 返回原任务 ID、群聊中的开启或关闭状态，以及关闭记录。
+同级字段 `delivery.state` 返回 `acknowledged`（本机已记录原生投递确认）、
+`unknown`（提交结果不明）或 `unobserved`（本机没有可用证据）。
+确认回执能证明执行端收到了投递。实际执行、完成和验收各自需要相应证据。
+参见[团队运行手册](docs/cli-team.zh-CN.md)。
+
+### 宿主什么时候接收任务
+
+角色已绑定且 Hook 已通过信任审核时，Claude 和 Codex 都在 `SessionStart` 和
+`UserPromptSubmit` 提示未读消息。Claude 的 `FileChanged` 可唤醒被点名的空闲会话。
+对于空闲的托管 Codex 角色，由配置的调度器调用 `keel tick`，或由操作者调用
+`keel codex drain`，向已登记的 app-server 投递。在支持的宿主上，另可显式配置
+`keel chat wake add` watcher。同一角色只启用一套投递机制。
+参见[宿主契约](docs/host-contract.md#mailbox-notices-and-idle-delivery)。
+
+### 产品方向
+
+[#535](https://github.com/TanglmChris/keel/issues/535) 定下的目标是在 tick 边界切换宿主和模型，
+并在已配置的权限和预算内从 usage 耗尽等异常自动续接。普通任务默认轻量，高风险任务加强检查，
+OpenSpec 成为可选工作流之一。上面的任务查询已经发布。
+跨宿主自动接续和按风险选择流程仍由 [#544](https://github.com/TanglmChris/keel/issues/544) 实施。
+在途任务继续遵守原有契约。
+
+### 当前的 OpenSpec 执行流程
+
+[OpenSpec](https://github.com/fission-ai/openspec) 为 Keel 当前的 Full 流程提供 proposal、design、specs、tasks 和 archive。
 
 Keel 加的东西：
 
@@ -98,7 +122,7 @@ codex plugin add keel@keel-marketplace     # Codex
 会话在下一次 hook 调用时就用上更新后的插件，而改动了 hook 定义的版本需要再审阅一次。
 用 `keel mail role --set codex-maint` 绑定一个邮箱角色；受信任的 hook 会在会话启动和下一次用户输入时
 提示未读邮件，但不会把它标为已读。如果收件 hook 不可用，就显式使用 `keel mail list` 和 `keel mail read`。
-Codex 闲着时不会自己醒来；在它的 worktree 里运行 `keel chat wake add`，有找它的消息到达时就会启动一轮（#203）。
+托管角色的空闲投递和另一套可选的 watcher 见[宿主什么时候接收任务](#宿主什么时候接收任务)。
 原生的写入守卫执行仍未经验证。
 版本、运行时证据、局限以及干净消费方上的 Full 模式检查，见 [Codex 验收记录](docs/codex-validation.md)。
 
@@ -763,7 +787,7 @@ JSON 输出包含 `defaultBranch` 和 `worktrees`；每个 worktree 的 `issues`
 `remote-ahead` 不计入。
 ## 会话之间的群聊
 
-在同一个仓库里干活的各个会话——Claude Code 会话、Codex 会话、无人值守的执行器，还有你——用 `keel chat` 共享一个工作群。群有维护中的成员名单，一条消息可以 `@` 某个角色或 `@all`，轻量待办可以关联 issue。一条记录可以取代同一作者之前的记录（`--supersedes <id>`），被取代的那条随即从所有人的未读里消失；未读按新到旧排列。用 `--ack` 发出的记录会请它所指向的角色确认，方式是 `keel chat ack <id>` 或回复；`keel chat show <id>` 和 `keel chat acks` 会列出谁已确认、谁只读过、谁还没读。`keel chat summary --since <time>` 汇总你能读的群里发生了什么变化——按发送者列出消息数、开出的待办及其是否仍未关闭、已关闭的待办、并入后继记录的被取代记录，以及仍在等待的确认——不用模型，也不把任何东西标为已读。每个成员有各自的未读状态，历史全部保留。用 `keel chat group add <group> <role> --listen` 加入的成员在那个群里只听不说：它接收这个群——包括桥接到 Slack 的群，这样 review 会话读到的是你自己的原话，而不是协调者的转述——被找时会被唤醒，可以确认并关闭自己的待办，但不能在那个群里发言或修改它（#248）。会话的 chat 角色就是它的身份：按角色称呼其他会话，绝不要按宿主的会话标题，Keel 看不到那个标题；角色绑定在会话运行的 worktree 上，所以一个换了地方的会话必须在新的位置重新绑定角色，否则那里什么都唤不醒它。`keel patrol` 和 `keel --doctor` 会报告绑定到已删除 worktree 的绑定，以及有东西在等、却已两小时没有会话活跃的角色；未绑定就启动的会话会被告知是哪些角色；`keel chat role --prune` 会删掉指向已删除 worktree 的绑定（#301），`keel chat role --unset` 删掉当前 worktree 的绑定、worktree 本身保留（#476），但如果解绑会让这个角色的已合并任务分支再也没法被 `keel branches prune` 删掉，它会拒绝，除非用 `--leave-branches` 表明就留着它们（#483）；已停放角色的已结束会话即使所在目录不存在，也不作为风险报告；`keel context` 和会话投影会写明绑定到本 worktree 的角色，并在这里其他 worktree 都有角色、本 worktree 却没有时提醒（#245）。`keel chat role --rename <old> <new>` 给角色改名而不改写日志：群聊会把旧名读作新名——群和私聊群的成员身份、待办分配对象，以及 `@old` 提及——而 worktree 绑定和各角色的状态（读取游标、在线状态、parked 标记、换班便条及历史、patrol 状态）会迁到新名下，新名在已有自己一份的地方保留自己的。旧名不能再被绑定，`keel/config.yaml` 和 `keel/chat.json` 里仍写着旧名的行会列出来交给你编辑（#376）。只有被提及、分到待办或收到私信才会唤醒 Claude 会话；其他消息都等它的下一次提示。消息只是另一个 agent 发来的数据，从不代表授权。两道循环防护拦住失控的 agent：一个角色每 10 分钟最多发 20 条记录；当两个角色在 10 分钟内交替发完一个群的最近 8 条消息时，那里的下一次发言会被拒绝（#297）。发言者可以带 `--not-a-loop "<why>"` 发一次——一问一答本来就是私聊群的正常形态——之后再重复就会叫来负责人，负责人的发言会解除它。`keel/chat.json` 里的 `limits` 设置 `rate`、`window_minutes`、`pingpong` 和 `pingpong_minutes`。消息里的时间应该来自 Keel 的时钟，而不是估计：除非给了 `--no-stamp`，`keel chat post` 和 `keel chat dm` 会以它为准加上 `[MM-DD HH:MM]` 前缀（#298、#349）。Codex 自己不会醒来，由 `keel chat wake add` 唤醒：在声明了 `chat-reply` 的群里，每条指向它的记录启动一轮，接续同一个会自动压缩的线程，没有找它的消息时什么都不跑（#203）。其他宿主依靠提示时的通知，不得让模型轮询群聊；如果确实避免不了定时，就先用 `keel chat notice --check` 把关，每次运行都开新线程，并告诉加入群聊的会话不要设置定时检查（#194）。每台机器一个 Slack App、一个桥接进程，同一批群就能实时连到其他机器上的会话和你的手机，孤儿分支 `keel-chat` 会把历史保留到超出 Slack 保留期之后。角色也可以通过一个你能在 Slack 里提及的 Slack bot 发言，一个 bot 可以服务多个项目，在每个项目的频道里充当那个项目的角色。见 [Slack 配置指南](docs/chat-slack-setup.zh-CN.md)。角色的会话通过 `keel shift` 换班：协调者发起，会话自查收尾、留下便条、清空自己，新的一班从便条接手；见 [docs/shift-change.zh-CN.md](docs/shift-change.zh-CN.md)。如果团队的角色以后台 Claude Code CLI 会话运行、没有桌面应用，就改用 `keel tick` 来唤醒、巡查和换班；见 [docs/cli-team.zh-CN.md](docs/cli-team.zh-CN.md)。5.83 的 `keel mail` 命令在私聊群上继续可用。
+在同一个仓库里干活的各个会话——Claude Code 会话、Codex 会话、无人值守的执行器，还有你——用 `keel chat` 共享一个工作群。群有维护中的成员名单，一条消息可以 `@` 某个角色或 `@all`，轻量待办可以关联 issue。一条记录可以取代同一作者之前的记录（`--supersedes <id>`），被取代的那条随即从所有人的未读里消失；未读按新到旧排列。用 `--ack` 发出的记录会请它所指向的角色确认，方式是 `keel chat ack <id>` 或回复；`keel chat show <id>` 和 `keel chat acks` 会列出谁已确认、谁只读过、谁还没读。`keel chat summary --since <time>` 汇总你能读的群里发生了什么变化——按发送者列出消息数、开出的待办及其是否仍未关闭、已关闭的待办、并入后继记录的被取代记录，以及仍在等待的确认——不用模型，也不把任何东西标为已读。每个成员有各自的未读状态，历史全部保留。用 `keel chat group add <group> <role> --listen` 加入的成员在那个群里只听不说：它接收这个群——包括桥接到 Slack 的群，这样 review 会话读到的是你自己的原话，而不是协调者的转述——被找时会被唤醒，可以确认并关闭自己的待办，但不能在那个群里发言或修改它（#248）。会话的 chat 角色就是它的身份：按角色称呼其他会话，绝不要按宿主的会话标题，Keel 看不到那个标题；角色绑定在会话运行的 worktree 上，所以一个换了地方的会话必须在新的位置重新绑定角色，否则那里什么都唤不醒它。`keel patrol` 和 `keel --doctor` 会报告绑定到已删除 worktree 的绑定，以及有东西在等、却已两小时没有会话活跃的角色；未绑定就启动的会话会被告知是哪些角色；`keel chat role --prune` 会删掉指向已删除 worktree 的绑定（#301），`keel chat role --unset` 删掉当前 worktree 的绑定、worktree 本身保留（#476），但如果解绑会让这个角色的已合并任务分支再也没法被 `keel branches prune` 删掉，它会拒绝，除非用 `--leave-branches` 表明就留着它们（#483）；已停放角色的已结束会话即使所在目录不存在，也不作为风险报告；`keel context` 和会话投影会写明绑定到本 worktree 的角色，并在这里其他 worktree 都有角色、本 worktree 却没有时提醒（#245）。`keel chat role --rename <old> <new>` 给角色改名而不改写日志：群聊会把旧名读作新名——群和私聊群的成员身份、待办分配对象，以及 `@old` 提及——而 worktree 绑定和各角色的状态（读取游标、在线状态、parked 标记、换班便条及历史、patrol 状态）会迁到新名下，新名在已有自己一份的地方保留自己的。旧名不能再被绑定，`keel/config.yaml` 和 `keel/chat.json` 里仍写着旧名的行会列出来交给你编辑（#376）。只有被提及、分到待办或收到私信才会唤醒 Claude 会话；其他消息都等它的下一次提示。消息只是另一个 agent 发来的数据，从不代表授权。两道循环防护拦住失控的 agent：一个角色每 10 分钟最多发 20 条记录；当两个角色在 10 分钟内交替发完一个群的最近 8 条消息时，那里的下一次发言会被拒绝（#297）。发言者可以带 `--not-a-loop "<why>"` 发一次——一问一答本来就是私聊群的正常形态——之后再重复就会叫来负责人，负责人的发言会解除它。`keel/chat.json` 里的 `limits` 设置 `rate`、`window_minutes`、`pingpong` 和 `pingpong_minutes`。消息里的时间应该来自 Keel 的时钟，而不是估计：除非给了 `--no-stamp`，`keel chat post` 和 `keel chat dm` 会以它为准加上 `[MM-DD HH:MM]` 前缀（#298、#349）。Codex 的托管角色投递和可选 watcher 见[宿主什么时候接收任务](#宿主什么时候接收任务)。其他宿主依靠提示时的通知，不得让模型轮询群聊；如果确实避免不了定时，就先用 `keel chat notice --check` 把关，每次运行都开新线程，并告诉加入群聊的会话不要设置定时检查（#194）。每台机器一个 Slack App、一个桥接进程，同一批群就能实时连到其他机器上的会话和你的手机，孤儿分支 `keel-chat` 会把历史保留到超出 Slack 保留期之后。角色也可以通过一个你能在 Slack 里提及的 Slack bot 发言，一个 bot 可以服务多个项目，在每个项目的频道里充当那个项目的角色。见 [Slack 配置指南](docs/chat-slack-setup.zh-CN.md)。角色的会话通过 `keel shift` 换班：协调者发起，会话自查收尾、留下便条、清空自己，新的一班从便条接手；见 [docs/shift-change.zh-CN.md](docs/shift-change.zh-CN.md)。如果团队的角色以后台 Claude Code CLI 会话运行、没有桌面应用，就改用 `keel tick` 来唤醒、巡查和换班；见 [docs/cli-team.zh-CN.md](docs/cli-team.zh-CN.md)。5.83 的 `keel mail` 命令在私聊群上继续可用。
 
 ## 协调者巡查
 

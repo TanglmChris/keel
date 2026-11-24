@@ -70,6 +70,19 @@ With `sync: lock: true` and `device-sync` declared, `keel tick` renews only this
 
 On Linux a host subreaper may adopt an orphan process. A keep-awake whose original process-group leader is gone remains a shift loose end, even when the adopting parent is in the checker’s ancestry. The public `shift-check-skips-host-keep-awake` regression exercises this on the Linux validation host. Release marker writes and validation also stop at nested Git checkout boundaries; `release-skips-nested-worktrees` verifies both against a temporary real checkout.
 
+## Mailbox notices and idle delivery
+
+| Host | At session start and user input | Between turns |
+|---|---|---|
+| Claude Code | The bound role's `SessionStart` and `UserPromptSubmit` hooks show unread hints. | `FileChanged` can wake an idle session for a mention, assigned todo or direct message. `SessionEnd` updates presence. |
+| Codex | Reviewed `SessionStart` and `UserPromptSubmit` hooks pass the bound role's unread hints as context. | An explicitly registered or managed role receives addressed records through `keel codex drain` or a scheduler that runs `keel tick`. A separate opt-in `keel chat wake add` watcher is available on supported hosts. Enable one route per role. |
+
+Mailbox hints leave the unread state intact. With a missing or unavailable
+host hook, read via `keel chat unread`. The portable query
+`keel chat show <todo-id> --json` reports locally recorded closure and delivery.
+A native acknowledgement records delivery of the request. Verify the outcome
+with the task's acceptance evidence.
+
 ## Managed Codex roles
 
 `keel codex start` records the endpoint, role, worktree and thread identity in the existing chat store. `keel codex drain` and `keel tick` use existing unread/addressing/parking rules, persist one claim before starting a turn, and leave uncertain outcomes for inspection. A busy role waits; no replacement server is started after an endpoint failure. A stale creation record or lock is retained for explicit inspection, never silently removed or replayed.

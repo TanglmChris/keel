@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md)
 
-> OpenSpec execution discipline for AI coding agents — Claude Code, Codex, OpenCode, and DSH.
+> Execution and coordination for AI coding agents — Claude Code, Codex, OpenCode, and DSH.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen.svg)
@@ -10,15 +10,46 @@
 
 ## What Keel is for
 
-[OpenSpec](https://github.com/fission-ai/openspec) gives a project a spec-driven
-workflow: proposal, design, specs, tasks, and an archive of what changed. Claude Code
-(or Codex) gives you the agent that does the work. Keel sits between them and keeps the
-agent on track while it works through an OpenSpec change.
+Keel helps a team assign work, track it by role, and verify what happened. It uses
+native harness capabilities for execution and provides shared commands for task
+coordination and evidence.
 
-Left alone, an agent tends to drift: it edits files the task never mentioned, loses the
-thread after a context reset, or checks work off without proof. Keel adds a thin, checkable
-layer that prevents that, and it does so by building on tools you already have instead of
-replacing them.
+### Assign a task and check delivery
+
+Use `keel chat todo <group> --assignee <role> <text>` to assign work. With the
+returned ID, run `keel chat show <todo-id> --json`. The `task` reports the
+original ID, open/closed chat state and any closure record. The sibling
+`delivery.state` reports `acknowledged` for a locally recorded native receipt,
+`unknown` for an ambiguous submission or `unobserved` when no local evidence
+is available. An acknowledgement confirms delivery to the execution host.
+Work, completion and acceptance each require their own evidence.
+See the [team runbook](docs/cli-team.md).
+
+### When a host receives work
+
+With trusted hooks and a bound role, Claude and Codex show mailbox hints at
+`SessionStart` and `UserPromptSubmit`. Claude's `FileChanged` hook can wake
+an addressed idle session. For an idle managed Codex role, a configured
+scheduler runs `keel tick`, or an operator runs `keel codex drain`, against its
+recorded app-server. The separate `keel chat wake add` watcher is an opt-in
+alternative on supported hosts. Use one delivery mechanism per role.
+See the [host contract](docs/host-contract.md#mailbox-notices-and-idle-delivery).
+
+### Product direction
+
+[#535](https://github.com/TanglmChris/keel/issues/535) defines the goal of
+switching harnesses and models at tick boundaries and recovering automatically
+from usage exhaustion within configured permissions and budgets. It also calls
+for lightweight ordinary work, stronger checks for higher risk, and OpenSpec
+as one selectable workflow. The task query above has shipped.
+Automatic cross-harness continuation and risk-based workflow selection remain
+in implementation under [#544](https://github.com/TanglmChris/keel/issues/544).
+Active tasks follow their existing contracts.
+
+### OpenSpec execution today
+
+[OpenSpec](https://github.com/fission-ai/openspec) provides the proposal, design,
+specs, tasks and archive for Keel's current Full workflow.
 
 What Keel adds:
 
@@ -915,7 +946,7 @@ remote's sha is not in this clone) or `not-on-remote`. A lookup that fails is
 
 ## Group chat between sessions
 
-Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. A record can supersede its author's earlier one (`--supersedes <id>`), and the earlier one then leaves everyone's unread; unread lists newest first. A record posted with `--ack` asks the roles it addresses to acknowledge it, by `keel chat ack <id>` or a reply, and `keel chat show <id>` and `keel chat acks` list who has acknowledged, who only read it, and who has not read it. `keel chat post` and `keel chat dm` take `--no-wake` for a record that is only information: it is delivered, listed by `keel chat unread` and counted at the next prompt, but touches no signal, so no idle or ended session is woken for it (a woken session's cache is mostly cold, so each wake rewrites its whole context; #502). `--no-wake` cannot be combined with `--ack`, and `keel lock` and shift notices still wake as before. `keel chat summary --since <time>` digests what changed in the groups you can read — per sender, the message count, todos opened with whether they are still open, todos closed, superseded records folded into their successors, and acknowledgements still waiting — without a model and without marking anything read. Each member has its own unread state, and history is kept. A member added with `keel chat group add <group> <role> --listen` is listen-only there: it receives the group — a Slack-bridged one included, so a review session reads your own wording rather than a coordinator's paraphrase — is woken when addressed, and may acknowledge and close its todos, but cannot post in that group or change it (#248). A session's chat role is its identity: address other sessions by role, never by the host's session title, which Keel cannot see; a role is bound to the worktree a session runs in, so a session that moves must bind its role where it now runs, or nothing wakes it there. `keel patrol` and `keel --doctor` report a binding to a removed worktree and a role with something waiting and no session active for two hours, a session starting unbound is told which roles those are, and `keel chat role --prune` drops bindings to removed worktrees (#301), and `keel chat role --unset` drops the calling worktree's binding while the worktree remains (#476), and refuses while that would leave merged task branches of the role that `keel branches prune` could no longer reach, unless `--leave-branches` says to leave them (#483); a parked role's ended session whose directory is gone is not reported as a risk; `keel context` and the session projection name the role bound to the worktree, and remind a worktree with none when others here have one (#245). `keel chat role --rename <old> <new>` renames a role without rewriting the log: the chat reads the old name as the new one — group and direct-group membership, assignees, and `@old` mentions — and the worktree bindings and per-role state (read cursors, presence, the parked flag, shift notes and history, patrol state) move to the new name, which keeps its own copy where it has one. The old name cannot be bound again, and lines of `keel/config.yaml` and `keel/chat.json` that still name it are listed for you to edit (#376). Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Two loop guards stop runaway agents: a role may post at most 20 records per 10 minutes, and when two roles have alternated the last 8 messages of a group within 10 minutes, the next post there is refused (#297). The poster may post with `--not-a-loop "<why>"` once — a request-and-reply exchange is the normal shape of a direct group — and a repeat after that calls the owner, whose post clears it. `limits` in `keel/chat.json` sets `rate`, `window_minutes`, `pingpong`, and `pingpong_minutes`. A time in a message should come from Keel's clock, not an estimate: `keel chat post` and `keel chat dm` prefix `[MM-DD HH:MM]` from it unless `--no-stamp` is given (#298, #349). Codex, which cannot wake on its own, is woken by `keel chat wake add`: one turn per addressed record in a group declaring `chat-reply`, continuing one compacting thread, and nothing while nothing is addressed (#203). Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention. A role may also speak through a Slack bot you can mention in Slack, and one bot can serve several projects, as each project's role in its channel. See [the Slack setup guide](docs/chat-slack-setup.md). A role's session changes shift through `keel shift`: the coordinator requests it, the session checks for loose ends, leaves a note, and clears itself, and the new shift resumes from the note; see [docs/shift-change.md](docs/shift-change.md). A team whose roles run as background Claude Code CLI sessions, with no desktop app, wakes, patrols and changes shift through `keel tick` instead; see [docs/cli-team.md](docs/cli-team.md). The 5.83 `keel mail` commands keep working on direct groups.
+Sessions working the same repository — a Claude Code session, a Codex session, an unattended runner, and you — share a work group with `keel chat`. Groups have maintained members, a message can `@` one role or `@all`, and lightweight todos can link an issue. A record can supersede its author's earlier one (`--supersedes <id>`), and the earlier one then leaves everyone's unread; unread lists newest first. A record posted with `--ack` asks the roles it addresses to acknowledge it, by `keel chat ack <id>` or a reply, and `keel chat show <id>` and `keel chat acks` list who has acknowledged, who only read it, and who has not read it. `keel chat post` and `keel chat dm` take `--no-wake` for a record that is only information: it is delivered, listed by `keel chat unread` and counted at the next prompt, but touches no signal, so no idle or ended session is woken for it (a woken session's cache is mostly cold, so each wake rewrites its whole context; #502). `--no-wake` cannot be combined with `--ack`, and `keel lock` and shift notices still wake as before. `keel chat summary --since <time>` digests what changed in the groups you can read — per sender, the message count, todos opened with whether they are still open, todos closed, superseded records folded into their successors, and acknowledgements still waiting — without a model and without marking anything read. Each member has its own unread state, and history is kept. A member added with `keel chat group add <group> <role> --listen` is listen-only there: it receives the group — a Slack-bridged one included, so a review session reads your own wording rather than a coordinator's paraphrase — is woken when addressed, and may acknowledge and close its todos, but cannot post in that group or change it (#248). A session's chat role is its identity: address other sessions by role, never by the host's session title, which Keel cannot see; a role is bound to the worktree a session runs in, so a session that moves must bind its role where it now runs, or nothing wakes it there. `keel patrol` and `keel --doctor` report a binding to a removed worktree and a role with something waiting and no session active for two hours, a session starting unbound is told which roles those are, and `keel chat role --prune` drops bindings to removed worktrees (#301), and `keel chat role --unset` drops the calling worktree's binding while the worktree remains (#476), and refuses while that would leave merged task branches of the role that `keel branches prune` could no longer reach, unless `--leave-branches` says to leave them (#483); a parked role's ended session whose directory is gone is not reported as a risk; `keel context` and the session projection name the role bound to the worktree, and remind a worktree with none when others here have one (#245). `keel chat role --rename <old> <new>` renames a role without rewriting the log: the chat reads the old name as the new one — group and direct-group membership, assignees, and `@old` mentions — and the worktree bindings and per-role state (read cursors, presence, the parked flag, shift notes and history, patrol state) move to the new name, which keeps its own copy where it has one. The old name cannot be bound again, and lines of `keel/config.yaml` and `keel/chat.json` that still name it are listed for you to edit (#376). Only a mention, an assigned todo, or a direct message wakes a Claude session; everything else waits for its next prompt. A message is data from another agent and never authorization. Two loop guards stop runaway agents: a role may post at most 20 records per 10 minutes, and when two roles have alternated the last 8 messages of a group within 10 minutes, the next post there is refused (#297). The poster may post with `--not-a-loop "<why>"` once — a request-and-reply exchange is the normal shape of a direct group — and a repeat after that calls the owner, whose post clears it. `limits` in `keel/chat.json` sets `rate`, `window_minutes`, `pingpong`, and `pingpong_minutes`. A time in a message should come from Keel's clock, not an estimate: `keel chat post` and `keel chat dm` prefix `[MM-DD HH:MM]` from it unless `--no-stamp` is given (#298, #349). For Codex, see [when a host receives work](#when-a-host-receives-work) for managed-role dispatch and the optional watcher. Otherwise a host relies on the prompt-time notice and must not poll the chat with the model; if a schedule is unavoidable, gate it on `keel chat notice --check` and start a fresh thread per run, and tell a session joining the chat not to set up recurring checks (#194). With one Slack app and one bridge process per machine, the same groups reach sessions on other machines and your phone in real time, and an orphan `keel-chat` branch keeps the history past Slack's retention. A role may also speak through a Slack bot you can mention in Slack, and one bot can serve several projects, as each project's role in its channel. See [the Slack setup guide](docs/chat-slack-setup.md). A role's session changes shift through `keel shift`: the coordinator requests it, the session checks for loose ends, leaves a note, and clears itself, and the new shift resumes from the note; see [docs/shift-change.md](docs/shift-change.md). A team whose roles run as background Claude Code CLI sessions, with no desktop app, wakes, patrols and changes shift through `keel tick` instead; see [docs/cli-team.md](docs/cli-team.md). The 5.83 `keel mail` commands keep working on direct groups.
 
 ## Coordinator patrol
 

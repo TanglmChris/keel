@@ -1,4 +1,4 @@
-<!-- keel:start version=5.231.7 -->
+<!-- keel:start version=5.231.8 -->
 ## Keel Bootstrap
 
 - Start every session with `keel context`; OpenSpec artifacts and Git are the durable authority, and memory or transcripts may only inform.
@@ -8,4 +8,5 @@
 - Route Full (the OpenSpec flow) for new features, interface or protocol changes, cross-module work, or over ~3 files / 100 lines; Lite for local fixes with no interface change. No gate checks routing; a project corrects the size bar with `full_mode_paths:` in `keel/config.yaml`, which `keel context` reports.
 - SessionStart projections are disposable views, never authority; without the plugin, run the commands by hand.
 - Keel skills and hooks come from the `keel` native plugin (`codex plugin add` / `claude plugin install`); `keel --init` owns only the OpenSpec schema, overlays, and this bootstrap.
+- Claude/Codex startup and prompt hints are separate from host-specific idle delivery.
 <!-- keel:end -->
