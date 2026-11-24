@@ -689,7 +689,7 @@ function post(where, options) {
     text: text.replace(/\s+$/, ""),
   });
   // A reply that opens with `done` or ✅ closes the todo it answers (D6).
-  if (parent && parent.kind === "todo" && DONE_REPLY.test(text) && !isDone(where, parent)) {
+  if (parent && parent.kind === "todo" && DONE_REPLY.test(text) && !todoClosure(where, parent)) {
     writeRecord(where, { group, kind: "done", from, target: parent.id });
   }
   // Answering a record marks it read for the one who answered (#201): a woken
@@ -795,8 +795,9 @@ function supersededIds(records) {
   return ids;
 }
 
-function isDone(where, todo) {
-  return readLog(where, todo.group).some((record) => record.kind === "done" && record.target === todo.id);
+function todoClosure(where, todo) {
+  checkGroup(todo.group);
+  return readLog(where, todo.group).find((record) => record.kind === "done" && record.target === todo.id);
 }
 
 function normalizeIssue(issue) {
@@ -831,7 +832,7 @@ function targetFor(where, id, actor, kinds) {
 function done(where, id) {
   const from = requireRole(where);
   const target = targetFor(where, id, from, ["todo"]);
-  if (isDone(where, target)) throw new ChatError(`Todo ${id} is already done.`);
+  if (todoClosure(where, target)) throw new ChatError(`Todo ${id} is already done.`);
   const record = writeRecord(where, { group: target.group, kind: "done", from, target: id });
   advanceCursor(where, from, target.group, id);
   return record;
@@ -1137,6 +1138,7 @@ module.exports = {
   amend,
   done,
   openTodos,
+  todoClosure,
   search,
   todo,
   archiveGroup,
