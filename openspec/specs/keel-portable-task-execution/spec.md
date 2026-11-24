@@ -43,3 +43,27 @@ For a todo, `keel chat show <id> --json` SHALL include a sibling `delivery` obje
 - **THEN** the query reports unknown and retains the chat task
 - **WHEN** no runtime evidence was captured for an assignee
 - **THEN** the query reports unobserved without starting or retrying any work
+
+### Requirement: Observe the original managed Codex turn and terminal inventory
+
+With an explicitly requested native observation, the managed receipt query SHALL read the original native thread, verify its worktree and use the exact acknowledged turn identity. It SHALL distinguish usage exhaustion evidenced by the typed turn error from other failures and report the native background-terminal inventory separately. Missing identity, host evidence or partial inventory SHALL remain unknown where applicable. The query SHALL issue only read requests and SHALL NOT infer old-writer release or verified task completion.
+
+#### Scenario: The original thread recorded a usage failure and still has tools
+- **WHEN** the role has handed over and the old acknowledged turn reports a typed usage-limit failure with a background terminal present
+- **THEN** the query reports resource exhaustion and a present background terminal for the original thread without resuming or changing it
+
+#### Scenario: Submission or native evidence is incomplete
+- **WHEN** a receipt is incomplete or existing native observations do not identify the exact turn or terminal inventory
+- **THEN** the query reports the corresponding result as unknown without attempting replacement or replay
+
+### Requirement: Bound native turn observation independently of transcript size
+
+The managed receipt observation SHALL request lightweight paginated native turns without the turn items. It SHALL check successive pages for the exact saved turn ID and leave that turn unknown when the query budget ends or the cursor cannot safely continue.
+
+#### Scenario: Recent turns precede the delivery
+- **WHEN** the recorded turn is on a later page of native history
+- **THEN** observation reads its outcome without asking for the transcript or turn items
+
+#### Scenario: Native pagination cannot progress
+- **WHEN** the cursor repeats or there is no matching turn within the read budget
+- **THEN** the original receipt is preserved and the turn observation is unknown

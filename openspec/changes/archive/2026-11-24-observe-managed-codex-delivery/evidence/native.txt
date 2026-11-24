@@ -1,0 +1,4 @@
+codex-cli 0.171.0
+public CLI: exact native turn = resource-exhausted, background terminal = present
+after the original terminal finished: exact turn still resource-exhausted, inventory none-observed, 2 provider requests total
+after stopping the isolated endpoint: native observations unknown, original receipt preserved

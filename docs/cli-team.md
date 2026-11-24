@@ -175,6 +175,12 @@ Codex hand-over uses `keel codex handover`, preserving the old thread and note i
 
 Use `keel codex status --repo <path> --role <role> --record <id> --json` to inspect a delivery receipt from the local registry while the host is offline. Acknowledged claims return the original thread and turn when recorded. Older claims can have a null thread. Unknown submissions keep their claims. Verification of the task still requires evidence of the actual outcome.
 
+Add `--observe` to read the original native turn from the recorded endpoint.
+`observation.state` reports `resource-exhausted` for the typed usage-limit failure,
+a native turn state when known, or `unknown`. The separate `backgroundTerminals`
+value is `present`, `none-observed`, or `unknown`. Treat the two observations as
+point-in-time evidence. A terminal turn or an empty inventory cannot certify writer release.
+
 ## Native shared desktop connection
 
 Keel 5.230.0 was measured with Linux App 26.1023.51421 and native backend 0.167.2.
