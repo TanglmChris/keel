@@ -1,0 +1,17 @@
+a-filter-drops-only-what-it-named scenario passed.
+guard-scope-is-the-repository scenario passed.
+runner-refuses-what-it-would-not-run scenario passed.
+worktree-overview: scenario passed
+validation --scenario passed: 4 scenarios.
+validation wall=10.61 seconds
+✔ source unload is observed before the single target acquisition (555.180655ms)
+✔ source unload timeout never tries target acquisition and writer races still refuse (1517.44034ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2127.281689
+migration wall=2.15 seconds
