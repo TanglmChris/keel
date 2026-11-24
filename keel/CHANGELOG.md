@@ -1,5 +1,12 @@
 # Keel Changelog
 
+## 5.231.7 - Read durable delivery evidence from the task query
+
+- Read the original native turn and thread for a managed Codex delivery, even after the role changes threads. Pending and legacy receipts preserve unknown and missing fields (#544).
+- `keel chat show <todo-id> --json` reads the local delivery acknowledgement through the shared task query. Keel keeps chat closure and verification independent of delivery (#544).
+- Branch pruning reuses the existing checked-out worktree scanner. Its observed Git behavior is unchanged (#527).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.7; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.6 - Name Codex hooks and preserve complete responses
 
 - Codex review identifies each Keel hook by purpose. Existing users should review the four updated hook definitions before relying on them, including the write guard (#543).

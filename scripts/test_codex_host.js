@@ -8,7 +8,7 @@ const path=require('node:path');
 const fs=require('node:fs');
 const {spawn}=require('node:child_process');
 const cli=path.resolve(__dirname,'../bin/keel.js');
-function run(args,action="status"){return new Promise(resolve=>{const p=spawn(process.execPath,action==='tick'?[cli,'tick',...args]:[cli,'codex',action,...args]);let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);p.on('close',code=>resolve({code,out,err}));});}
+function run(args,action="status"){return new Promise(resolve=>{const p=spawn(process.execPath,['chat','tick'].includes(action)?[cli,action,...args]:[cli,'codex',action,...args]);let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);p.on('close',code=>resolve({code,out,err}));});}
 test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'keel-host-'));const sock=path.join(dir,'host.sock');const requests=[];const requestDetails=[];const peers=[];const blank=new Set(),lost=new Set();let active=true,serial=0,uncertain=false,invalidHost=false,injectNotice=false,unloaded=false,resumeActive=false,resumeFails=false,resumeMismatch=false,readMismatch=false,resumeDelay=false,initNameFails=false;
  const server=http.createServer();server.on('upgrade',(req,s)=>{peers.push(s);s.on('end',()=>{for(const id of blank)lost.add(id);});s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');let initialized=false;let buf=Buffer.alloc(0);s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4);const data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x.method);requestDetails.push(x);if(x.method==='initialized'){initialized=true;continue;}if(!x.id)continue;if(x.method!=='initialize'&&!initialized){s.destroy();return;}if(x.method==='thread/read'&&lost.has(x.params.threadId)){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'thread not loaded: '+x.params.threadId}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/name/set'&&!initNameFails)blank.delete(x.params.threadId);if(x.method==='thread/name/set'&&initNameFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture name persistence failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/resume'){if(resumeFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture resume failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}unloaded=false;if(resumeActive)active=true;}const result=x.method==='initialize'?(invalidHost?{}:{userAgent:'test-host'}):x.method==='turn/start'?{turn:uncertain?{}:{id:'turn-fixture'}}:{thread:{id:x.method==='thread/start'?`fixture-thread-${++serial}`:(x.params.threadId||'fixture-thread'),status:{type:unloaded?'notLoaded':active?'active':'idle'},cwd:(x.method==='thread/read'&&readMismatch)||(x.method==='thread/resume'&&resumeMismatch)?'/wrong-worktree':dir}};if(x.method==='thread/start')blank.add(result.thread.id);const b=Buffer.from(JSON.stringify({id:x.id,result}));const h=b.length<126?Buffer.from([129,b.length]):Buffer.from([129,126,b.length>>8,b.length&255]);const split=Math.floor(b.length/2);const frame=(op,body)=>Buffer.concat([body.length<126?Buffer.from([op,body.length]):Buffer.from([op,126,body.length>>8,body.length&255]),body]);if(injectNotice){const notice=Buffer.from(JSON.stringify({id:x.id,method:'server/notice',params:{}}));s.write(frame(129,notice));}const reply=()=>{if(!s.destroyed)s.write(Buffer.concat([frame(1,b.subarray(0,split)),frame(128,b.subarray(split))]));};if(resumeDelay&&x.method==='thread/resume')setTimeout(reply,5500).unref();else reply();}});});
@@ -28,6 +28,22 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const duplicate=await run(message,'deliver');assert.equal(duplicate.code,0,duplicate.err);assert.equal(requests.filter(x=>x==='turn/start').length,1);
  active=true;const waiting=await run(['--repo',dir,'--role','test-role','--note','finish fixture','--json'],'handover');assert.equal(waiting.code,0,waiting.err);assert.equal(JSON.parse(waiting.out).state,'waiting');assert.equal(serial,1);
  active=false;const handed=await run(['--repo',dir,'--role','test-role','--note','finish fixture','--json'],'handover');assert.equal(handed.code,0,handed.err);assert.equal(serial,2);assert.ok(requestDetails.some(x=>x.method==='thread/name/set'&&x.params.threadId==='fixture-thread-2'&&x.params.name==='test-role'),'successor must be persisted before handover succeeds');
+ const receiptFile=path.join(dir,'.git/keel-chat/codex-roles/test-role.json');
+ const receiptArgs=['--repo',dir,'--role','test-role','--json'];
+ const inspectReceipt=async record=>{
+   const before=fs.readFileSync(receiptFile);
+   const nativeRequests=requests.length;
+   const query=await run([...receiptArgs,'--record',record]);
+   assert.equal(query.code,0,query.err);
+   const parsed=JSON.parse(query.out);
+   return {parsed,before,nativeRequests};
+ };
+ const original=await inspectReceipt('fixture-record');
+ assert.deepEqual(original.parsed,{
+   role:'test-role',record:'fixture-record',state:'delivered',thread:'fixture-thread-1',turn:JSON.parse(sent.out).turn,
+ },'delivery receipt must preserve its original thread');
+ assert.equal(requests.length,original.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),original.before);
  const store=require('../src/core/chat/store');const where=store.requireLocation(dir);
  store.createGroup(where,'owner','team',['test-role']);
  store.writeRecord(where,{group:'team',kind:'message',from:'owner',mentions:['test-role'],text:'addressed fixture'});
@@ -36,11 +52,50 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const drained=await run(['--repo',dir,'--json'],'drain');assert.equal(drained.code,0,drained.err);assert.equal(requests.filter(x=>x==='turn/start').length,beforeDrain+1);
  const drainedAgain=await run(['--repo',dir,'--json'],'drain');assert.equal(drainedAgain.code,0,drainedAgain.err);assert.equal(requests.filter(x=>x==='turn/start').length,beforeDrain+1);
  const beforeTick=requests.filter(x=>x==='turn/start').length;
- store.writeRecord(where,{group:'team',kind:'message',from:'owner',mentions:['test-role'],text:'tick addressed fixture'});
+ const portableTodo=store.writeRecord(where,{group:'team',kind:'todo',from:'owner',assignee:'test-role',text:'tick addressed fixture'});
+ const readPortable=async ({id})=>{
+   const registryBefore=fs.readFileSync(receiptFile);
+   const nativeRequests=requests.length;
+   const read=await run(['--repo',dir,'show',id,'--json'],'chat');
+   assert.equal(read.code,0,read.err);
+   assert.equal(requests.length,nativeRequests,'query must not contact app-server');
+   assert.deepEqual(fs.readFileSync(receiptFile),registryBefore,'query must preserve the registry');
+   const view=JSON.parse(read.out);
+   assert.deepEqual(view.task,{id,state:'open',closureRecordId:null});
+   return view.delivery;
+ };
+ assert.deepEqual(await readPortable(portableTodo),{state:'unobserved'},'portable query needs an unobserved delivery state');
  const ticked=await run(['--repo',dir,'--json'],'tick');assert.equal(ticked.code,0,ticked.err);assert.ok(JSON.parse(ticked.out).codex.some(x=>x.state==='delivered'));assert.equal(requests.filter(x=>x==='turn/start').length,beforeTick+1);
- uncertain=true;const failedMessage=['--repo',dir,'--role','test-role','--record','uncertain-record','--text','read pending','--json'];const failed=await run(failedMessage,'deliver');assert.notEqual(failed.code,0);const retried=await run(failedMessage,'deliver');assert.notEqual(retried.code,0);assert.match(retried.err,/unknown/);assert.equal(requests.filter(x=>x==='turn/start').length,4);
+ assert.deepEqual(await readPortable(portableTodo),{state:'acknowledged'});
+ const noReceipt=store.writeRecord(where,{group:'team',kind:'todo',from:'test-role',assignee:'owner',text:'no native receipt'});
+ assert.deepEqual(await readPortable(noReceipt),{state:'unobserved'});
+ const uncertainTodo=store.writeRecord(where,{group:'team',kind:'todo',from:'owner',assignee:'test-role',text:'ambiguous native receipt'});
+ uncertain=true;const failedMessage=['--repo',dir,'--role','test-role','--record',uncertainTodo.id,'--text','read pending','--json'];const failed=await run(failedMessage,'deliver');assert.notEqual(failed.code,0);const retried=await run(failedMessage,'deliver');assert.notEqual(retried.code,0);assert.match(retried.err,/unknown/);assert.equal(requests.filter(x=>x==='turn/start').length,4);
  const lock=path.join(dir,'.git/keel-chat/codex-roles/test-role.json.lock');fs.writeFileSync(lock,'owned by another process');const locked=await run(message,'deliver');assert.notEqual(locked.code,0);assert.equal(fs.readFileSync(lock,'utf8'),'owned by another process');fs.unlinkSync(lock);
  const registry=JSON.parse(fs.readFileSync(path.join(dir,'.git/keel-chat/codex-roles/test-role.json')));assert.equal(registry.history.length,1);assert.equal(registry.history[0].note,'finish fixture');
+ const pending=await inspectReceipt(uncertainTodo.id);
+ assert.deepEqual(pending.parsed,{role:'test-role',record:uncertainTodo.id,state:'unknown',thread:'fixture-thread-2',turn:null});
+ assert.equal(requests.length,pending.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),pending.before);
+ assert.deepEqual(await readPortable(uncertainTodo),{state:'unknown'});
+ fs.writeFileSync(receiptFile,'{');
+ try {
+   assert.deepEqual(await readPortable(portableTodo),{state:'unknown'});
+ } finally {
+   fs.writeFileSync(receiptFile,pending.before);
+ }
+ const absent=await inspectReceipt('unrecorded-fixture');
+ assert.deepEqual(absent.parsed,{role:'test-role',record:'unrecorded-fixture',state:'unrecorded',thread:null,turn:null});
+ assert.equal(requests.length,absent.nativeRequests);
+ const legacyRecord='legacy-receipt';
+ const legacyKey=require('node:crypto').createHash('sha256').update(legacyRecord).digest('hex');
+ registry.deliveries[legacyKey]={record:legacyRecord,state:'delivered',turn:'old-native-turn'};
+ fs.writeFileSync(receiptFile,JSON.stringify(registry));
+ const legacy=await inspectReceipt(legacyRecord);
+ assert.deepEqual(legacy.parsed,{role:'test-role',record:legacyRecord,state:'delivered',thread:null,turn:'old-native-turn'});
+ assert.equal(requests.length,legacy.nativeRequests);
+ assert.deepEqual(fs.readFileSync(receiptFile),legacy.before);
+
 
  uncertain=false;const large=await run(['--repo',dir,'--role','test-role','--record','large-record','--text','x'.repeat(70000),'--json'],'deliver');assert.equal(large.code,0,large.err);
  const raceBefore=requests.filter(x=>x==='turn/start').length;const raceArgs=['--repo',dir,'--role','test-role','--record','concurrent-record','--text','concurrent fixture','--json'];const raced=await Promise.all([run(raceArgs,'deliver'),run(raceArgs,'deliver')]);assert.ok(raced.some(x=>x.code===0));assert.equal(requests.filter(x=>x==='turn/start').length,raceBefore+1);
@@ -53,7 +108,7 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const recovered=await run(recoveryArgs('recovery-record'),'deliver');assert.equal(recovered.code,0,recovered.err);assert.equal(JSON.parse(recovered.out).state,'delivered');assert.equal(resumes(),rb+1);assert.equal(turns(),tb+1);assert.equal(serial,2);
  const resumeRequest=requestDetails.find(x=>x.method==='thread/resume');assert.deepEqual(resumeRequest.params,{threadId:'fixture-thread-2',serviceName:'keel'});
  unloaded=true;rb=resumes();tb=turns();const recoveredDuplicate=await run(recoveryArgs('recovery-record'),'deliver');assert.equal(recoveredDuplicate.code,0,recoveredDuplicate.err);assert.equal(resumes(),rb);assert.equal(turns(),tb);
- const unknown=await run(recoveryArgs('uncertain-record'),'deliver');assert.notEqual(unknown.code,0);assert.match(unknown.err,/unknown/);assert.equal(resumes(),rb);
+ const unknown=await run(recoveryArgs(uncertainTodo.id),'deliver');assert.notEqual(unknown.code,0);assert.match(unknown.err,/unknown/);assert.equal(resumes(),rb);
  resumeActive=true;const busyRecovery=await run(recoveryArgs('busy-recovery'),'deliver');assert.equal(busyRecovery.code,0,busyRecovery.err);assert.equal(JSON.parse(busyRecovery.out).state,'waiting');assert.equal(turns(),tb);resumeActive=false;active=false;
  unloaded=true;resumeFails=true;const failedRecovery=await run(recoveryArgs('failed-recovery'),'deliver');assert.notEqual(failedRecovery.code,0);assert.match(failedRecovery.err,/fixture resume failure/);assert.equal(turns(),tb);resumeFails=false;
  unloaded=true;resumeMismatch=true;const mismatchRecovery=await run(recoveryArgs('mismatch-recovery'),'deliver');assert.notEqual(mismatchRecovery.code,0);assert.match(mismatchRecovery.err,/identity/);assert.equal(turns(),tb);resumeMismatch=false;

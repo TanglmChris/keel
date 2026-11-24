@@ -26,6 +26,10 @@
 以及关闭记录的 `closureRecordId`，未关闭时为 null。查询不会移动已读游标。
 关闭记录保存成员报告的完成情况。任务的验收证据需要单独保留。
 
+同级的 `delivery.state` 在有持久投递确认时返回 `acknowledged`，
+回执有歧义时返回 `unknown`，无可用证据时返回 `unobserved`。
+它只表示本地投递证据。查询不会连接执行端。
+
 ## 唤醒
 
 空闲的后台会话和任何 Claude 会话一样被唤醒：只有 @ 提及、指派的待办或私信会唤醒它，其他内容都等它下一次收到提示时再看。
@@ -157,6 +161,8 @@ keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/t
 
 交接使用 `keel codex handover`，旧会话和说明保存在现有聊天存储的托管角色历史中，后继在下一次收到定向任务时获得说明。Claude 的 `keel shift` 流程保持原样。专用前台原线程需经过下方显式登记计划，不自动发现或接管桌面聊天，不改变 hook 信任；未实测的守卫与压缩能力仍为 manual。实际双角色验收及限制见 `docs/codex-validation.md`。
 
+
+用 `keel codex status --repo <path> --role <role> --record <id> --json` 查询单条投递回执。宿主离线时仍可读取本地登记。已确认投递会返回记录中的原线程和回合。旧回执可能缺少原线程并返回 null。未知提交保留原登记，任务验收仍需实际结果的证据。
 
 ## 原生共享桌面接入
 

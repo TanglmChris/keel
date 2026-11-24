@@ -498,6 +498,8 @@ function dispatch(where, options) {
         if (record.kind === "todo") {
           const closure = store.todoClosure(where, record);
           result.task = { id: record.id, state: closure ? "closed" : "open", closureRecordId: closure ? closure.id : null };
+          const { recordedDeliveryState } = require("../codex-host");
+          result.delivery = { state: recordedDeliveryState(where, record.assignee, record.id) };
         }
         out(JSON.stringify(result));
       } else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`, ...(acks ? ackLines(acks) : [])].join("\n"));
