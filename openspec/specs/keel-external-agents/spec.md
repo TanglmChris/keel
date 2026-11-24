@@ -5,6 +5,7 @@
 Declares how a session hands work to an external model CLI: the fact-only catalog Keel reads on demand, the project declaration of which agents may receive what, and the brief Keel compiles without launching anything.
 
 ## Requirements
+
 ### Requirement: The external agent catalog records facts and is read on demand
 
 Keel MUST bundle a catalog entry for each external model CLI it knows and MUST merge entries from a machine-local `agents.json` under the Keel home directory, where each field a machine entry declares replaces that field of the bundled entry with the same name and a name the bundle lacks adds an entry. An entry MUST carry a command template, the sandbox it offers per mode or none, optionally a description of a sandbox its CLI applies by itself whatever the mode, which `keel agents <name>` MUST print on its Sandbox line, where it sends data, and pitfalls each stamped with a date and a source, and MUST NOT carry a statement of which work the agent suits. `keel agents` MUST list every entry with its source, whether its executable resolves, and whether the current project allows it. `keel context` and session-start output MUST NOT include the catalog.
@@ -99,3 +100,16 @@ An implementation brief MUST require `--dir` to be a worktree of the same reposi
 #### Scenario: The refusal names the checkout it compared against
 - **WHEN** the same brief is asked for from inside `<repo>/.claude/worktrees/dsh_review`
 - **THEN** it is refused, naming that worktree as the checkout the command runs in, saying it came from the current directory, and naming `--repo`
+
+### Requirement: The bundled DSH entry discovers local installations
+
+The bundled DSH executable MUST prefer the executable native DeepSeek Harness application bundle on macOS when present and use PATH otherwise. An explicit machine executable MUST override both defaults. Catalog output and the filled command of an authorized brief MUST use the same resolution when the executable is present. Discovery MUST NOT grant allowance or launch DSH.
+
+#### Scenario: A standalone installation resolves
+- **WHEN** the bundle is unavailable and DSH is installed on PATH
+- **THEN** the catalog and the command of an authorized brief both identify the PATH executable
+
+#### Scenario: Native bundle, machine overrides and missing installation
+- **WHEN** an executable bundle is present on macOS
+- **THEN** the catalog chooses the bundle ahead of PATH
+- **AND THEN** an explicit machine executable takes priority over both and a missing explicit path remains unresolved

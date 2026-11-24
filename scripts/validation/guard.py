@@ -5487,8 +5487,22 @@ def validate_external_agent_catalog_scenario() -> int:
         write_gate_fixture(repo, standing_authorization_task())
         write_authorize_config(repo, "external_agents:\n  allow:\n    - codex\n")
 
-        def listing() -> dict | None:
-            result = run_keel(repo, "agents", "--json", env=env)
+        # Stand in only for the platform and filesystem location of the macOS bundle.
+        bundle_path = "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
+        probe = base / "dsh-fixture-platform.cjs"
+        probe.write_text(
+            'Object.defineProperty(process, "platform", {value: process.env.FIXTURE_PLATFORM});\n'
+            'const fs = require("node:fs");\n'
+            'for (const method of ["accessSync", "statSync"]) {\n'
+            '  const original = fs[method];\n'
+            f'  fs[method] = (file, ...args) => original(file === {json.dumps(bundle_path)}\n'
+            '    ? process.env.FIXTURE_BUNDLE : file, ...args);\n'
+            '}\n', encoding="utf-8")
+        platform_env = {**env, "NODE_OPTIONS": f'--require="{probe}"',
+                        "FIXTURE_PLATFORM": "linux", "FIXTURE_BUNDLE": str(base / "missing-bundle")}
+
+        def listing(override_env: dict | None = None) -> dict | None:
+            result = run_keel(repo, "agents", "--json", env=override_env or platform_env)
             try:
                 return json.loads(result.stdout)
             except json.JSONDecodeError:
@@ -5508,12 +5522,27 @@ def validate_external_agent_catalog_scenario() -> int:
         if agents["codex"].get("resolved") != stub:
             report(f"{label} codex resolved to {agents['codex'].get('resolved')!r}, not the stub on PATH.")
             return 1
-        dsh_path = agents["dsh"].get("executable")
-        expected = dsh_path if dsh_path and Path(dsh_path).exists() else None
-        if agents["dsh"].get("resolved") != expected:
-            report(f"{label} dsh resolution {agents['dsh'].get('resolved')!r} disagrees with "
-                   f"whether {dsh_path!r} exists.")
+        standalone = base / "bin" / "dsh"
+        if agents["dsh"].get("resolved") != str(standalone):
+            report(f"{label} DSH did not resolve from fixture PATH: {agents['dsh']}")
             return 1
+        mac_env = {**platform_env, "FIXTURE_PLATFORM": "darwin"}
+        bundle_env = {**mac_env, "FIXTURE_BUNDLE": stub}
+        for fixture_env, expected in ((mac_env, str(standalone)), (bundle_env, bundle_path)):
+            mac = listing(fixture_env)
+            observed = next(row for row in mac["agents"] if row["name"] == "dsh")
+            assert observed["resolved"] == expected, observed
+        # Prevent the machine's real PATH from satisfying the missing case.
+        for tool in ("node", "git"):
+            binary = shutil.which(tool)
+            assert binary is not None, tool
+            (base / "bin" / tool).symlink_to(binary)
+        standalone.chmod(0o644)
+        try:
+            missing = listing({**platform_env, "PATH": str(base / "bin")})
+            assert next(row for row in missing["agents"] if row["name"] == "dsh")["resolved"] is None
+        finally:
+            standalone.chmod(0o755)
         if agents["codex"].get("allowed") is not True or agents["dsh"].get("allowed") is not False:
             report(f"{label} allowance is not read from external_agents: allow: "
                    f"codex={agents['codex'].get('allowed')!r} dsh={agents['dsh'].get('allowed')!r}")
@@ -5562,20 +5591,24 @@ def validate_external_agent_catalog_scenario() -> int:
             return 1
 
         # A machine entry declaring one field overrides that field only.
-        custom = base / "bin" / "dsh"
+        custom = base / "custom-dsh"
+        custom.symlink_to(standalone)
         (base / "home" / "agents.json").write_text(
             json.dumps({"agents": {"dsh": {"executable": str(custom)}}}), encoding="utf-8")
-        payload = listing()
+        payload = listing(bundle_env)
         if payload is None:
             return 1
         dsh = {item.get("name"): item for item in payload.get("agents") or []}.get("dsh") or {}
-        if dsh.get("source") != "machine" or dsh.get("executable") != str(custom):
+        if dsh.get("source") != "machine" or dsh.get("resolved") != str(custom):
             report(f"{label} the machine entry did not override dsh: {dsh}")
             return 1
         if dsh.get("command") != agents["dsh"].get("command"):
             report(f"{label} a machine entry declaring only an executable replaced the bundled template.")
             return 1
 
+        custom.unlink()
+        unresolved = listing(bundle_env)
+        assert next(row for row in unresolved["agents"] if row["name"] == "dsh")["resolved"] is None
         # A malformed machine file is named and none of it is used.
         (base / "home" / "agents.json").write_text("{not json", encoding="utf-8")
         payload = listing()
@@ -5785,6 +5818,11 @@ def validate_external_agent_brief_scenario() -> int:
             report(f"{label} a helper worktree under .claude/worktrees/ was refused from a sibling worktree: "
                    f"{out.strip()[:600]}")
             return 1
+        if sys.platform == "linux":
+            catalog = run_keel(repo, "agents", "--json", env=env)
+            dsh = next(row for row in json.loads(catalog.stdout)["agents"] if row["name"] == "dsh")
+            assert dsh["resolved"] == str(base / "bin" / "dsh"), "DSH did not resolve from fixture PATH"
+            assert dsh["resolved"] in (payload.get("run") or ""), "brief and catalog disagree"
         # Issue #259: a dsh brief keeps temporary files in tmp/ beside the brief.
         tmp = prompt.parent / "tmp"
         if not tmp.is_dir():

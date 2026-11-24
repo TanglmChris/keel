@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.231.8 - Discover standalone DSH and clarify task delivery
+
+- The DSH catalog and brief find standalone PATH installs while preserving executable macOS bundles and explicit machine overrides (#565).
+- The English and Chinese homepages explain the released task query, native mailbox hints and idle delivery, and link to the cross-harness and risk-based workflow work in progress (#564).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.8; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.7 - Read durable delivery evidence from the task query
 
 - Read the original native turn and thread for a managed Codex delivery, even after the role changes threads. Pending and legacy receipts preserve unknown and missing fields (#544).
