@@ -157,6 +157,25 @@ async function initializeClient(client, experimental) {
   return host;
 }
 
+async function findObservedTurn(client, receipt, timeout) {
+  const deadline = performance.now() + timeout;
+  const seen = new Set();
+  let cursor;
+  for (;;) {
+    const remaining = Math.ceil(deadline - performance.now());
+    if (remaining <= 0) return null;
+    const page = await client.call("thread/turns/list", {
+      threadId: receipt.thread, itemsView: "notLoaded", limit: 50, ...(cursor ? {cursor} : {}),
+    }, remaining);
+    if (!Array.isArray(page?.data)) return null;
+    const found = page.data.find(turn => turn?.id === receipt.turn);
+    if (found) return found;
+    cursor = page.nextCursor;
+    if (typeof cursor !== "string" || !cursor || seen.has(cursor)) return null;
+    seen.add(cursor);
+  }
+}
+
 async function observeDelivery(receipt, role, timeout) {
   const observation = {state: "unknown", backgroundTerminals: "unknown"};
   if (receipt.state !== "delivered" || !receipt.thread || !receipt.turn) return observation;
@@ -164,9 +183,9 @@ async function observeDelivery(receipt, role, timeout) {
   try {
     client = await connect(role.socket, timeout);
     await initializeClient(client, true);
-    const { thread } = await client.call("thread/read", {threadId: receipt.thread, includeTurns: true});
+    const { thread } = await client.call("thread/read", {threadId: receipt.thread, includeTurns: false});
     if (thread?.id !== receipt.thread || thread.cwd !== role.worktree) return observation;
-    const turn = thread.turns?.find(({id}) => id === receipt.turn);
+    const turn = await findObservedTurn(client, receipt, timeout).catch(() => null);
     if (turn?.status === "failed" && turn.error?.codexErrorInfo === "usageLimitExceeded") {
       observation.state = "resource-exhausted";
     } else if (["inProgress", "completed", "failed", "interrupted"].includes(turn?.status)) {
