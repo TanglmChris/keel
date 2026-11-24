@@ -7,12 +7,14 @@
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/session-start.js\"",
-            "timeout": 15
+            "timeout": 15,
+            "statusMessage": "Keel: Session context"
           },
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/codex-mail-hook.js\" session-start",
-            "timeout": 10
+            "timeout": 10,
+            "statusMessage": "Keel: Mail at session start"
           }
         ]
       }
@@ -24,7 +26,8 @@
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/pretooluse-guard.js\"",
-            "timeout": 10
+            "timeout": 10,
+            "statusMessage": "Keel: Write guard"
           }
         ]
       }
@@ -35,7 +38,8 @@
           {
             "type": "command",
             "command": "node \"${PLUGIN_ROOT}/scripts/codex-mail-hook.js\" user-prompt-submit",
-            "timeout": 10
+            "timeout": 10,
+            "statusMessage": "Keel: Mail before prompt"
           }
         ]
       }
