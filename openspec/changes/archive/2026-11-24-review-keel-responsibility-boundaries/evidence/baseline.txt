@@ -1,0 +1,5 @@
+worktree-overview: scenario passed
+branches-lists-merged scenario passed.
+branches-prune-under-authorization scenario passed.
+sync-status-lists-local-only scenario passed.
+validation --scenario passed: 4 scenarios.

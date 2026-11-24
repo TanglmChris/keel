@@ -771,4 +771,4 @@ function recordedContract(repo, selection) {
   return null;
 }
 
-process.exit(main());
+process.exitCode = main();
