@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.5 - Read durable task closure from chat JSON
+
+- Existing `keel chat show <todo-id> --json` calls now include the stable task ID, its chat state and the original closure receipt when present. This provides the first shared task view for #544. Independent task verification still uses its own evidence.
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.5; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.4 - Create project-local Codex worktrees
 
 - Create a native linked worktree on an explicit fresh branch with `keel worktrees add`. The CLI reports the realized path to open in Codex, and the existing worktree overview and role binding recognize it (#548).

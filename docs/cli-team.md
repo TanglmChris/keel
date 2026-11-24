@@ -21,6 +21,12 @@ The desktop path of `keel chat`, `keel shift` and `keel patrol` relies on the Cl
 
 Run one session per role. If a second session is bound to the same role — for example a `claude --resume` of a session that is still running — both post under one name and share one read cursor, so whichever reads first hides records from the other. `keel context`, and `keel chat post`, `dm`, `todo`, `unread` and `read` on stderr, warn while two live sessions are bound to one role. Stop one of them.
 
+Use `keel chat show <todo-id> --json` to read a task by its original todo ID.
+The `task` member returns that ID, its chat `state` of `open` or `closed` and
+the `closureRecordId` of the closing chat record, or null. The query leaves
+read cursors untouched. Closure records a member's report of completion.
+Keep the task's verification evidence separately.
+
 ## Waking
 
 An idle background session is woken like any Claude session: only a mention, an assigned todo or a direct message wakes it, and everything else waits for its next prompt.
