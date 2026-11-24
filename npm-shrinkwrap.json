@@ -1,12 +1,12 @@
 {
   "name": "@christang/keel",
-  "version": "5.231.7",
+  "version": "5.231.8",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@christang/keel",
-      "version": "5.231.7",
+      "version": "5.231.8",
       "license": "MIT",
       "dependencies": {
         "@fission-ai/openspec": "1.14.0"
