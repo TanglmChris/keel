@@ -94,6 +94,8 @@ shift:
 
 巡检会将超过 24 小时仍只在本机的分支提交、游离 HEAD 和 stash 列为持续风险。它只读取本地引用，不把未提交文件算入此项；`--since-last --notify` 对不变的风险只通知一次。有范围的巡检覆盖对应角色，仓库巡检还覆盖没有 worktree 的分支和 stash。`keel --doctor` 显示设备标识、持有的分支锁、到期时间、上次续租时间，以及 tick 是否运行过或由 Claude 提示钩子续租。
 
+在 `/hooks` 中按插件来源、事件和命令识别 Keel 的四个 hook。详见[审核对照表](updating.md#review-keel-hooks-in-codex)。
+
 ## 项目旁的 Codex worktree
 
 选择主 checkout 旁的目录和一个新任务分支。默认从所选 checkout 的 HEAD 创建，

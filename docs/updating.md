@@ -36,6 +36,29 @@ Three cases need you:
 - **A Codex marketplace refresh that keeps failing.** Codex clones a Git marketplace with a fixed 30-second limit, and a slow or proxied link may not clone the whole repository in time (#329). `keel --update` retries the refresh once; if it fails again, the Codex line reads `failed` and names the remedy: add `sparse_paths = [".agents/plugins", "plugins/keel"]` under `[marketplaces.keel-marketplace]` in the Codex `config.toml`, so the refresh fetches only the plugin. A marketplace added with `--sparse .agents/plugins --sparse plugins/keel` already has it.
 - **Changed Codex hook definitions.** Codex trusts each hook by the hash of its definition. When a release changes `hooks/codex.json`, the Codex line says so, and those hooks do not run until you review them in `/hooks`.
 
+## Review Keel hooks in Codex
+
+In `/hooks`, select the event and inspect the hook's source and command. Find
+`keel@keel-marketplace` as the plugin source and match the command suffix
+below. The plugin may be installed at a different path on each machine.
+
+| Event | Command suffix | Why it runs |
+| --- | --- | --- |
+| `SessionStart` | `scripts/session-start.js` | Reports the Keel version and the active task or next action. |
+| `SessionStart` | `scripts/codex-mail-hook.js" session-start` | Shows unread Keel mailbox notices when a session starts. |
+| `UserPromptSubmit` | `scripts/codex-mail-hook.js" user-prompt-submit` | Shows unread Keel mailbox notices at the next prompt. |
+| `PreToolUse` | `scripts/pretooluse-guard.js` | Checks the selected task's write boundary for the tools matched by the hook. |
+
+Both mailbox hooks report notices without marking mail read. To approve a hook,
+review its source and command for the current definition. Leave an unexpected
+source or command untrusted.
+
+The four plugin, event and command combinations were confirmed using the real
+`hooks/list` response from Codex CLI 0.171.0 in an isolated plugin installation.
+The installed user's hook trust was untouched. The release's [native hooks
+review snapshot](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__hooks_browser_view__tests__hooks_browser_review_needed_handler.snap)
+shows where Codex displays source and command.
+
 ## Background sessions that are already running
 
 A Claude background session keeps the skills of the plugin it loaded, and nobody should have to type `/reload-plugins` into each one (#424). Two things bring it the update:
