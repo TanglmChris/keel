@@ -1,7 +1,7 @@
 # keel-portable-task-execution Specification
 
 ## Purpose
-TBD - created by archiving change portable-task-execution-contract. Update Purpose after archive.
+Expose the identity and recorded chat closure of a Keel task by its original todo ID, independently of the native execution session.
 
 ## Requirements
 
