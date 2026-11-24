@@ -11,7 +11,9 @@ const cli=path.resolve(__dirname,'../bin/keel.js');
 function run(args,action="status"){return new Promise(resolve=>{const p=spawn(process.execPath,['chat','tick'].includes(action)?[cli,action,...args]:[cli,'codex',action,...args]);let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);p.on('close',code=>resolve({code,out,err}));});}
 test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'keel-host-'));const sock=path.join(dir,'host.sock');const requests=[];const requestDetails=[];const peers=[];const blank=new Set(),lost=new Set();let active=true,serial=0,uncertain=false,invalidHost=false,injectNotice=false,unloaded=false,resumeActive=false,resumeFails=false,resumeMismatch=false,readMismatch=false,resumeDelay=false,initNameFails=false;
- const server=http.createServer();server.on('upgrade',(req,s)=>{peers.push(s);s.on('end',()=>{for(const id of blank)lost.add(id);});s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');let initialized=false;let buf=Buffer.alloc(0);s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4);const data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x.method);requestDetails.push(x);if(x.method==='initialized'){initialized=true;continue;}if(!x.id)continue;if(x.method!=='initialize'&&!initialized){s.destroy();return;}if(x.method==='thread/read'&&lost.has(x.params.threadId)){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'thread not loaded: '+x.params.threadId}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/name/set'&&!initNameFails)blank.delete(x.params.threadId);if(x.method==='thread/name/set'&&initNameFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture name persistence failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/resume'){if(resumeFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture resume failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}unloaded=false;if(resumeActive)active=true;}const result=x.method==='initialize'?(invalidHost?{}:{userAgent:'test-host'}):x.method==='turn/start'?{turn:uncertain?{}:{id:'turn-fixture'}}:{thread:{id:x.method==='thread/start'?`fixture-thread-${++serial}`:(x.params.threadId||'fixture-thread'),status:{type:unloaded?'notLoaded':active?'active':'idle'},cwd:(x.method==='thread/read'&&readMismatch)||(x.method==='thread/resume'&&resumeMismatch)?'/wrong-worktree':dir}};if(x.method==='thread/start')blank.add(result.thread.id);const b=Buffer.from(JSON.stringify({id:x.id,result}));const h=b.length<126?Buffer.from([129,b.length]):Buffer.from([129,126,b.length>>8,b.length&255]);const split=Math.floor(b.length/2);const frame=(op,body)=>Buffer.concat([body.length<126?Buffer.from([op,body.length]):Buffer.from([op,126,body.length>>8,body.length&255]),body]);if(injectNotice){const notice=Buffer.from(JSON.stringify({id:x.id,method:'server/notice',params:{}}));s.write(frame(129,notice));}const reply=()=>{if(!s.destroyed)s.write(Buffer.concat([frame(1,b.subarray(0,split)),frame(128,b.subarray(split))]));};if(resumeDelay&&x.method==='thread/resume')setTimeout(reply,5500).unref();else reply();}});});
+ let observationTurn = null;
+ let observationTerminals = {data:[], nextCursor:null};
+ const server=http.createServer();server.on('upgrade',(req,s)=>{peers.push(s);s.on('end',()=>{for(const id of blank)lost.add(id);});s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');let initialized=false;let buf=Buffer.alloc(0);s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4);const data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x.method);requestDetails.push(x);if(x.method==='initialized'){initialized=true;continue;}if(!x.id)continue;if(x.method!=='initialize'&&!initialized){s.destroy();return;}if(x.method==='thread/read'&&lost.has(x.params.threadId)){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'thread not loaded: '+x.params.threadId}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/name/set'&&!initNameFails)blank.delete(x.params.threadId);if(x.method==='thread/name/set'&&initNameFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture name persistence failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}if(x.method==='thread/resume'){if(resumeFails){const b=Buffer.from(JSON.stringify({id:x.id,error:{message:'fixture resume failure'}}));s.write(Buffer.concat([Buffer.from([129,b.length]),b]));continue;}unloaded=false;if(resumeActive)active=true;}const result=x.method==='initialize'?(invalidHost?{}:{userAgent:'test-host'}):x.method==='turn/start'?{turn:uncertain?{}:{id:'turn-fixture'}}:{thread:{id:x.method==='thread/start'?`fixture-thread-${++serial}`:(x.params.threadId||'fixture-thread'),status:{type:unloaded?'notLoaded':active?'active':'idle'},cwd:(x.method==='thread/read'&&readMismatch)||(x.method==='thread/resume'&&resumeMismatch)?'/wrong-worktree':dir}};if(x.method==='thread/read'&&x.params.includeTurns)result.thread.turns=observationTurn?[observationTurn]:[];if(x.method==='thread/backgroundTerminals/list'){delete result.thread;Object.assign(result,observationTerminals);}if(x.method==='thread/start')blank.add(result.thread.id);const b=Buffer.from(JSON.stringify({id:x.id,result}));const h=b.length<126?Buffer.from([129,b.length]):Buffer.from([129,126,b.length>>8,b.length&255]);const split=Math.floor(b.length/2);const frame=(op,body)=>Buffer.concat([body.length<126?Buffer.from([op,body.length]):Buffer.from([op,126,body.length>>8,body.length&255]),body]);if(injectNotice){const notice=Buffer.from(JSON.stringify({id:x.id,method:'server/notice',params:{}}));s.write(frame(129,notice));}const reply=()=>{if(!s.destroyed)s.write(Buffer.concat([frame(1,b.subarray(0,split)),frame(128,b.subarray(split))]));};if(resumeDelay&&x.method==='thread/resume')setTimeout(reply,5500).unref();else reply();}});});
  await new Promise(r=>server.listen(sock,r));
  try{const x=await run(['--socket',sock,'--thread','fixture-thread','--json']);assert.equal(x.code,0,x.err);assert.equal(JSON.parse(x.out).thread.status.type,'active');assert.deepEqual(requests.filter(x=>x!=='initialized'),['initialize','thread/read']);
  active=false;const {spawnSync}=require('node:child_process');spawnSync('git',['init','-q',dir]);
@@ -44,6 +46,34 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  },'delivery receipt must preserve its original thread');
  assert.equal(requests.length,original.nativeRequests);
  assert.deepEqual(fs.readFileSync(receiptFile),original.before);
+ const observe=async (record, expected, methods)=>{
+   const before=fs.readFileSync(receiptFile);
+   const from=requestDetails.length;
+   const query=await run([...receiptArgs,'--record',record,'--observe']);
+   assert.equal(query.code,0,'native receipt observation should succeed: '+query.err);
+   const observed=JSON.parse(query.out);
+   assert.deepEqual(observed.observation,expected);
+   assert.deepEqual(requestDetails.slice(from).filter(request=>request.method!=='initialized').map(request=>request.method),methods);
+   for (const request of requestDetails.slice(from)) {
+     if (request.params?.threadId) assert.equal(request.params.threadId,observed.thread);
+   }
+   assert.deepEqual(fs.readFileSync(receiptFile),before);
+ };
+ const queryMethods=['initialize','thread/read','thread/backgroundTerminals/list'];
+ const observedTurn=JSON.parse(sent.out).turn;
+ observationTurn={id:observedTurn,status:'failed',error:{codexErrorInfo:'usageLimitExceeded'}};
+ observationTerminals={data:[{itemId:'fixture-command',processId:'terminal-1'}],nextCursor:null};
+ await observe('fixture-record',{state:'resource-exhausted',backgroundTerminals:'present'},queryMethods);
+ assert.deepEqual(requestDetails.findLast(request=>request.method==='thread/read').params,{threadId:'fixture-thread-1',includeTurns:true});
+ observationTurn.error.codexErrorInfo={responseTooManyFailedAttempts:{httpStatusCode:429}};
+ observationTerminals={data:[],nextCursor:'partial'};
+ await observe('fixture-record',{state:'failed',backgroundTerminals:'unknown'},queryMethods);
+ observationTurn={id:'wrong-native-turn', status:'completed'};
+ observationTerminals={data:[],nextCursor:null};
+ await observe('fixture-record',{state:'unknown',backgroundTerminals:'none-observed'},queryMethods);
+ readMismatch=true;
+ await observe('fixture-record',{state:'unknown',backgroundTerminals:'unknown'},['initialize','thread/read']);
+ readMismatch=false;
  const store=require('../src/core/chat/store');const where=store.requireLocation(dir);
  store.createGroup(where,'owner','team',['test-role']);
  store.writeRecord(where,{group:'team',kind:'message',from:'owner',mentions:['test-role'],text:'addressed fixture'});
@@ -95,6 +125,9 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  assert.deepEqual(legacy.parsed,{role:'test-role',record:legacyRecord,state:'delivered',thread:null,turn:'old-native-turn'});
  assert.equal(requests.length,legacy.nativeRequests);
  assert.deepEqual(fs.readFileSync(receiptFile),legacy.before);
+ await observe(legacyRecord,{state:'unknown',backgroundTerminals:'unknown'},[]);
+ await observe(uncertainTodo.id,{state:'unknown',backgroundTerminals:'unknown'},[]);
+ await observe('unrecorded-fixture',{state:'unknown',backgroundTerminals:'unknown'},[]);
 
 
  uncertain=false;const large=await run(['--repo',dir,'--role','test-role','--record','large-record','--text','x'.repeat(70000),'--json'],'deliver');assert.equal(large.code,0,large.err);

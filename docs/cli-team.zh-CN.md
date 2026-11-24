@@ -164,6 +164,11 @@ keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/t
 
 用 `keel codex status --repo <path> --role <role> --record <id> --json` 查询单条投递回执。宿主离线时仍可读取本地登记。已确认投递会返回记录中的原线程和回合。旧回执可能缺少原线程并返回 null。未知提交保留原登记，任务验收仍需实际结果的证据。
 
+加上 `--observe` 可从已登记的端点读取原生轮次。`observation.state` 对有明确类型的额度耗尽返回
+`resource-exhausted`，其余返回已知的原生轮次状态或 `unknown`。独立的 `backgroundTerminals`
+字段返回 `present`、`none-observed` 或 `unknown`。这些是查询当时的观察结果。轮次终止或清单为空
+都不足以确认旧执行端已经停写。
+
 ## 原生共享桌面接入
 
 Keel 5.230.0 已在 Linux App 26.1023.51421 与原生后台 0.167.2 上实测。

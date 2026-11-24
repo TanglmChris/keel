@@ -147,6 +147,44 @@ function recordedDeliveryState(where, assignee, record) {
   }
 }
 
+async function initializeClient(client, experimental) {
+  const host = await client.call("initialize", {
+    clientInfo: {name: "keel", version: "1"},
+    ...(experimental ? {capabilities: {experimentalApi: true}} : {}),
+  });
+  if (typeof host?.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
+  client.notify("initialized");
+  return host;
+}
+
+async function observeDelivery(receipt, role, timeout) {
+  const observation = {state: "unknown", backgroundTerminals: "unknown"};
+  if (receipt.state !== "delivered" || !receipt.thread || !receipt.turn) return observation;
+  let client;
+  try {
+    client = await connect(role.socket, timeout);
+    await initializeClient(client, true);
+    const { thread } = await client.call("thread/read", {threadId: receipt.thread, includeTurns: true});
+    if (thread?.id !== receipt.thread || thread.cwd !== role.worktree) return observation;
+    const turn = thread.turns?.find(({id}) => id === receipt.turn);
+    if (turn?.status === "failed" && turn.error?.codexErrorInfo === "usageLimitExceeded") {
+      observation.state = "resource-exhausted";
+    } else if (["inProgress", "completed", "failed", "interrupted"].includes(turn?.status)) {
+      observation.state = turn.status;
+    }
+    const terminals = await client.call("thread/backgroundTerminals/list", {threadId: receipt.thread});
+    if (Array.isArray(terminals?.data)) {
+      if (terminals.data.length) observation.backgroundTerminals = "present";
+      else if (!terminals.nextCursor) observation.backgroundTerminals = "none-observed";
+    }
+  } catch {
+    // A host failure leaves the failed reads unknown while preserving any observations already made.
+  } finally {
+    client?.close();
+  }
+  return observation;
+}
+
 async function run(args) {
   const onboarding = require("./codex-onboarding");
   if (onboarding.actions.includes(args[0])) return onboarding.run(args, {connect});
@@ -163,6 +201,7 @@ async function run(args) {
     while (args.length) {
       const flag = args.shift();
       if (flag === "--json") options.json = true;
+      else if (flag === "--observe") options.observe = true;
       else if (["--socket", "--thread", "--timeout", "--role", "--repo", "--record", "--text", "--note", "--approvals-reviewer"].includes(flag)) {
         const value = args.shift();
         if (!value || value.startsWith("--")) throw Error(`${flag} needs a value`);
@@ -170,6 +209,9 @@ async function run(args) {
         if (flag === "--socket") explicitSocket = true;
         if (flag === "--timeout") explicitTimeout = true;
       } else throw Error(`Unknown argument ${flag}`);
+    }
+    if (options.observe && (action !== "status" || !options.role || !options.record)) {
+      throw Error("--observe needs status with --role and --record");
     }
     const requestedReviewer = options["approvals-reviewer"];
     if (requestedReviewer && !["user", "auto_review"].includes(requestedReviewer)) throw Error("approvals-reviewer must be user or auto_review");
@@ -204,8 +246,11 @@ async function run(args) {
     if (action === "status" && options.record) {
       if (!recorded || recorded.role !== options.role) throw Error("delivery receipt needs an owned --role");
       const receipt = deliveryReceipt(recorded, options.record);
+      if (options.observe) receipt.observation = await observeDelivery(receipt, recorded, ms);
+      const native = receipt.observation;
+      const suffix = native ? `, native turn ${native.state}, background terminals ${native.backgroundTerminals}` : "";
       process.stdout.write((options.json ? JSON.stringify(receipt)
-        : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}`) + "\n");
+        : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}${suffix}`) + "\n");
       return 0;
     }
     if (action === "start" && !options.role) throw Error("start needs --role");
@@ -232,9 +277,7 @@ async function run(args) {
     // Recovery can restore runtimeWorkspaceRoots even for legacy role records.
     const needsExperimentalApi = action === "recover" || requestedReviewer || recorded?.approvalsReviewer || savedPolicy;
     client = await connect(options.socket, ms);
-    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}, ...(needsExperimentalApi ? {capabilities: {experimentalApi: true}} : {})});
-    if (!host || typeof host.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
-    client.notify("initialized");
+    const host = await initializeClient(client, needsExperimentalApi);
     const result = {socket: options.socket, host};
     function verifyReviewerPolicy(reply, reviewer) {
       if (!reviewer) return;
