@@ -927,4 +927,4 @@ function main(suppliedEvent = null) {
   return 0;
 }
 
-process.exit(main());
+process.exitCode = main();

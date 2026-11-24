@@ -40,18 +40,28 @@ Three cases need you:
 
 In `/hooks`, select the event and inspect the hook's source and command. Find
 `keel@keel-marketplace` as the plugin source and match the command suffix
-below. The plugin may be installed at a different path on each machine.
+below. Codex 0.171.0 displays these labels on the hook rows. The plugin may be
+installed at a different path on each machine.
 
-| Event | Command suffix | Why it runs |
-| --- | --- | --- |
-| `SessionStart` | `scripts/session-start.js` | Reports the Keel version and the active task or next action. |
-| `SessionStart` | `scripts/codex-mail-hook.js" session-start` | Shows unread Keel mailbox notices when a session starts. |
-| `UserPromptSubmit` | `scripts/codex-mail-hook.js" user-prompt-submit` | Shows unread Keel mailbox notices at the next prompt. |
-| `PreToolUse` | `scripts/pretooluse-guard.js` | Checks the selected task's write boundary for the tools matched by the hook. |
+| Label | Event | Command suffix | Why it runs |
+| --- | --- | --- | --- |
+| Keel: Session context | `SessionStart` | `scripts/session-start.js` | Reports the Keel version and the active task or next action. |
+| Keel: Mail at session start | `SessionStart` | `scripts/codex-mail-hook.js" session-start` | Shows unread Keel mailbox notices when a session starts. |
+| Keel: Mail before prompt | `UserPromptSubmit` | `scripts/codex-mail-hook.js" user-prompt-submit` | Shows unread Keel mailbox notices at the next prompt. |
+| Keel: Write guard | `PreToolUse` | `scripts/pretooluse-guard.js` | Checks the selected task's write boundary for the tools matched by the hook. |
 
 Both mailbox hooks report notices without marking mail read. To approve a hook,
 review its source and command for the current definition. Leave an unexpected
-source or command untrusted.
+source or command untrusted. Adding these labels changes all four definition
+hashes, so existing approvals for these definitions need review after upgrade,
+including the write guard. Review the new definitions before relying on the guard.
+
+If Codex reports a hook failure again, record the Codex and Keel versions, the
+event and label or command, and the error or timeout shown. App Server clients
+can extract those details from the `hook/completed` notification's `run`
+metadata and selected error entries. Omit private paths, input payloads and
+transcript contents when reporting. A permitted hook can return an explicit
+write denial; record that decision separately from an execution failure.
 
 The four plugin, event and command combinations were confirmed using the real
 `hooks/list` response from Codex CLI 0.171.0 in an isolated plugin installation.

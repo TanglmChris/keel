@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Public-interface checks for Codex hooks; native tests are opt-in."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,25 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins/keel"
 CLI = ROOT / "bin/keel.js"
 RECEIVER = PLUGIN / "scripts/codex-mail-hook.js"
+HOOK_LABELS = {
+    ("SessionStart", "session-start.js"): "Keel: Session context",
+    ("SessionStart", "codex-mail-hook.js"): "Keel: Mail at session start",
+    ("UserPromptSubmit", "codex-mail-hook.js"): "Keel: Mail before prompt",
+    ("PreToolUse", "pretooluse-guard.js"): "Keel: Write guard",
+}
+
+
+def check_hook_labels(hooks):
+    event_names = {name[0].lower(): name[0] for name in HOOK_LABELS}
+    found = {
+        key: hook.get("statusMessage")
+        for hook in hooks
+        for key in HOOK_LABELS
+        if event_names.get(hook.get("eventName", "").lower()) == key[0]
+        and key[1] in hook["command"]
+    }
+    assert found == HOOK_LABELS, f"Keel hook labels missing or ambiguous: {found}"
+
 
 
 def run(args, cwd=ROOT, env=None, input=None, check=True, timeout=30):
@@ -48,13 +68,79 @@ def invoke(repo, event, provider=None, timeout_ms=None):
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
+def read_hook_response(script, repo, event, env=None):
+    proc = subprocess.Popen(
+        ["node", str(PLUGIN / "scripts" / script)],
+        cwd=repo, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        proc.stdin.write(json.dumps({"cwd": str(repo), **event}))
+        proc.stdin.close()
+        proc.stdin = None
+        # Exercise the real pipe. A reader that has not been scheduled must
+        # still receive the whole JSON response when it starts draining.
+        time.sleep(0.3)
+        out, err = proc.communicate(timeout=12)
+        assert proc.returncode == 0 and not err, (proc.returncode, err)
+        try:
+            return json.loads(out)["hookSpecificOutput"]
+        except (ValueError, KeyError) as error:
+            raise AssertionError(f"{script}: hook response truncated ({len(out)} characters)") from error
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+def buffered_output():
+    with tempfile.TemporaryDirectory(prefix="keel-codex-hook-output-") as raw:
+        repo = Path(raw)
+        change = repo / "openspec/changes/probe"
+        change.mkdir(parents=True)
+        context = {
+            "status": "ready",
+            "selection": {"change": "probe", "task": "1.1", "source": "fixture"},
+            "read": ["fixture/" + "a" * 180000 + "/projection-tail"],
+        }
+        provider = repo / "cli.js"
+        provider.write_text(
+            "process.stdout.write(process.argv[2] === '--version' ? '5.231.5' : "
+            + json.dumps(json.dumps(context)) + ")",
+            encoding="utf-8",
+        )
+        env = dict(os.environ, KEEL_CLI=shlex.join(["node", str(provider)]))
+        projection = read_hook_response("session-start.js", repo, {"hook_event_name": "SessionStart"}, env)
+        assert "/projection-tail" in projection["additionalContext"]
+        tasks = change / "tasks.md"
+        tasks.write_text("- [ ] 1.1 Write in Touch only\n", encoding="utf-8")
+        touch = [f"src/fixture-{index:05d}.js" for index in range(12000)]
+        manifest = {
+            "schema": "keel-write-guard/v1", "change": "probe", "task": "1.1",
+            "authority": [{"path": str(tasks.relative_to(repo)), "sha256": hashlib.sha256(tasks.read_bytes()).hexdigest()}],
+            "touch": touch,
+        }
+        (repo / "keel").mkdir()
+        (repo / "keel/guard.json").write_text(json.dumps(manifest), encoding="utf-8")
+        decision = read_hook_response("pretooluse-guard.js", repo, {
+            "hook_event_name": "PreToolUse", "tool_name": "Edit",
+            "tool_input": {"file_path": str(repo / "src/outside.js")},
+        })
+        assert decision["permissionDecision"] == "deny"
+        assert touch[-1] in decision["permissionDecisionReason"]
+    print("codex hook output: complete SessionStart projection and PreToolUse verdict")
+
+
 def behavior():
     manifest = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text())
     assert manifest.get("hooks") == "./hooks/codex.json", "Codex still uses the args-only shared hooks"
     hooks = json.loads((PLUGIN / "hooks/codex.json").read_text())["hooks"]
     assert set(hooks) == {"SessionStart", "PreToolUse", "UserPromptSubmit"}
     assert not any(field in json.dumps(hooks) for field in ["asyncRewake", "watchPaths", "FileChanged"])
-    commands = [h["command"] for groups in hooks.values() for g in groups for h in g["hooks"]]
+    declared = [dict(h, eventName=event) for event, groups in hooks.items() for g in groups for h in g["hooks"]]
+    check_hook_labels(declared)
+    buffered_output()
+    commands = [h["command"] for h in declared]
     for script in ["session-start.js", "pretooluse-guard.js", "codex-mail-hook.js"]:
         assert any(script in command for command in commands), script
     with tempfile.TemporaryDirectory(prefix="keel-codex-mail-") as raw:
@@ -177,6 +263,7 @@ trust_level = "trusted"
             assert not found["errors"], found
             hooks = found["hooks"]
             assert len(hooks) == 4, hooks
+            check_hook_labels(hooks)
             assert all(h["trustStatus"] == "untrusted" for h in hooks), hooks
             assert all(".js" in h["command"] for h in hooks), hooks
             assert {h["eventName"] for h in hooks} == {"preToolUse", "sessionStart", "userPromptSubmit"}
