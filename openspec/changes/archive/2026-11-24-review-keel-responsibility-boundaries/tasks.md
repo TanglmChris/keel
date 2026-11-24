@@ -21,7 +21,7 @@
     - Blocker: none
     - Reauthorizations: none
 
-- [ ] 1.2 Reuse Git worktree discovery for branch filtering
+- [x] 1.2 Reuse Git worktree discovery for branch filtering
   - Covers:
     - D2
   - Touch:
@@ -33,13 +33,13 @@
     - Fields: checked-out branch exclusion, merged branches, authorized prune, worktree overview and sync status
     - M1: Run the public validation scenarios worktree-overview, branches-lists-merged, branches-prune-under-authorization and sync-status-lists-local-only on the base and result. Confirm the selection, exclusions, branch authorization and Git 2.34 fallback via their real Git fixtures.
   - Evidence:
-    - Contract: pending
-    - M1: pending
+    - Contract: keel-task-capsule/v1 sha256:06ddf615b0c1b5a0845fced009d114c84c59d6dbbe6010097410b3f612a8df1d (keel 5.231.5)
+    - M1: A/B using product baseline ac0da21a and the shared scanner. Git 2.34.1 and the existing four public scenarios reported identical passing results, with raw outputs in evidence/baseline.txt and evidence/result.txt.
     - Review:
-      - Status: pending
-      - Acceptance check: pending
-      - Scope check: pending
-      - Findings: pending
+      - Status: pass
+      - Acceptance check: The worktree overview and sync scenarios prove the shared scanner still classifies checkouts, while the branch listing and authorized prune scenarios prove checked-out exclusions and eligible branch behavior.
+      - Scope check: Only branches.js and worktrees.js plus task records changed. Other Git queries keep their existing policies and semantics.
+      - Findings: Resolved here: M1 proves consolidation of the identical checked-out worktree observation.
     - Blocker: none
     - Reauthorizations: none
 
