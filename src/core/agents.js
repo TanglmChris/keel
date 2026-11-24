@@ -24,6 +24,7 @@ const FIELDS = ["executable", "command", "sandbox", "ownSandbox", "sendsTo", "pi
 const MODES = ["helper", "implementation"];
 
 const RTL_TOOLCHAIN = "rtl_ppa_prj docs/toolchain.md (main 632ad85)";
+const DSH_MAC_BUNDLE = "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh";
 
 const BUNDLED = {
   codex: {
@@ -70,7 +71,7 @@ const BUNDLED = {
     ],
   },
   dsh: {
-    executable: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+    executable: "dsh",
     command: "cd {dir} && TMPDIR={tmp} PYTHONPYCACHEPREFIX={tmp}/pycache {executable} --profile headless - < {prompt} > {out}",
     sandbox: { helper: null, implementation: null },
     ownSandbox: "the headless profile applies its own workspace-write file policy: outside the directory it starts in, writes are refused (including /dev/stdout and ~/Library/Caches) while /tmp stays writable; inside it, it writes freely, so it still needs a separate worktree (dsh 0.2.0-rc.2, #259)",
@@ -79,7 +80,7 @@ const BUNDLED = {
       {
         date: "2026-10-05",
         source: "ls -l ~/.local/bin/dsh and dsh --version, 0.2.0-rc.2 (rtl_ppa_prj #191)",
-        text: "The CLI lives inside the app bundle. A `~/.local/bin/dsh` on PATH, where one exists, is a symlink to that same file, so the catalog keeps the bundle path, which works with or without it.",
+        text: "In this macOS installation, the CLI lives inside the app bundle and `~/.local/bin/dsh` is a symlink to that file. Keel prefers the executable bundle on macOS and otherwise looks for `dsh` on PATH.",
       },
       {
         date: "2026-10-05",
@@ -177,7 +178,10 @@ function loadCatalog() {
   const problems = [];
   const entries = {};
   for (const [name, entry] of Object.entries(BUNDLED)) {
-    entries[name] = { name, source: "bundled", ...clone(entry) };
+    const executable = name === "dsh" && process.platform === "darwin" && isExecutable(DSH_MAC_BUNDLE)
+      ? DSH_MAC_BUNDLE
+      : entry.executable;
+    entries[name] = { name, source: "bundled", ...clone(entry), executable };
   }
   for (const [name, declared] of Object.entries(readMachineEntries(problems))) {
     if (!declared || typeof declared !== "object" || Array.isArray(declared)) {
