@@ -3412,7 +3412,8 @@ function main() {
   }
   // `keel tick` likewise: the model-free step a host scheduler calls (#356).
   if (process.argv[2] === "tick") {
-    return require("../src/core/tick").runTick(process.argv.slice(3));
+    require("../src/core/tick").runTick(process.argv.slice(3)).then(code => { process.exitCode = code; });
+    return 0;
   }
   // `keel feedback` likewise: a redacted issue draft for Keel (#505).
   if (process.argv[2] === "feedback") {

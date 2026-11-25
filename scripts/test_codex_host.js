@@ -224,7 +224,7 @@ test('tick renders managed host failures without starting a replacement', async 
 });
 
 // A native protocol boundary fixture; the public CLI and store run unchanged.
-async function reviewerHost() {
+async function reviewerHost({onTurnStart}={}) {
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'keel-reviewer-'));
  require('node:child_process').spawnSync('git',['init','-q',dir]);
  const sock=path.join(dir,'host.sock'),requests=[],threads=new Map(),peers=[],turnReviewers=[];
@@ -237,7 +237,7 @@ async function reviewerHost() {
    let result={},error;const p=x.params||{};let t=threads.get(p.threadId);
    const reply=()=>({thread:{id:t.id,cwd:t.cwd||dir,status:{type:t.status||(t.loaded?'idle':'notLoaded')}},approvalsReviewer:mismatch?'user':t.reviewer,approvalPolicy:'on-request',sandbox:{type:'workspaceWrite',networkAccess:false,writableRoots:[]}});
    if(x.method==='initialize'){experimentalApi=p.capabilities?.experimentalApi===true;result={userAgent:'native-reviewer-fixture'};}
-   else if(x.method==='thread/start'){t={id:'reviewer-'+ ++serial,reviewer:p.approvalsReviewer||'user',savedReviewer:'user',loaded:true};threads.set(t.id,t);result=reply();}
+   else if(x.method==='thread/start'){t={id:'reviewer-'+ ++serial,cwd:p.cwd,reviewer:p.approvalsReviewer||'user',savedReviewer:'user',loaded:true};threads.set(t.id,t);result=reply();}
    else if(x.method==='thread/name/set'){}
    else if(x.method==='thread/settings/update'){if(rejectPersistence)error={message:'native reviewer persistence rejected'};else t.savedReviewer=t.reviewer=p.approvalsReviewer;}
    else if(x.method==='thread/read')result=reply();
@@ -245,11 +245,79 @@ async function reviewerHost() {
    else if(x.method==='turn/start'){t.reviewer=p.approvalsReviewer||t.reviewer;turnReviewers.push(t.reviewer);t.savedReviewer=t.reviewer;result={turn:{id:'reviewer-turn-'+turnReviewers.length}};}
    else error={message:'unsupported fixture RPC '+x.method};
    if(dropStartReply&&x.method==='thread/start')continue;
-   const body=Buffer.from(JSON.stringify({id:x.id,...error?{error}:{result}}));const h=body.length<126?Buffer.from([129,body.length]):Buffer.from([129,126,body.length>>8,body.length&255]);s.write(Buffer.concat([h,body]));
+   const send = (payload = result) => {
+    const body=Buffer.from(JSON.stringify({id:x.id,...error?{error}:{result:payload}}));
+    const h=body.length<126?Buffer.from([129,body.length]):Buffer.from([129,126,body.length>>8,body.length&255]);
+    if (!s.destroyed) s.write(Buffer.concat([h,body]));
+   };
+   if (x.method === 'turn/start' && onTurnStart) onTurnStart(send);
+   else send();
   }});
  });
  await new Promise(r=>server.listen(sock,r));
  return {dir,sock,requests,threads,turnReviewers,dropStartReply:()=>{dropStartReply=true;},rejectPersistence:()=>{rejectPersistence=true;},mismatch:()=>{mismatch=true;},args:(reviewer='auto_review')=>['--socket',sock,'--repo',dir,'--role','reviewer-worker','--approvals-reviewer',reviewer,'--json'],close:async()=>{peers.forEach(p=>p.destroy());await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});}};
+}
+
+for (const action of ['tick', 'drain']) {
+  test(`${action} delivers an independent role before a slow acknowledgement`, {timeout: 20000}, async () => {
+    const {spawnSync} = require('node:child_process');
+    const {setTimeout: wait} = require('node:timers/promises');
+    let slowStarted, healthyStarted, releaseSlow;
+    const slowRequest = new Promise(resolve => { slowStarted = resolve; });
+    const healthyRequest = new Promise(resolve => { healthyStarted = resolve; });
+    const slow = await reviewerHost({onTurnStart: send => {
+      releaseSlow = () => send({turn:{}});
+      slowStarted();
+    }});
+    const healthy = await reviewerHost({onTurnStart: send => {
+      healthyStarted();
+      send();
+    }});
+    try {
+      const tree = path.join(slow.dir, 'healthy-worktree');
+      for (const args of [
+        ['-c','user.name=Keel Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture','--allow-empty'],
+        ['worktree','add','-q','--detach',tree],
+      ]) {
+        const git = spawnSync('git',args,{cwd:slow.dir,encoding:'utf8'});
+        assert.equal(git.status,0,git.stderr);
+      }
+      for (const [cwd, socket, role] of [[slow.dir,slow.sock,'a-slow'],[tree,healthy.sock,'b-healthy']]) {
+        const managed = await run(['--repo',cwd,'--socket',socket,'--role',role,'--json'],'start');
+        assert.equal(managed.code,0,managed.err);
+      }
+
+      const store = require('../src/core/chat/store');
+      const where = store.requireLocation(slow.dir);
+      store.createGroup(where, 'owner', 'team', ['a-slow','b-healthy']);
+      const todo = (assignee, text, date) => store.writeRecord(where, {group:'team',kind:'todo',from:'owner',assignee,text}, date);
+      const began = new Date();
+      const first = todo('a-slow', 'First slow record', began);
+      todo('a-slow', 'Second slow record', new Date(began.getTime()+1));
+      const ready = todo('b-healthy', 'Healthy record', began);
+      const dispatch = () => run(['--repo',slow.dir,'--json'],action);
+      const tick = dispatch();
+      await Promise.race([slowRequest, tick.then(result => { throw Error(result.err || result.out); })]);
+      const whileHeld = await Promise.race([healthyRequest.then(() => true), wait(2500, false, {ref:false})]);
+      releaseSlow();
+      const result = await tick;
+      assert.equal(whileHeld,true,'healthy delivery waited for slow acknowledgement');
+      assert.equal(result.code,action === 'tick' ? 0 : 1,result.err);
+      const observed = JSON.parse(result.out);
+      assert.deepEqual((observed.codex ?? observed.deliveries).map(entry => entry.role), ['a-slow','b-healthy']);
+      const receipt = await run(['--repo',slow.dir,'--role','a-slow','--record',first.id,'--json']);
+      assert.equal(JSON.parse(receipt.out).state,'unknown');
+      const delivered = await run(['--repo',tree,'--role','b-healthy','--record',ready.id,'--json']);
+      assert.equal(JSON.parse(delivered.out).state,'delivered');
+
+      await dispatch();
+      const starts = host => host.requests.filter(request=>request.method==='turn/start').length;
+      assert.equal(starts(slow),1,'uncertain claim must hold later work for this role');
+      assert.equal(starts(healthy),1,'successful claim must deduplicate subsequent delivery');
+    } finally {
+      await Promise.all([slow.close(), healthy.close()]);
+    }
+  });
 }
 
 test('explicit thread reviewer persists before managed success without a model turn',async()=>{

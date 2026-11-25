@@ -209,13 +209,13 @@ function heartbeat(where, now = new Date()) {
   return { state: "ok", at, text: `last ran ${at}` };
 }
 
-function tick(where, now = new Date()) {
+async function tick(where, now = new Date()) {
   const result = { patrol: null, woken: [] };
   // First, so a run that fails later still counts as a run (#510 D1).
   store.writeJsonAtomic(where, stateFile(where), { ...readState(where), last_tick: store.isoLocal(now) });
   result.sync = require("./lock").renewHeld(where);
   const wakeState = readState(where);
-  result.codex = require("./codex-host").wakeManaged(where);
+  result.codex = await require("./codex-host").wakeManaged(where);
   result.woken = wakeEnded(where, wakeState);
   result.handedOver = require("./shift").handOver(where);
   if (result.woken.length) {
@@ -370,7 +370,7 @@ function renderTask(job) {
   ].join("\n");
 }
 
-function runTick(argv) {
+async function runTick(argv) {
   try {
     const options = { repo: process.cwd(), json: false };
     const rest = [];
@@ -394,7 +394,7 @@ function runTick(argv) {
       return 0;
     }
     if (rest.length) throw new TickError(`Unknown subcommand ${rest[0]}. ${USAGE}`);
-    const result = tick(where);
+    const result = await tick(where);
     process.stdout.write(`${options.json ? JSON.stringify(result, null, 2) : render(result)}\n`);
     return 0;
   } catch (error) {
