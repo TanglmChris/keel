@@ -147,6 +147,63 @@ function recordedDeliveryState(where, assignee, record) {
   }
 }
 
+async function initializeClient(client, experimental) {
+  const host = await client.call("initialize", {
+    clientInfo: {name: "keel", version: "1"},
+    ...(experimental ? {capabilities: {experimentalApi: true}} : {}),
+  });
+  if (typeof host?.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
+  client.notify("initialized");
+  return host;
+}
+
+async function findObservedTurn(client, receipt, timeout) {
+  const deadline = performance.now() + timeout;
+  const seen = new Set();
+  let cursor;
+  for (;;) {
+    const remaining = Math.ceil(deadline - performance.now());
+    if (remaining <= 0) return null;
+    const page = await client.call("thread/turns/list", {
+      threadId: receipt.thread, itemsView: "notLoaded", limit: 50, ...(cursor ? {cursor} : {}),
+    }, remaining);
+    if (!Array.isArray(page?.data)) return null;
+    const found = page.data.find(turn => turn?.id === receipt.turn);
+    if (found) return found;
+    cursor = page.nextCursor;
+    if (typeof cursor !== "string" || !cursor || seen.has(cursor)) return null;
+    seen.add(cursor);
+  }
+}
+
+async function observeDelivery(receipt, role, timeout) {
+  const observation = {state: "unknown", backgroundTerminals: "unknown"};
+  if (receipt.state !== "delivered" || !receipt.thread || !receipt.turn) return observation;
+  let client;
+  try {
+    client = await connect(role.socket, timeout);
+    await initializeClient(client, true);
+    const { thread } = await client.call("thread/read", {threadId: receipt.thread, includeTurns: false});
+    if (thread?.id !== receipt.thread || thread.cwd !== role.worktree) return observation;
+    const turn = await findObservedTurn(client, receipt, timeout).catch(() => null);
+    if (turn?.status === "failed" && turn.error?.codexErrorInfo === "usageLimitExceeded") {
+      observation.state = "resource-exhausted";
+    } else if (["inProgress", "completed", "failed", "interrupted"].includes(turn?.status)) {
+      observation.state = turn.status;
+    }
+    const terminals = await client.call("thread/backgroundTerminals/list", {threadId: receipt.thread});
+    if (Array.isArray(terminals?.data)) {
+      if (terminals.data.length) observation.backgroundTerminals = "present";
+      else if (!terminals.nextCursor) observation.backgroundTerminals = "none-observed";
+    }
+  } catch {
+    // A host failure leaves the failed reads unknown while preserving any observations already made.
+  } finally {
+    client?.close();
+  }
+  return observation;
+}
+
 async function run(args) {
   const onboarding = require("./codex-onboarding");
   if (onboarding.actions.includes(args[0])) return onboarding.run(args, {connect});
@@ -163,6 +220,7 @@ async function run(args) {
     while (args.length) {
       const flag = args.shift();
       if (flag === "--json") options.json = true;
+      else if (flag === "--observe") options.observe = true;
       else if (["--socket", "--thread", "--timeout", "--role", "--repo", "--record", "--text", "--note", "--approvals-reviewer"].includes(flag)) {
         const value = args.shift();
         if (!value || value.startsWith("--")) throw Error(`${flag} needs a value`);
@@ -170,6 +228,9 @@ async function run(args) {
         if (flag === "--socket") explicitSocket = true;
         if (flag === "--timeout") explicitTimeout = true;
       } else throw Error(`Unknown argument ${flag}`);
+    }
+    if (options.observe && (action !== "status" || !options.role || !options.record)) {
+      throw Error("--observe needs status with --role and --record");
     }
     const requestedReviewer = options["approvals-reviewer"];
     if (requestedReviewer && !["user", "auto_review"].includes(requestedReviewer)) throw Error("approvals-reviewer must be user or auto_review");
@@ -179,7 +240,7 @@ async function run(args) {
     const fs = require("node:fs");
     const store = require("./chat/store");
     if (action === "drain") {
-      const deliveries = wakeManaged(store.requireLocation(path.resolve(options.repo)), options.role);
+      const deliveries = await wakeManaged(store.requireLocation(path.resolve(options.repo)), options.role);
       process.stdout.write(JSON.stringify({deliveries}) + "\n");
       return deliveries.some(entry => entry.error) ? 1 : 0;
     }
@@ -204,8 +265,11 @@ async function run(args) {
     if (action === "status" && options.record) {
       if (!recorded || recorded.role !== options.role) throw Error("delivery receipt needs an owned --role");
       const receipt = deliveryReceipt(recorded, options.record);
+      if (options.observe) receipt.observation = await observeDelivery(receipt, recorded, ms);
+      const native = receipt.observation;
+      const suffix = native ? `, native turn ${native.state}, background terminals ${native.backgroundTerminals}` : "";
       process.stdout.write((options.json ? JSON.stringify(receipt)
-        : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}`) + "\n");
+        : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}${suffix}`) + "\n");
       return 0;
     }
     if (action === "start" && !options.role) throw Error("start needs --role");
@@ -232,9 +296,7 @@ async function run(args) {
     // Recovery can restore runtimeWorkspaceRoots even for legacy role records.
     const needsExperimentalApi = action === "recover" || requestedReviewer || recorded?.approvalsReviewer || savedPolicy;
     client = await connect(options.socket, ms);
-    const host = await client.call("initialize", {clientInfo: {name: "keel", version: "1"}, ...(needsExperimentalApi ? {capabilities: {experimentalApi: true}} : {})});
-    if (!host || typeof host.userAgent !== "string" || !host.userAgent) throw Error("Codex host returned no initialization identity");
-    client.notify("initialized");
+    const host = await initializeClient(client, needsExperimentalApi);
     const result = {socket: options.socket, host};
     function verifyReviewerPolicy(reply, reviewer) {
       if (!reviewer) return;
@@ -360,41 +422,62 @@ async function run(args) {
     if (registrationLock) require("node:fs").rmSync(registrationLock, {force: true});
   }
 }
-// Use the existing mailbox addressing rules and parking decisions. Calling the
-// public CLI in a child keeps synchronous tick callers and Claude behavior intact.
-function wakeManaged(where, onlyRole = null) {
+function deliverRecord(worktree, role, record, prompt) {
+  const {execFile} = require('node:child_process');
+  return new Promise(resolve => {
+    execFile(process.execPath, [
+      path.resolve(__dirname, '../../bin/keel.js'), 'codex', 'deliver',
+      '--repo', worktree, '--role', role, '--record', record, '--text', prompt, '--json',
+    ], {encoding: 'utf8', timeout: 40000}, (error, stdout, stderr) => {
+      if (error) {
+        // The child error's command includes the addressed message.
+        resolve({error: stderr.trim() || `Codex delivery subprocess failed (${error.code ?? error.signal ?? 'unknown status'})`});
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        resolve({error: 'Codex delivery subprocess returned invalid JSON'});
+      }
+    });
+  });
+}
+
+// Each role keeps its own serial delivery order and on-disk claims. A slow
+// native endpoint cannot delay delivery to another registered role.
+async function wakeManaged(where, onlyRole = null) {
   const fs = require('node:fs');
   const store = require('./chat/store');
   const directory = path.join(where.root, 'codex-roles');
   if (!fs.existsSync(directory)) return [];
-  const results = [];
-  for (const name of fs.readdirSync(directory).filter(name => name.endsWith('.json')).sort()) {
+  const files = fs.readdirSync(directory).filter(name => name.endsWith('.json')).sort();
+  const results = await Promise.all(files.map(async name => {
     let entry;
-    try {entry = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));}
-    catch (error) {results.push({role: name, error: error.message}); continue;}
-    const role = name.slice(0, -5);
-    if (onlyRole && onlyRole !== role) continue;
-    if (entry.state !== 'managed' || entry.role !== role) {
-      results.push({role, error: 'managed role identity or creation outcome unverified'}); continue;
+    try {
+      entry = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+    } catch (error) {
+      return [{role: name, error: error.message}];
     }
-    if (require('./chat/notice').parkOf(where, role)) continue;
+    const role = name.slice(0, -5);
+    if (onlyRole && onlyRole !== role) return [];
+    if (entry.state !== 'managed' || entry.role !== role) {
+      return [{role, error: 'managed role identity or creation outcome unverified'}];
+    }
+    if (require('./chat/notice').parkOf(where, role)) return [];
     const bound = store.readJsonFile(path.join(where.root, 'roles.json'));
     if (bound[entry.worktree] !== role) {
-      results.push({role, error: 'managed worktree role binding mismatch'}); continue;
+      return [{role, error: 'managed worktree role binding mismatch'}];
     }
+
+    const deliveries = [];
     for (const record of store.unread(where, role).filter(record => store.wakes(record, role))) {
       const prompt = `${store.DATA_NOTICE}\nRun keel context before acting.\nAddressed record ${record.id} from ${record.from}:\n${record.text || record.body || ''}`;
-      const child = require('node:child_process').spawnSync(process.execPath, [
-        path.resolve(__dirname, '../../bin/keel.js'), 'codex', 'deliver',
-        '--repo', entry.worktree, '--role', role, '--record', record.id, '--text', prompt, '--json',
-      ], {encoding: 'utf8', timeout: 40000});
-      let result;
-      try {result = JSON.parse(child.stdout);} catch {result = {};}
-      if (child.error || child.status !== 0) result.error = child.error ? child.error.message : child.stderr.trim();
-      results.push({role, record: record.id, ...result});
+      const result = await deliverRecord(entry.worktree, role, record.id, prompt);
+      deliveries.push({role, record: record.id, ...result});
       if (result.error || result.state === 'waiting' || result.state === 'delivered') break;
     }
-  }
-  return results;
+    return deliveries;
+  }));
+  return results.flat();
 }
 module.exports = {connect, run, wakeManaged, recordedDeliveryState};
