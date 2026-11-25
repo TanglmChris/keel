@@ -240,7 +240,7 @@ async function run(args) {
     const fs = require("node:fs");
     const store = require("./chat/store");
     if (action === "drain") {
-      const deliveries = wakeManaged(store.requireLocation(path.resolve(options.repo)), options.role);
+      const deliveries = await wakeManaged(store.requireLocation(path.resolve(options.repo)), options.role);
       process.stdout.write(JSON.stringify({deliveries}) + "\n");
       return deliveries.some(entry => entry.error) ? 1 : 0;
     }
@@ -422,41 +422,62 @@ async function run(args) {
     if (registrationLock) require("node:fs").rmSync(registrationLock, {force: true});
   }
 }
-// Use the existing mailbox addressing rules and parking decisions. Calling the
-// public CLI in a child keeps synchronous tick callers and Claude behavior intact.
-function wakeManaged(where, onlyRole = null) {
+function deliverRecord(worktree, role, record, prompt) {
+  const {execFile} = require('node:child_process');
+  return new Promise(resolve => {
+    execFile(process.execPath, [
+      path.resolve(__dirname, '../../bin/keel.js'), 'codex', 'deliver',
+      '--repo', worktree, '--role', role, '--record', record, '--text', prompt, '--json',
+    ], {encoding: 'utf8', timeout: 40000}, (error, stdout, stderr) => {
+      if (error) {
+        // The child error's command includes the addressed message.
+        resolve({error: stderr.trim() || `Codex delivery subprocess failed (${error.code ?? error.signal ?? 'unknown status'})`});
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        resolve({error: 'Codex delivery subprocess returned invalid JSON'});
+      }
+    });
+  });
+}
+
+// Each role keeps its own serial delivery order and on-disk claims. A slow
+// native endpoint cannot delay delivery to another registered role.
+async function wakeManaged(where, onlyRole = null) {
   const fs = require('node:fs');
   const store = require('./chat/store');
   const directory = path.join(where.root, 'codex-roles');
   if (!fs.existsSync(directory)) return [];
-  const results = [];
-  for (const name of fs.readdirSync(directory).filter(name => name.endsWith('.json')).sort()) {
+  const files = fs.readdirSync(directory).filter(name => name.endsWith('.json')).sort();
+  const results = await Promise.all(files.map(async name => {
     let entry;
-    try {entry = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));}
-    catch (error) {results.push({role: name, error: error.message}); continue;}
-    const role = name.slice(0, -5);
-    if (onlyRole && onlyRole !== role) continue;
-    if (entry.state !== 'managed' || entry.role !== role) {
-      results.push({role, error: 'managed role identity or creation outcome unverified'}); continue;
+    try {
+      entry = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+    } catch (error) {
+      return [{role: name, error: error.message}];
     }
-    if (require('./chat/notice').parkOf(where, role)) continue;
+    const role = name.slice(0, -5);
+    if (onlyRole && onlyRole !== role) return [];
+    if (entry.state !== 'managed' || entry.role !== role) {
+      return [{role, error: 'managed role identity or creation outcome unverified'}];
+    }
+    if (require('./chat/notice').parkOf(where, role)) return [];
     const bound = store.readJsonFile(path.join(where.root, 'roles.json'));
     if (bound[entry.worktree] !== role) {
-      results.push({role, error: 'managed worktree role binding mismatch'}); continue;
+      return [{role, error: 'managed worktree role binding mismatch'}];
     }
+
+    const deliveries = [];
     for (const record of store.unread(where, role).filter(record => store.wakes(record, role))) {
       const prompt = `${store.DATA_NOTICE}\nRun keel context before acting.\nAddressed record ${record.id} from ${record.from}:\n${record.text || record.body || ''}`;
-      const child = require('node:child_process').spawnSync(process.execPath, [
-        path.resolve(__dirname, '../../bin/keel.js'), 'codex', 'deliver',
-        '--repo', entry.worktree, '--role', role, '--record', record.id, '--text', prompt, '--json',
-      ], {encoding: 'utf8', timeout: 40000});
-      let result;
-      try {result = JSON.parse(child.stdout);} catch {result = {};}
-      if (child.error || child.status !== 0) result.error = child.error ? child.error.message : child.stderr.trim();
-      results.push({role, record: record.id, ...result});
+      const result = await deliverRecord(entry.worktree, role, record.id, prompt);
+      deliveries.push({role, record: record.id, ...result});
       if (result.error || result.state === 'waiting' || result.state === 'delivered') break;
     }
-  }
-  return results;
+    return deliveries;
+  }));
+  return results.flat();
 }
 module.exports = {connect, run, wakeManaged, recordedDeliveryState};

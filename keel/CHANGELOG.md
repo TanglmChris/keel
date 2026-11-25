@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.231.9 - Deliver independent Codex roles without waiting on each other
+
+- `keel tick` and `keel codex drain` let an independent managed role receive work while another awaits its own native acknowledgement. Per-role order and uncertain claims remain protected (#544).
+- Add opt-in `keel codex status --observe` for an owned delivery receipt. Read the original native turn and its background-terminal inventory separately, with lightweight pagination and explicit unknown observations (#544).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.9; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.8 - Discover standalone DSH and clarify task delivery
 
 - The DSH catalog and brief find standalone PATH installs while preserving executable macOS bundles and explicit machine overrides (#565).
