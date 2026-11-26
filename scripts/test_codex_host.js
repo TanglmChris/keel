@@ -9,6 +9,63 @@ const fs=require('node:fs');
 const {spawn}=require('node:child_process');
 const cli=path.resolve(__dirname,'../bin/keel.js');
 function run(args,action="status"){return new Promise(resolve=>{const p=spawn(process.execPath,['chat','tick'].includes(action)?[cli,action,...args]:[cli,'codex',action,...args]);let out='',err='';p.stdout.on('data',b=>out+=b);p.stderr.on('data',b=>err+=b);p.on('close',code=>resolve({code,out,err}));});}
+test('list managed roles offline without draining or changing the shared mailbox', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keel-role-list-'));
+  t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
+  require('node:child_process').execFileSync('git', ['init', '-q', dir]);
+  const store = require('../src/core/chat/store');
+  const where = store.requireLocation(dir);
+  async function list() {
+    const result = await run(['--repo', dir, '--json'], 'list');
+    assert.equal(result.code, 0, result.err);
+    return JSON.parse(result.out).roles;
+  }
+  assert.deepEqual(await list(), []);
+  assert.ok(!fs.existsSync(where.root));
+  const socket = path.join(dir, 'host.sock');
+  let connections = 0;
+  const server = require('node:net').createServer(peer => { connections++; peer.destroy(); });
+  await new Promise(resolve => server.listen(socket, resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const registry = path.join(where.root, 'codex-roles');
+  fs.mkdirSync(registry, {recursive: true});
+  const bindings = {};
+  for (const role of ['worker', 'paused', 'moved']) {
+    const worktree = path.join(dir, role);
+    bindings[worktree] = role === 'moved' ? 'other' : role;
+    fs.mkdirSync(worktree);
+    fs.writeFileSync(path.join(registry, role + '.json'), JSON.stringify({
+      state: 'managed', role, worktree, thread: role + '-thread', socket, deliveries: {private: 'secret'},
+    }));
+  }
+  fs.writeFileSync(path.join(where.root, 'roles.json'), JSON.stringify(bindings));
+  store.createGroup(where, 'owner', 'team', ['worker', 'group-only']);
+  store.writeRecord(where, {group: 'team', kind: 'todo', from: 'owner', assignee: 'worker', text: 'pending'});
+  require('../src/core/chat/notice').park(where, 'paused', 'owner', 'maintenance');
+  fs.writeFileSync(path.join(registry, 'broken.json'), '{');
+  fs.writeFileSync(path.join(registry, 'broken-new.json'), JSON.stringify({state: 'creation-pending'}));
+  function snapshot() {
+    return fs.readdirSync(where.root, {recursive: true}).sort().map(name => {
+      const file = path.join(where.root, name);
+      return [name, fs.statSync(file).isFile() ? fs.readFileSync(file) : null];
+    });
+  }
+  const before = snapshot();
+  const rows = await list();
+  assert.deepEqual(rows.map(row => row.role), ['broken', 'broken-new', 'moved', 'paused', 'worker']);
+  assert.deepEqual(rows[0], {role: 'broken', state: 'invalid', worktree: null, thread: null, socket: null, parked: false, error: 'unreadable-registration'});
+  assert.equal(rows[1].error, 'creation-pending');
+  assert.equal(rows[2].error, 'binding-mismatch');
+  assert.equal(rows[2].state, 'invalid');
+  for (const row of rows.slice(3)) {
+    assert.deepEqual(row, {role: row.role, state: 'managed', worktree: path.join(dir, row.role),
+      thread: row.role + '-thread', socket, parked: row.role === 'paused'});
+  }
+  assert.deepEqual(await list(), rows);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(connections, 0);
+});
+
 test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'keel-host-'));const sock=path.join(dir,'host.sock');const requests=[];const requestDetails=[];const peers=[];const blank=new Set(),lost=new Set();let active=true,serial=0,uncertain=false,invalidHost=false,injectNotice=false,unloaded=false,resumeActive=false,resumeFails=false,resumeMismatch=false,readMismatch=false,resumeDelay=false,initNameFails=false;
  let observationTurn = null;

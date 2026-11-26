@@ -184,3 +184,10 @@ The managed delivery and recovery paths SHALL request original thread metadata w
 - **WHEN** native full-history resume exceeds the allowed response size
 - **THEN** managed delivery can resume the verified original and create one turn for its addressed record
 - **AND** another delivery for that record reuses the recorded turn
+
+### Requirement: Read-only managed role inventory
+Keel SHALL list local managed registrations for a Git repository with their recorded execution identity, effective park status and per-registration anomalies without contacting native endpoints or changing project state.
+
+#### Scenario: Mixed local registrations
+- **WHEN** the operator lists a repository containing active and parked registrations, damaged registrations and group-only roles
+- **THEN** the listing includes the registrations in role order, distinguishes anomalies and parked roles, omits group-only roles, and preserves pending work and all receipts.
