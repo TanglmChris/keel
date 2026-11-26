@@ -32,7 +32,7 @@ const USAGE = [
   "keel chat <group> [--since <90s|15m|2h|3d|date>] [--follow] [--peek] [--json]   (view; advances your read position unless --peek)",
   "keel chat unread [--json]",
   "keel chat read [<group>] [--json]",
-  "keel chat show <id> [--json]",
+  "keel chat show <id> [--json] [--collect]",
   "keel chat todo <group> --assignee <role> [--issue <n>] <text...> [--json]",
   "keel chat todos [<group>] [--mine] [--json]",
   "keel chat done <id>",
@@ -82,7 +82,7 @@ const VALUED = {
   "--compact-at": "compactAt",
 };
 const REPEATED = { "--member": "members" };
-const SWITCHES = { "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--no-wake": "noWake", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset", "--leave-branches": "leaveBranches" };
+const SWITCHES = { "--collect": "collect", "--json": "json", "--peek": "peek", "--all": "all", "--mine": "mine", "--follow": "follow", "--once": "once", "--mail": "mail", "--check": "check", "--ack": "ack", "--no-wake": "noWake", "--listen": "listen", "--closed": "closed", "--stamp": "stamp", "--no-stamp": "noStamp", "--help": "help", "-h": "help", "--prune": "prune", "--unset": "unset", "--leave-branches": "leaveBranches" };
 
 function parseChatArgs(argv) {
   const options = { positionals: [], members: [], json: false, peek: false, all: false, mine: false, follow: false, once: false, mail: false, check: false, ack: false, noWake: false, listen: false, closed: false, stamp: false, noStamp: false, help: false, prune: false, unset: false, leaveBranches: false };
@@ -489,8 +489,15 @@ function dispatch(where, options) {
     case "show": {
       const id = rest[0];
       if (!id) throw new ChatError("keel chat show needs a record id.");
+      if (options.collect && path.basename(id) !== id) throw new ChatError("Invalid todo ID.");
       const record = store.findRecord(where, id);
       if (!record) throw new ChatError(`No record ${id}.`);
+      if (options.collect) {
+        if (record.kind !== "todo" || record.id !== id) throw new ChatError("--collect requires an original todo ID");
+        return require("../codex-host").collectTaskResult(where, record)
+          .then(() => dispatch(where, {...options, collect:false}))
+          .catch(error => { process.stderr.write(`keel chat: ${error.message}\n`); return 2; });
+      }
       const readers = store.readersOf(where, record);
       const acks = record.ack === "requested" ? store.ackStatus(where, record) : null;
       if (options.json) {
@@ -498,8 +505,9 @@ function dispatch(where, options) {
         if (record.kind === "todo") {
           const closure = store.todoClosure(where, record);
           result.task = { id: record.id, state: closure ? "closed" : "open", closureRecordId: closure ? closure.id : null };
-          const { recordedDeliveryState } = require("../codex-host");
-          result.delivery = { state: recordedDeliveryState(where, record.assignee, record.id) };
+          const delivery = require("../codex-host").recordedDelivery(where, record.assignee, record.id);
+          result.delivery = {state: delivery.state};
+          if (delivery.result) result.result = delivery.result;
         }
         out(JSON.stringify(result));
       } else out([`${record.group} ${formatLine(record)}`, `read by: ${readers.join(", ") || "nobody yet"}`, ...(acks ? ackLines(acks) : [])].join("\n"));
@@ -750,6 +758,9 @@ function runWake(cwd, options) {
 function runChat(argv) {
   try {
     const options = parseChatArgs(argv);
+    if (options.collect && (options.positionals[0] !== "show" || options.positionals.length !== 2 || !options.json)) {
+      throw new ChatError("--collect requires chat show <todo-id> --json");
+    }
     const cwd = path.resolve(options.repo || process.cwd());
     if (!options.positionals.length || options.positionals[0] === "help" || options.help) {
       out(`Usage:\n  ${USAGE.join("\n  ")}`);
