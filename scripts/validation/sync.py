@@ -556,11 +556,29 @@ def validate_branch_lock_race_scenario() -> int:
     label = "branch-lock-race:"
     with tempfile.TemporaryDirectory(prefix="keel-branch-race-") as raw:
         d = _Devices(Path(raw).resolve())
+        # Hold each clone at its first push until both have observed the free
+        # ref. Merely starting both commands can instead test a later acquire
+        # of an already-held lock when one process is scheduled late.
+        for own, peer in ((d.a, d.b), (d.b, d.a)):
+            hook = own / ".git" / "hooks" / "pre-push"
+            write_text(hook, "#!/usr/bin/env python3\nfrom pathlib import Path\nimport time\n"
+                       f"Path({str(d.base / (own.name + '.ready'))!r}).touch()\n"
+                       f"peer = Path({str(d.base / (peer.name + '.ready'))!r})\n"
+                       "deadline = time.monotonic() + 30\n"
+                       "while not peer.exists() and time.monotonic() < deadline: time.sleep(0.02)\n"
+                       "raise SystemExit(0 if peer.exists() else 1)\n")
+            hook.chmod(0o755)
+            d.git(own, "config", "core.hooksPath", str(hook.parent))
         procs = [subprocess.Popen(["node", str(Path(__file__).resolve().parents[2] / "bin" / "keel.js"),
                                    "lock", "acquire", "--branch", "feat"], cwd=path, env=d.env(path),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                  for path in (d.a, d.b)]
         results = [(proc, *proc.communicate(timeout=120)) for proc in procs]
+        for clone in (d.a, d.b):
+            (clone / ".git" / "hooks" / "pre-push").unlink()
+            if not (d.base / (clone.name + ".ready")).exists():
+                report(f"{label} the two contenders did not reach the push together.")
+                return 1
         codes = sorted(proc.returncode for proc, _, _ in results)
         if codes != [0, 1]:
             report(f"{label} `keel lock acquire --branch feat` from two devices should give one 0 and one 1, got "
