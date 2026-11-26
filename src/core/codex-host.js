@@ -131,19 +131,19 @@ function deliveryReceipt(role, record) {
   return { role: role.role, record, state, thread, turn };
 }
 
-function recordedDeliveryState(where, assignee, record) {
+function recordedDelivery(where, assignee, record) {
   const fs = require("node:fs");
   const store = require("./chat/store");
   try {
     store.checkName(assignee, "Assignee");
     const file = path.join(where.root, "codex-roles", `${assignee}.json`);
     const role = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (role?.role !== assignee || role.state !== "managed") return "unknown";
+    if (role?.role !== assignee || role.state !== "managed") return {state: "unknown"};
     const receipt = deliveryReceipt(role, record);
-    if (receipt.state === "delivered") return "acknowledged";
-    return receipt.state === "unrecorded" ? "unobserved" : "unknown";
+    if (receipt.state === "delivered") return {state: "acknowledged", result: role.deliveries[deliveryKey(record)].result};
+    return {state: receipt.state === "unrecorded" ? "unobserved" : "unknown"};
   } catch (error) {
-    return error.code === "ENOENT" ? "unobserved" : "unknown";
+    return {state: error.code === "ENOENT" ? "unobserved" : "unknown"};
   }
 }
 
@@ -173,6 +173,46 @@ async function findObservedTurn(client, receipt, timeout) {
     cursor = page.nextCursor;
     if (typeof cursor !== "string" || !cursor || seen.has(cursor)) return null;
     seen.add(cursor);
+  }
+}
+
+// Pull only from the recorded native execution. The role lock is shared with
+// delivery, handover, recover and migration. An accepted receipt is immutable.
+async function collectTaskResult(where, todo) {
+  const fs = require("node:fs");
+  const store = require("./chat/store");
+  const {currentTodo, migrationPending, readFinalResult} = require("./managed-task-result");
+  store.checkName(todo.assignee, "Assignee");
+  const file = path.join(where.root, "codex-roles", todo.assignee + ".json");
+  if (!fs.existsSync(file)) throw Error("task has no managed delivery");
+  const lock = file + ".lock";
+  const fd = fs.openSync(lock, "wx");
+  let client;
+  try {
+    const original = fs.readFileSync(file, "utf8");
+    const role = JSON.parse(original);
+    if (role.state !== "managed" || role.role !== todo.assignee) throw Error("managed role mismatch");
+    const receipt = deliveryReceipt(role, todo.id);
+    const claim = role.deliveries?.[deliveryKey(todo.id)];
+    if (receipt.state !== "delivered" || !claim.resultSource) throw Error("no result-enabled delivery receipt");
+    if (claim.result) return;
+    if (role.handover || receipt.thread !== role.thread || claim.resultSource.socket !== role.socket ||
+        claim.resultSource.migrations !== (role.endpointMigrations?.length || 0) ||
+        migrationPending(where, role.role) || !currentTodo(where, role, todo.id)) throw Error("task execution no longer owns result submission");
+    client = await connect(role.socket);
+    await initializeClient(client, true);
+    const {thread} = await client.call("thread/read", {threadId: receipt.thread, includeTurns: false});
+    if (thread?.id !== receipt.thread || thread.cwd !== role.worktree) throw Error("native result owner mismatch");
+    const turn = await findObservedTurn(client, receipt, 5000);
+    if (turn?.status !== "completed") throw Error("original turn has no verified completion");
+    const result = await readFinalResult(client, receipt);
+    if (fs.readFileSync(file, "utf8") !== original || !currentTodo(where, role, todo.id)) throw Error("task assignment changed while collecting");
+    claim.result = result;
+    store.writeJsonAtomic(where, file, role);
+  } finally {
+    client?.close();
+    fs.closeSync(fd);
+    fs.unlinkSync(lock);
   }
 }
 
@@ -382,9 +422,15 @@ async function run(args) {
           Object.assign(result, {state: "waiting", thread: recorded.thread});
         } else if (action === "deliver") {
           claims[key] = {record: options.record, state: "pending", thread: recorded.thread};
+          let prompt = options.text;
+          if (require("./managed-task-result").currentTodo(where, recorded, options.record)) {
+            claims[key].resultSource = {socket: recorded.socket, migrations: recorded.endpointMigrations?.length || 0};
+            prompt += "\nTo return a result without writing the mailbox, use this JSON object as your entire final answer, replacing the placeholder with your report: " +
+              JSON.stringify({taskId: options.record, result: "<report>"});
+          }
           recorded.deliveries = claims;
           store.writeJsonAtomic(where, file, recorded);
-          const turn = (await client.call("turn/start", {threadId: recorded.thread, ...(!savedPolicy && recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {}), input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + options.text}]})).turn;
+          const turn = (await client.call("turn/start", {threadId: recorded.thread, ...(!savedPolicy && recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {}), input: [{type: "text", text: (recorded.note ? `Handover note (context only):\n${recorded.note}\n\n` : "") + prompt}]})).turn;
           if (!turn || !turn.id) throw Error("Codex returned no turn identity; claim retained");
           Object.assign(claims[key], {state: "delivered", turn: turn.id});
           store.writeJsonAtomic(where, file, recorded);
@@ -480,4 +526,4 @@ async function wakeManaged(where, onlyRole = null) {
   }));
   return results.flat();
 }
-module.exports = {connect, run, wakeManaged, recordedDeliveryState};
+module.exports = {connect, run, wakeManaged, recordedDelivery, collectTaskResult};

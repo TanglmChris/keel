@@ -238,6 +238,8 @@ async function reviewerHost({onTurnStart}={}) {
    const reply=()=>({thread:{id:t.id,cwd:t.cwd||dir,status:{type:t.status||(t.loaded?'idle':'notLoaded')}},approvalsReviewer:mismatch?'user':t.reviewer,approvalPolicy:'on-request',sandbox:{type:'workspaceWrite',networkAccess:false,writableRoots:[]}});
    if(x.method==='initialize'){experimentalApi=p.capabilities?.experimentalApi===true;result={userAgent:'native-reviewer-fixture'};}
    else if(x.method==='thread/start'){t={id:'reviewer-'+ ++serial,cwd:p.cwd,reviewer:p.approvalsReviewer||'user',savedReviewer:'user',loaded:true};threads.set(t.id,t);result=reply();}
+   else if(x.method==='thread/turns/list')result={data:t.turns || [],nextCursor:null};
+   else if(x.method==='thread/items/list')result={data:t.items || [],nextCursor:null};
    else if(x.method==='thread/name/set'){}
    else if(x.method==='thread/settings/update'){if(rejectPersistence)error={message:'native reviewer persistence rejected'};else t.savedReviewer=t.reviewer=p.approvalsReviewer;}
    else if(x.method==='thread/read')result=reply();
@@ -380,6 +382,75 @@ else fs.appendFileSync('resumes', JSON.stringify(args) + '\\n');
   } finally {
     await slow.close();
   }
+});
+
+test('collect an owned reviewer result by todo identity', async () => {
+  const h = await reviewerHost();
+  try {
+    const started = await run(h.args(),'start');
+    assert.equal(started.code,0,started.err);
+    const thread = JSON.parse(started.out).thread;
+    const host = h.threads.get(thread);
+    const store = require('../src/core/chat/store');
+    const where = store.requireLocation(h.dir);
+    store.createGroup(where,'owner','team',['reviewer-worker']);
+    const todo = store.writeRecord(where,{group:'team',from:'owner',kind:'todo',assignee:'reviewer-worker',text:'Review fixture'});
+    const drain = await run(['--repo',h.dir,'--json'],'drain');
+    assert.equal(drain.code,0,drain.err);
+    const turn = JSON.parse(drain.out).deliveries[0].turn;
+    const collect = () => run(['--repo',h.dir,'show',todo.id,'--collect','--json'],'chat');
+    const show = () => run(['--repo',h.dir,'show',todo.id,'--json'],'chat');
+    const item = {id:'a1',type:'agentMessage',phase:'final_answer',text:JSON.stringify({taskId:todo.id,result:'reviewed fixture'})};
+    host.turns = [{id:turn,status:'completed'}];
+    host.items = [{turnId:turn,item}];
+    const registry = path.join(where.root,'codex-roles','reviewer-worker.json');
+    const original = fs.readFileSync(registry);
+    async function refused() {
+      const before = fs.readFileSync(registry);
+      assert.notEqual((await collect()).code,0);
+      assert.deepEqual(fs.readFileSync(registry),before);
+      assert.equal(JSON.parse((await show()).out).result,undefined);
+    }
+    for (const mutate of [
+      role => { role.thread = 'successor'; },
+      role => { role.handover = {state:'pending'}; },
+      role => { role.endpointMigrations = [{plan:'moved'}]; },
+      role => { delete Object.values(role.deliveries)[0].resultSource; },
+      role => { Object.values(role.deliveries)[0].state = 'pending'; },
+    ]) {
+      const role = JSON.parse(original);
+      mutate(role);
+      fs.writeFileSync(registry,JSON.stringify(role));
+      await refused();
+    }
+    fs.writeFileSync(registry,original);
+    for (const badItem of [
+      {turnId:'other-turn',item},
+      {turnId:turn,item:{...item,phase:'commentary'}},
+      {turnId:turn,item:{...item,text:JSON.stringify({taskId:'other',result:'unrelated'})}},
+      {turnId:turn,item:{...item,type:'commandExecution'}},
+    ]) {
+      host.items = [badItem];
+      await refused();
+    }
+    host.items = [{turnId:turn,item}];
+    host.turns = [{id:turn,status:'inProgress'}];
+    await refused();
+    host.turns = [{id:turn,status:'completed'}];
+    const migration = path.join(where.root,'codex-transitions','fixture.json');
+    store.writeJsonAtomic(where,migration,{plan:{role:'reviewer-worker'},state:'pending'});
+    await refused();
+    fs.unlinkSync(migration);
+    const collected = await collect();
+    assert.equal(collected.code,0,'owned result collection failed: '+collected.err);
+    assert.deepEqual(JSON.parse(collected.out).result,{text:'reviewed fixture',role:'reviewer-worker',thread,turn});
+    const shown = JSON.parse((await show()).out);
+    assert.deepEqual(shown.result,JSON.parse(collected.out).result);
+    assert.equal(shown.task.state,'open');
+    const count = h.requests.length;
+    assert.equal((await collect()).out,collected.out);
+    assert.equal(h.requests.length,count,'a stored result needs no native connection');
+  } finally { await h.close(); }
 });
 
 test('explicit thread reviewer persists before managed success without a model turn',async()=>{

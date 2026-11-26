@@ -31,6 +31,16 @@ The sibling `delivery.state` is `acknowledged` for a durable native receipt,
 `unknown` for an ambiguous receipt, or `unobserved` when no evidence is available.
 It is local delivery evidence only. The query contacts no runtime.
 
+For a newly delivered managed Codex todo, the caller can collect the reviewer's
+designated final answer with `keel chat show <todo-id> --collect --json`.
+The reviewer returns a JSON object with the exact `taskId` and a string
+`result` in its final message. Keel checks the assigned role, original endpoint
+generation, thread, worktree and completed turn. The caller can then read
+`result.text` offline with the ordinary show command. Receipt of a report
+leaves verification and closure to the caller. A refused collection produces
+no new result. An older delivery without a result-enabled receipt keeps its
+original reporting path.
+
 ## Waking
 
 An idle background session is woken like any Claude session: only a mention, an assigned todo or a direct message wakes it, and everything else waits for its next prompt.
