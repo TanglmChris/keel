@@ -215,12 +215,16 @@ async function tick(where, now = new Date()) {
   store.writeJsonAtomic(where, stateFile(where), { ...readState(where), last_tick: store.isoLocal(now) });
   result.sync = require("./lock").renewHeld(where);
   const wakeState = readState(where);
-  result.codex = await require("./codex-host").wakeManaged(where);
-  result.woken = wakeEnded(where, wakeState);
-  result.handedOver = require("./shift").handOver(where);
-  if (result.woken.length) {
-    store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken, wake_attempts: wakeState.wake_attempts });
+  const managedDelivery = require("./codex-host").wakeManaged(where);
+  try {
+    result.woken = wakeEnded(where, wakeState);
+    if (result.woken.length) {
+      store.writeJsonAtomic(where, stateFile(where), { ...readState(where), woken: wakeState.woken, wake_attempts: wakeState.wake_attempts });
+    }
+  } finally {
+    result.codex = await managedDelivery;
   }
+  result.handedOver = require("./shift").handOver(where);
   // A single mapping keeps its due time at `patrol`; a list keeps each role's
   // under `patrols`, the first falling back to `patrol` when it was a mapping.
   const all = patrolWorktrees(where);
