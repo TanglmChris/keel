@@ -130,11 +130,14 @@ Codex Desktop 的 Worktree 模式和 Handoff 在 `$CODEX_HOME/worktrees` 管理�
 
 ## Keel 托管的 Codex 角色
 
+从 5.231.12 起，在同一仓库的任一工作树运行 `keel codex list --repo <path> --json` 即可读取本机登记。`roles` 按角色名排列，每项包含 `role`、`worktree`、`thread`、`socket`、当前有效的 `parked` 和登记 `state`（`managed` 或 `invalid`）。异常项附 `error` 代码，缺失的身份字段为 null。命令成功时也可能列出异常项；空登记返回 `{"roles":[]}`。查询全程离线，保全未读消息和回执。需要核对宿主实时状态时另用 `status`。
+
 每个角色使用独立 Git worktree。用正确的网络环境启动 `codex app-server --listen unix:///path/to/team.sock`，或使用现有托管守护进程。Keel 只连接指定主机，失败时不会另起服务：
 
 ```bash
 keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --json
 keel codex status --repo /path/to/role-worktree --role worker --json
+keel codex list --repo /path/to/repository --json
 keel codex drain --repo /path/to/repository --json
 keel codex handover --repo /path/to/role-worktree --role worker --note "已完成、待完成和授权边界" --json
 ```

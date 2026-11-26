@@ -139,12 +139,15 @@ Codex Desktop's Worktree mode and Handoff manage their own checkouts under
 
 ## Managed Codex roles
 
+From 5.231.12, `keel codex list --repo <path> --json` reads local registrations from any worktree. `roles` contains one row per registration in role order. Each row gives `role`, `worktree`, `thread`, `socket`, effective `parked` and `state` (`managed` or `invalid`). Invalid rows carry an `error` code and null for unavailable identity fields. A successful listing can contain invalid rows. An empty registry returns `{"roles":[]}`. This offline view makes no host calls and leaves unread records and receipts intact. Use `status` separately for live observations.
+
 Create a distinct Git worktree per role. Start a Codex app-server with the intended network environment, or use the existing managed daemon. Keel connects to it and never starts a replacement automatically:
 
 ```bash
 codex app-server --listen unix:///path/to/team.sock
 keel codex start --repo /path/to/role-worktree --role worker --socket /path/to/team.sock --json
 keel codex status --repo /path/to/role-worktree --role worker --json
+keel codex list --repo /path/to/repository --json
 keel codex drain --repo /path/to/repository --json
 keel codex handover --repo /path/to/role-worktree --role worker --note "Completed work, remaining work, and authority" --json
 ```

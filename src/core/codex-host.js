@@ -244,6 +244,45 @@ async function observeDelivery(receipt, role, timeout) {
   return observation;
 }
 
+function listManagedRoles(where) {
+  const fs = require('node:fs');
+  const store = require('./chat/store');
+  const {parkOf} = require('./chat/notice');
+  const directory = path.join(where.root, 'codex-roles');
+  let files;
+  try {
+    files = fs.readdirSync(directory, {withFileTypes: true});
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const bindings = store.readRoles(where.root);
+  const rows = files.filter(file => file.name.endsWith('.json')).map(file => {
+    const role = file.name.slice(0, -5);
+    const row = {role, state: 'invalid', worktree: null, thread: null, socket: null, parked: !!parkOf(where, role)};
+    let entry;
+    try {
+      if (!file.isFile()) return {...row, error: 'unreadable-registration'};
+      entry = JSON.parse(fs.readFileSync(path.join(directory, file.name), 'utf8'));
+    } catch {
+      return {...row, error: 'unreadable-registration'};
+    }
+    for (const key of ['worktree', 'thread', 'socket']) {
+      if (typeof entry?.[key] === 'string' && entry[key]) row[key] = entry[key];
+    }
+    if (entry?.state === 'creation-pending') return {...row, error: 'creation-pending'};
+    if (entry?.state !== 'managed' || entry.role !== role || !row.worktree || !row.thread || !row.socket) {
+      return {...row, error: 'invalid-registration'};
+    }
+    if (bindings[row.worktree] !== role || Object.values(bindings).filter(value => value === role).length !== 1) {
+      return {...row, error: 'binding-mismatch'};
+    }
+    row.state = 'managed';
+    return row;
+  });
+  return rows.sort((a, b) => a.role < b.role ? -1 : a.role > b.role ? 1 : 0);
+}
+
 async function run(args) {
   const onboarding = require("./codex-onboarding");
   if (onboarding.actions.includes(args[0])) return onboarding.run(args, {connect});
@@ -253,12 +292,13 @@ async function run(args) {
   let registrationLock;
   try {
     const action = args.shift();
-    if (!["status", "start", "deliver", "handover", "drain", "recover"].includes(action)) throw Error("Usage: keel codex status|start|deliver|handover|drain|recover [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]");
+    if (!["list", "status", "start", "deliver", "handover", "drain", "recover"].includes(action)) throw Error("Usage: keel codex list|status|start|deliver|handover|drain|recover [--socket path] [--role name] [--repo path] [--thread id] [--timeout ms] [--json]");
     const options = {socket: path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "app-server-control/app-server-control.sock"), timeout: 5000, repo: process.cwd()};
     let explicitSocket = false;
     let explicitTimeout = false;
     while (args.length) {
       const flag = args.shift();
+      if (action === "list" && !["--repo", "--json"].includes(flag)) throw Error("Usage: keel codex list [--repo path] [--json]");
       if (flag === "--json") options.json = true;
       else if (flag === "--observe") options.observe = true;
       else if (["--socket", "--thread", "--timeout", "--role", "--repo", "--record", "--text", "--note", "--approvals-reviewer"].includes(flag)) {
@@ -279,6 +319,11 @@ async function run(args) {
     if (!Number.isInteger(ms) || ms < 50 || ms > 60000) throw Error("timeout must be 50–60000 milliseconds");
     const fs = require("node:fs");
     const store = require("./chat/store");
+    if (action === "list") {
+      const roles = listManagedRoles(store.requireLocation(path.resolve(options.repo)));
+      process.stdout.write(JSON.stringify({roles}) + "\n");
+      return 0;
+    }
     if (action === "drain") {
       const deliveries = await wakeManaged(store.requireLocation(path.resolve(options.repo)), options.role);
       process.stdout.write(JSON.stringify({deliveries}) + "\n");
