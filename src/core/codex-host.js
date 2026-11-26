@@ -123,11 +123,17 @@ function deliveryKey(record) {
 }
 
 function deliveryReceipt(role, record) {
-  const claim = role.deliveries?.[deliveryKey(record)];
+  const {deliveries = {}} = role;
+  if (!deliveries || typeof deliveries !== "object" || Array.isArray(deliveries)) {
+    throw Error("managed delivery claim map invalid; outcome unknown");
+  }
+  const key = deliveryKey(record);
+  const present = Object.hasOwn(deliveries, key);
+  const claim = deliveries[key];
   if (claim && claim.record !== record) throw Error("managed delivery claim identity mismatch");
   const turn = claim?.state === "delivered" && typeof claim.turn === "string" && claim.turn ? claim.turn : null;
   const thread = typeof claim?.thread === "string" && claim.thread ? claim.thread : null;
-  const state = !claim ? "unrecorded" : turn ? "delivered" : "unknown";
+  const state = turn ? "delivered" : present ? "unknown" : "unrecorded";
   return { role: role.role, record, state, thread, turn };
 }
 
@@ -357,6 +363,7 @@ async function run(args) {
         : `Codex delivery ${receipt.record}: ${receipt.state}${receipt.thread ? ` (thread ${receipt.thread})` : ""}${suffix}`) + "\n");
       return 0;
     }
+    let priorReceipt;
     if (action === "start" && !options.role) throw Error("start needs --role");
     if (["deliver", "handover", "recover"].includes(action)) {
       if (!recorded) throw Error("operation needs a managed --role");
@@ -367,7 +374,11 @@ async function run(args) {
       // The durable decision must be read under the lock this call now owns.
       recorded = JSON.parse(fs.readFileSync(file, "utf8"));
       if (recorded.state !== "managed" || recorded.role !== options.role || recorded.worktree !== where.worktree || recorded.socket !== options.socket) throw Error("managed role identity changed before operation lock");
-      if (action === "deliver" && (!options.record || !options.text)) throw Error("deliver needs --record and --text");
+      if (action === "deliver") {
+        if (!options.record || !options.text) throw Error("deliver needs --record and --text");
+        priorReceipt = deliveryReceipt(recorded, options.record);
+        if (priorReceipt.state === "unknown") throw Error("delivery outcome unknown; claim retained, no retry started");
+      }
       if (action === "handover" && !options.note) throw Error("handover needs --note");
     }
     if (action === "start") {
@@ -438,14 +449,8 @@ async function run(args) {
       let thread = (await client.call("thread/read", {threadId: recorded.thread, includeTurns: false})).thread;
       const owned = value => value && value.id === recorded.thread && value.cwd === recorded.worktree;
       if (!owned(thread)) throw Error("managed role identity mismatch");
-      const claims = recorded.deliveries || {};
-      const key = options.record ? deliveryKey(options.record) : null;
-      if (action === "deliver" && claims[key]) {
-        // Deduplication is a recorded outcome, not a reason to load a thread.
-        if (claims[key].state !== "delivered" || typeof claims[key].turn !== "string" || !claims[key].turn) {
-          throw Error("delivery outcome unknown; claim retained, no retry started");
-        }
-        Object.assign(result, {state: "already-delivered", turn: claims[key].turn});
+      if (priorReceipt?.state === "delivered") {
+        Object.assign(result, {state: "already-delivered", turn: priorReceipt.turn});
       } else {
         if (action === "deliver" && thread.status && (thread.status.type === "notLoaded" || ((recorded.approvalsReviewer || savedPolicy) && thread.status.type === "idle"))) {
           // Only this recorded owned identity may be loaded. Keep this same
@@ -466,6 +471,8 @@ async function run(args) {
         if (thread.status.type === "active") {
           Object.assign(result, {state: "waiting", thread: recorded.thread});
         } else if (action === "deliver") {
+          const claims = recorded.deliveries ?? {};
+          const key = deliveryKey(options.record);
           claims[key] = {record: options.record, state: "pending", thread: recorded.thread};
           let prompt = options.text;
           if (require("./managed-task-result").currentTodo(where, recorded, options.record)) {
