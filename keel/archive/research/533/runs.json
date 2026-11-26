@@ -1,0 +1,597 @@
+[
+  {
+    "run_id": "R5f3cbe0a01",
+    "fixture": "legacy",
+    "model": "gpt-6.1-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nRead names with the modern reader. Only an UnsupportedFormat exception selects the supported legacy reader. Return the chosen reader's result and propagate its errors.\n\nclass UnsupportedFormat(Exception):\n    pass\n\ndef read_names(modern, legacy):\n    raise NotImplementedError\n",
+    "prompt_sha256": "05cc96fc7b8df761e44b277c9938876942670d125a4f3328d56f0cb051ad9d06",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "class UnsupportedFormat(Exception):\n    pass\n\n\ndef read_names(modern, legacy):\n    try:\n        return modern()\n    except UnsupportedFormat:\n        return legacy()",
+      "usage": {
+        "totalTokens": 5859,
+        "inputTokens": 5823,
+        "cachedInputTokens": 3712,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 36,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 7.328
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,5 +1,9 @@\n class UnsupportedFormat(Exception):\n     pass\n \n+\n def read_names(modern, legacy):\n-    raise NotImplementedError\n+    try:\n+        return modern()\n+    except UnsupportedFormat:\n+        return legacy()\n",
+    "review": {
+      "run_id": "R5f3cbe0a01",
+      "fixture": "legacy",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only UnsupportedFormat selects the legacy reader; reader failures otherwise propagate."
+    }
+  },
+  {
+    "run_id": "Ra4505069a7",
+    "fixture": "external",
+    "model": "gpt-6.2-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nParse a JSON-decoded limit. Accept integers 1 through 100 inclusive. Invalid inputs raise ValueError. Return the accepted integer.\n\ndef parse_limit(value):\n    raise NotImplementedError\n",
+    "prompt_sha256": "9d14387f45b760a28c73e3cd93c0d8f50a26a88b3f312b26e8c7d564cf1cc196",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def parse_limit(value):\n    if type(value) is not int or not 1 <= value <= 100:\n        raise ValueError(\"limit must be an integer from 1 through 100\")\n    return value",
+      "usage": {
+        "totalTokens": 5908,
+        "inputTokens": 5861,
+        "cachedInputTokens": 4992,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 47,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 7.004
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,4 @@\n def parse_limit(value):\n-    raise NotImplementedError\n+    if type(value) is not int or not 1 <= value <= 100:\n+        raise ValueError(\"limit must be an integer from 1 through 100\")\n+    return value\n",
+    "review": {
+      "run_id": "Ra4505069a7",
+      "fixture": "external",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "The exact integer type excludes JSON booleans; the range is the specified external boundary. Invalid input raises ValueError."
+    }
+  },
+  {
+    "run_id": "Ra1029c7258",
+    "fixture": "delivery",
+    "model": "gpt-6.2-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nCall submit() once. Return its receipt on success. A TimeoutError can follow a committed external effect: report None so the caller can reconcile. Propagate all other exceptions.\n\ndef deliver(submit):\n    raise NotImplementedError\n",
+    "prompt_sha256": "3657ffacc0f85aa9aba90197a8a422795456fb08625d2111ab944605db0733fe",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def deliver(submit):\n    try:\n        return submit()\n    except TimeoutError:\n        return None",
+      "usage": {
+        "totalTokens": 5893,
+        "inputTokens": 5869,
+        "cachedInputTokens": 3968,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 24,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 10.71
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,5 @@\n def deliver(submit):\n-    raise NotImplementedError\n+    try:\n+        return submit()\n+    except TimeoutError:\n+        return None\n",
+    "review": {
+      "run_id": "Ra1029c7258",
+      "fixture": "delivery",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "One submit call; catches only TimeoutError. Other exceptions propagate."
+    }
+  },
+  {
+    "run_id": "R3fb0abe6b7",
+    "fixture": "legacy",
+    "model": "gpt-6.1-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nRead names with the modern reader. Only an UnsupportedFormat exception selects the supported legacy reader. Return the chosen reader's result and propagate its errors.\n\nclass UnsupportedFormat(Exception):\n    pass\n\ndef read_names(modern, legacy):\n    raise NotImplementedError\n",
+    "prompt_sha256": "64d3e80c2e1245d86fe5a7a9f0f1df99e7544712081a64401894a6a6c3be9c78",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "class UnsupportedFormat(Exception):\n    pass\n\n\ndef read_names(modern, legacy):\n    try:\n        return modern()\n    except UnsupportedFormat:\n        return legacy()",
+      "usage": {
+        "totalTokens": 5855,
+        "inputTokens": 5792,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 63,
+        "reasoningOutputTokens": 25
+      },
+      "itemTypes": [
+        "userMessage",
+        "reasoning",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 7.177
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,5 +1,9 @@\n class UnsupportedFormat(Exception):\n     pass\n \n+\n def read_names(modern, legacy):\n-    raise NotImplementedError\n+    try:\n+        return modern()\n+    except UnsupportedFormat:\n+        return legacy()\n",
+    "review": {
+      "run_id": "R3fb0abe6b7",
+      "fixture": "legacy",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only UnsupportedFormat selects the legacy reader; reader failures otherwise propagate."
+    }
+  },
+  {
+    "run_id": "R8ee2d661ae",
+    "fixture": "delivery",
+    "model": "gpt-6.1-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nCall submit() once. Return its receipt on success. A TimeoutError can follow a committed external effect: report None so the caller can reconcile. Propagate all other exceptions.\n\ndef deliver(submit):\n    raise NotImplementedError\n",
+    "prompt_sha256": "a0a099cc9ee682105ec4c6d75266fd541d7e719238ed27eea4837673168a1baf",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def deliver(submit):\n    try:\n        return submit()\n    except TimeoutError:\n        return None",
+      "usage": {
+        "totalTokens": 5842,
+        "inputTokens": 5818,
+        "cachedInputTokens": 4864,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 24,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 6.848
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,5 @@\n def deliver(submit):\n-    raise NotImplementedError\n+    try:\n+        return submit()\n+    except TimeoutError:\n+        return None\n",
+    "review": {
+      "run_id": "R8ee2d661ae",
+      "fixture": "delivery",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "One submit call; catches only TimeoutError. Other exceptions propagate."
+    }
+  },
+  {
+    "run_id": "R9c26d285d2",
+    "fixture": "legacy",
+    "model": "gpt-6.2-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nRead names with the modern reader. Only an UnsupportedFormat exception selects the supported legacy reader. Return the chosen reader's result and propagate its errors.\n\nclass UnsupportedFormat(Exception):\n    pass\n\ndef read_names(modern, legacy):\n    raise NotImplementedError\n",
+    "prompt_sha256": "05cc96fc7b8df761e44b277c9938876942670d125a4f3328d56f0cb051ad9d06",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "class UnsupportedFormat(Exception):\n    pass\n\n\ndef read_names(modern, legacy):\n    try:\n        return modern()\n    except UnsupportedFormat:\n        pass\n    return legacy()",
+      "usage": {
+        "totalTokens": 5944,
+        "inputTokens": 5905,
+        "cachedInputTokens": 4992,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 39,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 7.577
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,5 +1,10 @@\n class UnsupportedFormat(Exception):\n     pass\n \n+\n def read_names(modern, legacy):\n-    raise NotImplementedError\n+    try:\n+        return modern()\n+    except UnsupportedFormat:\n+        pass\n+    return legacy()\n",
+    "review": {
+      "run_id": "R9c26d285d2",
+      "fixture": "legacy",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only UnsupportedFormat selects the legacy reader; reader failures otherwise propagate."
+    }
+  },
+  {
+    "run_id": "Rd3137805bb",
+    "fixture": "internal",
+    "model": "gpt-6.2-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nReturn the names of enabled rows, in input order. The caller supplies a list of validated dicts with string name and boolean enabled fields.\n\ndef enabled_names(rows):\n    raise NotImplementedError\n",
+    "prompt_sha256": "7ae23f397dd783781d9aceda79cde5ff3b2c20b7ab54e6cb9e83e3db8b2ba157",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def enabled_names(rows):\n    return [row[\"name\"] for row in rows if row[\"enabled\"]]",
+      "usage": {
+        "totalTokens": 5887,
+        "inputTokens": 5862,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 25,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 6.737
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,2 @@\n def enabled_names(rows):\n-    raise NotImplementedError\n+    return [row[\"name\"] for row in rows if row[\"enabled\"]]\n",
+    "review": {
+      "run_id": "Rd3137805bb",
+      "fixture": "internal",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only the required enabled predicate and name projection. No fallback or validation."
+    }
+  },
+  {
+    "run_id": "R502989f263",
+    "fixture": "delivery",
+    "model": "gpt-6.1-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nCall submit() once. Return its receipt on success. A TimeoutError can follow a committed external effect: report None so the caller can reconcile. Propagate all other exceptions.\n\ndef deliver(submit):\n    raise NotImplementedError\n",
+    "prompt_sha256": "3657ffacc0f85aa9aba90197a8a422795456fb08625d2111ab944605db0733fe",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def deliver(submit):\n    try:\n        return submit()\n    except TimeoutError:\n        return None",
+      "usage": {
+        "totalTokens": 5811,
+        "inputTokens": 5787,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 24,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 6.942
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,5 @@\n def deliver(submit):\n-    raise NotImplementedError\n+    try:\n+        return submit()\n+    except TimeoutError:\n+        return None\n",
+    "review": {
+      "run_id": "R502989f263",
+      "fixture": "delivery",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "One submit call; catches only TimeoutError. Other exceptions propagate."
+    }
+  },
+  {
+    "run_id": "R867d7f61e6",
+    "fixture": "external",
+    "model": "gpt-6.1-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nParse a JSON-decoded limit. Accept integers 1 through 100 inclusive. Invalid inputs raise ValueError. Return the accepted integer.\n\ndef parse_limit(value):\n    raise NotImplementedError\n",
+    "prompt_sha256": "052d57a3ce14a3cfad4a24caf4268efee3c5e8b19b074f89482d7ce1d60874bc",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def parse_limit(value):\n    if type(value) is not int or not 1 <= value <= 100:\n        raise ValueError(\"limit must be an integer from 1 through 100\")\n    return value",
+      "usage": {
+        "totalTokens": 5937,
+        "inputTokens": 5810,
+        "cachedInputTokens": 4864,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 127,
+        "reasoningOutputTokens": 78
+      },
+      "itemTypes": [
+        "userMessage",
+        "reasoning",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 10.353
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,4 @@\n def parse_limit(value):\n-    raise NotImplementedError\n+    if type(value) is not int or not 1 <= value <= 100:\n+        raise ValueError(\"limit must be an integer from 1 through 100\")\n+    return value\n",
+    "review": {
+      "run_id": "R867d7f61e6",
+      "fixture": "external",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "The exact integer type excludes JSON booleans; the range is the specified external boundary. Invalid input raises ValueError."
+    }
+  },
+  {
+    "run_id": "Rf375e3f988",
+    "fixture": "internal",
+    "model": "gpt-6.1-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nReturn the names of enabled rows, in input order. The caller supplies a list of validated dicts with string name and boolean enabled fields.\n\ndef enabled_names(rows):\n    raise NotImplementedError\n",
+    "prompt_sha256": "6f503a956a687ed95edd7b92a22d3a6617de7652d80dc19b874186102dd357ba",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def enabled_names(rows):\n    return [row[\"name\"] for row in rows if row[\"enabled\"]]",
+      "usage": {
+        "totalTokens": 5836,
+        "inputTokens": 5811,
+        "cachedInputTokens": 4864,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 25,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 8.404
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,2 @@\n def enabled_names(rows):\n-    raise NotImplementedError\n+    return [row[\"name\"] for row in rows if row[\"enabled\"]]\n",
+    "review": {
+      "run_id": "Rf375e3f988",
+      "fixture": "internal",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only the required enabled predicate and name projection. No fallback or validation."
+    }
+  },
+  {
+    "run_id": "Re97387632d",
+    "fixture": "external",
+    "model": "gpt-6.2-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nParse a JSON-decoded limit. Accept integers 1 through 100 inclusive. Invalid inputs raise ValueError. Return the accepted integer.\n\ndef parse_limit(value):\n    raise NotImplementedError\n",
+    "prompt_sha256": "052d57a3ce14a3cfad4a24caf4268efee3c5e8b19b074f89482d7ce1d60874bc",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def parse_limit(value):\n    if type(value) is not int or not 1 <= value <= 100:\n        raise ValueError(\"limit must be an integer from 1 through 100\")\n    return value",
+      "usage": {
+        "totalTokens": 5939,
+        "inputTokens": 5892,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 47,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 9.065
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,4 @@\n def parse_limit(value):\n-    raise NotImplementedError\n+    if type(value) is not int or not 1 <= value <= 100:\n+        raise ValueError(\"limit must be an integer from 1 through 100\")\n+    return value\n",
+    "review": {
+      "run_id": "Re97387632d",
+      "fixture": "external",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "The exact integer type excludes JSON booleans; the range is the specified external boundary. Invalid input raises ValueError."
+    }
+  },
+  {
+    "run_id": "R4589790624",
+    "fixture": "legacy",
+    "model": "gpt-6.2-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nRead names with the modern reader. Only an UnsupportedFormat exception selects the supported legacy reader. Return the chosen reader's result and propagate its errors.\n\nclass UnsupportedFormat(Exception):\n    pass\n\ndef read_names(modern, legacy):\n    raise NotImplementedError\n",
+    "prompt_sha256": "64d3e80c2e1245d86fe5a7a9f0f1df99e7544712081a64401894a6a6c3be9c78",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "class UnsupportedFormat(Exception):\n    pass\n\n\ndef read_names(modern, legacy):\n    try:\n        return modern()\n    except UnsupportedFormat:\n        return legacy()",
+      "usage": {
+        "totalTokens": 5910,
+        "inputTokens": 5874,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 36,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 7.422
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,5 +1,9 @@\n class UnsupportedFormat(Exception):\n     pass\n \n+\n def read_names(modern, legacy):\n-    raise NotImplementedError\n+    try:\n+        return modern()\n+    except UnsupportedFormat:\n+        return legacy()\n",
+    "review": {
+      "run_id": "R4589790624",
+      "fixture": "legacy",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only UnsupportedFormat selects the legacy reader; reader failures otherwise propagate."
+    }
+  },
+  {
+    "run_id": "R06141c8632",
+    "fixture": "external",
+    "model": "gpt-6.1-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nParse a JSON-decoded limit. Accept integers 1 through 100 inclusive. Invalid inputs raise ValueError. Return the accepted integer.\n\ndef parse_limit(value):\n    raise NotImplementedError\n",
+    "prompt_sha256": "9d14387f45b760a28c73e3cd93c0d8f50a26a88b3f312b26e8c7d564cf1cc196",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def parse_limit(value):\n    if type(value) is not int or not 1 <= value <= 100:\n        raise ValueError(\"limit must be an integer between 1 and 100 inclusive\")\n    return value",
+      "usage": {
+        "totalTokens": 5896,
+        "inputTokens": 5779,
+        "cachedInputTokens": 3712,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 117,
+        "reasoningOutputTokens": 67
+      },
+      "itemTypes": [
+        "userMessage",
+        "reasoning",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 9.772
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,4 @@\n def parse_limit(value):\n-    raise NotImplementedError\n+    if type(value) is not int or not 1 <= value <= 100:\n+        raise ValueError(\"limit must be an integer between 1 and 100 inclusive\")\n+    return value\n",
+    "review": {
+      "run_id": "R06141c8632",
+      "fixture": "external",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "The exact integer type excludes JSON booleans; the range is the specified external boundary. Invalid input raises ValueError."
+    }
+  },
+  {
+    "run_id": "R47108af306",
+    "fixture": "internal",
+    "model": "gpt-6.2-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nReturn the names of enabled rows, in input order. The caller supplies a list of validated dicts with string name and boolean enabled fields.\n\ndef enabled_names(rows):\n    raise NotImplementedError\n",
+    "prompt_sha256": "6f503a956a687ed95edd7b92a22d3a6617de7652d80dc19b874186102dd357ba",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def enabled_names(rows):\n    return [row[\"name\"] for row in rows if row[\"enabled\"]]",
+      "usage": {
+        "totalTokens": 5918,
+        "inputTokens": 5893,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 25,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 7.437
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,2 @@\n def enabled_names(rows):\n-    raise NotImplementedError\n+    return [row[\"name\"] for row in rows if row[\"enabled\"]]\n",
+    "review": {
+      "run_id": "R47108af306",
+      "fixture": "internal",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only the required enabled predicate and name projection. No fallback or validation."
+    }
+  },
+  {
+    "run_id": "Ra948d8a3a7",
+    "fixture": "delivery",
+    "model": "gpt-6.2-sol",
+    "style": "traceable",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nAdd validation, compatibility, retries or fallbacks only for a stated requirement, boundary contract or observed failure. Keep required safeguards and let internal invariant violations surface.\nCall submit() once. Return its receipt on success. A TimeoutError can follow a committed external effect: report None so the caller can reconcile. Propagate all other exceptions.\n\ndef deliver(submit):\n    raise NotImplementedError\n",
+    "prompt_sha256": "a0a099cc9ee682105ec4c6d75266fd541d7e719238ed27eea4837673168a1baf",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def deliver(submit):\n    try:\n        return submit()\n    except TimeoutError:\n        return None",
+      "usage": {
+        "totalTokens": 5924,
+        "inputTokens": 5900,
+        "cachedInputTokens": 4992,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 24,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.2-sol",
+      "seconds": 7.481
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,5 @@\n def deliver(submit):\n-    raise NotImplementedError\n+    try:\n+        return submit()\n+    except TimeoutError:\n+        return None\n",
+    "review": {
+      "run_id": "Ra948d8a3a7",
+      "fixture": "delivery",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "One submit call; catches only TimeoutError. Other exceptions propagate."
+    }
+  },
+  {
+    "run_id": "R3832f18179",
+    "fixture": "internal",
+    "model": "gpt-6.1-sol",
+    "style": "baseline",
+    "prompt": "Return only the complete Python 3 module.\nDo not expand scope, add dependencies, redesign interfaces, or change unauthorized state, protocol, timing, reset, ordering, permission, random, key, authentication, or security boundaries.\nReturn the names of enabled rows, in input order. The caller supplies a list of validated dicts with string name and boolean enabled fields.\n\ndef enabled_names(rows):\n    raise NotImplementedError\n",
+    "prompt_sha256": "7ae23f397dd783781d9aceda79cde5ff3b2c20b7ab54e6cb9e83e3db8b2ba157",
+    "observation": {
+      "status": "completed",
+      "error": null,
+      "message": "def enabled_names(rows):\n    return [row[\"name\"] for row in rows if row[\"enabled\"]]",
+      "usage": {
+        "totalTokens": 5805,
+        "inputTokens": 5780,
+        "cachedInputTokens": 4864,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 25,
+        "reasoningOutputTokens": 0
+      },
+      "itemTypes": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "model": "gpt-6.1-sol",
+      "seconds": 7.285
+    },
+    "patch": "--- starter.py\n+++ candidate.py\n@@ -1,2 +1,2 @@\n def enabled_names(rows):\n-    raise NotImplementedError\n+    return [row[\"name\"] for row in rows if row[\"enabled\"]]\n",
+    "review": {
+      "run_id": "R3832f18179",
+      "fixture": "internal",
+      "acceptance": "pass",
+      "unsupported_branches": 0,
+      "hidden_failures": 0,
+      "lost_safeguards": 0,
+      "lines_and_rationale": "Only the required enabled predicate and name projection. No fallback or validation."
+    }
+  }
+]
