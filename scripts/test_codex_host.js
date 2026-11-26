@@ -66,6 +66,50 @@ test('list managed roles offline without draining or changing the shared mailbox
   assert.equal(connections, 0);
 });
 
+test('damaged delivery claims stay unknown and refuse offline replay', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keel-damaged-claim-'));
+  t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
+  require('node:child_process').execFileSync('git', ['init', '-q', dir]);
+  const store = require('../src/core/chat/store');
+  const where = store.requireLocation(dir);
+  store.createGroup(where, 'owner', 'team', ['worker']);
+  const todo = store.writeRecord(where, {group: 'team', kind: 'todo', from: 'owner', assignee: 'worker', text: 'verify artifact'});
+  const key = crypto.createHash('sha256').update(todo.id).digest('hex');
+  const registry = path.join(where.root, 'codex-roles', 'worker.json');
+  const base = {state: 'managed', role: 'worker', worktree: where.worktree, socket: path.join(dir, 'offline.sock'), thread: 'original'};
+  const args = ['--repo', dir, '--role', 'worker', '--record', todo.id, '--json'];
+  fs.mkdirSync(path.dirname(registry), {recursive: true});
+  const cases = [
+    [undefined, 'unrecorded'], [{}, 'unrecorded'],
+    [{[key]: null}, 'unknown'], [{[key]: false}, 'unknown'], [{[key]: 0}, 'unknown'], [{[key]: ''}, 'unknown'],
+    [null, 'invalid-map'], [false, 'invalid-map'], [[], 'invalid-map'],
+  ];
+  for (const [deliveries, expected] of cases) {
+    const before = JSON.stringify({...base, deliveries});
+    fs.writeFileSync(registry, before);
+    const status = await run([...args, '--observe']);
+    const missing = expected === 'unrecorded';
+    if (expected === 'invalid-map') {
+      assert.notEqual(status.code, 0);
+      assert.match(status.err, /claim map/);
+    } else {
+      assert.equal(status.code, 0, status.err);
+      const receipt = JSON.parse(status.out);
+      assert.equal(receipt.state, expected, before);
+      assert.equal(receipt.observation.state, 'unknown');
+    }
+    const portable = await run(['--repo', dir, 'show', todo.id, '--json'], 'chat');
+    assert.equal(portable.code, 0, portable.err);
+    assert.equal(JSON.parse(portable.out).delivery.state, missing ? 'unobserved' : 'unknown');
+    if (!missing) {
+      const retry = await run([...args, '--text', 'must not run'], 'deliver');
+      assert.notEqual(retry.code, 0);
+      assert.match(retry.err, /outcome unknown/);
+    }
+    assert.equal(fs.readFileSync(registry, 'utf8'), before);
+  }
+});
+
 test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'keel-host-'));const sock=path.join(dir,'host.sock');const requests=[];const requestDetails=[];const peers=[];const blank=new Set(),lost=new Set();let active=true,serial=0,uncertain=false,invalidHost=false,injectNotice=false,unloaded=false,resumeActive=false,resumeFails=false,resumeMismatch=false,readMismatch=false,resumeDelay=false,initNameFails=false;
  let observationTurn = null;

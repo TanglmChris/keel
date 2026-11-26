@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.13 - Preserve damaged delivery claims on retry
+
+- Managed receipt queries now distinguish a missing key from an existing unusable claim. Retrying an ambiguous record preserves its registration and starts no additional Codex turn (#574).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.13; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.12 - List local managed Codex registrations offline
 
 - `keel codex list --repo <path> --json` shows registered roles, worktrees, threads, sockets, effective park status and registration errors. It preserves unread messages and receipts and works when the host is offline (#572).
