@@ -167,3 +167,12 @@ Both `keel tick` and `keel codex drain` SHALL allow an independent ready managed
 - **WHEN** two independently owned roles have addressed records and one endpoint withholds an acknowledgement
 - **THEN** the healthy role receives its record before that acknowledgement returns
 - **AND THEN** an uncertain result retains its claim and starts no later record for the affected role
+
+### Requirement: Independent Claude wake during managed delivery
+
+A tick SHALL start managed Codex delivery and allow an independently bound, eligible ended Claude CLI session to resume while a managed receipt is pending. It SHALL record the successful wake before waiting for the pending receipt. Shift hand-over and patrol SHALL follow both wake operations.
+
+#### Scenario: Another tick runs while the Codex receipt is held
+- **WHEN** an independent Claude role has an addressed record and another tick runs after its successful wake but before a managed Codex acknowledgement returns
+- **THEN** the later tick observes the recorded wake and does not resume that Claude session again for the same record
+- **AND** an ambiguous Codex receipt remains subject to the existing claim checks

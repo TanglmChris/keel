@@ -320,6 +320,68 @@ for (const action of ['tick', 'drain']) {
   });
 }
 
+test('tick resumes an independent Claude session during managed delivery', {timeout: 20000}, async () => {
+  const {execFile} = require('node:child_process');
+  const exec = require('node:util').promisify(execFile);
+  const wait = require('node:timers/promises').setTimeout;
+  let releaseReceipt;
+  const slow = await reviewerHost({onTurnStart: send => { releaseReceipt = () => send({turn:{}}); }});
+  try {
+    const tree = path.join(slow.dir, 'claude-worktree');
+    const git = args => exec('git', args, {cwd:slow.dir});
+    await git(['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','seed','--allow-empty']);
+    const checkout = git(['worktree','add','-q','--detach',tree]);
+    await checkout;
+    const started = await run(['--repo',slow.dir,'--role','managed','--socket',slow.sock,'--json'],'start');
+    assert.equal(started.code,0,started.err);
+    const bound = await run(['--repo',tree,'role','--set','reviewer','--json'],'chat');
+    assert.equal(bound.code,0,bound.err);
+
+    const store = require('../src/core/chat/store');
+    const notice = require('../src/core/chat/notice');
+    const where = store.requireLocation(slow.dir);
+    store.createGroup(where,'owner','team',['managed','reviewer']);
+    const todo = assignee => store.writeRecord(where,{group:'team',kind:'todo',from:'owner',assignee,text:'Independent review'});
+    const managed = todo('managed');
+    const review = todo('reviewer');
+    store.writeJsonAtomic(where,notice.presenceFile(where,'reviewer'),{
+      cli_session:'fixture-claude',cli_pid:checkout.child.pid,cli_worktree:tree,
+    });
+    const executable = path.join(slow.dir,'fixture-claude');
+    const calls = path.join(tree,'resumes');
+    fs.writeFileSync(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'agents') console.log(JSON.stringify([{sessionId:'fixture-claude'}]));
+else fs.appendFileSync('resumes', JSON.stringify(args) + '\\n');
+`, {mode:0o755});
+    const tick = () => exec(process.execPath,[cli,'tick','--repo',slow.dir,'--json'],{
+      env:{...process.env,KEEL_CLAUDE:executable}, timeout:12000,
+    }).then(result => JSON.parse(result.stdout));
+    const first = tick();
+    for (let i=0; i<200 && !releaseReceipt; i++) await wait(25);
+    assert.ok(releaseReceipt,'expected a held managed turn');
+    const stateFile = path.join(where.root,'tick','state.json');
+    const alreadyWoken = () => store.readJsonFile(stateFile).woken?.reviewer === review.id;
+    for (let i=0; i<100 && !alreadyWoken(); i++) await wait(25);
+    const persistedBeforeReceipt = alreadyWoken();
+    if (persistedBeforeReceipt) assert.deepEqual((await tick()).woken,[]);
+    releaseReceipt();
+    const result = await first;
+    assert.ok(persistedBeforeReceipt,'Claude wake waited for Codex acknowledgement');
+    assert.equal(result.woken[0].session,'fixture-claude');
+    assert.equal(result.woken[0].ok,true);
+    const resumes = fs.readFileSync(calls,'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(resumes.length,1);
+    assert.deepEqual(resumes[0].slice(0,3),['--bg','--resume','fixture-claude']);
+    const receipt = await run(['--repo',slow.dir,'--role','managed','--record',managed.id,'--json']);
+    assert.equal(JSON.parse(receipt.out).state,'unknown');
+    assert.equal(slow.requests.filter(r => r.method === 'turn/start').length,1);
+  } finally {
+    await slow.close();
+  }
+});
+
 test('explicit thread reviewer persists before managed success without a model turn',async()=>{
  const h=await reviewerHost();try{
   const r=await run(h.args(),'start');assert.equal(r.code,0,r.err);

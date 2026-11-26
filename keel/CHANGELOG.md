@@ -1,5 +1,10 @@
 # Keel Changelog
 
+## 5.231.10 - Wake independent Claude roles during managed Codex delivery
+
+- An eligible ended Claude session can resume during the same tick while a separate Codex role awaits its turn acknowledgement. The tick records that wake immediately so a subsequent tick can see it (#544).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.10; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.9 - Deliver independent Codex roles without waiting on each other
 
 - `keel tick` and `keel codex drain` let an independent managed role receive work while another awaits its own native acknowledgement. Per-role order and uncertain claims remain protected (#544).
