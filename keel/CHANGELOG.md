@@ -1,5 +1,11 @@
 # Keel Changelog
 
+## 5.231.11 - Receive owned review results and bound managed resume responses
+
+- The caller can collect a read-only reviewer’s designated final answer by todo ID with `keel chat show <todo-id> --collect --json`. Keel verifies the current assignment and original execution before saving it (#544).
+- Managed Codex delivery and recovery request metadata on resume, allowing the original thread to continue when its full history exceeds the client response limit (#570).
+- Version alignment: the npm package, both native plugin manifests, protocol docs, and this changelog share Keel 5.231.11; the OpenSpec dependency pin stays `1.14.0`.
+
 ## 5.231.10 - Wake independent Claude roles during managed Codex delivery
 
 - An eligible ended Claude session can resume during the same tick while a separate Codex role awaits its turn acknowledgement. The tick records that wake immediately so a subsequent tick can see it (#544).

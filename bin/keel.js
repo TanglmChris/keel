@@ -3398,7 +3398,8 @@ function main() {
   }
   // `keel chat` likewise: the group chat between sessions (#187).
   if (process.argv[2] === "chat") {
-    return require("../src/core/chat/cli").runChat(process.argv.slice(3));
+    Promise.resolve(require("../src/core/chat/cli").runChat(process.argv.slice(3))).then(code => { process.exitCode = code; });
+    return 0;
   }
   // `keel shift` likewise: a coordinated shift change for a role's session.
   if (process.argv[2] === "shift") {

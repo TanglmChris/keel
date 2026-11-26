@@ -71,7 +71,7 @@ test('register original readonly frontend and deliver with unchanged policy',asy
   const delivered=await run('deliver',args);assert.equal(delivered.code,0,delivered.err);assert.equal(JSON.parse(delivered.out).state,'delivered');
   const duplicate=await run('deliver',args);assert.equal(duplicate.code,0,duplicate.err);assert.equal(JSON.parse(duplicate.out).state,'already-delivered');
   assert.equal(h.requests.filter(x=>x.method==='turn/start').length,1);assert.deepEqual(h.native.policy,entry.nativePolicy);
-  const resumed=h.requests.filter(x=>x.method==='thread/resume');assert.ok(resumed.every(x=>Object.keys(x.params).join(',')==='threadId'),'no permission overrides while inspecting or delivering registered frontend');
+  const resumed=h.requests.filter(x=>x.method==='thread/resume');assert.ok(resumed.every(x=>Object.keys(x.params).every(key=>key==='threadId'||(key==='excludeTurns'&&x.params.excludeTurns===true))),'no permission overrides while inspecting or delivering registered frontend');
  }finally{await h.close();}
 });
 
