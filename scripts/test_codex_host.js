@@ -150,7 +150,7 @@ test('managed CLI lifecycle, mailbox scheduling and frame boundaries',async()=>{
  unloaded=true;let rb=resumes(),tb=turns();
  const unloadedDuplicate=await run(recoveryArgs('large-record'),'deliver');assert.equal(unloadedDuplicate.code,0,unloadedDuplicate.err);assert.equal(JSON.parse(unloadedDuplicate.out).state,'already-delivered');assert.equal(resumes(),rb);assert.equal(turns(),tb);
  const recovered=await run(recoveryArgs('recovery-record'),'deliver');assert.equal(recovered.code,0,recovered.err);assert.equal(JSON.parse(recovered.out).state,'delivered');assert.equal(resumes(),rb+1);assert.equal(turns(),tb+1);assert.equal(serial,2);
- const resumeRequest=requestDetails.find(x=>x.method==='thread/resume');assert.deepEqual(resumeRequest.params,{threadId:'fixture-thread-2',serviceName:'keel'});
+ const resumeRequest=requestDetails.find(x=>x.method==='thread/resume');assert.deepEqual(resumeRequest.params,{threadId:'fixture-thread-2',excludeTurns:true,serviceName:'keel'});
  unloaded=true;rb=resumes();tb=turns();const recoveredDuplicate=await run(recoveryArgs('recovery-record'),'deliver');assert.equal(recoveredDuplicate.code,0,recoveredDuplicate.err);assert.equal(resumes(),rb);assert.equal(turns(),tb);
  const unknown=await run(recoveryArgs(uncertainTodo.id),'deliver');assert.notEqual(unknown.code,0);assert.match(unknown.err,/unknown/);assert.equal(resumes(),rb);
  resumeActive=true;const busyRecovery=await run(recoveryArgs('busy-recovery'),'deliver');assert.equal(busyRecovery.code,0,busyRecovery.err);assert.equal(JSON.parse(busyRecovery.out).state,'waiting');assert.equal(turns(),tb);resumeActive=false;active=false;
@@ -231,6 +231,7 @@ async function reviewerHost({onTurnStart}={}) {
  let serial=0,rejectPersistence=false,mismatch=false,dropStartReply=false;
  const server=http.createServer();
  server.on('upgrade',(req,s)=>{
+  s.on("error",error => { if (error.code !== "ECONNRESET") throw error; });
   peers.push(s);s.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(req.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');
   let buf=Buffer.alloc(0), experimentalApi=false;s.on('end',()=>{for(const t of threads.values()){t.loaded=false;t.reviewer=t.savedReviewer;}});
   s.on('data',chunk=>{buf=Buffer.concat([buf,chunk]);while(buf.length>=6){let n=buf[1]&127,off=2;if(n===126){if(buf.length<8)return;n=buf.readUInt16BE(2);off=4;}else if(n===127){if(buf.length<14)return;n=Number(buf.readBigUInt64BE(2));off=10;}if(buf.length<off+4+n)return;const mask=buf.subarray(off,off+4),data=Buffer.from(buf.subarray(off+4,off+4+n));buf=buf.subarray(off+4+n);for(let i=0;i<data.length;i++)data[i]^=mask[i%4];const x=JSON.parse(data);requests.push(x);if(!x.id)continue;
@@ -243,13 +244,16 @@ async function reviewerHost({onTurnStart}={}) {
    else if(x.method==='thread/name/set'){}
    else if(x.method==='thread/settings/update'){if(rejectPersistence)error={message:'native reviewer persistence rejected'};else t.savedReviewer=t.reviewer=p.approvalsReviewer;}
    else if(x.method==='thread/read')result=reply();
-   else if(x.method==='thread/resume'){if(p.runtimeWorkspaceRoots!==undefined&&!experimentalApi)error={message:'thread/resume.runtimeWorkspaceRoots requires experimentalApi capability'};else if(t.resumeError)error={message:t.resumeError};else {t.loaded=true;t.cwd=p.cwd||t.cwd;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();if(t.wrongResumeCwd)result.thread.cwd='/wrong-resumed-cwd';}}
+   else if(x.method==='thread/resume'){if(p.runtimeWorkspaceRoots!==undefined&&!experimentalApi)error={message:'thread/resume.runtimeWorkspaceRoots requires experimentalApi capability'};else if(t.resumeError)error={message:t.resumeError};else {t.loaded=true;t.cwd=p.cwd||t.cwd;t.reviewer=p.approvalsReviewer||t.savedReviewer;result=reply();if(t.longHistory && !p.excludeTurns)result.thread.turns=[{text:"x".repeat(16*1024*1024)}];if(t.wrongResumeCwd)result.thread.cwd='/wrong-resumed-cwd';}}
    else if(x.method==='turn/start'){t.reviewer=p.approvalsReviewer||t.reviewer;turnReviewers.push(t.reviewer);t.savedReviewer=t.reviewer;result={turn:{id:'reviewer-turn-'+turnReviewers.length}};}
    else error={message:'unsupported fixture RPC '+x.method};
    if(dropStartReply&&x.method==='thread/start')continue;
    const send = (payload = result) => {
     const body=Buffer.from(JSON.stringify({id:x.id,...error?{error}:{result:payload}}));
-    const h=body.length<126?Buffer.from([129,body.length]):Buffer.from([129,126,body.length>>8,body.length&255]);
+    const h=Buffer.alloc(body.length<126?2:body.length<=65535?4:10);
+    h[0]=129;h[1]=h.length===2?body.length:h.length===4?126:127;
+    if(h.length===4)h.writeUInt16BE(body.length,2);
+    if(h.length===10)h.writeBigUInt64BE(BigInt(body.length),2);
     if (!s.destroyed) s.write(Buffer.concat([h,body]));
    };
    if (x.method === 'turn/start' && onTurnStart) onTurnStart(send);
@@ -450,6 +454,34 @@ test('collect an owned reviewer result by todo identity', async () => {
     const count = h.requests.length;
     assert.equal((await collect()).out,collected.out);
     assert.equal(h.requests.length,count,'a stored result needs no native connection');
+  } finally { await h.close(); }
+});
+
+test('long native history can resume the original managed role and deduplicate delivery',async () => {
+  const h = await reviewerHost();
+  try {
+    const started = await run(h.args(),'start');
+    const original = JSON.parse(started.out).thread;
+    const native = h.threads.get(original);
+    native.longHistory = true;
+    native.loaded = false;
+    const args = ['--repo',h.dir,'--role','reviewer-worker','--record','large-history-card','--text','Review','--json'];
+    const first = await run(args,'deliver');
+    assert.equal(first.code,0,first.err);
+    const again = await run(args,'deliver');
+    assert.equal(again.code,0,again.err);
+    assert.equal(JSON.parse(again.out).turn,JSON.parse(first.out).turn);
+    assert.equal(h.requests.filter(r=>r.method==='turn/start').length,1);
+    assert.equal(h.threads.size,1);
+    assert.equal(h.requests.find(r=>r.method==='thread/resume').params.threadId,original);
+    assert.deepEqual(h.turnReviewers,['auto_review']);
+    native.cwd = '/old-worktree';
+    native.loaded = false;
+    const recovered = await run(['--repo',h.dir,'--role','reviewer-worker','--json'],'recover');
+    assert.equal(recovered.code,0,recovered.err);
+    assert.equal(JSON.parse(recovered.out).thread,original);
+    assert.equal(native.cwd,h.dir);
+    assert.equal(h.requests.filter(r=>r.method==='turn/start').length,1);
   } finally { await h.close(); }
 });
 

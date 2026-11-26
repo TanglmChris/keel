@@ -380,7 +380,7 @@ async function run(args) {
       } else {
         // Native writer ownership decides whether the original id can resume.
         // Restore only the recorded execution cwd; never rewrite role claims.
-        const resumed = await client.call("thread/resume", {threadId: recorded.thread, cwd: recorded.worktree, ...(savedPolicy ? (savedPolicy.runtimeWorkspaceRoots !== undefined ? {runtimeWorkspaceRoots: savedPolicy.runtimeWorkspaceRoots} : {}) : {runtimeWorkspaceRoots: [recorded.worktree]}), serviceName: "keel", ...(!savedPolicy && recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
+        const resumed = await client.call("thread/resume", {threadId: recorded.thread, excludeTurns: true, cwd: recorded.worktree, ...(savedPolicy ? (savedPolicy.runtimeWorkspaceRoots !== undefined ? {runtimeWorkspaceRoots: savedPolicy.runtimeWorkspaceRoots} : {}) : {runtimeWorkspaceRoots: [recorded.worktree]}), serviceName: "keel", ...(!savedPolicy && recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
         if (!resumed.thread || resumed.thread.id !== recorded.thread || resumed.thread.cwd !== recorded.worktree) throw Error("recovered managed role identity mismatch; original registry retained");
         if (savedPolicy) onboarding.verifyPolicy(resumed, savedPolicy);
         else if (resumed.approvalPolicy !== "on-request") throw Error("recovered thread approval policy mismatch; original registry retained");
@@ -407,7 +407,7 @@ async function run(args) {
           // connection alive through the subsequent turn/start and preserve
           // saved sandbox/approval settings. An explicitly chosen reviewer
           // belongs to the managed role and follows its later deliveries.
-          const resumed = await client.call("thread/resume", {threadId: recorded.thread, ...(!savedPolicy ? {serviceName: "keel", ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
+          const resumed = await client.call("thread/resume", {threadId: recorded.thread, excludeTurns: true, ...(!savedPolicy ? {serviceName: "keel", ...(recorded.approvalsReviewer ? {approvalsReviewer: recorded.approvalsReviewer} : {})} : {})}, explicitTimeout ? ms : Math.max(ms, 15000));
           thread = resumed.thread;
           if (!owned(thread)) throw Error("resumed managed role identity mismatch");
           if (thread.status?.type === "idle") {
